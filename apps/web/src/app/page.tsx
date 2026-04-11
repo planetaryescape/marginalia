@@ -22,6 +22,10 @@ export default function HomePage() {
   const savedCount = useQuery(api.savedArticles.count);
   const annotatedArticles = useQuery(api.articles.listAnnotated);
   const feeds = useQuery(api.feeds.list);
+  const inProgress = useQuery(api.sessions.getInProgress);
+  const dueForReview = useQuery(api.lovedArticles.getDueForReview);
+  const advanceReview = useMutation(api.lovedArticles.advanceReview);
+  const snoozeReview = useMutation(api.lovedArticles.snooze);
 
   const [articleUrl, setArticleUrl] = useState("");
   const [addingUrl, setAddingUrl] = useState(false);
@@ -133,6 +137,68 @@ export default function HomePage() {
       ) : (
         /* Main flow: time picker */
         <>
+          {/* Continue reading card */}
+          {inProgress && (
+            <Link
+              href={`/read/${inProgress.article._id}`}
+              className="w-full max-w-sm mb-10 p-5 rounded-xl border border-annotation-crossref/30 bg-annotation-crossref/5 dark:bg-annotation-crossref/10 hover:border-annotation-crossref transition-colors group block"
+            >
+              <p className="text-[10px] font-sans font-semibold text-annotation-crossref uppercase tracking-wider mb-2">
+                Continue reading
+              </p>
+              <p className="text-base font-serif font-medium text-ink-900 dark:text-parchment-100 group-hover:text-annotation-crossref transition-colors line-clamp-2 mb-1">
+                {inProgress.article.title}
+              </p>
+              <p className="text-xs font-sans text-ink-400 dark:text-ink-500">
+                {inProgress.scrollPercent}% read
+                {inProgress.remainingMinutes
+                  ? ` · ~${inProgress.remainingMinutes} min left`
+                  : ""}
+              </p>
+            </Link>
+          )}
+
+          {/* Revisit loved articles */}
+          {dueForReview && dueForReview.length > 0 && (
+            <div className="w-full max-w-sm mb-10">
+              {dueForReview.map((item: any) => (
+                <div
+                  key={item._id}
+                  className="p-5 rounded-xl border border-red-500/20 bg-red-500/5 dark:bg-red-500/10 mb-3"
+                >
+                  <p className="text-[10px] font-sans font-semibold text-red-500 uppercase tracking-wider mb-2">
+                    Revisit
+                  </p>
+                  <p className="text-base font-serif font-medium text-ink-900 dark:text-parchment-100 line-clamp-2 mb-1">
+                    {item.article.title}
+                  </p>
+                  <p className="text-xs font-sans text-ink-400 dark:text-ink-500 mb-3">
+                    Last read {item.daysSinceLastRead} days ago
+                  </p>
+                  <div className="flex gap-2">
+                    <Link
+                      href={`/read/${item.articleId}`}
+                      onClick={async () => {
+                        await advanceReview({ articleId: item.articleId });
+                      }}
+                      className="px-4 py-1.5 bg-ink-950 dark:bg-parchment-100 text-parchment-50 dark:text-ink-950 rounded-lg text-xs font-sans font-medium hover:opacity-90 transition-opacity"
+                    >
+                      Read again
+                    </Link>
+                    <button
+                      onClick={async () => {
+                        await snoozeReview({ articleId: item.articleId });
+                      }}
+                      className="px-4 py-1.5 border border-ink-200 dark:border-ink-700 rounded-lg text-xs font-sans text-ink-500 hover:border-ink-400 transition-colors"
+                    >
+                      Not now
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <h2 className="text-2xl font-serif text-ink-800 dark:text-parchment-200 mb-10">
             How much time do you have?
           </h2>
@@ -172,6 +238,12 @@ export default function HomePage() {
               className="text-ink-500 hover:text-ink-800 dark:hover:text-parchment-300 transition-colors"
             >
               Notes
+            </Link>
+            <Link
+              href="/reading"
+              className="text-ink-500 hover:text-ink-800 dark:hover:text-parchment-300 transition-colors"
+            >
+              This week
             </Link>
             <Link
               href="/feeds"

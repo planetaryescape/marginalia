@@ -23,6 +23,19 @@ export const saveResponse = mutation({
   },
 });
 
+export const deleteByArticle = internalMutation({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    const reflections = await ctx.db
+      .query("reflections")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .collect();
+    for (const r of reflections) {
+      await ctx.db.delete(r._id);
+    }
+  },
+});
+
 // --- Internal ---
 
 export const insert = internalMutation({

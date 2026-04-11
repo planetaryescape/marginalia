@@ -65,6 +65,20 @@
   border-bottom-color: theme("colors.annotation.question");
 }
 
+/* Weight tiers */
+.annotation-mark[data-weight="resonant"] {
+  border-bottom-width: 3px;
+}
+
+.annotation-mark[data-weight="quiet"] {
+  border-bottom-width: 1px;
+  opacity: 0.7;
+}
+
+.annotation-mark[data-weight="quiet"] sup {
+  opacity: 0.5;
+}
+
 /* Reading progress bar */
 .reading-progress {
   @apply fixed top-0 left-0 h-0.5 z-50 transition-all duration-150;

@@ -94,6 +94,43 @@ export default function FeedsPage() {
         </div>
       </form>
 
+      {/* OPML Import */}
+      <div className="mb-10">
+        <label className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-ink-300 dark:border-ink-700 cursor-pointer hover:border-annotation-crossref transition-colors">
+          <span className="text-xs font-sans text-ink-500 dark:text-ink-400">
+            Import OPML file
+          </span>
+          <input
+            type="file"
+            accept=".opml,.xml"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const text = await file.text();
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(text, "text/xml");
+              const outlines = doc.querySelectorAll('outline[xmlUrl]');
+              let added = 0;
+              let skipped = 0;
+              for (const outline of outlines) {
+                const feedUrl = outline.getAttribute("xmlUrl");
+                const title = outline.getAttribute("title") || outline.getAttribute("text") || "";
+                if (!feedUrl) continue;
+                try {
+                  await addFeed({ url: feedUrl, title: title || new URL(feedUrl).hostname });
+                  added++;
+                } catch {
+                  skipped++;
+                }
+              }
+              toast.success(`Imported ${added} feeds${skipped ? `, ${skipped} skipped (duplicates)` : ""}`);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+
       {/* Feed list */}
       {feeds && feeds.length === 0 ? (
         <p className="text-center text-ink-400 dark:text-ink-500 font-sans text-sm py-12">

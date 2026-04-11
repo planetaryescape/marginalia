@@ -87,6 +87,60 @@ export const recordInteraction = mutation({
   },
 });
 
+// Get the most recent article the user opened but didn't finish
+export const getInProgress = query({
+  args: {},
+  handler: async (ctx) => {
+    // Get recent interactions, newest first
+    const interactions = await ctx.db
+      .query("articleInteractions")
+      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .order("desc")
+      .take(200);
+
+    // Find articles that were opened but never finished
+    const openedArticles = new Map<string, { maxScroll: number; activeTime: number }>();
+    const finishedArticles = new Set<string>();
+
+    for (const i of interactions) {
+      if (i.action === "finished") {
+        finishedArticles.add(i.articleId);
+      }
+      if (i.action === "opened" || i.action === "abandoned") {
+        if (!finishedArticles.has(i.articleId) && !openedArticles.has(i.articleId)) {
+          openedArticles.set(i.articleId, {
+            maxScroll: i.maxScrollPercent ?? i.scrollPercentage ?? 0,
+            activeTime: i.activeTimeMs ?? i.timeSpentMs ?? 0,
+          });
+        }
+      }
+    }
+
+    // Find the most recent unfinished article with scroll < 90%
+    for (const [articleId, data] of openedArticles) {
+      if (data.maxScroll >= 90) continue;
+
+      const article = await ctx.db
+        .query("articles")
+        .filter((q) => q.eq(q.field("_id"), articleId as any))
+        .first();
+      if (!article) continue;
+
+      const remainingMin = article.estimatedReadMinutes
+        ? Math.max(1, Math.round(article.estimatedReadMinutes * (1 - data.maxScroll / 100)))
+        : null;
+
+      return {
+        article,
+        scrollPercent: data.maxScroll,
+        remainingMinutes: remainingMin,
+      };
+    }
+
+    return null;
+  },
+});
+
 // Used by selectArticle action
 export const listRecentInteractions = query({
   args: {},

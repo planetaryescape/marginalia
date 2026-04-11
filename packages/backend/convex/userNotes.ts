@@ -1,4 +1,5 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
@@ -13,7 +14,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    return ctx.db.insert("userNotes", {
+    const noteId = await ctx.db.insert("userNotes", {
       userId: DEFAULT_USER_ID,
       articleId: args.articleId,
       selectedText: args.selectedText,
@@ -24,6 +25,11 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    // Schedule embedding
+    await ctx.scheduler.runAfter(0, internal.actions.embedUserNote.embed, {
+      noteId,
+    });
+    return noteId;
   },
 });
 
@@ -75,5 +81,24 @@ export const getById = query({
   args: { noteId: v.id("userNotes") },
   handler: async (ctx, args) => {
     return ctx.db.get(args.noteId);
+  },
+});
+
+// --- Internal ---
+
+export const getByIdInternal = internalQuery({
+  args: { noteId: v.id("userNotes") },
+  handler: async (ctx, args) => {
+    return ctx.db.get(args.noteId);
+  },
+});
+
+export const setEmbedding = internalMutation({
+  args: {
+    noteId: v.id("userNotes"),
+    embedding: v.array(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.noteId, { embedding: args.embedding });
   },
 });

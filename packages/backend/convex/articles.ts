@@ -1,4 +1,5 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
@@ -152,6 +153,30 @@ export const getByUrl = internalQuery({
         q.eq("userId", DEFAULT_USER_ID).eq("guid", args.url),
       )
       .first();
+  },
+});
+
+export const requestReannotate = action({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    // Delete existing annotations and reflection
+    await ctx.runMutation(internal.annotations.deleteByArticle, {
+      articleId: args.articleId,
+    });
+    await ctx.runMutation(internal.reflections.deleteByArticle, {
+      articleId: args.articleId,
+    });
+    // Reset annotation status
+    await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+      articleId: args.articleId,
+      status: "pending",
+    });
+    // Schedule re-annotation
+    await ctx.scheduler.runAfter(
+      500,
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId: args.articleId },
+    );
   },
 });
 

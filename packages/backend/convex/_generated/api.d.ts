@@ -9,6 +9,7 @@
  */
 
 import type * as actions_addArticleByUrl from "../actions/addArticleByUrl.js";
+import type * as actions_embedUserNote from "../actions/embedUserNote.js";
 import type * as actions_extractArticle from "../actions/extractArticle.js";
 import type * as actions_generateAnnotations from "../actions/generateAnnotations.js";
 import type * as actions_pollFeeds from "../actions/pollFeeds.js";
@@ -20,10 +21,13 @@ import type * as feeds from "../feeds.js";
 import type * as http from "../http.js";
 import type * as lib_aiModels from "../lib/aiModels.js";
 import type * as lib_constants from "../lib/constants.js";
+import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
+import type * as lovedArticles from "../lovedArticles.js";
 import type * as noteChunks from "../noteChunks.js";
 import type * as reflections from "../reflections.js";
 import type * as savedArticles from "../savedArticles.js";
 import type * as sessions from "../sessions.js";
+import type * as stats from "../stats.js";
 import type * as userNotes from "../userNotes.js";
 
 import type {
@@ -34,6 +38,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "actions/addArticleByUrl": typeof actions_addArticleByUrl;
+  "actions/embedUserNote": typeof actions_embedUserNote;
   "actions/extractArticle": typeof actions_extractArticle;
   "actions/generateAnnotations": typeof actions_generateAnnotations;
   "actions/pollFeeds": typeof actions_pollFeeds;
@@ -45,10 +50,13 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/aiModels": typeof lib_aiModels;
   "lib/constants": typeof lib_constants;
+  "lib/spacedRepetition": typeof lib_spacedRepetition;
+  lovedArticles: typeof lovedArticles;
   noteChunks: typeof noteChunks;
   reflections: typeof reflections;
   savedArticles: typeof savedArticles;
   sessions: typeof sessions;
+  stats: typeof stats;
   userNotes: typeof userNotes;
 }>;
 

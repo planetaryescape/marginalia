@@ -61,10 +61,19 @@ function injectAnnotations(
     if (match && match.index !== undefined) {
       const color = ANNOTATION_COLORS[ann.type] || "#5b7f95";
       const idx = annotations.indexOf(ann) + 1;
+
+      // Weight tier: resonant (high signal), standard, quiet
+      let weight = "standard";
+      if (ann.relevanceScore >= 0.85 || ann.type === "tension") {
+        weight = "resonant";
+      } else if (ann.relevanceScore < 0.7 || ann.type === "context") {
+        weight = "quiet";
+      }
+
       const before = result.slice(0, match.index);
       const after = result.slice(match.index + match[0].length);
       const marker =
-        `<mark class="annotation-mark" data-annotation-id="${ann._id}" data-type="${ann.type}">` +
+        `<mark class="annotation-mark" data-annotation-id="${ann._id}" data-type="${ann.type}" data-weight="${weight}">` +
         `${match[0]}<sup style="font-size: 0.6em; font-family: system-ui, sans-serif; font-weight: 700; color: ${color}; margin-left: 3px; user-select: none;">${idx}</sup></mark>`;
       result = before + marker + after;
     }

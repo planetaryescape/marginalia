@@ -141,17 +141,70 @@ export const generateForArticle = internalAction({
         relatedChunks = relatedChunks.filter(Boolean);
       }
 
+      // Step 1b: Also search user notes
+      let relatedUserNotes: any[] = [];
+      if (article.embedding) {
+        try {
+          const noteResults = await ctx.vectorSearch(
+            "userNotes",
+            "by_embedding",
+            {
+              vector: article.embedding,
+              limit: 10,
+              filter: (q: any) => q.eq("userId", DEFAULT_USER_ID),
+            },
+          );
+          relatedUserNotes = await Promise.all(
+            noteResults.map(async (r: any) => {
+              const note = await ctx.runQuery(
+                internal.userNotes.getByIdInternal,
+                { noteId: r._id },
+              );
+              if (!note) return null;
+              // Get the article title for context
+              const sourceArticle = await ctx.runQuery(
+                internal.articles.getByIdInternal,
+                { articleId: note.articleId },
+              );
+              return {
+                ...note,
+                score: r._score,
+                sourceArticleTitle: sourceArticle?.title ?? "unknown article",
+              };
+            }),
+          );
+          relatedUserNotes = relatedUserNotes.filter(Boolean);
+        } catch {
+          // userNotes vector index may be empty, that's fine
+        }
+      }
+
       // Step 2: Format context for LLM
-      const notesContext =
+      const vaultNotesContext =
         relatedChunks.length > 0
           ? relatedChunks
-              .slice(0, 15)
+              .slice(0, 12)
               .map(
                 (c: any) =>
-                  `--- Note: ${c.filePath} ---\n${c.content}\n`,
+                  `--- Vault note: ${c.filePath} ---\n${c.content}\n`,
               )
               .join("\n")
           : "No related notes found in the user's vault.";
+
+      const userNotesContext =
+        relatedUserNotes.length > 0
+          ? relatedUserNotes
+              .slice(0, 5)
+              .map(
+                (n: any) =>
+                  `--- Your note (from "${n.sourceArticleTitle}") ---\nHighlighted: "${n.selectedText}"\nYour thought: ${n.contentPlain}\n`,
+              )
+              .join("\n")
+          : "";
+
+      const notesContext = userNotesContext
+        ? `${vaultNotesContext}\n\n## User's Own Notes\n\n${userNotesContext}`
+        : vaultNotesContext;
 
       // Trim article to ~4000 words to stay within reasonable token limits
       const articleText = article.content.slice(0, 16000);

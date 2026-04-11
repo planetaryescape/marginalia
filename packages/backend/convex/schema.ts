@@ -193,4 +193,17 @@ export default defineSchema({
       dimensions: 1536,
       filterFields: ["userId"],
     }),
+
+  lovedArticles: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    lovedAt: v.number(),
+    reviewIndex: v.number(),
+    nextReviewAt: v.number(),
+    lastReviewedAt: v.optional(v.number()),
+    reviewCount: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_article", ["userId", "articleId"])
+    .index("by_user_next_review", ["userId", "nextReviewAt"]),
 });

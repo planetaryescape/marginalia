@@ -25,6 +25,19 @@ export const markDismissed = mutation({
   },
 });
 
+export const deleteByArticle = internalMutation({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    const annotations = await ctx.db
+      .query("annotations")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .collect();
+    for (const ann of annotations) {
+      await ctx.db.delete(ann._id);
+    }
+  },
+});
+
 // --- Internal ---
 
 export const insert = internalMutation({

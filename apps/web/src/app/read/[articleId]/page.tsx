@@ -1,5 +1,5 @@
 "use client";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@marginalia/backend/convex/_generated/api";
@@ -10,6 +10,7 @@ import { SelectionToolbar } from "@/components/selection-toolbar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { formatReadTime } from "@/lib/utils";
+import { toast } from "sonner";
 import Link from "next/link";
 
 export default function ReadPage() {
@@ -27,6 +28,12 @@ export default function ReadPage() {
   const reflection = useQuery(api.reflections.getByArticle, {
     articleId: articleId as any,
   });
+  const isLoved = useQuery(api.lovedArticles.isLoved, {
+    articleId: articleId as any,
+  });
+  const loveArticle = useMutation(api.lovedArticles.love);
+  const unloveArticle = useMutation(api.lovedArticles.unlove);
+  const reannotate = useAction(api.articles.requestReannotate);
   const articleNotes = useQuery(api.userNotes.listByArticle, {
     articleId: articleId as any,
   });
@@ -179,6 +186,55 @@ export default function ReadPage() {
                   {noteCount}
                 </span>
               )}
+            </button>
+
+            {/* Re-annotate button */}
+            <button
+              onClick={async () => {
+                try {
+                  await reannotate({ articleId: articleId as any });
+                  toast.success("Re-annotating with latest vault...");
+                } catch {
+                  toast.error("Failed to re-annotate");
+                }
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800 transition-colors"
+              title="Re-annotate with latest vault"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </button>
+
+            {/* Love button */}
+            <button
+              onClick={async () => {
+                if (isLoved) {
+                  await unloveArticle({ articleId: articleId as any });
+                } else {
+                  await loveArticle({ articleId: articleId as any });
+                }
+              }}
+              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+                isLoved
+                  ? "text-red-500"
+                  : "text-ink-400 hover:text-red-400 hover:bg-ink-100 dark:hover:bg-ink-800"
+              }`}
+              title={isLoved ? "Remove from loved" : "Love this article"}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill={isLoved ? "currentColor" : "none"}
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+              </svg>
             </button>
 
             <ThemeToggle />
