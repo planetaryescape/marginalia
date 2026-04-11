@@ -1,0 +1,31 @@
+{
+  "name": "@marginalia/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./convex/_generated/api.js",
+  "types": "./convex/_generated/dataModel.d.ts",
+  "exports": {
+    "./*": "./convex/*",
+    "./_generated/*": "./convex/_generated/*",
+    "./convex/_generated/api": "./convex/_generated/api.js",
+    "./convex/_generated/dataModel": "./convex/_generated/dataModel.d.ts"
+  },
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.7",
+    "@extractus/article-extractor": "^8.0.14",
+    "ai": "^6.0.27",
+    "convex": "^1.31.3",
+    "rss-parser": "^3.13.0",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.9",
+    "typescript": "^5.9.3"
+  }
+}

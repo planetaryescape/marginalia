@@ -1,0 +1,130 @@
+"use client";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
+import { useCallback } from "react";
+
+interface NoteEditorProps {
+  selectedText: string;
+  onSave: (content: string, plainText: string) => void;
+  onCancel: () => void;
+  initialContent?: string;
+}
+
+export function NoteEditor({
+  selectedText,
+  onSave,
+  onCancel,
+  initialContent,
+}: NoteEditorProps) {
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [3] },
+      }),
+      Placeholder.configure({
+        placeholder: "Write your thoughts...",
+      }),
+    ],
+    content: initialContent || "",
+    editorProps: {
+      attributes: {
+        class:
+          "min-h-[120px] max-h-[300px] overflow-y-auto px-4 py-3 font-sans text-sm text-ink-800 dark:text-parchment-200 leading-relaxed focus:outline-none",
+      },
+    },
+  });
+
+  const handleSave = useCallback(() => {
+    if (!editor) return;
+    const html = editor.getHTML();
+    const plain = editor.getText();
+    if (!plain.trim()) return;
+    onSave(html, plain);
+  }, [editor, onSave]);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Selected text context */}
+      <div className="px-4 py-3 border-b border-ink-100 dark:border-ink-800">
+        <p className="text-[10px] font-sans font-semibold text-ink-400 dark:text-ink-500 uppercase tracking-wider mb-1.5">
+          Highlighting
+        </p>
+        <blockquote className="text-xs font-serif text-ink-600 dark:text-ink-400 leading-relaxed line-clamp-3 border-l-2 border-annotation-crossref pl-3 italic">
+          {selectedText}
+        </blockquote>
+      </div>
+
+      {/* Editor */}
+      <div className="flex-1 border-b border-ink-100 dark:border-ink-800">
+        <EditorContent editor={editor} />
+      </div>
+
+      {/* Toolbar */}
+      {editor && (
+        <div className="px-3 py-2 flex items-center gap-1 border-b border-ink-100 dark:border-ink-800">
+          <ToolbarButton
+            active={editor.isActive("bold")}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+          >
+            <strong>B</strong>
+          </ToolbarButton>
+          <ToolbarButton
+            active={editor.isActive("italic")}
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+          >
+            <em>I</em>
+          </ToolbarButton>
+          <ToolbarButton
+            active={editor.isActive("bulletList")}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+          >
+            &bull;
+          </ToolbarButton>
+          <ToolbarButton
+            active={editor.isActive("blockquote")}
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          >
+            &ldquo;
+          </ToolbarButton>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="px-4 py-3 flex items-center justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 text-xs font-sans text-ink-500 hover:text-ink-700 dark:hover:text-ink-300 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          className="px-4 py-1.5 text-xs font-sans font-medium bg-ink-950 dark:bg-parchment-100 text-parchment-50 dark:text-ink-950 rounded-lg hover:opacity-90 transition-opacity"
+        >
+          Save note
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ToolbarButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-7 h-7 flex items-center justify-center rounded text-xs font-sans transition-colors
+        ${active ? "bg-ink-200 dark:bg-ink-700 text-ink-900 dark:text-parchment-100" : "text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800"}`}
+    >
+      {children}
+    </button>
+  );
+}

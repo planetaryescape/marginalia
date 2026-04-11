@@ -1,0 +1,132 @@
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 38 30% 97%;
+    --foreground: 30 8% 17%;
+    --muted: 35 20% 92%;
+    --muted-foreground: 30 8% 42%;
+    --border: 35 15% 85%;
+    --ring: 200 25% 47%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 30 8% 10%;
+    --foreground: 30 8% 92%;
+    --muted: 30 8% 16%;
+    --muted-foreground: 30 8% 60%;
+    --border: 30 8% 22%;
+    --ring: 200 30% 55%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    @apply bg-parchment-50 text-ink-950 font-serif antialiased;
+    font-feature-settings: "liga" 1, "calt" 1, "kern" 1;
+  }
+
+  .dark body {
+    @apply bg-ink-950 text-parchment-100;
+  }
+}
+
+/* Annotation highlight styles — override browser <mark> defaults */
+.annotation-mark {
+  @apply relative cursor-pointer;
+  color: inherit !important;
+  background: transparent !important;
+  border-bottom-width: 2px;
+  border-bottom-style: solid;
+  text-decoration: none !important;
+  padding-bottom: 1px;
+}
+
+.annotation-mark[data-type="cross_reference"] {
+  border-bottom-color: theme("colors.annotation.crossref");
+}
+
+.annotation-mark[data-type="context"] {
+  border-bottom-color: theme("colors.annotation.context");
+}
+
+.annotation-mark[data-type="tension"] {
+  border-bottom-color: theme("colors.annotation.tension");
+}
+
+.annotation-mark[data-type="question"] {
+  border-bottom-color: theme("colors.annotation.question");
+}
+
+/* Reading progress bar */
+.reading-progress {
+  @apply fixed top-0 left-0 h-0.5 z-50 transition-all duration-150;
+  background: linear-gradient(
+    90deg,
+    theme("colors.annotation.crossref"),
+    theme("colors.annotation.question")
+  );
+}
+
+/* Smooth scroll for reading */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: theme("colors.ink.300");
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: theme("colors.ink.700");
+}
+
+/* Tiptap editor */
+.tiptap {
+  outline: none;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  @apply text-ink-300 dark:text-ink-600;
+}
+
+.tiptap ul {
+  @apply list-disc pl-4;
+}
+
+.tiptap ol {
+  @apply list-decimal pl-4;
+}
+
+.tiptap blockquote {
+  @apply border-l-2 border-ink-300 dark:border-ink-600 pl-3 italic;
+}
+
+.tiptap strong {
+  @apply font-semibold;
+}
+
+.tiptap em {
+  @apply italic;
+}
