@@ -10,6 +10,7 @@ interface SessionDistributionProps {
 }
 
 export function SessionDistribution({ data }: SessionDistributionProps) {
+  if (!data) return null;
   const maxCount = Math.max(1, ...data.map((d) => d.count));
 
   return (
@@ -45,7 +46,7 @@ export function SessionDistribution({ data }: SessionDistributionProps) {
           );
         })}
       </div>
-      {data.length > 0 && (
+      {data && data.length > 0 && (
         <p className="text-[10px] font-sans text-ink-300 dark:text-ink-600 mt-3">
           Avg actual:{" "}
           {data

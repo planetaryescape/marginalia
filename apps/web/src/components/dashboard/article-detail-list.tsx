@@ -35,7 +35,7 @@ function formatMs(ms: number): string {
 export function ArticleDetailList({ articles }: ArticleDetailListProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  if (articles.length === 0) {
+  if (!articles || articles.length === 0) {
     return (
       <p className="text-sm font-serif italic text-ink-400 text-center py-6">
         No articles read this week.

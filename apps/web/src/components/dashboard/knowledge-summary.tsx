@@ -59,7 +59,7 @@ export function KnowledgeSummary({
 
         {/* Right: recent notes */}
         <div>
-          {recentNotes.length === 0 ? (
+          {!recentNotes || recentNotes.length === 0 ? (
             <p className="text-sm font-serif italic text-ink-400">
               No notes this week — try highlighting a passage next time.
             </p>

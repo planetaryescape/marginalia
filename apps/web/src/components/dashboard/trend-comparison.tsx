@@ -26,13 +26,14 @@ function formatMin(ms: number): string {
 }
 
 export function TrendComparison({ thisWeek: tw, lastWeek: lw }: TrendComparisonProps) {
+  if (!tw || !lw) return null;
   const rows = [
-    { label: "Articles read", tw: tw.articlesFinished, lw: lw.articlesFinished },
-    { label: "Active time", tw: formatMin(tw.totalActiveTimeMs), lw: formatMin(lw.totalActiveTimeMs), rawTw: Math.round(tw.totalActiveTimeMs / 60000), rawLw: Math.round(lw.totalActiveTimeMs / 60000), unit: "m" },
-    { label: "Scroll depth", tw: `${tw.avgScrollDepth}%`, lw: `${lw.avgScrollDepth}%`, rawTw: tw.avgScrollDepth, rawLw: lw.avgScrollDepth, unit: "%" },
-    { label: "Annotations", tw: tw.annotationsOpenedCount, lw: lw.annotationsOpenedCount },
-    { label: "Notes", tw: tw.notesTaken, lw: lw.notesTaken },
-    { label: "Reflections", tw: tw.reflectionsWritten, lw: lw.reflectionsWritten },
+    { label: "Articles read", tw: tw.articlesFinished ?? 0, lw: lw.articlesFinished ?? 0 },
+    { label: "Active time", tw: formatMin(tw.totalActiveTimeMs ?? 0), lw: formatMin(lw.totalActiveTimeMs ?? 0), rawTw: Math.round((tw.totalActiveTimeMs ?? 0) / 60000), rawLw: Math.round((lw.totalActiveTimeMs ?? 0) / 60000), unit: "m" },
+    { label: "Scroll depth", tw: `${tw.avgScrollDepth ?? 0}%`, lw: `${lw.avgScrollDepth ?? 0}%`, rawTw: tw.avgScrollDepth ?? 0, rawLw: lw.avgScrollDepth ?? 0, unit: "%" },
+    { label: "Annotations", tw: tw.annotationsOpenedCount ?? 0, lw: lw.annotationsOpenedCount ?? 0 },
+    { label: "Notes", tw: tw.notesTaken ?? 0, lw: lw.notesTaken ?? 0 },
+    { label: "Reflections", tw: tw.reflectionsWritten ?? 0, lw: lw.reflectionsWritten ?? 0 },
   ];
 
   return (

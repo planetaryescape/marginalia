@@ -9,6 +9,7 @@ const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const BLOCKS = ["Morn", "Aft", "Eve", "Night"];
 
 export function ReadingHeatmap({ data }: HeatmapProps) {
+  if (!data) return null;
   const maxCount = Math.max(1, ...data.map((d) => d.count));
 
   return (
