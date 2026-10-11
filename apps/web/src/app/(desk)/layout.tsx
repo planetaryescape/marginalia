@@ -11,7 +11,7 @@ export default function DeskLayout({ children }: { children: ReactNode }) {
   const nav = useSiteNav();
 
   return (
-    <div className="h-dvh flex flex-col overflow-hidden bg-[var(--reader-bg)] text-[var(--reader-fg)] font-sans">
+    <div className="desk-shell h-dvh flex flex-col overflow-hidden bg-[var(--reader-bg)] text-[var(--reader-fg)] font-sans">
       <SiteHeader showPaste={false} />
       <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
       <MobileNav items={nav} />

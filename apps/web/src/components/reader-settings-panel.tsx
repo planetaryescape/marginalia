@@ -198,7 +198,7 @@ function SwatchRow<T extends string>({
           </button>
         ))}
       </div>
-      <span className="ml-auto text-[12.5px] text-[var(--reader-muted)]">
+      <span className="hidden min-[380px]:inline ml-auto text-[12.5px] text-[var(--reader-muted)]">
         {selected?.label}
       </span>
     </Row>
@@ -272,7 +272,7 @@ export function ReaderSettingsPanel({
       <Popover.Trigger asChild>
         <button
           aria-keyshortcuts=","
-          className="h-8 px-2.5 flex items-center justify-center rounded-full font-serif text-[15px] text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800 data-[state=open]:bg-ink-100 dark:data-[state=open]:bg-ink-800 transition-colors"
+          className="h-11 min-w-11 sm:h-8 sm:min-w-0 px-2.5 flex items-center justify-center rounded-full font-serif text-[15px] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] data-[state=open]:bg-[var(--reader-chip)] transition-colors"
           title="Reading settings"
           aria-label="Reading settings"
         >
@@ -284,7 +284,7 @@ export function ReaderSettingsPanel({
           align="end"
           sideOffset={10}
           collisionPadding={12}
-          className="reader-popover z-50 w-[360px] max-w-[calc(100vw-24px)] rounded-2xl p-4 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
+          className="reader-popover z-50 w-[360px] max-w-[calc(100vw-24px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain rounded-2xl p-4 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
         >
           <Segmented
             value={tab}

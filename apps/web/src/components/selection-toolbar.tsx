@@ -10,8 +10,15 @@ import {
   NotebookPen,
   Underline,
   Wand2,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { type CompanionMode, usePassageHighlight } from "@/lib/companion";
 import type { MarkKind } from "@/lib/highlights";
@@ -97,7 +104,9 @@ export function SelectionToolbar({
   const [question, setQuestion] = useState("");
   const toolbarRef = useRef<HTMLDivElement>(null);
   const askingRef = useRef(false);
-  askingRef.current = asking;
+  useLayoutEffect(() => {
+    askingRef.current = asking;
+  }, [asking]);
 
   const hide = useCallback(() => {
     setRange(null);
@@ -239,9 +248,9 @@ export function SelectionToolbar({
   const text = range?.toString().trim() ?? "";
 
   const actionClass =
-    "flex items-center gap-1.5 h-8 px-2.5 rounded-full text-[13px] font-medium transition-colors hover:bg-white/10 dark:hover:bg-ink-950/[0.07]";
+    "flex items-center gap-1.5 h-11 md:h-8 px-2.5 rounded-full text-[13px] font-medium transition-colors hover:bg-white/10 dark:hover:bg-ink-950/[0.07]";
   const iconClass =
-    "w-8 h-8 flex items-center justify-center rounded-full transition-colors hover:bg-white/10 dark:hover:bg-ink-950/[0.07] opacity-70 hover:opacity-100";
+    "w-11 h-11 md:w-8 md:h-8 flex items-center justify-center rounded-full transition-colors hover:bg-white/10 dark:hover:bg-ink-950/[0.07] opacity-70 hover:opacity-100";
 
   return (
     <AnimatePresence>
@@ -252,7 +261,7 @@ export function SelectionToolbar({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: position.below ? -4 : 4, scale: 0.98 }}
           transition={{ duration: 0.14, ease: "easeOut" }}
-          className="fixed z-50"
+          className="passage-toolbar fixed z-50"
           style={{
             top: position.top,
             left: position.left,
@@ -267,11 +276,11 @@ export function SelectionToolbar({
           <motion.div
             layout
             transition={{ type: "spring", damping: 30, stiffness: 420 }}
-            className="flex items-center p-1 rounded-full font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_8px_30px_-6px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
+            className="flex flex-wrap md:flex-nowrap items-center justify-center gap-y-1 p-1 rounded-2xl md:rounded-full font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_8px_30px_-6px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
           >
             {asking ? (
               <form
-                className="flex items-center gap-1 pl-3"
+                className="flex flex-wrap md:flex-nowrap items-center gap-1 px-2 md:pl-3 md:pr-0 w-full md:w-auto"
                 onSubmit={(e) => {
                   e.preventDefault();
                   submitQuestion();
@@ -286,7 +295,7 @@ export function SelectionToolbar({
                   }}
                   placeholder="Ask about this passage…"
                   aria-label="Ask about this passage"
-                  className="w-[min(260px,50vw)] bg-transparent text-[14px] outline-none placeholder:opacity-50"
+                  className="w-full md:w-[min(260px,50vw)] h-11 md:h-auto bg-transparent text-[16px] md:text-[14px] outline-none placeholder:opacity-50"
                 />
                 <button
                   type="button"
@@ -294,7 +303,7 @@ export function SelectionToolbar({
                   aria-pressed={web}
                   title="Let the model search the web if it helps"
                   className={cn(
-                    "flex items-center gap-1 px-2 h-7 rounded-full text-[12px] transition-colors",
+                    "flex items-center gap-1 px-2 h-11 md:h-7 rounded-full text-[12px] transition-colors",
                     web
                       ? "bg-[var(--pen)] text-white"
                       : "opacity-60 hover:opacity-100",
@@ -310,7 +319,7 @@ export function SelectionToolbar({
                       type="button"
                       onClick={() => onDepthChange(d)}
                       className={cn(
-                        "px-2.5 h-6 rounded-full capitalize transition-colors",
+                        "px-2.5 h-11 md:h-6 rounded-full capitalize transition-colors",
                         depth === d
                           ? "bg-parchment-50 text-ink-950 dark:bg-ink-950 dark:text-parchment-50"
                           : "opacity-60 hover:opacity-100",
@@ -324,9 +333,17 @@ export function SelectionToolbar({
                   type="submit"
                   disabled={!question.trim()}
                   aria-label="Send question"
-                  className="w-8 h-8 ml-1 flex items-center justify-center rounded-full bg-[var(--pen)] text-white transition-opacity disabled:opacity-40"
+                  className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 flex items-center justify-center rounded-full bg-[var(--pen)] text-white transition-opacity disabled:opacity-40"
                 >
                   <ArrowUp size={16} strokeWidth={2.5} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Close passage question"
+                  onClick={finish}
+                  className="md:hidden w-11 h-11 shrink-0 flex items-center justify-center rounded-full opacity-70 hover:opacity-100"
+                >
+                  <X size={16} />
                 </button>
               </form>
             ) : (

@@ -164,7 +164,7 @@ export function ArticleFinder() {
         <span className="flex-1 min-w-0 truncate text-[15px]">
           Ask for something to read, or paste a link
         </span>
-        <kbd className="reader-kbd" aria-hidden>
+        <kbd className="reader-kbd hidden md:inline-block" aria-hidden>
           /
         </kbd>
       </button>
@@ -176,7 +176,7 @@ export function ArticleFinder() {
           setOpen(false);
         }}
         onClose={() => setOpen(false)}
-        className="mx-auto mt-[12dvh] mb-auto w-[calc(100%-2rem)] max-w-[720px] max-h-[80dvh] rounded-2xl p-0 overflow-hidden bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border-strong)] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.6)] backdrop:bg-black/40 font-sans"
+        className="mx-auto mt-[calc(var(--app-viewport-top)+env(safe-area-inset-top)+1rem)] md:mt-[12dvh] mb-auto w-[calc(100%-2rem)] max-w-[720px] max-h-[calc(var(--app-viewport-height)-env(safe-area-inset-top)-2rem)] rounded-2xl p-0 overflow-hidden bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border-strong)] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.6)] backdrop:bg-black/40 font-sans"
       >
         <form
           onSubmit={(e) => {
@@ -230,12 +230,12 @@ export function ArticleFinder() {
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close search"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
+            className="flex h-11 w-11 md:h-7 md:w-7 shrink-0 items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
           >
             <X size={16} />
           </button>
         </form>
-        <div className="max-h-[min(55dvh,480px)] overflow-y-auto p-2">
+        <div className="max-h-[min(calc(var(--app-viewport-height)-10rem),480px)] overflow-y-auto overscroll-contain p-2">
           {!text && (
             <p className="px-3 pb-2 pt-1 text-[12px] text-[var(--reader-muted)]">
               Up next · search by topic, time or memory
@@ -358,7 +358,7 @@ export function ArticleFinder() {
             </div>
           )}
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-[var(--reader-border)] px-5 py-3 text-[11px] text-[var(--reader-muted)]">
+        <div className="hidden md:flex items-center justify-between gap-3 border-t border-[var(--reader-border)] px-5 py-3 text-[11px] text-[var(--reader-muted)]">
           <span>
             <kbd className="reader-kbd">↑</kbd>{" "}
             <kbd className="reader-kbd">↓</kbd> choose{" "}

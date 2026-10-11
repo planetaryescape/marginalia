@@ -2,7 +2,7 @@
 import type { Doc } from "@marginalia/backend/convex/_generated/dataModel";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, Globe, History, MessagesSquare } from "lucide-react";
+import { ArrowUp, Globe, History, MessagesSquare, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AnswerDepth } from "@/lib/reader-settings";
 import { useShortcuts } from "@/lib/shortcuts";
@@ -85,23 +85,36 @@ export function ArticleAsk({
           exit={{ opacity: 0, y: 12 }}
           transition={{ duration: 0.2 }}
           // Centred by the flex container: motion's inline transform would override a translate class
-          className="fixed bottom-6 inset-x-0 z-30 flex justify-center pointer-events-none"
+          className="fixed bottom-[calc(var(--app-keyboard-inset)+env(safe-area-inset-bottom)+1rem)] inset-x-3 z-30 flex justify-center pointer-events-none"
         >
-          <div className="flex items-center gap-2 pointer-events-auto">
+          <div
+            className={cn(
+              "flex items-center gap-2 pointer-events-auto",
+              open && "w-full max-w-[560px]",
+            )}
+          >
             <motion.div
               layout
               transition={{ type: "spring", damping: 30, stiffness: 380 }}
-              className="flex items-center rounded-full p-1 font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
+              className={cn(
+                "flex items-center p-1 font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5",
+                open
+                  ? "flex-1 min-w-0 rounded-2xl md:rounded-full"
+                  : "rounded-full",
+              )}
             >
               {open ? (
                 <form
-                  className="flex items-center gap-1 pl-3"
+                  className="flex flex-wrap md:flex-nowrap items-center gap-1 px-2 md:pl-3 md:pr-0 w-full"
                   onSubmit={(e) => {
                     e.preventDefault();
                     submit();
                   }}
                 >
-                  <MessagesSquare size={15} className="opacity-60 shrink-0" />
+                  <MessagesSquare
+                    size={15}
+                    className="hidden md:block opacity-60 shrink-0"
+                  />
                   <input
                     ref={inputRef}
                     value={question}
@@ -111,7 +124,7 @@ export function ArticleAsk({
                     }}
                     placeholder="Ask about the whole article…"
                     aria-label="Ask about the whole article"
-                    className="w-[min(320px,calc(100vw-250px))] ml-1.5 bg-transparent text-[14px] outline-none placeholder:opacity-50"
+                    className="w-full md:w-auto md:flex-1 md:min-w-0 h-11 md:h-auto bg-transparent text-[16px] md:text-[14px] outline-none placeholder:opacity-50"
                   />
                   <button
                     type="button"
@@ -120,7 +133,7 @@ export function ArticleAsk({
                     aria-pressed={web}
                     title="Let the model search the web if it helps"
                     className={cn(
-                      "flex items-center gap-1 px-2 h-7 rounded-full text-[12px] transition-colors",
+                      "flex items-center gap-1 px-2 h-11 md:h-7 rounded-full text-[12px] transition-colors",
                       web
                         ? "bg-[var(--pen)] text-white"
                         : "opacity-60 hover:opacity-100",
@@ -137,7 +150,7 @@ export function ArticleAsk({
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => onDepthChange(d)}
                         className={cn(
-                          "px-2.5 h-6 rounded-full capitalize transition-colors",
+                          "px-2.5 h-11 md:h-6 rounded-full capitalize transition-colors",
                           depth === d
                             ? "bg-parchment-50 text-ink-950 dark:bg-ink-950 dark:text-parchment-50"
                             : "opacity-60 hover:opacity-100",
@@ -151,27 +164,35 @@ export function ArticleAsk({
                     type="submit"
                     disabled={!question.trim()}
                     aria-label="Send question"
-                    className="w-8 h-8 ml-1 flex items-center justify-center rounded-full bg-[var(--pen)] text-white transition-opacity disabled:opacity-40"
+                    className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 shrink-0 flex items-center justify-center rounded-full bg-[var(--pen)] text-white transition-opacity disabled:opacity-40"
                   >
                     <ArrowUp size={16} strokeWidth={2.5} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Close question"
+                    onClick={() => setOpen(false)}
+                    className="w-11 h-11 md:w-8 md:h-8 shrink-0 flex items-center justify-center rounded-full opacity-60 hover:opacity-100"
+                  >
+                    <X size={16} />
                   </button>
                 </form>
               ) : (
                 <button
                   type="button"
                   onClick={() => setOpen(true)}
-                  className="flex items-center gap-2 h-8 pl-3 pr-2 rounded-full text-[13px] font-medium"
+                  className="flex items-center gap-2 h-11 md:h-8 pl-3 pr-2 rounded-full text-[13px] font-medium"
                 >
                   <MessagesSquare size={14} />
                   Ask about this article
-                  <kbd className="ml-1 px-1.5 rounded border border-current/20 font-mono text-[10px] opacity-50">
+                  <kbd className="hidden md:inline-block ml-1 px-1.5 rounded border border-current/20 font-mono text-[10px] opacity-50">
                     /
                   </kbd>
                 </button>
               )}
             </motion.div>
 
-            {history.length > 0 && (
+            {history.length > 0 && !open && (
               <Popover.Root>
                 <Popover.Trigger asChild>
                   <button

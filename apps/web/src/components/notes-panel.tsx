@@ -140,7 +140,7 @@ export function NotesPanel({
         e.stopPropagation();
         void closePanel();
       }}
-      className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-[380px] max-w-[90vw] overflow-visible bg-transparent p-0 text-[var(--reader-fg)] backdrop:bg-black/20"
+      className="fixed top-[var(--app-viewport-top)] bottom-auto left-auto right-0 m-0 h-[var(--app-viewport-height)] max-h-none w-full max-w-none sm:w-[380px] sm:max-w-[90vw] overflow-hidden bg-transparent p-0 text-[var(--reader-fg)] backdrop:bg-black/20"
     >
       <AnimatePresence>
         {isOpen && (
@@ -149,7 +149,7 @@ export function NotesPanel({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 250 }}
-            className="h-full w-full border-l border-[var(--reader-border)] bg-[var(--reader-bg)] shadow-2xl shadow-black/20 flex flex-col"
+            className="h-full w-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] border-l border-[var(--reader-border)] bg-[var(--reader-bg)] shadow-2xl shadow-black/20 flex flex-col overflow-y-auto"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--reader-border)]">
@@ -161,7 +161,7 @@ export function NotesPanel({
                   <button
                     type="button"
                     onClick={() => setEditingNew(true)}
-                    className="text-xs font-sans text-[var(--pen)] hover:underline"
+                    className="min-h-11 px-2 text-xs font-sans text-[var(--pen)] hover:underline"
                   >
                     + New
                   </button>
@@ -170,7 +170,7 @@ export function NotesPanel({
                   type="button"
                   onClick={() => closePanel()}
                   aria-label="Close notes"
-                  className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
+                  className="w-11 h-11 sm:w-7 sm:h-7 flex items-center justify-center rounded-full hover:bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
                 >
                   &times;
                 </button>
@@ -192,7 +192,7 @@ export function NotesPanel({
             )}
 
             {/* Existing notes */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
               {notes && notes.length === 0 && !showEditor && (
                 <div className="px-4 py-12 text-center">
                   <p className="text-sm font-sans text-[var(--reader-muted)]">

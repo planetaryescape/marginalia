@@ -207,7 +207,7 @@ function ToolbarButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
-      className={`w-7 h-7 flex items-center justify-center rounded text-xs font-sans transition-colors
+      className={`w-11 h-11 sm:w-7 sm:h-7 flex items-center justify-center rounded text-xs font-sans transition-colors
         ${active ? "bg-[var(--reader-chip)] text-[var(--reader-fg)]" : "text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]"}`}
     >
       {children}

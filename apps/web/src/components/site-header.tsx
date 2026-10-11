@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
+import { InstallApp } from "@/components/install-app";
 import { emitCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -124,16 +125,19 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
           <PasteLink />
         </div>
       )}
-      <button
-        type="button"
-        aria-label="Keyboard shortcuts"
-        aria-keyshortcuts="Shift+/"
-        title="Keyboard shortcuts (?)"
-        onClick={() => emitCommand("open-shortcuts")}
-        className={`shrink-0 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--reader-muted)] hover:text-[var(--reader-fg)] ${showPaste ? "" : "ml-auto"}`}
-      >
-        <Keyboard size={17} />
-      </button>
+      <div className={`flex items-center gap-1 ${showPaste ? "" : "ml-auto"}`}>
+        <InstallApp />
+        <button
+          type="button"
+          aria-label="Keyboard shortcuts"
+          aria-keyshortcuts="Shift+/"
+          title="Keyboard shortcuts (?)"
+          onClick={() => emitCommand("open-shortcuts")}
+          className="hidden md:flex shrink-0 h-8 w-8 items-center justify-center rounded-lg text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
+        >
+          <Keyboard size={17} />
+        </button>
+      </div>
     </header>
   );
 }
@@ -143,14 +147,14 @@ export function MobileNav({ items }: { items: NavItem[] }) {
   return (
     <nav
       aria-label="Main navigation"
-      className="md:hidden shrink-0 min-h-11 px-5 pb-[env(safe-area-inset-bottom)] flex items-center gap-5 overflow-x-auto border-t border-[var(--reader-border)] text-[13px] text-[var(--reader-muted)]"
+      className="md:hidden shrink-0 px-2 pb-[env(safe-area-inset-bottom)] grid grid-cols-5 border-t border-[var(--reader-border)] text-[11px] min-[360px]:text-[12px] text-[var(--reader-muted)]"
     >
       {items.map((item) => (
         <Link
           key={item.href}
           href={item.href}
           aria-current={pathname === item.href ? "page" : undefined}
-          className="shrink-0 hover:text-[var(--reader-fg)] aria-[current=page]:text-[var(--reader-fg)]"
+          className="flex min-h-12 min-w-0 items-center justify-center px-1 text-center whitespace-nowrap hover:text-[var(--reader-fg)] aria-[current=page]:text-[var(--reader-fg)]"
         >
           {item.label}
         </Link>

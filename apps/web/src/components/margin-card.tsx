@@ -57,7 +57,7 @@ function computeLayout(
 }
 
 export const cardIconButton =
-  "w-7 h-7 flex items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] transition-colors disabled:opacity-40 disabled:pointer-events-none";
+  "w-11 h-11 sm:w-7 sm:h-7 flex items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] transition-colors disabled:opacity-40 disabled:pointer-events-none";
 
 /**
  * Shell shared by every card that annotates a passage: sits in the right margin
@@ -103,7 +103,9 @@ export function MarginCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef(getAnchorRect);
-  anchorRef.current = getAnchorRect;
+  useLayoutEffect(() => {
+    anchorRef.current = getAnchorRect;
+  }, [getAnchorRect]);
   const hasLayout = layout !== null;
   useEffect(() => {
     if (!hasLayout) return;
@@ -181,7 +183,7 @@ export function MarginCard({
           ? "rounded-r-xl rounded-l-[3px] border-l-2 border-l-[var(--card-accent)]"
           : layout.kind === "pinned"
             ? "rounded-r-xl rounded-l-[3px] border-l-2 border-l-[var(--card-accent)] max-h-[calc(100vh-96px)]"
-            : "rounded-2xl border-t-2 border-t-[var(--card-accent)] max-h-[72vh]",
+            : "rounded-2xl border-t-2 border-t-[var(--card-accent)] max-h-[calc(var(--app-viewport-height)-6rem)]",
       )}
     >
       <div
@@ -232,7 +234,7 @@ export function MarginCard({
 
   if (layout.kind === "sheet") {
     return (
-      <div className="fixed z-40 bottom-3 right-3 left-3 sm:left-auto sm:w-[400px]">
+      <div className="fixed z-40 bottom-[calc(var(--app-keyboard-inset)+env(safe-area-inset-bottom)+0.75rem)] right-3 left-3 sm:left-auto sm:w-[400px]">
         {card}
       </div>
     );

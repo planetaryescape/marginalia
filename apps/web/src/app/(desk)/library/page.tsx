@@ -5,7 +5,14 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ArrowUp, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { CompanionAnswer } from "@/components/companion-answer";
 import { RATINGS } from "@/components/impression-panel";
 import { streamFromConvex } from "@/lib/companion";
@@ -171,7 +178,9 @@ function Librarian() {
   // development double-run of effects cancels the first attempt instead of
   // aborting a request already in flight.
   const askRef = useRef(ask);
-  askRef.current = ask;
+  useLayoutEffect(() => {
+    askRef.current = ask;
+  }, [ask]);
   useEffect(() => {
     const q = searchParams.get("q");
     if (!q || askedFromUrl.current) return;
@@ -280,7 +289,7 @@ function Librarian() {
             }}
             title="Start over"
             aria-label="Start over"
-            className="w-9 h-9 shrink-0 flex items-center justify-center rounded-full text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
+            className="w-11 h-11 md:w-9 md:h-9 shrink-0 flex items-center justify-center rounded-full text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
           >
             <RotateCcw size={15} />
           </button>
@@ -289,7 +298,7 @@ function Librarian() {
           type="submit"
           disabled={!draft.trim() || streaming}
           aria-label="Ask"
-          className="w-9 h-9 shrink-0 flex items-center justify-center rounded-full bg-[var(--pen)] text-white disabled:opacity-30 transition-opacity"
+          className="w-11 h-11 md:w-9 md:h-9 shrink-0 flex items-center justify-center rounded-full bg-[var(--pen)] text-white disabled:opacity-30 transition-opacity"
         >
           <ArrowUp size={16} strokeWidth={2.5} />
         </button>
@@ -302,7 +311,7 @@ function Librarian() {
               key={suggestion}
               type="button"
               onClick={() => ask(suggestion)}
-              className="h-8 px-3.5 rounded-full text-[13px] text-[var(--reader-fg-soft)] ring-1 ring-[var(--reader-border)] hover:ring-[var(--pen)] hover:text-[var(--reader-fg)] transition-colors"
+              className="min-h-11 md:min-h-8 px-3.5 py-1 rounded-full text-left text-[13px] text-[var(--reader-fg-soft)] ring-1 ring-[var(--reader-border)] hover:ring-[var(--pen)] hover:text-[var(--reader-fg)] transition-colors"
             >
               {suggestion}
             </button>

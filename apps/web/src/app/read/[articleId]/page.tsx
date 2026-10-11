@@ -456,20 +456,20 @@ export default function ReadPage() {
       />
 
       {/* Top nav */}
-      <div className="fixed top-0 left-0 right-0 z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm">
+      <div className="fixed top-0 left-0 right-0 pt-[env(safe-area-inset-top)] z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm">
         <div
-          className="mx-auto px-6 py-3 flex items-center justify-between"
+          className="mx-auto px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between"
           style={{ maxWidth: `max(${MAX_WIDTHS[settings.width]}, 42rem)` }}
         >
           <Link
             href={sessionId ? `/session/${sessionId}` : "/"}
-            className="text-ink-400 hover:text-ink-600 font-sans text-sm transition-colors"
+            className="flex min-h-11 sm:min-h-0 items-center text-[var(--reader-muted)] hover:text-[var(--reader-fg)] font-sans text-sm transition-colors"
           >
             &larr; Back
           </Link>
 
-          <div className="flex items-center gap-3">
-            <span className="text-ink-400 font-sans text-xs">
+          <div className="flex items-center gap-0 sm:gap-3">
+            <span className="hidden sm:inline text-[var(--reader-muted)] font-sans text-xs">
               {estimatedMinRemaining
                 ? `~${estimatedMinRemaining} min left`
                 : formatReadTime(article.estimatedReadMinutes)}
@@ -478,10 +478,10 @@ export default function ReadPage() {
             {/* Notes button */}
             <button
               onClick={() => setNotesPanelOpen((o) => !o)}
-              className={`relative w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+              className={`relative w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full transition-colors ${
                 notesPanelOpen
                   ? "bg-annotation-crossref/20 text-annotation-crossref"
-                  : "hover:bg-ink-100 dark:hover:bg-ink-800 text-ink-400 hover:text-ink-600 dark:hover:text-ink-300"
+                  : "hover:bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
               }`}
               title="Notes"
               aria-label="Notes"
@@ -517,8 +517,9 @@ export default function ReadPage() {
                   toast.error("Failed to re-annotate");
                 }
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-full text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800 transition-colors"
+              className="w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] transition-colors"
               title="Re-annotate with latest vault"
+              aria-label="Re-annotate with latest vault"
             >
               <svg
                 width="14"
@@ -539,10 +540,10 @@ export default function ReadPage() {
             <Popover.Root open={ratingOpen} onOpenChange={setRatingOpen}>
               <Popover.Trigger asChild>
                 <button
-                  className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+                  className={`w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full transition-colors ${
                     impression?.rating
                       ? "text-[var(--pen)]"
-                      : "text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800"
+                      : "text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]"
                   }`}
                   title={
                     impression?.rating
@@ -563,7 +564,7 @@ export default function ReadPage() {
                   align="end"
                   sideOffset={10}
                   collisionPadding={12}
-                  className="reader-popover z-50 w-[340px] max-w-[calc(100vw-24px)] rounded-2xl p-4 bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
+                  className="reader-popover z-50 w-[340px] max-w-[calc(100vw-24px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-2xl p-4 bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
                 >
                   <ImpressionPanel
                     articleId={articleId as any}
@@ -582,12 +583,13 @@ export default function ReadPage() {
                   await loveArticle({ articleId: articleId as any });
                 }
               }}
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+              className={`w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full transition-colors ${
                 isLoved
                   ? "text-red-500"
-                  : "text-ink-400 hover:text-red-400 hover:bg-ink-100 dark:hover:bg-ink-800"
+                  : "text-[var(--reader-muted)] hover:text-red-400 hover:bg-[var(--reader-chip)]"
               }`}
               title={isLoved ? "Remove from loved" : "Love this article"}
+              aria-label={isLoved ? "Remove from loved" : "Love this article"}
             >
               <svg
                 width="15"
@@ -645,7 +647,7 @@ export default function ReadPage() {
       <article
         ref={articleRef}
         className={cn(
-          "mx-auto px-6 pt-20 pb-12 transition-[max-width] duration-300",
+          "mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
           settings.numbers && "reader-numbers",
           settings.focus && "reader-focus",
           settings.align === "justify" && "reader-justify",

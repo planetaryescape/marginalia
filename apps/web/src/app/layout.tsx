@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   Atkinson_Hyperlegible,
   Cinzel_Decorative,
@@ -11,6 +11,7 @@ import {
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { PwaRuntime } from "@/components/pwa-runtime";
 import { ConvexClientProvider } from "@/lib/convex";
 import "./globals.css";
 
@@ -75,6 +76,21 @@ export const metadata: Metadata = {
   title: "Marginalia",
   description:
     "A personal reading desk with contextual marginalia, notes and a searchable library.",
+  applicationName: "Marginalia",
+  appleWebApp: {
+    capable: true,
+    title: "Marginalia",
+    statusBarStyle: "default",
+  },
+  icons: { apple: "/icons/apple-touch-icon.png" },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
+  themeColor: "#201d1b",
 };
 
 export default function RootLayout({
@@ -109,6 +125,7 @@ export default function RootLayout({
             </div>
             <Toaster position="bottom-center" />
             <KeyboardShortcuts />
+            <PwaRuntime />
           </ConvexClientProvider>
         </ThemeProvider>
       </body>
