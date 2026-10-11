@@ -26,9 +26,9 @@ import {
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import { useSavedPassages } from "@/lib/saved-passages";
 import { useListen, useReadingPosition } from "@/lib/reading-modes";
+import { useReaderTheme } from "@/lib/use-reader-theme";
 import {
   DROP_CAP_FAMILIES,
-  isDarkTheme,
   LINE_HEIGHTS,
   MAX_WIDTHS,
   TYPEFACE_FAMILIES,
@@ -36,7 +36,6 @@ import {
   webSearchEnabled,
 } from "@/lib/reader-settings";
 import { cn, formatReadTime } from "@/lib/utils";
-import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -81,7 +80,6 @@ export default function ReadPage() {
 
   const createNote = useMutation(api.userNotes.create);
   const { settings, update: updateSettings, resetText } = useReaderSettings();
-  const { resolvedTheme, setTheme } = useTheme();
   const paragraphs = useParagraphs(articleRef, Boolean(article));
   const position = useReadingPosition(articleRef, paragraphs.version);
   const summary = useQuery(api.summaries.getByArticle, {
@@ -163,26 +161,7 @@ export default function ReadPage() {
     [companion.start],
   );
 
-  // Keep light/dark in step with an explicit reader theme (e.g. after toggling elsewhere in the app)
-  useEffect(() => {
-    if (settings.theme === "auto" || !resolvedTheme) return;
-    const wantDark = isDarkTheme(settings.theme);
-    if ((resolvedTheme === "dark") !== wantDark) setTheme(wantDark ? "dark" : "light");
-  }, [settings.theme, resolvedTheme, setTheme]);
-
-  // Reader theme tokens live on <html> so portals (popover, toasts) pick them up too
-  useEffect(() => {
-    const html = document.documentElement;
-    html.dataset.readerTheme =
-      settings.theme === "auto" ? (resolvedTheme === "dark" ? "night" : "paper") : settings.theme;
-    html.dataset.pen = settings.pen;
-    html.dataset.highlighter = settings.highlighter;
-    return () => {
-      delete html.dataset.readerTheme;
-      delete html.dataset.pen;
-      delete html.dataset.highlighter;
-    };
-  }, [settings.theme, settings.pen, settings.highlighter, resolvedTheme]);
+  useReaderTheme(settings);
 
   // Focus mode keeps the passage under discussion lit
   const companionParagraph =

@@ -23,6 +23,7 @@ import type * as companionThreads from "../companionThreads.js";
 import type * as crons from "../crons.js";
 import type * as feeds from "../feeds.js";
 import type * as highlights from "../highlights.js";
+import type * as home from "../home.js";
 import type * as http from "../http.js";
 import type * as lib_aiModels from "../lib/aiModels.js";
 import type * as lib_companionStream from "../lib/companionStream.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   feeds: typeof feeds;
   highlights: typeof highlights;
+  home: typeof home;
   http: typeof http;
   "lib/aiModels": typeof lib_aiModels;
   "lib/companionStream": typeof lib_companionStream;
