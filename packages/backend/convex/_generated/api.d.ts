@@ -38,6 +38,7 @@ import type * as lib_openrouter from "../lib/openrouter.js";
 import type * as lib_readingCompanion from "../lib/readingCompanion.js";
 import type * as lib_readwise from "../lib/readwise.js";
 import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
+import type * as lib_vaultUpload from "../lib/vaultUpload.js";
 import type * as library from "../library.js";
 import type * as lovedArticles from "../lovedArticles.js";
 import type * as noteChunks from "../noteChunks.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   "lib/readingCompanion": typeof lib_readingCompanion;
   "lib/readwise": typeof lib_readwise;
   "lib/spacedRepetition": typeof lib_spacedRepetition;
+  "lib/vaultUpload": typeof lib_vaultUpload;
   library: typeof library;
   lovedArticles: typeof lovedArticles;
   noteChunks: typeof noteChunks;
