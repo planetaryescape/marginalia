@@ -13,11 +13,12 @@ export const embed = internalAction({
     if (!note || !note.contentPlain) return;
 
     try {
-      // Embed the note's selected text + content for maximum context
-      const textToEmbed = `${note.selectedText}\n\n${note.contentPlain}`.slice(
-        0,
-        8000,
-      );
+      // Embed the passage, what the note responds to, and the note itself:
+      // a reflection like "I think it's both" means nothing without its question
+      const textToEmbed = [note.selectedText, note.prompt, note.contentPlain]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 8000);
       const embedding = await embedText(textToEmbed);
       await ctx.runMutation(internal.userNotes.setEmbedding, {
         noteId: args.noteId,

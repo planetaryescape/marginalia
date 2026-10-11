@@ -106,7 +106,7 @@ export function ReflectionBox({ reflection, onDone }: ReflectionBoxProps) {
           value={response}
           onChange={(e) => setResponse(e.target.value)}
           placeholder="Your thoughts (optional)"
-          className="w-full p-4 rounded-xl border border-ink-200 dark:border-ink-700 bg-white dark:bg-ink-900 text-ink-800 dark:text-parchment-300 font-sans text-sm placeholder:text-ink-300 dark:placeholder:text-ink-600 focus:outline-none focus:border-annotation-crossref resize-none"
+          className="w-full p-4 rounded-xl border border-[var(--reader-border-strong)] bg-[var(--reader-surface)] text-ink-800 dark:text-parchment-300 font-sans text-sm placeholder:text-ink-300 dark:placeholder:text-ink-600 focus:outline-none focus:border-annotation-crossref resize-none"
           rows={3}
         />
       </div>

@@ -5,7 +5,9 @@ import { v } from "convex/values";
 import { z } from "zod";
 import type { ZodType } from "zod";
 import { DEFAULT_USER_ID, MIN_RELEVANCE_SCORE, MAX_ANNOTATIONS_PER_ARTICLE } from "../lib/constants";
-import { generateObjectWithFallback, embedText } from "../lib/aiModels";
+import { generateObjectWithFallback } from "../lib/aiModels";
+import { buildMarginaliaContext } from "../lib/marginaliaContext";
+import { modelChain } from "../lib/openrouter";
 
 type AnnotationResult = z.infer<typeof annotationCandidateSchema>;
 
@@ -57,7 +59,11 @@ const SYSTEM_PROMPT = `You are a study Bible annotator for a personal RSS reader
 
 You will receive:
 1. An article the user is about to read
-2. Relevant notes from the user's Obsidian knowledge base
+2. Today's date and when the article was published
+3. Notes from the user's Obsidian vault that closely match specific parts of the article, with a similarity score and where in the article they matched
+4. When relevant: the user's own notes and reflections, passages they marked, and questions they asked while reading other articles, plus anything they've already done with this article
+
+Treat items 3 and 4 as a picture of what this reader knows, cares about and has struggled with. Use them where they genuinely connect. Higher similarity is a stronger hint, not proof.
 
 Your annotations must be SPARSE and HIGH QUALITY. Fewer excellent annotations are far better than many mediocre ones.
 
@@ -65,12 +71,12 @@ Your annotations must be SPARSE and HIGH QUALITY. Fewer excellent annotations ar
 
 **cross_reference**: Connect a specific claim or idea in the article to a specific note in the user's vault. Only use when the connection is meaningful — not just vague topic overlap.
 
-**context**: Add context that genuinely enriches understanding of a concept, person, place, or idea mentioned in the article. Only when the context adds something the reader wouldn't already know.
+**context**: Add context that genuinely enriches understanding of a concept, person, place, or idea mentioned in the article. Only when the context adds something the reader wouldn't already know. Mind the dates: if the article is old enough that something it describes may have changed, say so rather than presenting it as current.
 
 **tension**: Surface a genuine conflict between the article and something in the user's notes, or between the article's claims and well-known counterarguments. Must be specific, not "there are different perspectives."
 
 **question**: A probing question grounded in one of:
-- A direct tension with the user's existing notes
+- A direct tension with the user's existing notes, reflections, or something they asked about before
 - An unstated assumption the article relies on
 - A missing implication the article never follows through on
 
@@ -79,7 +85,11 @@ Your annotations must be SPARSE and HIGH QUALITY. Fewer excellent annotations ar
 1. anchorText MUST be an EXACT verbatim substring from the article. Copy-paste, do not paraphrase.
 2. Anchor to sentences or meaningful clauses, not single common words.
 3. cross_reference annotations MUST include a notePath and noteExcerpt from the provided notes.
-4. Score relevanceScore honestly. If you're reaching, score it low. A 0.5 that you're unsure about is better than a 0.8 that's inflated.
+4. Score relevanceScore on this scale, honestly. Anything under 0.5 is not shown.
+   - 0.9–1.0: essential; it changes how the reader understands the passage
+   - 0.7–0.9: a strong, specific connection or insight
+   - 0.5–0.7: specific and useful; the reader would be glad to see it
+   - below 0.5: generic, obvious, or a stretch
 5. Do NOT annotate every paragraph. Most paragraphs should have zero annotations.
 6. The reader is intelligent. Don't explain obvious things. Only annotate where you genuinely add value.
 7. Aim for 3-7 annotations total. Zero is acceptable if nothing meaningful connects.
@@ -91,7 +101,7 @@ The reflection box appears after the article. Its job is to slow down premature 
 - strongestPoint: What's actually well-argued, not just what sounds good
 - weakestAssumption: Something the argument depends on that could be wrong
 - credibleCounterview: What would a smart, informed critic say? Not a strawman.
-- questionForYou: Grounded in the reader's notes or the article's implications. Not generic.`;
+- questionForYou: Grounded in the reader's notes, past reflections and questions, or the article's implications. Not generic.`;
 
 export const generateForArticle = internalAction({
   args: { articleId: v.id("articles") },
@@ -118,128 +128,51 @@ export const generateForArticle = internalAction({
     }
 
     try {
-      // Step 1: Find related note chunks via vector search
-      let relatedChunks: any[] = [];
-
-      if (article.embedding) {
-        const results = await ctx.vectorSearch("noteChunks", "by_embedding", {
-          vector: article.embedding,
-          limit: 20,
-          filter: (q: any) => q.eq("userId", DEFAULT_USER_ID),
-        });
-
-        // Fetch full chunk data
-        relatedChunks = await Promise.all(
-          results.map(async (r: any) => {
-            const chunk = await ctx.runQuery(
-              internal.noteChunks.getByIdInternal,
-              { chunkId: r._id },
-            );
-            return chunk ? { ...chunk, score: r._score } : null;
-          }),
-        );
-        relatedChunks = relatedChunks.filter(Boolean);
-      }
-
-      // Step 1b: Also search user notes
-      let relatedUserNotes: any[] = [];
-      if (article.embedding) {
-        try {
-          const noteResults = await ctx.vectorSearch(
-            "userNotes",
-            "by_embedding",
-            {
-              vector: article.embedding,
-              limit: 10,
-              filter: (q: any) => q.eq("userId", DEFAULT_USER_ID),
-            },
-          );
-          relatedUserNotes = await Promise.all(
-            noteResults.map(async (r: any) => {
-              const note = await ctx.runQuery(
-                internal.userNotes.getByIdInternal,
-                { noteId: r._id },
-              );
-              if (!note) return null;
-              // Get the article title for context
-              const sourceArticle = await ctx.runQuery(
-                internal.articles.getByIdInternal,
-                { articleId: note.articleId },
-              );
-              return {
-                ...note,
-                score: r._score,
-                sourceArticleTitle: sourceArticle?.title ?? "unknown article",
-              };
-            }),
-          );
-          relatedUserNotes = relatedUserNotes.filter(Boolean);
-        } catch {
-          // userNotes vector index may be empty, that's fine
-        }
-      }
-
-      // Step 2: Format context for LLM
-      const vaultNotesContext =
-        relatedChunks.length > 0
-          ? relatedChunks
-              .slice(0, 12)
-              .map(
-                (c: any) =>
-                  `--- Vault note: ${c.filePath} ---\n${c.content}\n`,
-              )
-              .join("\n")
-          : "No related notes found in the user's vault.";
-
-      const userNotesContext =
-        relatedUserNotes.length > 0
-          ? relatedUserNotes
-              .slice(0, 5)
-              .map(
-                (n: any) =>
-                  `--- Your note (from "${n.sourceArticleTitle}") ---\nHighlighted: "${n.selectedText}"\nYour thought: ${n.contentPlain}\n`,
-              )
-              .join("\n")
-          : "";
-
-      const notesContext = userNotesContext
-        ? `${vaultNotesContext}\n\n## User's Own Notes\n\n${userNotesContext}`
-        : vaultNotesContext;
-
-      // Trim article to ~4000 words to stay within reasonable token limits
-      const articleText = article.content.slice(0, 16000);
+      // Step 1–2: Gather what the model should read: most of the article,
+      // dates, and the reader's closely related notes, marks and questions
+      const { articleText, contextText, vaultPaths } = await buildMarginaliaContext(ctx, {
+        ...article,
+        content: article.content,
+      });
 
       const prompt = `## Article: "${article.title}"
 ${article.author ? `By: ${article.author}` : ""}
 
-${articleText}
+${articleText}${article.content.length > articleText.length ? "\n\n[The article continues beyond this point.]" : ""}
 
-## User's Related Notes
-
-${notesContext}
+${contextText}
 
 Generate annotations and a reflection for this article. Remember: quality over quantity. Only annotate where you genuinely add value.`;
 
       // Step 3: Generate annotations via LLM
-      const { object } = await generateObjectWithFallback<AnnotationResult>({
+      const models = await ctx.runQuery(internal.userSettings.getModelsInternal, {});
+      const { object, modelId } = await generateObjectWithFallback<AnnotationResult>({
         schema: annotationCandidateSchema as ZodType<AnnotationResult, any, any>,
         system: SYSTEM_PROMPT,
         prompt,
+        models: modelChain(models.annotations, "annotations"),
       });
 
       // Step 4: Quality gate
+      const rejected = { anchor: 0, relevance: 0, notePath: 0 };
       const validAnnotations = object.annotations
         .filter((a) => {
           // Anchor text must exist in article content
           if (!article.content!.includes(a.anchorText)) {
+            rejected.anchor++;
             return false;
           }
           // Relevance threshold
           if (a.relevanceScore < MIN_RELEVANCE_SCORE) {
+            rejected.relevance++;
+            console.log(
+              `Dropped ${a.type} (${a.relevanceScore}): ${a.content.slice(0, 160)}`,
+            );
             return false;
           }
           // cross_reference must have notePath
           if (a.type === "cross_reference" && !a.notePath) {
+            rejected.notePath++;
             return false;
           }
           return true;
@@ -264,9 +197,8 @@ Generate annotations and a reflection for this article. Remember: quality over q
 
       // Build a lookup to resolve LLM note paths to actual vault paths
       const notePathLookup = new Map<string, string>();
-      for (const c of relatedChunks) {
+      for (const fp of vaultPaths) {
         // Map filename (with and without .md) and full path to the real path
-        const fp = c.filePath as string;
         notePathLookup.set(fp, fp);
         notePathLookup.set(fp.toLowerCase(), fp);
         const basename = fp.split("/").pop() || fp;
@@ -322,7 +254,8 @@ Generate annotations and a reflection for this article. Remember: quality over q
       });
 
       console.log(
-        `Annotated "${article.title}": ${validAnnotations.length} annotations`,
+        `Annotated "${article.title}" with ${modelId}: ${validAnnotations.length} of ${object.annotations.length} candidates kept`,
+        rejected,
       );
     } catch (error) {
       console.error(`Annotation generation failed for ${article.title}:`, error);

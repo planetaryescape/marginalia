@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=JetBrains+Mono:wght@400;500&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -143,4 +141,423 @@ html {
 
 .tiptap em {
   @apply italic;
+}
+
+/* ───────────────────────── Reader: themes, pen, highlighter ───────────────────────── */
+
+:root,
+html[data-reader-theme="paper"] {
+  --reader-bg: #faf8f5;
+  --reader-surface: #ffffff;
+  --reader-fg: #201d1b;
+  --reader-fg-soft: #3b3733;
+  --reader-muted: #7a7068;
+  --reader-border: rgba(32, 29, 27, 0.1);
+  --reader-border-strong: rgba(32, 29, 27, 0.2);
+  --reader-chip: rgba(32, 29, 27, 0.05);
+}
+
+.dark,
+html[data-reader-theme="night"] {
+  --reader-bg: #201d1b;
+  --reader-surface: #2a2623;
+  --reader-fg: #f3f1ef;
+  --reader-fg-soft: #dcd7d2;
+  --reader-muted: #958a81;
+  --reader-border: rgba(255, 255, 255, 0.08);
+  --reader-border-strong: rgba(255, 255, 255, 0.17);
+  --reader-chip: rgba(255, 255, 255, 0.06);
+}
+
+html[data-reader-theme="sepia"] {
+  --reader-bg: #f3ead8;
+  --reader-surface: #faf4e7;
+  --reader-fg: #3b2e20;
+  --reader-fg-soft: #4a3b2a;
+  --reader-muted: #8a7660;
+  --reader-border: rgba(74, 59, 42, 0.14);
+  --reader-border-strong: rgba(74, 59, 42, 0.26);
+  --reader-chip: rgba(74, 59, 42, 0.07);
+}
+
+html[data-reader-theme="snow"] {
+  --reader-bg: #ffffff;
+  --reader-surface: #ffffff;
+  --reader-fg: #18181b;
+  --reader-fg-soft: #2e2e33;
+  --reader-muted: #71717a;
+  --reader-border: rgba(0, 0, 0, 0.09);
+  --reader-border-strong: rgba(0, 0, 0, 0.18);
+  --reader-chip: rgba(0, 0, 0, 0.045);
+}
+
+/* A softer dark: warm charcoal rather than near-black */
+html[data-reader-theme="dusk"] {
+  --reader-bg: #34302c;
+  --reader-surface: #3e3935;
+  --reader-fg: #f1ece6;
+  --reader-fg-soft: #ddd6ce;
+  --reader-muted: #a59c93;
+  --reader-border: rgba(255, 255, 255, 0.09);
+  --reader-border-strong: rgba(255, 255, 255, 0.18);
+  --reader-chip: rgba(255, 255, 255, 0.07);
+}
+
+html[data-reader-theme="ink"] {
+  --reader-bg: #0e1014;
+  --reader-surface: #161a21;
+  --reader-fg: #e8ebf0;
+  --reader-fg-soft: #c6ccd6;
+  --reader-muted: #7f8796;
+  --reader-border: rgba(255, 255, 255, 0.08);
+  --reader-border-strong: rgba(255, 255, 255, 0.16);
+  --reader-chip: rgba(255, 255, 255, 0.06);
+}
+
+:root {
+  --pen: #3b63d9;
+  --highlighter: rgba(246, 205, 72, 0.45);
+  --reader-annotated: #b07050;
+  --reader-font: var(--font-newsreader), Georgia, serif;
+  --reader-size: 20px;
+  --reader-leading: 1.8;
+}
+html[data-pen="vermilion"] { --pen: #d1492b; }
+html[data-pen="forest"] { --pen: #2f7d47; }
+html[data-pen="graphite"] { --pen: #555555; }
+html.dark { --pen: #7d9cf5; }
+html.dark[data-pen="vermilion"] { --pen: #ec7556; }
+html.dark[data-pen="forest"] { --pen: #62b07a; }
+html.dark[data-pen="graphite"] { --pen: #b5b0ab; }
+html { --pen-soft: color-mix(in srgb, var(--pen) 12%, transparent); }
+
+html[data-highlighter="green"] { --highlighter: rgba(120, 200, 112, 0.4); }
+html[data-highlighter="blue"] { --highlighter: rgba(110, 165, 240, 0.38); }
+html[data-highlighter="pink"] { --highlighter: rgba(240, 130, 180, 0.36); }
+html.dark { --highlighter: rgba(246, 205, 72, 0.26); }
+html.dark[data-highlighter="green"] { --highlighter: rgba(120, 200, 112, 0.26); }
+html.dark[data-highlighter="blue"] { --highlighter: rgba(110, 165, 240, 0.28); }
+html.dark[data-highlighter="pink"] { --highlighter: rgba(240, 130, 180, 0.26); }
+
+html[data-reader-theme] body {
+  background: var(--reader-bg);
+  color: var(--reader-fg);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ───────────────────────── Reader: typography ───────────────────────── */
+
+html[data-reader-theme] .reader-prose {
+  --tw-prose-body: var(--reader-fg-soft);
+  --tw-prose-headings: var(--reader-fg);
+  --tw-prose-bold: var(--reader-fg);
+  --tw-prose-quotes: var(--reader-fg-soft);
+  --tw-prose-links: var(--pen);
+  --tw-prose-bullets: var(--reader-muted);
+  --tw-prose-counters: var(--reader-muted);
+  --tw-prose-hr: var(--reader-border);
+  --tw-prose-quote-borders: var(--reader-border-strong);
+  font-family: var(--reader-font);
+  font-size: var(--reader-size);
+}
+
+html[data-reader-theme] .reader-prose :is(h1, h2, h3, h4, h5, h6, strong) {
+  font-family: var(--reader-font);
+  color: var(--reader-fg);
+}
+
+html[data-reader-theme] .reader-prose :is(p, li) {
+  line-height: var(--reader-leading);
+}
+
+html[data-reader-theme] .reader-prose a {
+  color: var(--pen);
+}
+
+html[data-reader-theme] .reader-prose :not(pre) > code {
+  background: var(--reader-chip);
+  color: var(--reader-fg);
+}
+
+.reader-justify .reader-prose :is(p, li) {
+  text-align: justify;
+  hyphens: auto;
+}
+
+html[data-reader-theme] .reader-indented .reader-prose p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.reader-indented .reader-prose p + p {
+  text-indent: 1.6em;
+}
+
+/* ¶ numbers in the left gutter */
+.reader-numbers [data-para] {
+  position: relative;
+}
+
+.reader-numbers [data-para]::before {
+  content: attr(data-para);
+  position: absolute;
+  top: 0;
+  left: calc(-1 * var(--para-indent, 0px) - 2.75rem);
+  width: 2rem;
+  text-align: right;
+  font: 500 0.55em / calc(var(--reader-leading) / 0.55) var(--font-jetbrains-mono), monospace;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  text-indent: 0;
+  color: var(--reader-muted);
+  opacity: 0.6;
+  pointer-events: none;
+  user-select: none;
+}
+
+.reader-numbers :is(h1, h2, h3, h4, h5, h6)[data-para]::before {
+  font-size: 0.4em;
+  line-height: calc(1.3 / 0.4);
+}
+
+.reader-numbers [data-current]::before {
+  color: var(--pen);
+  opacity: 1;
+}
+
+/* Focus mode: only the paragraph at the reading line stays lit */
+.reader-focus [data-para] {
+  transition: opacity 0.35s ease;
+}
+
+.reader-focus [data-para]:not([data-current]):not([data-speaking]):not([data-companion]) {
+  opacity: 0.22;
+}
+
+[data-speaking] {
+  background-color: color-mix(in srgb, var(--highlighter) 60%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--highlighter) 60%, transparent);
+  border-radius: 3px;
+  transition: background-color 0.3s ease;
+}
+
+@keyframes para-flash {
+  0%,
+  35% {
+    background-color: var(--highlighter);
+    box-shadow: 0 0 0 6px var(--highlighter);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+.para-flash {
+  border-radius: 3px;
+  animation: para-flash 1.8s ease-out;
+}
+
+/* ───────────────────────── Reader: companion ───────────────────────── */
+
+::highlight(companion-passage),
+::highlight(companion-pending),
+::highlight(companion-saved-hover) {
+  background-color: var(--highlighter);
+  color: inherit;
+}
+
+/* Highlighter and pen tools */
+::highlight(user-highlight) {
+  background-color: var(--highlighter);
+  color: inherit;
+}
+
+::highlight(user-underline) {
+  text-decoration: underline 2px var(--pen);
+}
+
+/* Saved Ask / Explain / Simplify passages: a lighter wash of the highlighter */
+::highlight(companion-saved) {
+  background-color: color-mix(in srgb, var(--highlighter) 45%, transparent);
+  color: inherit;
+}
+
+/* The auto annotation whose card is open */
+.annotation-mark[data-active] {
+  border-radius: 2px;
+}
+.annotation-mark[data-active][data-type="cross_reference"] {
+  background: color-mix(in srgb, #5b7f95 18%, transparent) !important;
+}
+.annotation-mark[data-active][data-type="context"] {
+  background: color-mix(in srgb, #7a8f6f 18%, transparent) !important;
+}
+.annotation-mark[data-active][data-type="tension"] {
+  background: color-mix(in srgb, #b07050 18%, transparent) !important;
+}
+.annotation-mark[data-active][data-type="question"] {
+  background: color-mix(in srgb, #8b7bb0 18%, transparent) !important;
+}
+
+.companion-lead {
+  background: var(--highlighter);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  padding: 0.08em 0.2em;
+  margin: 0 -0.2em;
+  border-radius: 3px;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.companion-caret {
+  display: inline-block;
+  width: 0.42em;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: -0.14em;
+  border-radius: 1px;
+  background: var(--pen);
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes companion-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.companion-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--reader-chip) 0%,
+    var(--reader-border-strong) 50%,
+    var(--reader-chip) 100%
+  );
+  background-size: 200% 100%;
+  animation: companion-shimmer 1.4s linear infinite;
+}
+
+/* ───────────────────────── Reader: controls ───────────────────────── */
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+.reader-popover[data-state="open"] {
+  animation: popover-in 0.16s ease-out;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+.reader-range {
+  accent-color: var(--pen);
+  height: 4px;
+  cursor: pointer;
+}
+
+.reader-kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 0.35em;
+  border-radius: 4px;
+  border: 1px solid var(--reader-border-strong);
+  background: var(--reader-chip);
+  font: 500 10px / 1.6 var(--font-jetbrains-mono), monospace;
+  text-align: center;
+  color: var(--reader-fg);
+}
+
+@keyframes listen-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.listen-pulse:not([data-paused]) {
+  animation: listen-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-caret,
+  .companion-shimmer,
+  .listen-pulse,
+  .para-flash {
+    animation: none;
+  }
+}
+
+/* ───────────────────────── Reader: summary ───────────────────────── */
+
+@keyframes summary-sweep {
+  0% {
+    top: -6px;
+  }
+  100% {
+    top: 28px;
+  }
+}
+
+.summary-sweep {
+  animation: summary-sweep 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  opacity: 0.9;
+}
+
+@keyframes summary-reading {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.summary-reading {
+  animation: summary-reading 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .summary-sweep,
+  .summary-reading {
+    animation: none;
+  }
+}
+
+/* ───────────────────────── Reader: drop cap ───────────────────────── */
+
+.reader-dropcap [data-dropcap]::first-letter {
+  font-family: var(--dropcap-font);
+  font-weight: 500;
+  font-style: normal;
+  color: var(--pen);
+  -webkit-initial-letter: var(--dropcap-lines);
+  initial-letter: var(--dropcap-lines);
+  margin-right: 0.12em;
+}
+
+.reader-dropcap[data-dropcap-style="ornate"] [data-dropcap]::first-letter {
+  font-weight: 700;
+  margin-right: 0.16em;
+}
+
+.reader-dropcap[data-dropcap-style="gothic"] [data-dropcap]::first-letter {
+  font-weight: 400;
+  margin-right: 0.14em;
+}
+
+/* Firefox has no initial-letter yet: approximate it with a floated letter */
+@supports not ((initial-letter: 2) or (-webkit-initial-letter: 2)) {
+  .reader-dropcap [data-dropcap]::first-letter {
+    float: left;
+    font-size: calc(var(--dropcap-lines) * var(--reader-leading) * 1em * 0.86);
+    line-height: 0.82;
+    margin: 0.08em 0.1em 0 0;
+  }
 }

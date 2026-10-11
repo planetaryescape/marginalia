@@ -97,7 +97,7 @@ export function NotesPanel({
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", damping: 25, stiffness: 250 }}
-          className="fixed top-0 right-0 h-full w-[380px] max-w-[85vw] z-50 border-l border-ink-200 dark:border-ink-800 bg-parchment-50 dark:bg-ink-950 shadow-2xl shadow-black/20 flex flex-col"
+          className="fixed top-0 right-0 h-full w-[380px] max-w-[85vw] z-50 border-l border-[var(--reader-border)] bg-[var(--reader-bg)] shadow-2xl shadow-black/20 flex flex-col"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-ink-200 dark:border-ink-800">

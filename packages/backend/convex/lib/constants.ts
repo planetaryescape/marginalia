@@ -5,7 +5,8 @@ export const DEFAULT_USER_ID = "default_user";
 export const WORDS_PER_MINUTE = 220;
 
 // Annotation quality thresholds
-export const MIN_RELEVANCE_SCORE = 0.6;
+// Matches the 0.5 "specific and useful" floor in the annotation prompt's scoring scale
+export const MIN_RELEVANCE_SCORE = 0.5;
 export const MAX_ANNOTATIONS_PER_ARTICLE = 10;
 
 // Feed polling

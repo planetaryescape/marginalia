@@ -1,9 +1,8 @@
 "use client";
 import DOMPurify from "isomorphic-dompurify";
 import { useMutation } from "convex/react";
-import { useMemo, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { AnnotationPopover } from "./annotation-popover";
 
 interface Annotation {
   _id: string;
@@ -21,7 +20,9 @@ interface ArticleRendererProps {
   content: string;
   contentHtml: string;
   annotations: Annotation[];
-  onAnnotationOpen?: (annotationId: string) => void;
+  activeAnnotationId: string | null;
+  /** Called with the clicked annotation, or null when the open one is clicked again. */
+  onAnnotationSelect: (annotationId: string | null) => void;
 }
 
 const ANNOTATION_COLORS: Record<string, string> = {
@@ -86,13 +87,10 @@ export function ArticleRenderer({
   content,
   contentHtml,
   annotations,
-  onAnnotationOpen,
+  activeAnnotationId,
+  onAnnotationSelect,
 }: ArticleRendererProps) {
-  const [activeAnnotation, setActiveAnnotation] = useState<string | null>(null);
-  const [popoverPos, setPopoverPos] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const markViewed = useMutation(api.annotations.markViewed);
 
   // Sanitize HTML then inject annotation markers
@@ -110,42 +108,43 @@ export function ArticleRenderer({
     return injectAnnotations(sanitized, content, annotations);
   }, [content, contentHtml, annotations]);
 
-  const activeAnn = annotations.find((a) => a._id === activeAnnotation);
+  // React 19 rewrites innerHTML whenever this object's identity changes, which
+  // would wipe the reader's selection and paragraph tags on every re-render.
+  const innerHtml = useMemo(() => ({ __html: annotatedHtml }), [annotatedHtml]);
+
+  // Emphasise the annotation whose card is open
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-apply after the HTML is replaced
+  useEffect(() => {
+    if (!activeAnnotationId) return;
+    const mark = bodyRef.current?.querySelector(
+      `[data-annotation-id="${CSS.escape(activeAnnotationId)}"]`,
+    );
+    mark?.setAttribute("data-active", "");
+    return () => mark?.removeAttribute("data-active");
+  }, [activeAnnotationId, innerHtml]);
 
   const handleClick = useCallback(
-    async (e: React.MouseEvent) => {
+    (e: React.MouseEvent) => {
       const target = (e.target as HTMLElement).closest(".annotation-mark");
-      if (!target) {
-        setActiveAnnotation(null);
-        return;
-      }
-
-      const annId = target.getAttribute("data-annotation-id");
+      const annId = target?.getAttribute("data-annotation-id");
       if (!annId) return;
-
-      if (activeAnnotation === annId) {
-        setActiveAnnotation(null);
+      if (activeAnnotationId === annId) {
+        onAnnotationSelect(null);
         return;
       }
-
-      const rect = target.getBoundingClientRect();
-      // Use viewport-relative coords for fixed positioning
-      setPopoverPos({
-        top: rect.bottom + 8,
-        left: Math.max(16, Math.min(rect.left, window.innerWidth - 380)),
-      });
-      setActiveAnnotation(annId);
-      onAnnotationOpen?.(annId);
-      await markViewed({ annotationId: annId as any });
+      onAnnotationSelect(annId);
+      markViewed({ annotationId: annId as any });
     },
-    [activeAnnotation, markViewed],
+    [activeAnnotationId, onAnnotationSelect, markViewed],
   );
 
   return (
     <div className="relative" onClick={handleClick}>
       {/* Article HTML with full prose styling */}
       <div
-        className="prose prose-lg md:prose-xl dark:prose-invert max-w-none
+        ref={bodyRef}
+        data-article-body
+        className="reader-prose prose prose-lg md:prose-xl dark:prose-invert max-w-none
           prose-headings:font-serif prose-headings:font-medium prose-headings:tracking-tight
           prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-4
           prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-3
@@ -161,21 +160,8 @@ export function ArticleRenderer({
           prose-pre:border prose-pre:border-ink-800
           prose-img:rounded-lg prose-img:my-8
           prose-li:leading-[1.7]"
-        dangerouslySetInnerHTML={{ __html: annotatedHtml }}
+        dangerouslySetInnerHTML={innerHtml}
       />
-
-      {/* Floating annotation popover */}
-      {activeAnn && popoverPos && (
-        <div
-          className="fixed z-50 w-[360px] max-w-[calc(100vw-32px)]"
-          style={{ top: popoverPos.top, left: popoverPos.left }}
-        >
-          <AnnotationPopover
-            annotation={activeAnn}
-            onClose={() => setActiveAnnotation(null)}
-          />
-        </div>
-      )}
     </div>
   );
 }

@@ -176,6 +176,12 @@ export default defineSchema({
     selectedText: v.string(),
     selectedStartOffset: v.optional(v.number()),
     selectedEndOffset: v.optional(v.number()),
+    // Set when the note is a reflection on an auto annotation (e.g. answering a Question).
+    // Not a hard reference: re-annotating deletes annotations but keeps the note.
+    annotationId: v.optional(v.id("annotations")),
+    // What the note responds to (e.g. the Question it answers), kept so the
+    // note still makes sense after re-annotating deletes the annotation
+    prompt: v.optional(v.string()),
     // The note content (Tiptap JSON stored as string)
     content: v.string(),
     // Plain text version for search/embedding
@@ -206,4 +212,115 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_article", ["userId", "articleId"])
     .index("by_user_next_review", ["userId", "nextReviewAt"]),
+
+  // Ask / Explain / Simplify conversations about a highlighted passage.
+  // `turns` is bounded: the companion endpoint accepts at most 30 history turns.
+  companionThreads: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    mode: v.union(
+      v.literal("explain"),
+      v.literal("simplify"),
+      v.literal("ask"),
+      v.literal("article"),
+    ),
+    selection: v.string(),
+    question: v.optional(v.string()),
+    paragraphIndex: v.optional(v.number()),
+    turns: v.array(
+      v.object({
+        role: v.union(v.literal("user"), v.literal("assistant")),
+        content: v.string(),
+      }),
+    ),
+    model: v.optional(v.string()),
+    // Passage + question + first answer, so future marginalia can recall it
+    embedding: v.optional(v.array(v.float64())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_article", ["articleId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["userId"],
+    }),
+
+  // Highlighter and pen marks, re-anchored by text when the article renders.
+  // Colours come from reader settings, so they follow the user's palette.
+  highlights: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    kind: v.union(v.literal("highlight"), v.literal("underline")),
+    text: v.string(),
+    paragraphIndex: v.optional(v.number()),
+    embedding: v.optional(v.array(v.float64())),
+    createdAt: v.number(),
+  })
+    .index("by_article", ["articleId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["userId"],
+    }),
+
+  // On-demand article summary: the gist, key claims and a section map.
+  // Paragraph numbers are 1-based and match the reader's ¶ labels.
+  summaries: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    gist: v.string(),
+    // Idea map: the article's ideas and how they build towards its point
+    thesis: v.optional(v.string()),
+    ideas: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          label: v.string(),
+          detail: v.string(),
+          role: v.union(
+            v.literal("premise"),
+            v.literal("evidence"),
+            v.literal("claim"),
+            v.literal("counterpoint"),
+            v.literal("conclusion"),
+          ),
+          paragraphs: v.array(v.number()),
+        }),
+      ),
+    ),
+    links: v.optional(
+      v.array(
+        v.object({
+          from: v.string(),
+          to: v.string(),
+          relation: v.union(
+            v.literal("supports"),
+            v.literal("leads_to"),
+            v.literal("contrasts"),
+            v.literal("illustrates"),
+          ),
+        }),
+      ),
+    ),
+    flow: v.optional(v.string()),
+    // Older summaries (before the idea map) stored these instead
+    claims: v.optional(
+      v.array(v.object({ text: v.string(), paragraphs: v.array(v.number()) })),
+    ),
+    sections: v.optional(
+      v.array(v.object({ title: v.string(), start: v.number(), end: v.number() })),
+    ),
+    model: v.string(),
+    createdAt: v.number(),
+  }).index("by_article", ["articleId"]),
+
+  // One row per user. Model IDs are validated against TEXT_MODELS in lib/openrouter.ts.
+  userSettings: defineTable({
+    userId: v.string(),
+    annotationModel: v.optional(v.string()),
+    quickModel: v.optional(v.string()),
+    deepModel: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
 });

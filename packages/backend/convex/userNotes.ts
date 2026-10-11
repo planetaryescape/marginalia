@@ -9,6 +9,8 @@ export const create = mutation({
     selectedText: v.string(),
     selectedStartOffset: v.optional(v.number()),
     selectedEndOffset: v.optional(v.number()),
+    annotationId: v.optional(v.id("annotations")),
+    prompt: v.optional(v.string()),
     content: v.string(),
     contentPlain: v.string(),
   },
@@ -20,6 +22,8 @@ export const create = mutation({
       selectedText: args.selectedText,
       selectedStartOffset: args.selectedStartOffset,
       selectedEndOffset: args.selectedEndOffset,
+      annotationId: args.annotationId,
+      prompt: args.prompt,
       content: args.content,
       contentPlain: args.contentPlain,
       createdAt: now,
@@ -44,6 +48,10 @@ export const update = mutation({
       content: args.content,
       contentPlain: args.contentPlain,
       updatedAt: Date.now(),
+    });
+    // Notes autosave while you type, so keep the embedding in step with the text
+    await ctx.scheduler.runAfter(0, internal.actions.embedUserNote.embed, {
+      noteId: args.noteId,
     });
   },
 });

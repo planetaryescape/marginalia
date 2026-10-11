@@ -1,17 +1,7 @@
 "use node";
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject, generateText } from "ai";
+import { generateObject } from "ai";
 import type { ZodType } from "zod";
-
-export const openrouter = createOpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
-});
-
-export const TEXT_MODELS = [
-  "google/gemini-2.5-flash",
-  "google/gemini-3-flash-preview",
-] as const;
+import { openrouter, type TextModel } from "./openrouter";
 
 const EMBEDDING_MODEL = "openai/text-embedding-3-small";
 const OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
@@ -40,18 +30,20 @@ export async function generateObjectWithFallback<T>(options: {
   schema: ZodType<T, any, any>;
   prompt?: string;
   system?: string;
+  /** Tried in order; later models are used only after a retryable failure. */
+  models: TextModel[];
   modelIndex?: number;
-}): Promise<{ object: T }> {
+}): Promise<{ object: T; modelId: TextModel }> {
   if (!process.env.OPENROUTER_API_KEY) {
     throw new Error("OPENROUTER_API_KEY not configured");
   }
 
   const modelIndex = options.modelIndex ?? 0;
-  if (modelIndex >= TEXT_MODELS.length) {
+  if (modelIndex >= options.models.length) {
     throw new Error("All AI models failed. Try again later.");
   }
 
-  const modelId = TEXT_MODELS[modelIndex];
+  const modelId = options.models[modelIndex];
 
   try {
     const result = await (generateObject as any)({
@@ -60,12 +52,12 @@ export async function generateObjectWithFallback<T>(options: {
       prompt: options.prompt,
       system: options.system,
     });
-    return { object: result.object as T };
+    return { object: result.object as T, modelId };
   } catch (error) {
     if (isAuthError(error)) {
       throw new Error("AI service configuration error.");
     }
-    if (isRetryableError(error) && modelIndex < TEXT_MODELS.length - 1) {
+    if (isRetryableError(error) && modelIndex < options.models.length - 1) {
       return generateObjectWithFallback({
         ...options,
         modelIndex: modelIndex + 1,

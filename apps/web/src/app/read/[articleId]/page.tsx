@@ -7,9 +7,36 @@ import { ArticleRenderer } from "@/components/article-renderer";
 import { ReflectionBox } from "@/components/reflection-box";
 import { NotesPanel } from "@/components/notes-panel";
 import { SelectionToolbar } from "@/components/selection-toolbar";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AnnotationCard } from "@/components/annotation-card";
+import { ArticleAsk } from "@/components/article-ask";
+import { CompanionCard } from "@/components/companion-card";
+import { ReaderSettingsPanel } from "@/components/reader-settings-panel";
+import { ReaderMap } from "@/components/reader-map";
+import { SummaryPanel } from "@/components/summary-panel";
+import { ListenBar } from "@/components/listen-bar";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
-import { formatReadTime } from "@/lib/utils";
+import { usePassageHighlight, useCompanion } from "@/lib/companion";
+import {
+  flashParagraph,
+  getArticleBody,
+  getParagraphs,
+  paragraphIndexOf,
+  useParagraphs,
+} from "@/lib/paragraphs";
+import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
+import { useSavedPassages } from "@/lib/saved-passages";
+import { useListen, useReadingPosition } from "@/lib/reading-modes";
+import {
+  DROP_CAP_FAMILIES,
+  isDarkTheme,
+  LINE_HEIGHTS,
+  MAX_WIDTHS,
+  TYPEFACE_FAMILIES,
+  useReaderSettings,
+  webSearchEnabled,
+} from "@/lib/reader-settings";
+import { cn, formatReadTime } from "@/lib/utils";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -51,6 +78,148 @@ export default function ReadPage() {
   } | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
   const hasRecordedAbandon = useRef(false);
+
+  const createNote = useMutation(api.userNotes.create);
+  const { settings, update: updateSettings, resetText } = useReaderSettings();
+  const { resolvedTheme, setTheme } = useTheme();
+  const paragraphs = useParagraphs(articleRef, Boolean(article));
+  const position = useReadingPosition(articleRef, paragraphs.version);
+  const summary = useQuery(api.summaries.getByArticle, {
+    articleId: articleId as any,
+  });
+  const savedThreads = useQuery(api.companionThreads.listByArticle, {
+    articleId: articleId as any,
+  });
+  const companion = useCompanion({
+    articleId: articleId as any,
+    containerRef: articleRef,
+    title: article?.title ?? "",
+    settings,
+  });
+  const listen = useListen(articleRef);
+  usePassageHighlight("companion-passage", companion.thread?.range ?? null);
+
+  // One margin card at a time: an auto annotation or a companion thread
+  const [activeAnnotation, setActiveAnnotation] = useState<{
+    id: string;
+    paragraphIndex: number | null;
+  } | null>(null);
+
+  const savedPassages = useSavedPassages({
+    containerRef: articleRef,
+    threads: savedThreads,
+    version: paragraphs.version,
+    activeId: companion.thread?.savedId,
+    onOpen: ({ doc, range }) => {
+      setActiveAnnotation(null);
+      if (companion.thread?.savedId === doc._id) companion.close();
+      else companion.open(doc, range);
+    },
+  });
+
+  // Highlighter and pen marks (registered after saved passages so those win on click)
+  const highlightDocs = useQuery(api.highlights.listByArticle, {
+    articleId: articleId as any,
+  });
+  const createHighlight = useMutation(api.highlights.create);
+  const removeHighlight = useMutation(api.highlights.remove);
+  const marks = useHighlights({
+    containerRef: articleRef,
+    docs: highlightDocs,
+    version: paragraphs.version,
+  });
+
+  const isMarked = useCallback(
+    (kind: MarkKind, range: Range) => Boolean(findMark(marks, kind, range)),
+    [marks],
+  );
+
+  const toggleMark = useCallback(
+    async (kind: MarkKind, range: Range) => {
+      const existing = findMark(marks, kind, range);
+      try {
+        if (existing) {
+          await removeHighlight({ highlightId: existing.doc._id });
+        } else {
+          await createHighlight({
+            articleId: articleId as any,
+            kind,
+            text: range.toString().replace(/\s+/g, " ").trim(),
+            paragraphIndex: paragraphIndexOf(range.startContainer) ?? undefined,
+          });
+        }
+      } catch {
+        toast.error("Couldn't save that");
+      }
+    },
+    [marks, createHighlight, removeHighlight, articleId],
+  );
+
+  const startCompanion = useCallback(
+    (args: Parameters<typeof companion.start>[0]) => {
+      setActiveAnnotation(null);
+      companion.start(args);
+    },
+    [companion.start],
+  );
+
+  // Keep light/dark in step with an explicit reader theme (e.g. after toggling elsewhere in the app)
+  useEffect(() => {
+    if (settings.theme === "auto" || !resolvedTheme) return;
+    const wantDark = isDarkTheme(settings.theme);
+    if ((resolvedTheme === "dark") !== wantDark) setTheme(wantDark ? "dark" : "light");
+  }, [settings.theme, resolvedTheme, setTheme]);
+
+  // Reader theme tokens live on <html> so portals (popover, toasts) pick them up too
+  useEffect(() => {
+    const html = document.documentElement;
+    html.dataset.readerTheme =
+      settings.theme === "auto" ? (resolvedTheme === "dark" ? "night" : "paper") : settings.theme;
+    html.dataset.pen = settings.pen;
+    html.dataset.highlighter = settings.highlighter;
+    return () => {
+      delete html.dataset.readerTheme;
+      delete html.dataset.pen;
+      delete html.dataset.highlighter;
+    };
+  }, [settings.theme, settings.pen, settings.highlighter, resolvedTheme]);
+
+  // Focus mode keeps the passage under discussion lit
+  const companionParagraph =
+    companion.thread?.paragraphIndex ?? activeAnnotation?.paragraphIndex ?? null;
+  useEffect(() => {
+    if (companionParagraph === null) return;
+    const el = getParagraphs(getArticleBody(articleRef.current))[companionParagraph];
+    el?.setAttribute("data-companion", "");
+    return () => el?.removeAttribute("data-companion");
+  }, [companionParagraph, paragraphs.version]);
+
+  const jumpToParagraph = useCallback((index: number) => {
+    const el = getParagraphs(getArticleBody(articleRef.current))[index];
+    if (el) flashParagraph(el);
+  }, []);
+
+  const handleSaveCompanionNote = useCallback(
+    async (note: { selectedText: string; content: string; contentPlain: string }) => {
+      try {
+        await createNote({ articleId: articleId as any, ...note });
+        toast.success("Saved to notes");
+      } catch {
+        toast.error("Couldn't save the note");
+      }
+    },
+    [createNote, articleId],
+  );
+
+  const toggleListen = useCallback(() => {
+    if (listen.active) {
+      listen.stop();
+    } else if (!listen.supported) {
+      toast.error("This browser can't read aloud");
+    } else {
+      listen.speakFrom(position.current ?? position.firstVisible ?? 0);
+    }
+  }, [listen, position.current, position.firstVisible]);
 
   // Scroll tracking
   useEffect(() => {
@@ -113,11 +282,50 @@ export default function ReadPage() {
     router.push("/");
   }, [sessionId, articleId, updateSession, recordInteraction, getSnapshot, router]);
 
-  const handleAnnotationOpen = useCallback(
-    (annotationId: string) => {
+  const handleAnnotationSelect = useCallback(
+    (annotationId: string | null) => {
+      if (!annotationId) {
+        setActiveAnnotation(null);
+        return;
+      }
+      companion.close();
+      const mark = articleRef.current?.querySelector(
+        `[data-annotation-id="${CSS.escape(annotationId)}"]`,
+      );
+      setActiveAnnotation({ id: annotationId, paragraphIndex: paragraphIndexOf(mark ?? null) });
       trackAnnotationOpen(annotationId);
     },
-    [trackAnnotationOpen],
+    [trackAnnotationOpen, companion.close],
+  );
+
+  const openAnnotation = annotations?.find((a) => a._id === activeAnnotation?.id);
+  const removeNote = useMutation(api.userNotes.remove);
+
+  const handleReflect = useCallback(
+    async (text: string) => {
+      if (!openAnnotation) return;
+      const escape = (value: string) =>
+        value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const paragraphs = text
+        .split(/\n{2,}/)
+        .map((p) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`)
+        .join("");
+      try {
+        await createNote({
+          articleId: articleId as any,
+          annotationId: openAnnotation._id as any,
+          prompt: openAnnotation.content,
+          selectedText: openAnnotation.anchorText,
+          // Keep the prompt with the reflection so the note reads on its own in the Notes panel
+          content: `<blockquote><p>${escape(openAnnotation.content)}</p></blockquote>${paragraphs}`,
+          contentPlain: text,
+        });
+      } catch {
+        toast.error("Couldn't save your reflection");
+        throw new Error("save failed");
+      }
+    },
+    [openAnnotation, createNote, articleId],
   );
 
   const handleAddNote = useCallback(
@@ -151,8 +359,11 @@ export default function ReadPage() {
       <div className="reading-progress" style={{ width: `${scrollPercent}%` }} />
 
       {/* Top nav */}
-      <div className="fixed top-0 left-0 right-0 z-40 bg-parchment-50/80 dark:bg-ink-950/80 backdrop-blur-sm">
-        <div className="max-w-2xl mx-auto px-6 py-3 flex items-center justify-between">
+      <div className="fixed top-0 left-0 right-0 z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm">
+        <div
+          className="mx-auto px-6 py-3 flex items-center justify-between"
+          style={{ maxWidth: `max(${MAX_WIDTHS[settings.width]}, 42rem)` }}
+        >
           <Link
             href={sessionId ? `/session/${sessionId}` : "/"}
             className="text-ink-400 hover:text-ink-600 font-sans text-sm transition-colors"
@@ -237,18 +448,70 @@ export default function ReadPage() {
               </svg>
             </button>
 
-            <ThemeToggle />
+            <ReaderSettingsPanel
+              settings={settings}
+              update={updateSettings}
+              resetText={resetText}
+              listening={listen.active}
+              onToggleListen={toggleListen}
+            />
           </div>
         </div>
       </div>
 
-      {/* Selection toolbar — "Add note" button near selected text */}
-      <SelectionToolbar containerRef={articleRef} onAddNote={handleAddNote} />
+      {/* Selection toolbar — Ask / Explain / Simplify, note and copy */}
+      <SelectionToolbar
+        containerRef={articleRef}
+        onAddNote={handleAddNote}
+        onCompanion={startCompanion}
+        depth={settings.answerDepth}
+        onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
+        web={webSearchEnabled(settings)}
+        onWebChange={(on) => updateSettings({ webSearch: on ? "always" : "off" })}
+        isMarked={isMarked}
+        onToggleMark={toggleMark}
+      />
+
+      {settings.map && (
+        <ReaderMap
+          containerRef={articleRef}
+          version={paragraphs.version}
+          position={position}
+          marked={companionParagraph}
+          saved={savedPassages.map((p) => p.doc.paragraphIndex ?? -1)}
+          onJump={jumpToParagraph}
+        />
+      )}
 
       {/* Article content */}
-      <article ref={articleRef} className="max-w-2xl mx-auto px-6 pt-20 pb-12">
+      <article
+        ref={articleRef}
+        className={cn(
+          "mx-auto px-6 pt-20 pb-12 transition-[max-width] duration-300",
+          settings.numbers && "reader-numbers",
+          settings.focus && "reader-focus",
+          settings.align === "justify" && "reader-justify",
+          settings.paragraphs === "indented" && "reader-indented",
+          settings.dropCap !== "off" && "reader-dropcap",
+        )}
+        data-dropcap-style={settings.dropCap}
+        style={
+          {
+            maxWidth: MAX_WIDTHS[settings.width],
+            "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
+            "--reader-size": `${settings.size}px`,
+            "--reader-leading": LINE_HEIGHTS[settings.spacing],
+            "--dropcap-lines": settings.dropCapLines,
+            "--dropcap-font":
+              settings.dropCap === "off" ? undefined : DROP_CAP_FAMILIES[settings.dropCap],
+          } as React.CSSProperties
+        }
+      >
         <header className="mb-10">
-          <h1 className="text-3xl sm:text-4xl font-serif font-medium text-ink-950 dark:text-parchment-100 leading-tight mb-4">
+          <h1
+            className="text-3xl sm:text-4xl font-medium text-[var(--reader-fg)] leading-tight mb-4"
+            style={{ fontFamily: "var(--reader-font)" }}
+          >
             {article.title}
           </h1>
           <div className="flex flex-wrap gap-3 text-sm font-sans text-ink-400 dark:text-ink-500">
@@ -262,13 +525,20 @@ export default function ReadPage() {
           </div>
         </header>
 
-        <div className="w-12 h-px bg-ink-200 dark:bg-ink-700 mb-10" />
-
+        <SummaryPanel
+          articleId={articleId as any}
+          title={article.title}
+          wordCount={article.wordCount}
+          summary={summary}
+          containerRef={articleRef}
+          onJump={jumpToParagraph}
+        />
         <ArticleRenderer
           content={article.content ?? ""}
           contentHtml={article.contentHtml ?? ""}
           annotations={annotations ?? []}
-          onAnnotationOpen={handleAnnotationOpen}
+          activeAnnotationId={activeAnnotation?.id ?? null}
+          onAnnotationSelect={handleAnnotationSelect}
         />
 
         {reflection && (
@@ -288,6 +558,66 @@ export default function ReadPage() {
           </div>
         )}
       </article>
+
+      {companion.thread && (
+        <CompanionCard
+          key={companion.thread.id}
+          thread={companion.thread}
+          containerRef={articleRef}
+          layoutVersion={paragraphs.version}
+          onClose={companion.close}
+          onDelete={companion.remove}
+          onFollowUp={companion.followUp}
+          onRegenerate={companion.regenerate}
+          onJump={jumpToParagraph}
+          onSaveNote={handleSaveCompanionNote}
+        />
+      )}
+
+      {openAnnotation && activeAnnotation && (
+        <AnnotationCard
+          key={openAnnotation._id}
+          annotation={openAnnotation}
+          paragraphIndex={activeAnnotation.paragraphIndex}
+          reflections={(articleNotes ?? [])
+            .filter((note) => note.annotationId === openAnnotation._id)
+            .sort((a, b) => a.createdAt - b.createdAt)}
+          onReflect={handleReflect}
+          onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+          containerRef={articleRef}
+          layoutVersion={paragraphs.version}
+          onClose={() => setActiveAnnotation(null)}
+          onJump={jumpToParagraph}
+        />
+      )}
+
+      <ArticleAsk
+        hidden={companion.thread?.mode === "article" || listen.active}
+        onAsk={(question) => {
+          setActiveAnnotation(null);
+          companion.startArticle(question);
+        }}
+        depth={settings.answerDepth}
+        onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
+        web={webSearchEnabled(settings)}
+        onWebChange={(on) => updateSettings({ webSearch: on ? "always" : "off" })}
+        history={(savedThreads ?? [])
+          .filter((t) => t.mode === "article")
+          .sort((a, b) => b.updatedAt - a.updatedAt)}
+        onOpen={(doc) => {
+          setActiveAnnotation(null);
+          companion.open(doc);
+        }}
+      />
+
+      <ListenBar
+        index={listen.index}
+        total={paragraphs.count}
+        paused={listen.paused}
+        onTogglePause={listen.togglePause}
+        onSkip={(index) => listen.speakFrom(Math.min(Math.max(0, index), paragraphs.count - 1))}
+        onStop={listen.stop}
+      />
 
       {/* Notes side panel */}
       <NotesPanel
