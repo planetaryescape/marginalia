@@ -28,3 +28,15 @@ Regression tests exercise failed/overlapping autosaves, invalid stored preferenc
 - No real paid model call or destructive Reader/vault test was needed. HTTP/mutation regressions use isolated Convex fixtures and fake provider responses; an untouched editor verifies focus without creating a test note.
 
 Automated audits do not prove accessibility on every browser or device. Read [limitations](limitations.md) for access control, offline durability and large-library work still outstanding; consult [operations](operations.md) before deploying.
+
+## Mobile and PWA follow-up
+
+- `bun run check` passes with **104 tests**: 44 web (including 11 PWA tests), 56 backend and 4 indexer. The production build passes with the configured public Convex URLs and the previously recorded build warnings.
+- Chromium inspected all desk destinations at 320×568, 390×844, 430×932 and 1440×900. No horizontal page overflow; every mobile navigation destination is visible, with 48px-high targets.
+- Reader controls have 44px touch targets on phone widths. Search opens with input focus and opens an existing article. Untouched note editors focus at 16px text on phones and close without creating records. Full-width phone notes and the separate-row question inputs were inspected.
+- A simulated 344px VisualViewport height at 390×844 resized the notes panel above the keyboard region. This is not a physical iOS keyboard test.
+- The production worker activated and controlled the page. Chrome offered the native Install app action. Stopping the local frontend produced the cached offline page at an article URL; restarting and retrying returned to the live desk. The test did not install onto a real phone.
+- React Doctor reports **66/100**, no errors and 20 warnings in the changed-file scope, predominantly existing reader complexity, animation imports and render/date patterns. The scope differs from the earlier polish score and is not an apples-to-apples regression metric.
+- The mobile Home WCAG A/AA audit reports one existing contrast violation on the small Worth revisiting label, plus manual-review items for the date separator and the portal trigger's ARIA reference. This follow-up does not claim a clean whole-app accessibility audit.
+
+See [the phone guide](mobile-and-pwa.md) for installation, offline limits and the physical-device smoke test. This follow-up changes only the frontend; no backend deployment, data migration, real note write or paid AI call was performed.

@@ -56,6 +56,7 @@ After deploy, verify the reader domain, not just the generated deployment URL:
 3. Read an existing article; annotations, settings and source links appear.
 4. Check Notes and saved activity without changing real content. Test writes only in isolated fixtures or a separate deployment.
 5. Check browser errors, overflow at mobile width and selected light/dark themes.
+6. Check `/manifest.webmanifest`, `/sw.js` and install icons; launch from a phone's home screen and confirm the worker's offline fallback. Follow [the PWA verification steps](mobile-and-pwa.md#verify-a-deployed-pwa).
 
 To roll back the frontend, promote the previously verified Vercel deployment using its dashboard. That does **not** roll back Convex code or data. Use a compatible backend version and explicit restore plan; never clear tables as a shortcut.
 

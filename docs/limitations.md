@@ -14,6 +14,7 @@ See [operations](operations.md#access-control) before deploying sensitive conten
 ## Reliability and scale
 
 - Notes have in-memory retry and a best-effort tab-close warning, not an offline outbox or durable local draft backup. Navigation away from the reader can still lose unsaved text.
+- PWA installation adds a standalone launcher and an offline fallback, not downloaded articles, offline writes or background sync. Physical phone installation, native text selection and resume/keyboard behaviour still need device checks; see [the phone guide](mobile-and-pwa.md).
 - Some collections are bounded recent views; analytics also retain legacy scans/joins. There is no full pagination/large-library performance contract yet.
 - Reader sync imports unread text queues and limits the first import to 100 recently updated items; it is not a complete mirror of Reader.
 - Publisher extraction, speech voices and AI provider availability vary. A saved URL does not guarantee successful article extraction.

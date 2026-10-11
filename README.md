@@ -42,6 +42,7 @@ bun run build
 
 - [Set up integrations and development](docs/development.md)
 - [Use the reader and keyboard shortcuts](docs/reader-guide.md)
+- [Use your phone and install the PWA](docs/mobile-and-pwa.md)
 - [Understand the architecture](ARCHITECTURE.md)
 - [Product boundaries](PRODUCT.md) and [recorded decisions](docs/decisions.md)
 - [Web design conventions](apps/web/DESIGN.md)
