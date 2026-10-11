@@ -6,9 +6,9 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        serif: ["Newsreader", "Georgia", "Times New Roman", "serif"],
-        sans: ["DM Sans", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "monospace"],
+        serif: ["var(--font-newsreader)", "Georgia", "Times New Roman", "serif"],
+        sans: ["var(--font-dm-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-jetbrains-mono)", "monospace"],
       },
       colors: {
         // Warm parchment palette — editorial, literary feel

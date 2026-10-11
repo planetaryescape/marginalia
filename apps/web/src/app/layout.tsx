@@ -1,8 +1,74 @@
 import type { Metadata } from "next";
+import {
+  Atkinson_Hyperlegible,
+  Cinzel_Decorative,
+  DM_Sans,
+  JetBrains_Mono,
+  Literata,
+  Newsreader,
+  UnifrakturMaguntia,
+} from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { ConvexClientProvider } from "@/lib/convex";
 import "./globals.css";
+
+// Self-hosted by next/font: Turbopack drops remote CSS @imports, so Google
+// Fonts must not be loaded from globals.css.
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  axes: ["opsz"],
+  variable: "--font-newsreader",
+});
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  axes: ["opsz"],
+  variable: "--font-dm-sans",
+});
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+});
+// Optional reading fonts load only when chosen in the Text settings
+const literata = Literata({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  axes: ["opsz"],
+  variable: "--font-literata",
+  preload: false,
+});
+const atkinson = Atkinson_Hyperlegible({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-atkinson",
+  preload: false,
+});
+const cinzelDecorative = Cinzel_Decorative({
+  subsets: ["latin"],
+  weight: "700",
+  variable: "--font-cinzel-decorative",
+  preload: false,
+});
+const unifraktur = UnifrakturMaguntia({
+  weight: "400",
+  variable: "--font-unifraktur",
+  preload: false,
+});
+
+const fontVariables = [
+  newsreader,
+  dmSans,
+  jetbrainsMono,
+  literata,
+  atkinson,
+  cinzelDecorative,
+  unifraktur,
+]
+  .map((font) => font.variable)
+  .join(" ");
 
 export const metadata: Metadata = {
   title: "Marginalia",
@@ -15,7 +81,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={fontVariables} suppressHydrationWarning>
       <body>
         <ThemeProvider
           attribute="class"
