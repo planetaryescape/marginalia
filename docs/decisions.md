@@ -1,0 +1,48 @@
+# Recorded decisions
+
+Use this record to preserve decisions that would otherwise be rediscovered during the next cleanup. Attribution matters: **user-requested** means explicitly available in the development conversation; **implementation** means observed in code or selected while implementing those requests. An implementation is not automatically a permanent product commitment.
+
+## User-requested decisions
+
+| Decision | Reason visible in the requests | Current implementation / verification |
+| --- | --- | --- |
+| A wide, attractive, no-scroll Home | The reading desk should make the next read immediately available | `(desk)/page.tsx`; check desktop and mobile viewport fit |
+| Floating search rather than a page of search results | Search is a quick way to choose the next article | `article-finder.tsx`; click or `/`, arrows/Enter/Escape |
+| Search explanations and pasted URLs | Results should explain their fit, and importing a link belongs in the same entry point | Validated `/api/library/search`; URL import through `addArticleByUrl` |
+| Keyboard access throughout | All functionality should work without a mouse | Shared dispatcher, native controls, modal focus tests and shortcut sheet |
+| Quiet visible focus | Loud blue highlights distracted from the reading design | `--reader-focus` and global focus styles |
+| Visible stars and rating labels | Shortcut hints alone did not make rating understandable | `impression-panel.tsx` |
+| Autosaving, immediately focused note editors | Writing a note should not require manual save bookkeeping | `note-editor.tsx`; 700ms debounce, close/blur flush and retry state |
+| Stable layout across every main navigation item | Notes and other legacy routes removed navigation and changed the layout | Persistent `(desk)/layout.tsx`; route regression tests |
+| Preserve existing notes during improvements | Polish must not replace personal reading history with test or demo data | No data migration in this pass; test fixtures stay isolated |
+| Commit and ship finished work to the reader domain | Completed work should be usable, not only local | Vercel production deployment plus live transition checks |
+
+Replay these paths with [the reader guide](reader-guide.md) before changing them.
+
+## Implementation decisions to preserve unless requirements change
+
+| Choice | Trade-off | Source |
+| --- | --- | --- |
+| Bun workspaces, Turbo, Next.js and Convex | One repo with a live query client and scheduled backend work; separate deployments still need care | Package manifests, `turbo.json`, `vercel.json` |
+| Native modal search and shared dialog helper | Browser focus semantics without separate focus-trap implementations | `use-modal-dialog.ts`, `article-finder.tsx` |
+| One shortcut dispatcher | Prevent `g h` from also firing the reader's `h` action; ignore editable targets and overlays | `shortcuts.ts` and its tests |
+| Theme tokens on `<html>` | Panels, portals and desk routes share the selected palette | `use-reader-theme.ts`, `globals.css` |
+| Browser-local reading appearance | Immediate preferences without a network round trip; not synchronized across devices | `reader-settings.ts` |
+| Server-side model allowlist and role-specific fallbacks | Prevent arbitrary provider model IDs; recover from provider failures | `lib/openrouter.ts`, `userSettings.ts` |
+| Keep personal activity in retrieval context | Notes and conversations need the passage/question they respond to | `marginaliaContext.ts`, note embedding action |
+| Keep reflection prompt text with a note | Re-annotation may delete an annotation; the saved reflection still needs to make sense | `userNotes` schema and context builder |
+| Validate search IDs and embedding responses | Provider output is not trusted merely because it is valid JSON | Search and embedding parser tests |
+| Whole-file atomic vault replacement | A failed upload must not destroy the previous complete index | `noteChunks.replaceFile` and mutation tests |
+| Retain failed note drafts in the editor | Closing should wait for an acknowledged save; offline storage is not promised | Autosave queue tests and reader panel |
+| Reader sync imports unread text queues only | Avoid importing the entire Reader archive or unsupported document formats | `actions/readwiseSync.ts` |
+| Loved-article revisit intervals | Current schedule grows through 3, 5, 8, 13, 21, 34 and 55 days, with jitter | `spacedRepetition.ts`; implementation choice, not a recovered user request |
+
+## Decisions still needed
+
+1. **Access control:** choose an authentication boundary for both the frontend and direct Convex APIs. A hidden domain or frontend-only password is insufficient.
+2. **Deployment separation:** migrate the live reader off its currently shared Convex development deployment without losing the library.
+3. **Cost controls:** set model-call quotas/rate limits and decide whether vault content may be sent to external models.
+4. **Large-library behaviour:** decide pagination/retention before replacing bounded recent collections or unbounded analytics scans.
+5. **License and distribution:** no license or multi-user release has been chosen.
+
+These are not silently resolved by a polish pass. Follow [operations](operations.md) and [limitations](limitations.md) when planning the next change.
