@@ -1,8 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const HARDCODED_USER = "default_user";
-
 export default defineSchema({
   feeds: defineTable({
     userId: v.string(),
@@ -185,7 +183,7 @@ export default defineSchema({
     // What the note responds to (e.g. the Question it answers), kept so the
     // note still makes sense after re-annotating deletes the annotation
     prompt: v.optional(v.string()),
-    // The note content (Tiptap JSON stored as string)
+    // Rich-text HTML produced by Tiptap; sanitize before rendering.
     content: v.string(),
     // Plain text version for search/embedding
     contentPlain: v.string(),
@@ -316,7 +314,9 @@ export default defineSchema({
       v.array(v.object({ text: v.string(), paragraphs: v.array(v.number()) })),
     ),
     sections: v.optional(
-      v.array(v.object({ title: v.string(), start: v.number(), end: v.number() })),
+      v.array(
+        v.object({ title: v.string(), start: v.number(), end: v.number() }),
+      ),
     ),
     model: v.string(),
     createdAt: v.number(),

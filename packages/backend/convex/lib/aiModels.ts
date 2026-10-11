@@ -3,7 +3,6 @@ import { generateObject } from "ai";
 import type { ZodType } from "zod";
 import { openrouter, type TextModel } from "./openrouter";
 
-
 function isAuthError(error: unknown): boolean {
   if (error && typeof error === "object") {
     const e = error as Record<string, unknown>;

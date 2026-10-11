@@ -1,6 +1,6 @@
+import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const create = mutation({
@@ -87,9 +87,13 @@ export const recordInteraction = mutation({
     });
     // Finishing an article that came from Readwise Reader archives it there
     if (args.action === "finished") {
-      await ctx.scheduler.runAfter(0, internal.actions.readwiseSync.archiveArticle, {
-        articleId: args.articleId,
-      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.actions.readwiseSync.archiveArticle,
+        {
+          articleId: args.articleId,
+        },
+      );
     }
   },
 });
@@ -106,7 +110,10 @@ export const getInProgress = query({
       .take(200);
 
     // Find articles that were opened but never finished
-    const openedArticles = new Map<string, { maxScroll: number; activeTime: number }>();
+    const openedArticles = new Map<
+      string,
+      { maxScroll: number; activeTime: number }
+    >();
     const finishedArticles = new Set<string>();
 
     for (const i of interactions) {
@@ -114,7 +121,10 @@ export const getInProgress = query({
         finishedArticles.add(i.articleId);
       }
       if (i.action === "opened" || i.action === "abandoned") {
-        if (!finishedArticles.has(i.articleId) && !openedArticles.has(i.articleId)) {
+        if (
+          !finishedArticles.has(i.articleId) &&
+          !openedArticles.has(i.articleId)
+        ) {
           openedArticles.set(i.articleId, {
             maxScroll: i.maxScrollPercent ?? i.scrollPercentage ?? 0,
             activeTime: i.activeTimeMs ?? i.timeSpentMs ?? 0,
@@ -134,7 +144,12 @@ export const getInProgress = query({
       if (!article) continue;
 
       const remainingMin = article.estimatedReadMinutes
-        ? Math.max(1, Math.round(article.estimatedReadMinutes * (1 - data.maxScroll / 100)))
+        ? Math.max(
+            1,
+            Math.round(
+              article.estimatedReadMinutes * (1 - data.maxScroll / 100),
+            ),
+          )
         : null;
 
       return {

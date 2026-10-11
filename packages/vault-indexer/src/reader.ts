@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, extname, basename } from "node:path";
+import { basename, extname, join, relative } from "node:path";
 import matter from "gray-matter";
 
 // Directories to skip
@@ -63,9 +64,7 @@ async function walkDir(
       }
 
       // Compute hash
-      const hasher = new Bun.CryptoHasher("sha256");
-      hasher.update(raw);
-      const hash = hasher.digest("hex");
+      const hash = createHash("sha256").update(raw).digest("hex");
 
       notes.push({
         filePath: relPath,
@@ -75,7 +74,11 @@ async function walkDir(
         hash,
       });
     } catch (error) {
-      console.warn(`Skipping ${fullPath}: ${error}`);
+      // A skipped read would look like a deleted file during remote reconciliation.
+      throw new Error(
+        `Couldn't read ${fullPath}; no remote reconciliation is safe`,
+        { cause: error },
+      );
     }
   }
 }

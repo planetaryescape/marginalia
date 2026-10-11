@@ -90,7 +90,9 @@ export const listRecent = query({
       .order("desc")
       .take(100);
     // A cleared impression (no rating, tags or note) isn't shown
-    const kept = rows.filter((row) => row.rating || row.tags.length || row.note);
+    const kept = rows.filter(
+      (row) => row.rating || row.tags.length || row.note,
+    );
     return Promise.all(
       kept.map(async (row) => {
         const article = await ctx.db.get("articles", row.articleId);

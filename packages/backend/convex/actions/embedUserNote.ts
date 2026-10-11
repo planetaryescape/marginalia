@@ -1,7 +1,7 @@
 "use node";
-import { internalAction } from "../_generated/server";
-import { internal } from "../_generated/api";
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
+import { internalAction } from "../_generated/server";
 import { embedText } from "../lib/aiModels";
 
 export const embed = internalAction({
@@ -10,7 +10,7 @@ export const embed = internalAction({
     const note = await ctx.runQuery(internal.userNotes.getByIdInternal, {
       noteId: args.noteId,
     });
-    if (!note || !note.contentPlain) return;
+    if (!note?.contentPlain) return;
 
     try {
       // Embed the passage, what the note responds to, and the note itself:
@@ -23,6 +23,7 @@ export const embed = internalAction({
       await ctx.runMutation(internal.userNotes.setEmbedding, {
         noteId: args.noteId,
         embedding,
+        contentPlain: note.contentPlain,
       });
     } catch (error) {
       console.error(`Failed to embed user note ${args.noteId}:`, error);

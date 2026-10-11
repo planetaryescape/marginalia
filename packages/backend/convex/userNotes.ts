@@ -1,6 +1,11 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const create = mutation({
@@ -48,6 +53,7 @@ export const update = mutation({
       content: args.content,
       contentPlain: args.contentPlain,
       updatedAt: Date.now(),
+      embedding: undefined,
     });
     // Notes autosave while you type, so keep the embedding in step with the text
     await ctx.scheduler.runAfter(0, internal.actions.embedUserNote.embed, {
@@ -105,8 +111,12 @@ export const setEmbedding = internalMutation({
   args: {
     noteId: v.id("userNotes"),
     embedding: v.array(v.float64()),
+    contentPlain: v.string(),
   },
   handler: async (ctx, args) => {
+    const note = await ctx.db.get(args.noteId);
+    // A slow embedding must not replace one for newer text, or resurrect a deleted note.
+    if (!note || note.contentPlain !== args.contentPlain) return;
     await ctx.db.patch(args.noteId, { embedding: args.embedding });
   },
 });

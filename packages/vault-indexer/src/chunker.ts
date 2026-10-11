@@ -14,10 +14,7 @@ const MIN_CHUNK_CHARS = 200; // ~50 tokens
  * 2. If a section exceeds MAX_CHUNK_CHARS, split on paragraph boundaries
  * 3. Prefix each chunk with "fileName > heading:" for retrieval context
  */
-export function chunkNote(
-  fileName: string,
-  content: string,
-): Chunk[] {
+export function chunkNote(fileName: string, content: string): Chunk[] {
   if (!content.trim()) return [];
 
   // Split on H2 headings
@@ -54,7 +51,10 @@ export function chunkNote(
       let buffer = prefix;
 
       for (const para of paragraphs) {
-        if (buffer.length + para.length > MAX_CHUNK_CHARS && buffer.length > prefix.length) {
+        if (
+          buffer.length + para.length > MAX_CHUNK_CHARS &&
+          buffer.length > prefix.length
+        ) {
           chunks.push({
             content: buffer.trim(),
             chunkIndex: chunkIndex++,
@@ -62,7 +62,7 @@ export function chunkNote(
           });
           buffer = prefix;
         }
-        buffer += para + "\n\n";
+        buffer += `${para}\n\n`;
       }
 
       // Flush remaining

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "index": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },

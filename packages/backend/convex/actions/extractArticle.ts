@@ -1,9 +1,9 @@
 "use node";
-import { internalAction } from "../_generated/server";
-import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { DEFAULT_USER_ID, WORDS_PER_MINUTE } from "../lib/constants";
+import { internal } from "../_generated/api";
+import { internalAction } from "../_generated/server";
 import { embedText } from "../lib/aiModels";
+import { WORDS_PER_MINUTE } from "../lib/constants";
 
 export const extractPending = internalAction({
   args: {},
@@ -50,7 +50,7 @@ async function extractSingle(ctx: any, article: any) {
 
   const result = await extract(article.url);
 
-  if (!result || !result.content) {
+  if (!result?.content) {
     await ctx.runMutation(internal.articles.updateExtractionStatus, {
       articleId: article._id,
       status: "failed",

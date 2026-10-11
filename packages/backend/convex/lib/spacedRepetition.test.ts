@@ -1,9 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  isDueForReview,
   nextReviewAt,
   snoozeReviewAt,
-  isDueForReview,
-  INTERVALS_DAYS,
 } from "./spacedRepetition";
 
 const DAY_MS = 24 * 60 * 60 * 1000;

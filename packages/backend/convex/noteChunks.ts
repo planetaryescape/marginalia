@@ -1,6 +1,18 @@
-import { internalMutation, internalQuery, query } from "./_generated/server";
 import { v } from "convex/values";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import { DEFAULT_USER_ID } from "./lib/constants";
+
+const chunkValidator = v.object({
+  userId: v.string(),
+  filePath: v.string(),
+  fileName: v.string(),
+  chunkIndex: v.number(),
+  content: v.string(),
+  tags: v.optional(v.array(v.string())),
+  embedding: v.array(v.float64()),
+  fileHash: v.string(),
+  indexedAt: v.number(),
+});
 
 export const getByIdInternal = internalQuery({
   args: { chunkId: v.id("noteChunks") },
@@ -51,24 +63,45 @@ export const deleteByFile = internalMutation({
 
 export const insertBatch = internalMutation({
   args: {
-    chunks: v.array(
-      v.object({
-        userId: v.string(),
-        filePath: v.string(),
-        fileName: v.string(),
-        chunkIndex: v.number(),
-        content: v.string(),
-        tags: v.optional(v.array(v.string())),
-        embedding: v.array(v.float64()),
-        fileHash: v.string(),
-        indexedAt: v.number(),
-      }),
-    ),
+    chunks: v.array(chunkValidator),
   },
   handler: async (ctx, args) => {
     for (const chunk of args.chunks) {
-      await ctx.db.insert("noteChunks", chunk);
+      await ctx.db.insert("noteChunks", { ...chunk, userId: DEFAULT_USER_ID });
     }
+  },
+});
+
+/** A complete replacement commits together or leaves the old file untouched. */
+export const replaceFile = internalMutation({
+  args: { filePath: v.string(), chunks: v.array(chunkValidator) },
+  handler: async (ctx, args) => {
+    const hash = args.chunks[0]?.fileHash;
+    if (
+      !hash ||
+      args.chunks.length > 128 ||
+      args.chunks.some(
+        (chunk, index) =>
+          chunk.filePath !== args.filePath ||
+          chunk.fileHash !== hash ||
+          chunk.chunkIndex !== index ||
+          chunk.embedding.length !== 1536 ||
+          chunk.embedding.some((value) => !Number.isFinite(value)),
+      )
+    ) {
+      throw new Error(
+        "Expected one complete file with ordered chunks and valid embeddings",
+      );
+    }
+    const previous = await ctx.db
+      .query("noteChunks")
+      .withIndex("by_user_file", (q) =>
+        q.eq("userId", DEFAULT_USER_ID).eq("filePath", args.filePath),
+      )
+      .collect();
+    for (const chunk of previous) await ctx.db.delete(chunk._id);
+    for (const chunk of args.chunks)
+      await ctx.db.insert("noteChunks", { ...chunk, userId: DEFAULT_USER_ID });
   },
 });
 

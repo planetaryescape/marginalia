@@ -38,7 +38,9 @@ export async function embedChunks(
       succeeded += embeddings.length;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`  Batch ${batchNum} failed permanently, skipping ${batch.length} chunks: ${msg}`);
+      console.warn(
+        `  Batch ${batchNum} failed permanently, skipping ${batch.length} chunks: ${msg}`,
+      );
       failed += batch.length;
     }
 
@@ -73,7 +75,9 @@ async function embedWithRetry(
 
   if (!response.ok) {
     if (attempt < MAX_RETRIES) {
-      console.warn(`    Attempt ${attempt} failed (${response.status}), retrying...`);
+      console.warn(
+        `    Attempt ${attempt} failed (${response.status}), retrying...`,
+      );
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
       return embedWithRetry(texts, apiKey, attempt + 1);
     }
@@ -94,11 +98,15 @@ async function embedWithRetry(
 
   if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
     if (attempt < MAX_RETRIES) {
-      console.warn(`    Attempt ${attempt} returned unexpected shape, retrying...`);
+      console.warn(
+        `    Attempt ${attempt} returned unexpected shape, retrying...`,
+      );
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
       return embedWithRetry(texts, apiKey, attempt + 1);
     }
-    throw new Error(`Unexpected response: ${JSON.stringify(data).slice(0, 200)}`);
+    throw new Error(
+      `Unexpected response: ${JSON.stringify(data).slice(0, 200)}`,
+    );
   }
 
   const sorted = [...data.data].sort((a: any, b: any) => a.index - b.index);

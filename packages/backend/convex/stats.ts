@@ -4,10 +4,7 @@ import { DEFAULT_USER_ID } from "./lib/constants";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Helper: partition interactions into this week and last week
-function partitionByWeek(
-  interactions: any[],
-  now: number,
-) {
+function partitionByWeek(interactions: any[], now: number) {
   const weekAgo = now - WEEK_MS;
   const twoWeeksAgo = now - 2 * WEEK_MS;
   return {
@@ -41,7 +38,10 @@ function computeWeekMetrics(interactions: any[]) {
     .map((i) => i.maxScrollPercent!);
   const avgScrollDepth =
     scrollDepths.length > 0
-      ? Math.round(scrollDepths.reduce((a: number, b: number) => a + b, 0) / scrollDepths.length)
+      ? Math.round(
+          scrollDepths.reduce((a: number, b: number) => a + b, 0) /
+            scrollDepths.length,
+        )
       : 0;
 
   const annotationsOpened = interactions.flatMap(
@@ -53,7 +53,9 @@ function computeWeekMetrics(interactions: any[]) {
       ? Math.round((totalActiveTimeMs / totalWallTimeMs) * 100)
       : 0;
 
-  const skippedCount = interactions.filter((i) => i.action === "skipped").length;
+  const skippedCount = interactions.filter(
+    (i) => i.action === "skipped",
+  ).length;
 
   return {
     articlesFinished,
@@ -127,7 +129,9 @@ export const getDashboardOverview = query({
 
     // Engagement score: weighted composite
     const annotationRate =
-      tw.annotationsOpenedCount > 0 ? Math.min(100, tw.annotationsOpenedCount * 10) : 0;
+      tw.annotationsOpenedCount > 0
+        ? Math.min(100, tw.annotationsOpenedCount * 10)
+        : 0;
     const engagementScore = Math.round(
       0.4 * tw.avgScrollDepth + 0.3 * tw.focusRatio + 0.3 * annotationRate,
     );
@@ -174,7 +178,11 @@ export const getReadingPatterns = query({
     const thisWeek = allInteractions.filter((i) => i.createdAt >= weekAgo);
 
     // Heatmap: day x time block
-    const heatmap: Array<{ dayOfWeek: number; timeBlock: number; count: number }> = [];
+    const heatmap: Array<{
+      dayOfWeek: number;
+      timeBlock: number;
+      count: number;
+    }> = [];
     const heatmapMap = new Map<string, number>();
 
     for (const i of thisWeek) {
@@ -202,7 +210,10 @@ export const getReadingPatterns = query({
       .take(200);
     const weekSessions = allSessions.filter((s) => s.startedAt >= weekAgo);
 
-    const durationGroups = new Map<number, { count: number; totalActual: number }>();
+    const durationGroups = new Map<
+      number,
+      { count: number; totalActual: number }
+    >();
     for (const s of weekSessions) {
       const req = s.requestedMinutes;
       const group = durationGroups.get(req) ?? { count: 0, totalActual: 0 };
@@ -236,7 +247,7 @@ export const getReadingPatterns = query({
     const finishedArticleIds = new Set(
       thisWeek.filter((i) => i.action === "finished").map((i) => i.articleId),
     );
-    const annotationsByType: Record<string, { viewed: number; total: number }> = {
+    const annotationsByType = {
       cross_reference: { viewed: 0, total: 0 },
       context: { viewed: 0, total: 0 },
       tension: { viewed: 0, total: 0 },
@@ -336,7 +347,7 @@ export const getArticleDetails = query({
       }),
     );
 
-    return results.filter(Boolean);
+    return results.filter((result) => result !== null);
   },
 });
 
@@ -377,7 +388,9 @@ export const getWeeklyStats = query({
       .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
       .order("desc")
       .take(500);
-    const weekInteractions = allInteractions.filter((i) => i.createdAt >= weekAgo);
+    const weekInteractions = allInteractions.filter(
+      (i) => i.createdAt >= weekAgo,
+    );
     const tw = computeWeekMetrics(weekInteractions);
     return {
       articlesReadCount: tw.articlesFinished,

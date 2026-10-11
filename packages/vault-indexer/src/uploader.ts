@@ -1,6 +1,6 @@
 const UPLOAD_BATCH_SIZE = 25;
 
-interface ChunkUpload {
+export interface ChunkUpload {
   userId: string;
   filePath: string;
   fileName: string;
@@ -10,6 +10,28 @@ interface ChunkUpload {
   embedding: number[];
   fileHash: string;
   indexedAt: number;
+}
+
+/** Replaces a whole file in one transaction; never delete first on the client. */
+export async function replaceFile(
+  convexUrl: string,
+  apiKey: string,
+  filePath: string,
+  chunks: ChunkUpload[],
+): Promise<void> {
+  const response = await fetch(`${convexUrl}/api/vault/upload`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action: "replace", filePath, chunks }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok)
+    throw new Error(
+      `Replace failed: ${response.status} ${await response.text()}`,
+    );
 }
 
 export async function uploadChunks(

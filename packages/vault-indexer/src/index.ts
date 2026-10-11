@@ -1,21 +1,26 @@
 #!/usr/bin/env bun
-import { readVault } from "./reader";
 import { chunkNote } from "./chunker";
 import { embedChunks } from "./embedder";
-import { uploadChunks, deleteFile, getRemoteHashes } from "./uploader";
+import { readVault } from "./reader";
+import { deleteFile, getRemoteHashes, replaceFile } from "./uploader";
 
 const DEFAULT_USER_ID = "default_user";
 
 async function main() {
   // Parse args
   const args = process.argv.slice(2);
+  if (args.includes("--help")) {
+    console.log("Usage: bun run index --vault /path/to/vault [--dry-run]");
+    console.log(
+      "Preview changes with --dry-run before indexing. Requires CONVEX_SITE_URL and VAULT_INDEXER_API_KEY; indexing also needs OPENROUTER_API_KEY.",
+    );
+    return;
+  }
+  const dryRun = args.includes("--dry-run");
   const vaultIdx = args.indexOf("--vault");
-  const vaultPath =
-    vaultIdx >= 0
-      ? args[vaultIdx + 1]
-      : process.env.VAULT_PATH;
+  const vaultPath = vaultIdx >= 0 ? args[vaultIdx + 1] : process.env.VAULT_PATH;
 
-  if (!vaultPath) {
+  if (!vaultPath || vaultPath.startsWith("--")) {
     console.error("Usage: bun run index --vault /path/to/vault");
     console.error("  Or set VAULT_PATH environment variable");
     process.exit(1);
@@ -25,8 +30,10 @@ async function main() {
   const vaultApiKey = process.env.VAULT_INDEXER_API_KEY;
   const openrouterApiKey = process.env.OPENROUTER_API_KEY;
 
-  if (!convexUrl || !vaultApiKey || !openrouterApiKey) {
-    console.error("Missing env vars: CONVEX_SITE_URL, VAULT_INDEXER_API_KEY, OPENROUTER_API_KEY");
+  if (!convexUrl || !vaultApiKey || (!dryRun && !openrouterApiKey)) {
+    console.error(
+      "Missing env vars: CONVEX_SITE_URL, VAULT_INDEXER_API_KEY, OPENROUTER_API_KEY",
+    );
     process.exit(1);
   }
 
@@ -40,15 +47,21 @@ async function main() {
   const remoteFiles = new Set(Object.keys(remoteHashes));
 
   // Determine what needs updating
-  const toUpdate = notes.filter(
-    (n) => remoteHashes[n.filePath] !== n.hash,
-  );
+  const toUpdate = notes.filter((n) => remoteHashes[n.filePath] !== n.hash);
   const localFiles = new Set(notes.map((n) => n.filePath));
   const toDelete = [...remoteFiles].filter((f) => !localFiles.has(f));
 
   console.log(
     `Changes: ${toUpdate.length} to update, ${toDelete.length} to delete, ${notes.length - toUpdate.length} unchanged`,
   );
+  if (dryRun) {
+    for (const note of toUpdate)
+      console.log(`  Would update: ${note.filePath}`);
+    for (const filePath of toDelete)
+      console.log(`  Would delete indexed chunks: ${filePath}`);
+    console.log("Dry run: no embeddings generated or remote data changed.");
+    return;
+  }
 
   // Delete removed files
   for (const filePath of toDelete) {
@@ -81,6 +94,9 @@ async function main() {
   // Embed all chunks
   console.log("Generating embeddings...");
   const allTexts = allChunks.flatMap((c) => c.chunks.map((ch) => ch.content));
+  // The earlier configuration check guarantees a key on a non-preview run.
+  if (!openrouterApiKey)
+    throw new Error("OPENROUTER_API_KEY is required for indexing");
   const embeddingResults = await embedChunks(allTexts, openrouterApiKey);
 
   // Build a set of successfully embedded indices
@@ -118,23 +134,31 @@ async function main() {
       });
     }
 
-    if (uploadPayload.length === 0) continue;
+    // An incomplete file must not receive its new hash, or the next run would skip it.
+    if (uploadPayload.length !== chunks.length) {
+      console.warn(
+        `  Keeping previous index for ${note.filePath}: incomplete embeddings`,
+      );
+      process.exitCode = 1;
+      continue;
+    }
 
     try {
-      // Delete existing chunks for this file first
-      await deleteFile(convexUrl, vaultApiKey, note.filePath);
-      await uploadChunks(convexUrl, vaultApiKey, uploadPayload);
+      await replaceFile(convexUrl, vaultApiKey, note.filePath, uploadPayload);
       uploaded += uploadPayload.length;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.warn(`  Failed to upload ${note.filePath}: ${msg}`);
       skipped += uploadPayload.length;
+      process.exitCode = 1;
     }
   }
 
   console.log(`Uploaded ${uploaded} chunks, skipped ${skipped}.`);
 
-  console.log(`Done! Indexed ${totalChunks} chunks from ${allChunks.length} notes.`);
+  console.log(
+    `Finished: ${uploaded} chunks uploaded${process.exitCode ? "; some files need a retry" : ""}.`,
+  );
 }
 
 main().catch((error) => {

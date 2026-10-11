@@ -1,6 +1,6 @@
 "use node";
-import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { internalAction } from "../_generated/server";
 import { DEFAULT_USER_ID } from "../lib/constants";
 
 export const pollAllFeeds = internalAction({
@@ -70,6 +70,10 @@ async function pollSingleFeed(ctx: any, feed: any) {
   if (newCount > 0) {
     console.log(`Feed ${feed.title}: ${newCount} new articles`);
     // Schedule extraction for pending articles
-    await ctx.scheduler.runAfter(0, internal.actions.extractArticle.extractPending, {});
+    await ctx.scheduler.runAfter(
+      0,
+      internal.actions.extractArticle.extractPending,
+      {},
+    );
   }
 }

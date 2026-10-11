@@ -59,46 +59,52 @@ export async function* streamChat({
 
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += value;
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      // Comment lines like ": OPENROUTER PROCESSING" keep the connection alive
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6).trim();
-      if (data === "[DONE]") return;
-      let chunk: {
-        error?: unknown;
-        choices?: {
-          delta?: {
-            content?: string | null;
-            annotations?: {
-              type: string;
-              url_citation?: { url: string; title?: string };
-            }[];
-          };
-        }[];
-      };
-      try {
-        chunk = JSON.parse(data);
-      } catch {
-        continue;
-      }
-      if (chunk.error) {
-        yield { type: "error", error: chunk.error };
-        return;
-      }
-      const delta = chunk.choices?.[0]?.delta;
-      if (delta?.content) yield { type: "text", text: delta.content };
-      for (const annotation of delta?.annotations ?? []) {
-        if (annotation.type === "url_citation" && annotation.url_citation) {
-          yield { type: "citation", ...annotation.url_citation };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += value;
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        // Comment lines like ": OPENROUTER PROCESSING" keep the connection alive
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") return;
+        let chunk: {
+          error?: unknown;
+          choices?: {
+            delta?: {
+              content?: string | null;
+              annotations?: {
+                type: string;
+                url_citation?: { url: string; title?: string };
+              }[];
+            };
+          }[];
+        };
+        try {
+          chunk = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        if (chunk.error) {
+          yield { type: "error", error: chunk.error };
+          return;
+        }
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content) yield { type: "text", text: delta.content };
+        for (const annotation of delta?.annotations ?? []) {
+          if (annotation.type === "url_citation" && annotation.url_citation) {
+            yield { type: "citation", ...annotation.url_citation };
+          }
         }
       }
     }
+  } finally {
+    // Returning early on [DONE], provider error or cancellation must release the upstream body.
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }
 

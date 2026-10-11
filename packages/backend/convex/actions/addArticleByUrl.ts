@@ -1,18 +1,23 @@
 "use node";
-import { action } from "../_generated/server";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { v } from "convex/values";
+import { action } from "../_generated/server";
 import { ingestArticle } from "../lib/ingest";
 
 export const add = action({
   args: { url: v.string() },
-  handler: async (ctx, args): Promise<{ articleId: Id<"articles">; alreadyExists: boolean }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ articleId: Id<"articles">; alreadyExists: boolean }> => {
     const url = args.url.trim();
     if (!url) throw new Error("URL is required");
 
     // Check for duplicate by URL
-    const existing: any = await ctx.runQuery(internal.articles.getByUrl, { url });
+    const existing: any = await ctx.runQuery(internal.articles.getByUrl, {
+      url,
+    });
     if (existing) {
       return { articleId: existing._id, alreadyExists: true };
     }
@@ -22,7 +27,7 @@ export const add = action({
 
     const result = await extract(url);
 
-    if (!result || !result.content) {
+    if (!result?.content) {
       throw new Error(
         "Could not extract article content. The site may block scraping or require JavaScript.",
       );
@@ -33,7 +38,9 @@ export const add = action({
       title: result.title || url,
       html: result.content,
       author: result.author,
-      publishedAt: result.published ? new Date(result.published).getTime() : undefined,
+      publishedAt: result.published
+        ? new Date(result.published).getTime()
+        : undefined,
       imageUrl: result.image,
     });
 

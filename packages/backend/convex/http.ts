@@ -24,6 +24,7 @@ import {
   buildCompanionPrompt,
   companionRequestSchema,
 } from "./lib/readingCompanion";
+import { vaultUploadSchema } from "./lib/vaultUpload";
 
 const http = httpRouter();
 
@@ -56,15 +57,20 @@ async function streamWithFallback(
     const citations: { url: string; title?: string }[] = [];
     let first: string | null = null;
     let failed: unknown = null;
-    while (first === null && failed === null) {
-      const next = await events.next();
-      if (next.done) break;
-      if (next.value.type === "text") first = next.value.text;
-      else if (next.value.type === "citation") citations.push(next.value);
-      else failed = next.value.error;
+    try {
+      while (first === null && failed === null) {
+        const next = await events.next();
+        if (next.done) break;
+        if (next.value.type === "text") first = next.value.text;
+        else if (next.value.type === "citation") citations.push(next.value);
+        else failed = next.value.error;
+      }
+    } catch (error) {
+      failed = error;
     }
     if (failed !== null || first === null) {
       console.error(`Streamed answer: ${modelId} failed`, failed);
+      await events.return(undefined);
       continue;
     }
 
@@ -87,17 +93,20 @@ async function streamWithFallback(
                 `Streamed answer: ${modelId} failed mid-answer`,
                 next.value.error,
               );
-              break;
+              throw new Error("The answer was interrupted. Try again.");
             }
           }
           const footer = sourcesFooter(answer, citations);
           if (footer) controller.enqueue(encoder.encode(footer));
-        } finally {
           controller.close();
+        } catch (error) {
+          controller.error(error);
+        } finally {
+          await events.return(undefined);
         }
       },
-      cancel() {
-        events.return(undefined);
+      async cancel() {
+        await events.return(undefined);
       },
     });
     return new Response(body, {
@@ -177,24 +186,37 @@ http.route({
       return new Response("Unauthorized", { status: 401 });
     }
 
-    const body = await request.json();
-    const { action, chunks, filePath } = body;
+    const parsed = vaultUploadSchema.safeParse(
+      await request.json().catch(() => null),
+    );
+    if (!parsed.success) return new Response("Bad request", { status: 400 });
+    const body = parsed.data;
 
-    if (action === "delete") {
-      await ctx.runMutation(internal.noteChunks.deleteByFile, { filePath });
+    if (body.action === "delete") {
+      await ctx.runMutation(internal.noteChunks.deleteByFile, {
+        filePath: body.filePath,
+      });
       return new Response(JSON.stringify({ ok: true }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    if (action === "upload" && chunks) {
-      await ctx.runMutation(internal.noteChunks.insertBatch, { chunks });
-      return new Response(JSON.stringify({ ok: true, count: chunks.length }), {
-        headers: { "Content-Type": "application/json" },
+    if (body.action === "replace") {
+      await ctx.runMutation(internal.noteChunks.replaceFile, {
+        filePath: body.filePath,
+        chunks: body.chunks,
+      });
+    } else {
+      await ctx.runMutation(internal.noteChunks.insertBatch, {
+        chunks: body.chunks,
       });
     }
-
-    return new Response("Bad request", { status: 400 });
+    return new Response(
+      JSON.stringify({ ok: true, count: body.chunks.length }),
+      {
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   }),
 });
 
@@ -221,7 +243,7 @@ http.route({
 http.route({
   path: "/api/feeds/poll",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
+  handler: httpAction(async (ctx) => {
     await ctx.scheduler.runAfter(
       0,
       internal.actions.pollFeeds.pollAllFeeds,

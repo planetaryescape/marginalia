@@ -1,11 +1,14 @@
 "use node";
-import { internalAction } from "../_generated/server";
-import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
-import type { ZodType } from "zod";
-import { DEFAULT_USER_ID, MIN_RELEVANCE_SCORE, MAX_ANNOTATIONS_PER_ARTICLE } from "../lib/constants";
+import { internal } from "../_generated/api";
+import { internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
+import {
+  DEFAULT_USER_ID,
+  MAX_ANNOTATIONS_PER_ARTICLE,
+  MIN_RELEVANCE_SCORE,
+} from "../lib/constants";
 import { buildMarginaliaContext } from "../lib/marginaliaContext";
 import { modelChain } from "../lib/openrouter";
 
@@ -17,7 +20,9 @@ const annotationCandidateSchema = z.object({
       type: z.enum(["cross_reference", "context", "tension", "question"]),
       anchorText: z
         .string()
-        .describe("Exact text from the article to anchor this annotation to. Must be a verbatim substring."),
+        .describe(
+          "Exact text from the article to anchor this annotation to. Must be a verbatim substring.",
+        ),
       content: z
         .string()
         .describe("The annotation content shown to the reader."),
@@ -33,10 +38,14 @@ const annotationCandidateSchema = z.object({
         .number()
         .min(0)
         .max(1)
-        .describe("How relevant and valuable this annotation is. 0 = useless, 1 = essential."),
+        .describe(
+          "How relevant and valuable this annotation is. 0 = useless, 1 = essential.",
+        ),
       reasoning: z
         .string()
-        .describe("Why this annotation adds value. Used for quality gate only, not shown to user."),
+        .describe(
+          "Why this annotation adds value. Used for quality gate only, not shown to user.",
+        ),
     }),
   ),
   reflection: z.object({
@@ -45,13 +54,19 @@ const annotationCandidateSchema = z.object({
       .describe("The most defensible claim or insight in the article."),
     weakestAssumption: z
       .string()
-      .describe("What must be true for the argument to hold, and might not be."),
+      .describe(
+        "What must be true for the argument to hold, and might not be.",
+      ),
     credibleCounterview: z
       .string()
-      .describe("A view a smart, informed person could credibly hold against this article's thesis. Not a strawman."),
+      .describe(
+        "A view a smart, informed person could credibly hold against this article's thesis. Not a strawman.",
+      ),
     questionForYou: z
       .string()
-      .describe("A question for the reader grounded in the article's implications or tensions with their notes."),
+      .describe(
+        "A question for the reader grounded in the article's implications or tensions with their notes.",
+      ),
   }),
 });
 
@@ -110,7 +125,7 @@ export const generateForArticle = internalAction({
       articleId: args.articleId,
     });
 
-    if (!article || !article.content) {
+    if (!article?.content) {
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "skipped",
@@ -130,10 +145,11 @@ export const generateForArticle = internalAction({
     try {
       // Step 1–2: Gather what the model should read: most of the article,
       // dates, and the reader's closely related notes, marks and questions
-      const { articleText, contextText, vaultPaths } = await buildMarginaliaContext(ctx, {
-        ...article,
-        content: article.content,
-      });
+      const { articleText, contextText, vaultPaths } =
+        await buildMarginaliaContext(ctx, {
+          ...article,
+          content: article.content,
+        });
 
       const prompt = `## Article: "${article.title}"
 ${article.author ? `By: ${article.author}` : ""}
@@ -145,13 +161,17 @@ ${contextText}
 Generate annotations and a reflection for this article. Remember: quality over quantity. Only annotate where you genuinely add value.`;
 
       // Step 3: Generate annotations via LLM
-      const models = await ctx.runQuery(internal.userSettings.getModelsInternal, {});
-      const { object, modelId } = await generateObjectWithFallback<AnnotationResult>({
-        schema: annotationCandidateSchema as ZodType<AnnotationResult, any, any>,
-        system: SYSTEM_PROMPT,
-        prompt,
-        models: modelChain(models.annotations, "annotations"),
-      });
+      const models = await ctx.runQuery(
+        internal.userSettings.getModelsInternal,
+        {},
+      );
+      const { object, modelId } =
+        await generateObjectWithFallback<AnnotationResult>({
+          schema: annotationCandidateSchema,
+          system: SYSTEM_PROMPT,
+          prompt,
+          models: modelChain(models.annotations, "annotations"),
+        });
 
       // Step 4: Quality gate
       const rejected = { anchor: 0, relevance: 0, notePath: 0 };
@@ -208,7 +228,9 @@ Generate annotations and a reflection for this article. Remember: quality over q
         notePathLookup.set(basename.replace(/\.md$/, "").toLowerCase(), fp);
       }
 
-      function resolveNotePath(llmPath: string | undefined): string | undefined {
+      function resolveNotePath(
+        llmPath: string | undefined,
+      ): string | undefined {
         if (!llmPath) return undefined;
         return (
           notePathLookup.get(llmPath) ||
@@ -258,7 +280,10 @@ Generate annotations and a reflection for this article. Remember: quality over q
         rejected,
       );
     } catch (error) {
-      console.error(`Annotation generation failed for ${article.title}:`, error);
+      console.error(
+        `Annotation generation failed for ${article.title}:`,
+        error,
+      );
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "failed",

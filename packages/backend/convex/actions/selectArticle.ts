@@ -1,11 +1,12 @@
 "use node";
-import { action } from "../_generated/server";
 import { v } from "convex/values";
-import { DEFAULT_USER_ID, WORDS_PER_MINUTE } from "../lib/constants";
 import { api } from "../_generated/api";
+import type { Doc, Id } from "../_generated/dataModel";
+import { action } from "../_generated/server";
+import { WORDS_PER_MINUTE } from "../lib/constants";
 
 interface ArticleCandidate {
-  _id: string;
+  _id: Id<"articles">;
   title: string;
   author?: string;
   url: string;
@@ -13,7 +14,7 @@ interface ArticleCandidate {
   estimatedReadMinutes?: number;
   publishedAt?: number;
   excerpt?: string;
-  feedId: string;
+  feedId?: Id<"feeds">;
   reason: string;
 }
 
@@ -21,13 +22,23 @@ export const select = action({
   args: { requestedMinutes: v.number() },
   handler: async (ctx, args): Promise<ArticleCandidate[]> => {
     const targetMinutes = args.requestedMinutes;
-    const targetWords = targetMinutes * WORDS_PER_MINUTE;
+    if (
+      !Number.isFinite(targetMinutes) ||
+      targetMinutes <= 0 ||
+      targetMinutes > 180
+    ) {
+      throw new Error("Choose a reading window between 1 and 180 minutes.");
+    }
 
     // Get all annotated articles
-    const articles: any[] = await ctx.runQuery(api.articles.listAnnotated);
+    const articles: Doc<"articles">[] = await ctx.runQuery(
+      api.articles.listAnnotated,
+    );
 
     // Get user's interactions to exclude already-read articles
-    const interactions: any[] = await ctx.runQuery(api.sessions.listRecentInteractions);
+    const interactions: Doc<"articleInteractions">[] = await ctx.runQuery(
+      api.sessions.listRecentInteractions,
+    );
     const openedIds = new Set(
       interactions
         .filter((i) => i.action === "opened" || i.action === "finished")
@@ -42,7 +53,8 @@ export const select = action({
     // Score each article: prefer articles close to target time, then recency
     const scored = unread.map((a) => {
       const wc = a.wordCount ?? 0;
-      const readMin = a.estimatedReadMinutes ?? (Math.ceil(wc / WORDS_PER_MINUTE) || 1);
+      const readMin =
+        a.estimatedReadMinutes ?? (Math.ceil(wc / WORDS_PER_MINUTE) || 1);
 
       // Time fit score: 0 (perfect match) to negative (further away)
       const timeDiff = Math.abs(readMin - targetMinutes);
