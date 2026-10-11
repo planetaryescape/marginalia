@@ -1,5 +1,5 @@
 "use client";
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -87,7 +87,7 @@ function ArticleNotesGroup({
 
       <div className="space-y-3">
         {notes.map((note) => {
-          const sanitizedContent = DOMPurify.sanitize(note.content);
+          const sanitizedContent = sanitizeHtml(note.content);
           return (
             <div
               key={note._id}

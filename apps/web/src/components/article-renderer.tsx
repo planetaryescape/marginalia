@@ -1,5 +1,5 @@
 "use client";
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeHtml, useMounted } from "@/lib/sanitize";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { api } from "@marginalia/backend/convex/_generated/api";
@@ -94,8 +94,11 @@ export function ArticleRenderer({
   const markViewed = useMutation(api.annotations.markViewed);
 
   // Sanitize HTML then inject annotation markers
+  // Sanitising needs the browser's DOM, so the article body renders after mount
+  const mounted = useMounted();
   const annotatedHtml = useMemo(() => {
-    const sanitized = DOMPurify.sanitize(contentHtml || content, {
+    if (!mounted) return "";
+    const sanitized = sanitizeHtml(contentHtml || content, {
       ADD_TAGS: ["mark", "sup"],
       ADD_ATTR: [
         "data-annotation-id",
@@ -106,7 +109,7 @@ export function ArticleRenderer({
       ],
     });
     return injectAnnotations(sanitized, content, annotations);
-  }, [content, contentHtml, annotations]);
+  }, [mounted, content, contentHtml, annotations]);
 
   // React 19 rewrites innerHTML whenever this object's identity changes, which
   // would wipe the reader's selection and paragraph tags on every re-render.

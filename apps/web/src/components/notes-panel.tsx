@@ -1,5 +1,5 @@
 "use client";
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { useMutation, useQuery } from "convex/react";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useRef, useState } from "react";
@@ -165,7 +165,7 @@ export function NotesPanel({
                   className="text-sm font-sans text-ink-700 dark:text-parchment-300 leading-relaxed max-w-none
                     [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-4 [&_blockquote]:border-l-2 [&_blockquote]:pl-2 [&_blockquote]:italic [&_blockquote]:text-ink-500"
                   dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(note.content),
+                    __html: sanitizeHtml(note.content),
                   }}
                 />
 
