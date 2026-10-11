@@ -1,4 +1,6 @@
 "use client";
+import * as Popover from "@radix-ui/react-popover";
+import { Star } from "lucide-react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,6 +11,11 @@ import { NotesPanel } from "@/components/notes-panel";
 import { SelectionToolbar } from "@/components/selection-toolbar";
 import { AnnotationCard } from "@/components/annotation-card";
 import { ArticleAsk } from "@/components/article-ask";
+import {
+  ImpressionPanel,
+  ImpressionSummary,
+  RATINGS,
+} from "@/components/impression-panel";
 import { CompanionCard } from "@/components/companion-card";
 import { ReaderSettingsPanel } from "@/components/reader-settings-panel";
 import { ReaderMap } from "@/components/reader-map";
@@ -52,6 +59,9 @@ export default function ReadPage() {
     articleId: articleId as any,
   });
   const reflection = useQuery(api.reflections.getByArticle, {
+    articleId: articleId as any,
+  });
+  const impression = useQuery(api.impressions.getByArticle, {
     articleId: articleId as any,
   });
   const isLoved = useQuery(api.lovedArticles.isLoved, {
@@ -397,6 +407,33 @@ export default function ReadPage() {
               </svg>
             </button>
 
+            {/* Impression: rating, tags and what stayed with you */}
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+                    impression?.rating
+                      ? "text-[var(--pen)]"
+                      : "text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800"
+                  }`}
+                  title={impression?.rating ? `You rated this ${RATINGS[impression.rating - 1]}` : "Rate this article"}
+                  aria-label="Rate this article"
+                >
+                  <Star size={15} fill={impression?.rating ? "currentColor" : "none"} />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  align="end"
+                  sideOffset={10}
+                  collisionPadding={12}
+                  className="reader-popover z-50 w-[340px] max-w-[calc(100vw-24px)] rounded-2xl p-4 bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
+                >
+                  <ImpressionPanel articleId={articleId as any} heading="Your impression" />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+
             {/* Love button */}
             <button
               onClick={async () => {
@@ -502,6 +539,7 @@ export default function ReadPage() {
               </>
             )}
           </div>
+          {impression && <ImpressionSummary impression={impression} />}
         </header>
 
         <SummaryPanel
@@ -520,14 +558,21 @@ export default function ReadPage() {
           onAnnotationSelect={handleAnnotationSelect}
         />
 
+        <section
+          aria-label="Your impression"
+          className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
+        >
+          <ImpressionPanel articleId={articleId as any} />
+        </section>
+
         {reflection && (
-          <div className="mt-16">
+          <div className="mt-10">
             <ReflectionBox reflection={reflection} onDone={handleDone} />
           </div>
         )}
 
         {!reflection && (
-          <div className="mt-16 text-center">
+          <div className="mt-10 text-center">
             <button
               onClick={handleDone}
               className="px-8 py-3 bg-ink-950 dark:bg-parchment-100 text-parchment-50 dark:text-ink-950 rounded-xl font-sans text-sm font-medium hover:opacity-90 transition-opacity"

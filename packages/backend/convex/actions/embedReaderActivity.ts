@@ -60,6 +60,41 @@ export const embedThread = internalAction({
   },
 });
 
+export const embedImpression = internalAction({
+  args: { impressionId: v.id("impressions"), updatedAt: v.number() },
+  handler: async (ctx, args) => {
+    const row: Doc<"impressions"> | null = await ctx.runQuery(
+      internal.impressions.getByIdInternal,
+      { impressionId: args.impressionId },
+    );
+    // A newer edit has its own embedding scheduled
+    if (!row || row.updatedAt !== args.updatedAt) return;
+    const article: Doc<"articles"> | null = await ctx.runQuery(
+      internal.articles.getByIdInternal,
+      { articleId: row.articleId },
+    );
+    const labels = ["Not for me", "Meh", "Fine", "Good", "Loved it"];
+    const text = [
+      article?.title,
+      row.rating ? `Rated: ${labels[row.rating - 1]}` : "",
+      row.tags.join(", "),
+      row.note,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (!text.trim()) return;
+    try {
+      const embedding = await embedText(text.slice(0, 8000));
+      await ctx.runMutation(internal.impressions.setEmbedding, {
+        impressionId: args.impressionId,
+        embedding,
+      });
+    } catch (error) {
+      console.error(`Failed to embed impression ${args.impressionId}:`, error);
+    }
+  },
+});
+
 /** One-off: embeds highlights and threads saved before embeddings existed. */
 export const backfill = internalAction({
   args: {},

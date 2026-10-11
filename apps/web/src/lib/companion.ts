@@ -44,7 +44,9 @@ const SITE_URL =
     ".convex.site",
   );
 
-async function streamCompanion(
+/** Streams a plain-text answer from one of the Convex HTTP endpoints. */
+export async function streamFromConvex(
+  path: "/api/companion" | "/api/library",
   body: Record<string, unknown>,
   handlers: {
     signal: AbortSignal;
@@ -52,7 +54,7 @@ async function streamCompanion(
     onText: (chunk: string) => void;
   },
 ) {
-  const res = await fetch(`${SITE_URL}/api/companion`, {
+  const res = await fetch(`${SITE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -142,7 +144,8 @@ export function useCompanion({
       let answer = "";
       let model: string | null = base.model ?? null;
       try {
-        await streamCompanion(
+        await streamFromConvex(
+          "/api/companion",
           {
             mode: base.mode,
             title,

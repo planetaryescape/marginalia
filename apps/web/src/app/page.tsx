@@ -1,17 +1,21 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
-import { ArrowRight, Link2 } from "lucide-react";
+import { ArrowRight, MessagesSquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useState } from "react";
-import { toast } from "sonner";
+import type { ReactNode } from "react";
 import { FitChildren } from "@/components/fit-children";
+import {
+  MobileNav,
+  PasteLink,
+  SiteHeader,
+  useSiteNav,
+} from "@/components/site-header";
 import { useReaderSettings } from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
-import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -86,73 +90,6 @@ function MarginNote({
   );
 }
 
-function PasteLink({ large = false }: { large?: boolean }) {
-  const router = useRouter();
-  const addByUrl = useAction(api.actions.addArticleByUrl.add);
-  const [url, setUrl] = useState("");
-  const [adding, setAdding] = useState(false);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url.trim() || adding) return;
-    setAdding(true);
-    try {
-      const { articleId, alreadyExists } = await addByUrl({ url: url.trim() });
-      toast.success(
-        alreadyExists
-          ? "Already in your library. Opening it."
-          : "Added. Marginalia is on its way.",
-      );
-      setUrl("");
-      router.push(`/read/${articleId}`);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Couldn't fetch that article",
-      );
-    }
-    setAdding(false);
-  };
-
-  return (
-    <form
-      onSubmit={submit}
-      className={cn(
-        "flex items-center gap-2 rounded-full bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--pen)] transition-shadow",
-        large ? "h-12 pl-5 pr-1.5 w-full max-w-xl" : "h-9 pl-3.5 pr-1 w-full",
-      )}
-    >
-      <Link2
-        size={large ? 16 : 14}
-        className="shrink-0 text-[var(--reader-muted)]"
-      />
-      <input
-        type="url"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="Paste a link to read"
-        aria-label="Paste a link to read"
-        className={cn(
-          "flex-1 min-w-0 bg-transparent outline-none text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)]",
-          large ? "text-[15px]" : "text-[13px]",
-        )}
-      />
-      <button
-        type="submit"
-        disabled={!url.trim() || adding}
-        aria-label="Read"
-        className={cn(
-          "shrink-0 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)] transition-opacity disabled:opacity-25",
-          large ? "h-9 px-4 text-[13px] font-medium gap-1.5" : "w-7 h-7",
-        )}
-      >
-        {large && (adding ? "Fetching…" : "Read")}
-        {!large && <ArrowRight size={13} />}
-        {large && !adding && <ArrowRight size={14} />}
-      </button>
-    </form>
-  );
-}
-
 export default function HomePage() {
   const router = useRouter();
   const { settings } = useReaderSettings();
@@ -192,14 +129,7 @@ export default function HomePage() {
     }),
   };
 
-  const nav = [
-    { href: "/notes", label: "Notes" },
-    { href: "/reading", label: "This week" },
-    ...((savedCount ?? 0) > 0
-      ? [{ href: "/saved", label: `Saved · ${savedCount}` }]
-      : []),
-    { href: "/feeds", label: "Sources" },
-  ];
+  const nav = useSiteNav();
 
   const continueReading = inProgress && (
     <Link href={`/read/${inProgress.article._id}`} className="group block">
@@ -342,30 +272,7 @@ export default function HomePage() {
     // One screen, no scrolling: every region sizes to the viewport and long
     // lists show only what fits
     <div className="h-dvh flex flex-col overflow-hidden bg-[var(--reader-bg)] text-[var(--reader-fg)] font-sans">
-      <header className="shrink-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 h-14 md:h-16 flex items-center gap-4 md:gap-6">
-        <Link
-          href="/"
-          className="font-serif text-[21px] md:text-[22px] tracking-tight shrink-0"
-        >
-          Marginalia
-        </Link>
-        <nav className="hidden md:flex items-center gap-5 text-[13px] text-[var(--reader-muted)]">
-          {nav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="hover:text-[var(--reader-fg)] transition-colors"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-        {hasArticles && (
-          <div className="ml-auto w-full max-w-[280px] min-w-0">
-            <PasteLink />
-          </div>
-        )}
-      </header>
+      <SiteHeader showPaste={hasArticles} />
 
       <main className="flex-1 min-h-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3rem)] pb-[clamp(1rem,3vh,2rem)]">
         {loading ? null : !hasArticles ? (
@@ -510,6 +417,40 @@ export default function HomePage() {
                 })}
               </motion.div>
 
+              <motion.form
+                custom={3.5}
+                variants={rise}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const q = new FormData(e.currentTarget)
+                    .get("q")
+                    ?.toString()
+                    .trim();
+                  router.push(
+                    q ? `/library?q=${encodeURIComponent(q)}` : "/library",
+                  );
+                }}
+                className="shrink-0 mt-3 flex items-center gap-2 h-10 rounded-full pl-4 pr-1 bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--pen)] transition-shadow"
+              >
+                <MessagesSquare
+                  size={14}
+                  className="shrink-0 text-[var(--reader-muted)]"
+                />
+                <input
+                  name="q"
+                  placeholder="Or ask your library: something about science, that piece about cows…"
+                  aria-label="Ask your library"
+                  className="flex-1 min-w-0 bg-transparent text-[13.5px] outline-none placeholder:text-[var(--reader-muted)]"
+                />
+                <button
+                  type="submit"
+                  aria-label="Ask"
+                  className="w-8 h-8 shrink-0 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)]"
+                >
+                  <ArrowRight size={14} />
+                </button>
+              </motion.form>
+
               {overview.upNext.length > 0 && (
                 <motion.section
                   custom={4}
@@ -566,17 +507,7 @@ export default function HomePage() {
         )}
       </main>
 
-      <nav className="md:hidden shrink-0 h-11 px-5 flex items-center gap-5 border-t border-[var(--reader-border)] text-[13px] text-[var(--reader-muted)]">
-        {nav.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="hover:text-[var(--reader-fg)]"
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
+      <MobileNav items={nav} />
     </div>
   );
 }

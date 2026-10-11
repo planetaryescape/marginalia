@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 
 const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(¶\s?\d+(?:\s*[–-]\s*\d+)?)|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(¶\s?\d+(?:\s*[–-]\s*\d+)?)|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|\/read\/[a-z0-9]+)\)/g;
 
 function renderInline(
   text: string,
@@ -40,6 +41,17 @@ function renderInline(
         >
           {ref.replace(/\s/g, "")}
         </button>,
+      );
+    } else if (linkUrl?.startsWith("/read/")) {
+      // Links to articles in the reader's own library
+      nodes.push(
+        <Link
+          key={index}
+          href={linkUrl}
+          className="font-medium text-[var(--reader-fg)] underline decoration-[var(--pen)] decoration-[1.5px] underline-offset-[3px] hover:text-[var(--pen)]"
+        >
+          {linkText}
+        </Link>,
       );
     } else if (linkUrl) {
       nodes.push(

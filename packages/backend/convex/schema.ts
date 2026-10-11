@@ -322,6 +322,26 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_article", ["articleId"]),
 
+  // How an article landed with the reader: a 1–5 rating, quick tags and a
+  // line on what stayed with them. Embedded so the library can recall it.
+  impressions: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    rating: v.optional(v.number()),
+    tags: v.array(v.string()),
+    note: v.optional(v.string()),
+    embedding: v.optional(v.array(v.float64())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_article", ["articleId"])
+    .index("by_user_updated", ["userId", "updatedAt"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["userId"],
+    }),
+
   // One row per user. Model IDs are validated against TEXT_MODELS in lib/openrouter.ts.
   userSettings: defineTable({
     userId: v.string(),
