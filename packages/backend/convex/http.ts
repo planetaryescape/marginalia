@@ -10,7 +10,15 @@ import {
   buildLibraryContext,
   LIBRARY_SYSTEM,
   libraryRequestSchema,
+  retrieveLibraryContext,
 } from "./lib/library";
+import {
+  LIBRARY_SEARCH_JSON_SCHEMA,
+  LIBRARY_SEARCH_SYSTEM,
+  librarySearchRequestSchema,
+  parseLibrarySearch,
+  searchCompletionSchema,
+} from "./lib/librarySearch";
 import { modelChain } from "./lib/openrouter";
 import {
   buildCompanionPrompt,
@@ -279,6 +287,95 @@ http.route({
       modelChain(models.quick, "quick"),
       false,
       request.signal,
+    );
+  }),
+});
+
+http.route({
+  path: "/api/library/search",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+
+http.route({
+  path: "/api/library/search",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const headers = {
+      ...CORS_HEADERS,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    };
+    const parsed = librarySearchRequestSchema.safeParse(
+      await request.json().catch(() => null),
+    );
+    if (!parsed.success)
+      return new Response(
+        JSON.stringify({
+          error: "Enter a search between 2 and 2000 characters.",
+        }),
+        { status: 400, headers },
+      );
+    try {
+      const [{ context, articles }, models] = await Promise.all([
+        retrieveLibraryContext(ctx, parsed.data.question),
+        ctx.runQuery(internal.userSettings.getModelsInternal, {}),
+      ]);
+      if (!articles.length)
+        return new Response(JSON.stringify({ matches: [] }), { headers });
+      for (const model of modelChain(models.quick, "quick")) {
+        if (request.signal.aborted) break;
+        try {
+          const response = await fetch(
+            "https://openrouter.ai/api/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json",
+                "X-Title": "Marginalia",
+              },
+              body: JSON.stringify({
+                model,
+                messages: [
+                  { role: "system", content: LIBRARY_SEARCH_SYSTEM },
+                  {
+                    role: "user",
+                    content: `${context}\n\nSearch: ${parsed.data.question}`,
+                  },
+                ],
+                max_tokens: 3000,
+                response_format: {
+                  type: "json_schema",
+                  json_schema: LIBRARY_SEARCH_JSON_SCHEMA,
+                },
+              }),
+              signal: request.signal,
+            },
+          );
+          if (!response.ok)
+            throw new Error(`Search model returned ${response.status}`);
+          const completion = searchCompletionSchema.parse(
+            await response.json(),
+          );
+          const choice = completion.choices[0];
+          if (choice.finish_reason === "length")
+            throw new Error("Search result exceeded its token limit");
+          const matches = parseLibrarySearch(choice.message.content, articles);
+          return new Response(JSON.stringify({ matches }), { headers });
+        } catch (error) {
+          if (request.signal.aborted) break;
+          console.error(`Library search: ${model} failed`, error);
+        }
+      }
+    } catch (error) {
+      console.error("Library search retrieval failed", error);
+    }
+    return new Response(
+      JSON.stringify({ error: "Couldn't search your library. Try again." }),
+      { status: 502, headers },
     );
   }),
 });

@@ -59,10 +59,7 @@ function host(url: string) {
  * Picks the library items relevant to the question, by meaning and by recency,
  * and formats them with read status, dates and the reader's own impressions.
  */
-export async function buildLibraryContext(
-  ctx: ActionCtx,
-  question: string,
-): Promise<string> {
+export async function retrieveLibraryContext(ctx: ActionCtx, question: string) {
   const vector = await embedText(question.slice(0, 4000));
 
   const [articleHits, impressionHits, noteHits, highlightHits, threadHits] =
@@ -202,11 +199,39 @@ export async function buildLibraryContext(
     return [lines.join("\n")];
   });
 
-  return [
+  const context = [
     `Today: ${day(Date.now())}`,
     "",
     "<library>",
     blocks.length ? blocks.join("\n\n") : "(nothing relevant found)",
     "</library>",
   ].join("\n");
+  return {
+    context,
+    articles: articles.flatMap((article) =>
+      article
+        ? [
+            {
+              articleId: article._id,
+              title: article.title,
+              url: article.url,
+              author: article.author ?? null,
+              minutes: article.estimatedReadMinutes ?? null,
+              status: finishedAt.has(article._id)
+                ? "Read"
+                : openedAt.has(article._id)
+                  ? "Started"
+                  : "Unread",
+            },
+          ]
+        : [],
+    ),
+  };
+}
+
+export async function buildLibraryContext(
+  ctx: ActionCtx,
+  question: string,
+): Promise<string> {
+  return (await retrieveLibraryContext(ctx, question)).context;
 }

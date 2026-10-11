@@ -3,18 +3,15 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
-import { ArrowRight, MessagesSquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
+import { ArticleFinder } from "@/components/article-finder";
 import { FitChildren } from "@/components/fit-children";
-import {
-  MobileNav,
-  PasteLink,
-  SiteHeader,
-  useSiteNav,
-} from "@/components/site-header";
+import { RATINGS } from "@/components/impression-panel";
+import { MobileNav, SiteHeader, useSiteNav } from "@/components/site-header";
 import { useReaderSettings } from "@/lib/reader-settings";
+import { moveFocus, useShortcuts } from "@/lib/shortcuts";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -95,16 +92,18 @@ export default function HomePage() {
   const { settings } = useReaderSettings();
   useReaderTheme(settings);
   const reduced = useReducedMotion();
+  const upNextRef = useRef<HTMLDivElement>(null);
 
   const overview = useQuery(api.home.overview, {});
   const inProgress = useQuery(api.sessions.getInProgress);
   const dueForReview = useQuery(api.lovedArticles.getDueForReview);
-  const savedCount = useQuery(api.savedArticles.count);
+  const impressions = useQuery(api.impressions.listRecent, {});
   const feeds = useQuery(api.feeds.list);
   const readwise = useQuery(api.readwise.status, {});
   const createSession = useMutation(api.sessions.create);
   const advanceReview = useMutation(api.lovedArticles.advanceReview);
   const snoozeReview = useMutation(api.lovedArticles.snooze);
+  const nav = useSiteNav();
 
   const startSession = async (minutes: number) => {
     const sessionId = await createSession({ requestedMinutes: minutes });
@@ -114,11 +113,37 @@ export default function HomePage() {
   const loading = overview === undefined;
   const hasArticles = (overview?.annotatedTotal ?? 0) > 0;
   const hasSources = Boolean(feeds?.length) || Boolean(readwise?.connected);
+  const revisit = dueForReview?.filter((entry) => entry !== null)[0] ?? null;
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long",
     day: "numeric",
     month: "long",
   });
+
+  const visibleUpNext = () =>
+    Array.from(
+      upNextRef.current?.querySelectorAll<HTMLElement>("[data-upnext-link]") ??
+        [],
+    ).filter(
+      (el) =>
+        el.closest<HTMLElement>("[role=listitem]")?.style.visibility !==
+        "hidden",
+    );
+
+  useShortcuts(
+    {
+      "1": () => startSession(5),
+      "2": () => startSession(10),
+      "3": () => startSession(20),
+      "4": () => startSession(30),
+      c: () => {
+        if (inProgress) router.push(`/read/${inProgress.article._id}`);
+      },
+      j: () => moveFocus(visibleUpNext(), 1),
+      k: () => moveFocus(visibleUpNext(), -1),
+    },
+    !loading,
+  );
 
   const rise: Variants = {
     hidden: reduced ? {} : { opacity: 0, y: 10 },
@@ -129,78 +154,10 @@ export default function HomePage() {
     }),
   };
 
-  const nav = useSiteNav();
-
-  const continueReading = inProgress && (
-    <Link href={`/read/${inProgress.article._id}`} className="group block">
-      <span className="block font-serif text-[17px] leading-snug line-clamp-2 group-hover:text-[var(--pen)] transition-colors">
-        {inProgress.article.title}
-      </span>
-      <span className="mt-2.5 block h-[3px] rounded-full bg-[var(--reader-chip)] overflow-hidden">
-        <span
-          className="block h-full rounded-full bg-[var(--pen)]"
-          style={{ width: `${Math.max(3, inProgress.scrollPercent)}%` }}
-        />
-      </span>
-      <span className="mt-1.5 block text-[12px] text-[var(--reader-muted)]">
-        {inProgress.scrollPercent}% read
-        {inProgress.remainingMinutes
-          ? ` · about ${inProgress.remainingMinutes} min left`
-          : ""}
-      </span>
-    </Link>
-  );
+  const groupLabel =
+    "text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--reader-muted)]";
 
   const marginNotes: ReactNode[] = [];
-  if (continueReading) {
-    marginNotes.push(
-      <MarginNote
-        key="continue"
-        label="Continue reading"
-        accent={ACCENTS.continue}
-        index={marginNotes.length}
-      >
-        {continueReading}
-      </MarginNote>,
-    );
-  }
-  for (const item of dueForReview?.filter((entry) => entry !== null) ?? []) {
-    marginNotes.push(
-      <MarginNote
-        key={item._id}
-        label="Worth revisiting"
-        accent={ACCENTS.revisit}
-        index={marginNotes.length}
-      >
-        <p className="font-serif text-[17px] leading-snug line-clamp-2">
-          {item.article.title}
-        </p>
-        <p className="mt-1 text-[12px] text-[var(--reader-muted)]">
-          You loved this {item.daysSinceLastRead} days ago
-        </p>
-        <div className="mt-2.5 flex gap-2">
-          <Link
-            href={`/read/${item.articleId}`}
-            onClick={() =>
-              advanceReview({ articleId: item.articleId as Id<"articles"> })
-            }
-            className="h-7 px-3 inline-flex items-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)] text-[12px] font-medium hover:opacity-90 transition-opacity"
-          >
-            Read again
-          </Link>
-          <button
-            type="button"
-            onClick={() =>
-              snoozeReview({ articleId: item.articleId as Id<"articles"> })
-            }
-            className="h-7 px-3 rounded-full ring-1 ring-[var(--reader-border-strong)] text-[12px] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
-          >
-            Not now
-          </button>
-        </div>
-      </MarginNote>,
-    );
-  }
   if (overview?.latestNote) {
     const note = overview.latestNote;
     marginNotes.push(
@@ -232,6 +189,38 @@ export default function HomePage() {
             </>
           )}
         </p>
+      </MarginNote>,
+    );
+  }
+  const rated = (impressions ?? []).filter((item) => item.rating).slice(0, 2);
+  if (rated.length) {
+    marginNotes.push(
+      <MarginNote
+        key="impressions"
+        label="Recently rated"
+        accent={ACCENTS.continue}
+        index={marginNotes.length}
+      >
+        <ul className="space-y-2">
+          {rated.map((item) => (
+            <li key={item._id}>
+              <Link
+                href={`/read/${item.articleId}`}
+                className="block font-serif text-[15.5px] leading-snug line-clamp-1 hover:text-[var(--pen)]"
+              >
+                {item.title}
+              </Link>
+              <p className="text-[12px] text-[var(--reader-muted)] truncate">
+                {item.rating ? RATINGS[item.rating - 1] : ""}
+                {item.note
+                  ? ` · “${item.note}”`
+                  : item.tags.length
+                    ? ` · ${item.tags.join(", ")}`
+                    : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
       </MarginNote>,
     );
   }
@@ -267,12 +256,20 @@ export default function HomePage() {
       </p>
     </MarginNote>,
   );
+  marginNotes.push(
+    <p
+      key="keys"
+      className="hidden lg:block pl-[18px] text-[12px] text-[var(--reader-muted)]"
+    >
+      Press <kbd className="reader-kbd">?</kbd> for keyboard shortcuts
+    </p>,
+  );
 
   return (
     // One screen, no scrolling: every region sizes to the viewport and long
     // lists show only what fits
     <div className="h-dvh flex flex-col overflow-hidden bg-[var(--reader-bg)] text-[var(--reader-fg)] font-sans">
-      <SiteHeader showPaste={hasArticles} />
+      <SiteHeader showPaste={false} />
 
       <main className="flex-1 min-h-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3rem)] pb-[clamp(1rem,3vh,2rem)]">
         {loading ? null : !hasArticles ? (
@@ -307,8 +304,8 @@ export default function HomePage() {
                 ? "Each article is annotated against your notes before it appears here, which takes a minute or two. Paste a link to read one straight away."
                 : "Paste a link, connect Readwise Reader, or add RSS feeds. Marginalia annotates each article against your notes before you read it."}
             </motion.p>
-            <motion.div custom={3} variants={rise} className="mt-8">
-              <PasteLink large />
+            <motion.div custom={3} variants={rise} className="mt-8 max-w-xl">
+              <ArticleFinder />
             </motion.div>
             {!hasSources && (
               <motion.div
@@ -333,11 +330,13 @@ export default function HomePage() {
           </motion.div>
         ) : (
           <div className="h-full grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-[72px]">
-            {/* Text column */}
+            {/* Every way of finding something to read, together */}
             <motion.div
               initial="hidden"
               animate="show"
               className="min-h-0 min-w-0 flex flex-col"
+              aria-label="Find something to read"
+              role="region"
             >
               <motion.p
                 custom={0}
@@ -360,45 +359,35 @@ export default function HomePage() {
               <motion.h1
                 custom={1}
                 variants={rise}
-                className="shrink-0 mt-[clamp(0.25rem,1.2vh,0.75rem)] font-serif font-light tracking-tight leading-[1.02] text-[clamp(2.1rem,min(6vw,7.4vh),4.75rem)]"
+                className="shrink-0 mt-[clamp(0.25rem,1.2vh,0.75rem)] font-serif font-light tracking-tight leading-[1.02] text-[clamp(2rem,min(5.6vw,6.6vh),4.5rem)]"
               >
                 How much time
                 <br className="hidden sm:block" /> do you have?
               </motion.h1>
 
-              {continueReading && (
-                <motion.div
-                  custom={2}
-                  variants={rise}
-                  className="lg:hidden shrink-0 mt-[clamp(0.75rem,2.5vh,1.5rem)] pl-4 border-l-2"
-                  style={{ borderColor: ACCENTS.continue }}
-                >
-                  <p
-                    className="text-[10.5px] font-semibold uppercase tracking-[0.14em]"
-                    style={{ color: ACCENTS.continue }}
-                  >
-                    Continue reading
-                  </p>
-                  <div className="mt-1">{continueReading}</div>
-                </motion.div>
-              )}
-
               <motion.div
-                custom={3}
+                custom={2}
                 variants={rise}
-                className="shrink-0 mt-[clamp(0.9rem,4vh,2.5rem)] grid grid-cols-4 gap-2 sm:gap-3"
+                className="shrink-0 mt-[clamp(0.9rem,3.2vh,2.25rem)] grid grid-cols-4 gap-2 sm:gap-3"
               >
-                {TIME_OPTIONS.map((option) => {
+                {TIME_OPTIONS.map((option, i) => {
                   const fits = overview.fits[option.minutes];
                   return (
                     <button
                       key={option.minutes}
                       type="button"
                       onClick={() => startSession(option.minutes)}
-                      className="group flex flex-col items-start min-w-0 rounded-xl sm:rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] px-3 sm:px-5 py-[clamp(0.6rem,1.8vh,1rem)] text-left transition-all duration-200 hover:-translate-y-0.5 hover:ring-[var(--pen)] hover:shadow-[0_14px_40px_-22px_rgba(0,0,0,0.45)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--pen)]"
+                      aria-keyshortcuts={String(i + 1)}
+                      className="group relative flex flex-col items-start min-w-0 rounded-xl sm:rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] px-3 sm:px-5 py-[clamp(0.55rem,1.6vh,0.95rem)] text-left transition-all duration-200 hover:-translate-y-0.5 hover:ring-[var(--pen)] hover:shadow-[0_14px_40px_-22px_rgba(0,0,0,0.45)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]"
                     >
+                      <kbd
+                        aria-hidden
+                        className="reader-kbd hidden sm:block absolute top-2.5 right-2.5 opacity-60 group-hover:opacity-100 group-focus-visible:opacity-100"
+                      >
+                        {i + 1}
+                      </kbd>
                       <span className="flex items-baseline gap-0.5 sm:gap-1">
-                        <span className="font-serif font-light leading-none tracking-tight text-[clamp(1.9rem,min(4.2vw,6vh),3.25rem)] transition-colors group-hover:text-[var(--pen)]">
+                        <span className="font-serif font-light leading-none tracking-tight text-[clamp(1.8rem,min(4vw,5.4vh),3.1rem)] transition-colors group-hover:text-[var(--pen)]">
                           {option.minutes}
                         </span>
                         <span className="font-serif text-[13px] sm:text-[17px] text-[var(--reader-muted)]">
@@ -406,7 +395,7 @@ export default function HomePage() {
                           <span className="hidden sm:inline"> min</span>
                         </span>
                       </span>
-                      <span className="hidden sm:block mt-[clamp(0.25rem,1.2vh,0.75rem)] text-[13.5px] text-[var(--reader-fg-soft)] truncate max-w-full">
+                      <span className="hidden sm:block mt-[clamp(0.2rem,1vh,0.6rem)] text-[13.5px] text-[var(--reader-fg-soft)] truncate max-w-full">
                         {option.label}
                       </span>
                       <span className="mt-1 sm:mt-0 text-[11px] sm:text-[11.5px] text-[var(--reader-muted)]">
@@ -417,87 +406,157 @@ export default function HomePage() {
                 })}
               </motion.div>
 
-              <motion.form
-                custom={3.5}
+              <motion.div
+                custom={3}
                 variants={rise}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const q = new FormData(e.currentTarget)
-                    .get("q")
-                    ?.toString()
-                    .trim();
-                  router.push(
-                    q ? `/library?q=${encodeURIComponent(q)}` : "/library",
-                  );
-                }}
-                className="shrink-0 mt-3 flex items-center gap-2 h-10 rounded-full pl-4 pr-1 bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--pen)] transition-shadow"
+                className="shrink-0 mt-2 sm:mt-3"
               >
-                <MessagesSquare
-                  size={14}
-                  className="shrink-0 text-[var(--reader-muted)]"
-                />
-                <input
-                  name="q"
-                  placeholder="Or ask your library: something about science, that piece about cows…"
-                  aria-label="Ask your library"
-                  className="flex-1 min-w-0 bg-transparent text-[13.5px] outline-none placeholder:text-[var(--reader-muted)]"
-                />
-                <button
-                  type="submit"
-                  aria-label="Ask"
-                  className="w-8 h-8 shrink-0 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)]"
+                <ArticleFinder />
+              </motion.div>
+
+              {(inProgress || revisit) && (
+                <motion.div
+                  custom={4}
+                  variants={rise}
+                  className="shrink-0 mt-[clamp(0.9rem,3vh,2rem)] grid gap-2 sm:gap-3 sm:grid-cols-2"
                 >
-                  <ArrowRight size={14} />
-                </button>
-              </motion.form>
+                  {inProgress && (
+                    <Link
+                      href={`/read/${inProgress.article._id}`}
+                      aria-keyshortcuts="c"
+                      className="group relative block rounded-xl pl-4 pr-10 py-2.5 border-l-2 bg-[var(--reader-chip)] hover:bg-[var(--reader-surface)] transition-colors"
+                      style={{ borderColor: ACCENTS.continue }}
+                    >
+                      <kbd
+                        aria-hidden
+                        className="reader-kbd hidden sm:block absolute top-2.5 right-2.5 opacity-60"
+                      >
+                        c
+                      </kbd>
+                      <span
+                        className="block text-[10.5px] font-semibold uppercase tracking-[0.14em]"
+                        style={{ color: ACCENTS.continue }}
+                      >
+                        Continue reading
+                      </span>
+                      <span className="mt-0.5 block font-serif text-[16px] leading-snug truncate group-hover:text-[var(--pen)]">
+                        {inProgress.article.title}
+                      </span>
+                      <span className="mt-1.5 flex items-center gap-2 text-[11.5px] text-[var(--reader-muted)]">
+                        <span className="h-[3px] w-16 rounded-full bg-[var(--reader-border)] overflow-hidden">
+                          <span
+                            className="block h-full rounded-full bg-[var(--pen)]"
+                            style={{
+                              width: `${Math.max(4, inProgress.scrollPercent)}%`,
+                            }}
+                          />
+                        </span>
+                        {inProgress.remainingMinutes
+                          ? `about ${inProgress.remainingMinutes} min left`
+                          : `${inProgress.scrollPercent}% read`}
+                      </span>
+                    </Link>
+                  )}
+                  {revisit && (
+                    <div
+                      className="rounded-xl pl-4 pr-3 py-2.5 border-l-2 bg-[var(--reader-chip)]"
+                      style={{ borderColor: ACCENTS.revisit }}
+                    >
+                      <span
+                        className="block text-[10.5px] font-semibold uppercase tracking-[0.14em]"
+                        style={{ color: ACCENTS.revisit }}
+                      >
+                        Worth revisiting · loved {revisit.daysSinceLastRead}{" "}
+                        days ago
+                      </span>
+                      <div className="mt-0.5 flex items-center gap-3">
+                        <Link
+                          href={`/read/${revisit.articleId}`}
+                          onClick={() =>
+                            advanceReview({
+                              articleId: revisit.articleId as Id<"articles">,
+                            })
+                          }
+                          className="min-w-0 flex-1 font-serif text-[16px] leading-snug truncate hover:text-[var(--pen)]"
+                        >
+                          {revisit.article.title}
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            snoozeReview({
+                              articleId: revisit.articleId as Id<"articles">,
+                            })
+                          }
+                          className="shrink-0 h-6 px-2.5 rounded-full ring-1 ring-[var(--reader-border-strong)] text-[11.5px] text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
+                        >
+                          Not now
+                        </button>
+                      </div>
+                      <span className="mt-1.5 block text-[11.5px] text-[var(--reader-muted)]">
+                        Reread it to keep it fresh
+                      </span>
+                    </div>
+                  )}
+                </motion.div>
+              )}
 
               {overview.upNext.length > 0 && (
                 <motion.section
-                  custom={4}
+                  custom={5}
                   variants={rise}
-                  className="flex-1 min-h-0 flex flex-col mt-[clamp(1rem,4.5vh,3.5rem)]"
+                  className="flex-1 min-h-0 flex flex-col mt-[clamp(0.9rem,3.4vh,2.5rem)]"
                 >
-                  <h2 className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--reader-muted)]">
-                    Up next
-                  </h2>
-                  <FitChildren
-                    label="Up next"
-                    className="flex-1 mt-2.5 border-t border-[var(--reader-border)]"
+                  <h2
+                    className={`shrink-0 ${groupLabel} flex items-center gap-2`}
                   >
-                    {overview.upNext.map((article) => (
-                      <Link
-                        key={article._id}
-                        href={`/read/${article._id}`}
-                        className="group flex items-baseline gap-6 py-3 border-b border-[var(--reader-border)] outline-none focus-visible:bg-[var(--reader-chip)]"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-serif text-[17px] sm:text-[18px] leading-snug truncate transition-colors group-hover:text-[var(--pen)]">
-                            {article.title}
+                    Up next
+                    <span className="hidden sm:inline font-normal normal-case tracking-normal">
+                      <kbd className="reader-kbd">j</kbd>{" "}
+                      <kbd className="reader-kbd">k</kbd>
+                    </span>
+                  </h2>
+                  <div ref={upNextRef} className="flex-1 min-h-0 flex flex-col">
+                    <FitChildren
+                      label="Up next"
+                      className="flex-1 mt-2 border-t border-[var(--reader-border)]"
+                    >
+                      {overview.upNext.map((article) => (
+                        <Link
+                          key={article._id}
+                          href={`/read/${article._id}`}
+                          data-upnext-link
+                          className="group flex items-baseline gap-6 py-3 px-2 -mx-2 rounded-md border-b border-[var(--reader-border)] outline-none focus-visible:bg-[var(--reader-chip)]"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-serif text-[17px] sm:text-[18px] leading-snug truncate transition-colors group-hover:text-[var(--pen)]">
+                              {article.title}
+                            </span>
+                            <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)] truncate">
+                              {[
+                                article.author,
+                                article.source?.toLowerCase() ===
+                                article.author?.toLowerCase()
+                                  ? null
+                                  : article.source,
+                                article.fromReader ? "from Reader" : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
                           </span>
-                          <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)] truncate">
-                            {[
-                              article.author,
-                              article.source?.toLowerCase() ===
-                              article.author?.toLowerCase()
-                                ? null
-                                : article.source,
-                              article.fromReader ? "from Reader" : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
+                          <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-[var(--reader-muted)]">
+                            {article.minutes ? `${article.minutes} min` : ""}
                           </span>
-                        </span>
-                        <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-[var(--reader-muted)]">
-                          {article.minutes ? `${article.minutes} min` : ""}
-                        </span>
-                      </Link>
-                    ))}
-                  </FitChildren>
+                        </Link>
+                      ))}
+                    </FitChildren>
+                  </div>
                 </motion.section>
               )}
             </motion.div>
 
-            {/* Margin column: notes that don't fit the screen are left out */}
+            {/* Margin: reflection on what you've read, not ways in */}
             <aside className="hidden lg:flex min-h-0 flex-col pt-[clamp(0rem,4.5vh,2.6rem)]">
               <FitChildren className="flex-1 -ml-8 pl-8 flex flex-col gap-[clamp(1.25rem,4vh,2.25rem)]">
                 {marginNotes}

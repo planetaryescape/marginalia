@@ -60,7 +60,7 @@ export const loadArticles = internalQuery({
     );
     // Only what the librarian needs; article bodies stay out of the prompt
     return rows.map((row) =>
-      row
+      row?.userId === DEFAULT_USER_ID
         ? {
             ...row,
             content: undefined,

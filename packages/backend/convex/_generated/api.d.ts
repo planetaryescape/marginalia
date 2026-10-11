@@ -32,6 +32,7 @@ import type * as lib_constants from "../lib/constants.js";
 import type * as lib_embeddings from "../lib/embeddings.js";
 import type * as lib_ingest from "../lib/ingest.js";
 import type * as lib_library from "../lib/library.js";
+import type * as lib_librarySearch from "../lib/librarySearch.js";
 import type * as lib_marginaliaContext from "../lib/marginaliaContext.js";
 import type * as lib_openrouter from "../lib/openrouter.js";
 import type * as lib_readingCompanion from "../lib/readingCompanion.js";
@@ -80,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   "lib/embeddings": typeof lib_embeddings;
   "lib/ingest": typeof lib_ingest;
   "lib/library": typeof lib_library;
+  "lib/librarySearch": typeof lib_librarySearch;
   "lib/marginaliaContext": typeof lib_marginaliaContext;
   "lib/openrouter": typeof lib_openrouter;
   "lib/readingCompanion": typeof lib_readingCompanion;

@@ -6,6 +6,7 @@
   "main": "./convex/_generated/api.js",
   "types": "./convex/_generated/dataModel.d.ts",
   "exports": {
+    "./library-search": "./convex/lib/librarySearch.ts",
     "./*": "./convex/*",
     "./_generated/*": "./convex/_generated/*",
     "./convex/_generated/api": "./convex/_generated/api.js",

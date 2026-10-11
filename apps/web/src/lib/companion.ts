@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CONVEX_SITE_URL } from "./convex-site";
 import {
   getArticleBody,
   getParagraphs,
@@ -36,14 +37,6 @@ export interface CompanionThread {
   model?: string | null;
 }
 
-// Trimmed because the deployed env value has carried a trailing newline
-const SITE_URL =
-  process.env.NEXT_PUBLIC_CONVEX_SITE_URL?.trim() ??
-  process.env.NEXT_PUBLIC_CONVEX_URL?.trim().replace(
-    /\.convex\.cloud\/?$/,
-    ".convex.site",
-  );
-
 /** Streams a plain-text answer from one of the Convex HTTP endpoints. */
 export async function streamFromConvex(
   path: "/api/companion" | "/api/library",
@@ -54,7 +47,7 @@ export async function streamFromConvex(
     onText: (chunk: string) => void;
   },
 ) {
-  const res = await fetch(`${SITE_URL}${path}`, {
+  const res = await fetch(`${CONVEX_SITE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
