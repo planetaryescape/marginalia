@@ -47,7 +47,7 @@ vercel deploy --prod --yes
 vercel ls --scope planetaryescape
 ```
 
-These commands upload and change the public app. `vercel.json` installs with Bun, builds `apps/web` and serves `apps/web/.next`.
+These commands upload and change the public app. `vercel.json` installs with Bun, builds `apps/web` and serves `apps/web/.next`. `.vercelignore` keeps local caches, dependencies and populated env files out of uploads; inspect inputs with `vercel deploy --dry --format=json` if an upload is unexpectedly large. Turbo's build outputs exclude the running dev server's `.next/dev` cache.
 
 After deploy, verify the reader domain, not just the generated deployment URL:
 
