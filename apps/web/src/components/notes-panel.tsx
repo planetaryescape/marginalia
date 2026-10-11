@@ -1,7 +1,9 @@
 "use client";
 import DOMPurify from "isomorphic-dompurify";
 import { useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { NoteEditor } from "./note-editor";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,27 +27,61 @@ export function NotesPanel({
     articleId: articleId as any,
   });
   const createNote = useMutation(api.userNotes.create);
+  const updateNote = useMutation(api.userNotes.update);
   const removeNote = useMutation(api.userNotes.remove);
   const [editingNew, setEditingNew] = useState(false);
+  const [draftId, setDraftId] = useState<Id<"userNotes"> | null>(null);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  // Serialises saves so a slow create can't be followed by a second create
+  const saving = useRef<Promise<Id<"userNotes"> | null>>(Promise.resolve(null));
 
   const showEditor = editingNew || pendingSelection;
   const selectionText = pendingSelection?.text || "";
+  const pendingRef = useRef(pendingSelection);
+  pendingRef.current = pendingSelection;
 
-  const handleSave = async (content: string, plainText: string) => {
-    await createNote({
-      articleId: articleId as any,
-      selectedText: selectionText,
-      selectedStartOffset: pendingSelection?.startOffset,
-      selectedEndOffset: pendingSelection?.endOffset,
-      content,
-      contentPlain: plainText,
+  const handleAutosave = (content: string, plainText: string) => {
+    setStatus("saving");
+    saving.current = saving.current.then(async (id) => {
+      try {
+        if (!plainText.trim()) {
+          // Emptied the editor: drop the draft rather than keep a blank note
+          if (id) await removeNote({ noteId: id });
+          setDraftId(null);
+          setStatus("idle");
+          return null;
+        }
+        if (id) {
+          await updateNote({ noteId: id, content, contentPlain: plainText });
+          setStatus("saved");
+          return id;
+        }
+        const selection = pendingRef.current;
+        const created = await createNote({
+          articleId: articleId as Id<"articles">,
+          selectedText: selection?.text ?? "",
+          selectedStartOffset: selection?.startOffset,
+          selectedEndOffset: selection?.endOffset,
+          content,
+          contentPlain: plainText,
+        });
+        setDraftId(created);
+        setStatus("saved");
+        return created;
+      } catch {
+        setStatus("idle");
+        toast.error("Couldn't save your note");
+        return id;
+      }
     });
-    setEditingNew(false);
-    onClearSelection();
   };
 
-  const handleCancel = () => {
+  const handleClose = () => {
+    // Let the final save land before the next note starts fresh
+    saving.current = saving.current.then(() => null);
     setEditingNew(false);
+    setDraftId(null);
+    setStatus("idle");
     onClearSelection();
   };
 
@@ -90,9 +126,11 @@ export function NotesPanel({
           {showEditor && (
             <div className="border-b border-ink-200 dark:border-ink-800">
               <NoteEditor
+                key={selectionText}
                 selectedText={selectionText}
-                onSave={handleSave}
-                onCancel={handleCancel}
+                onAutosave={handleAutosave}
+                onClose={handleClose}
+                status={status}
               />
             </div>
           )}
@@ -110,7 +148,9 @@ export function NotesPanel({
               </div>
             )}
 
-            {notes?.map((note) => (
+            {notes
+              ?.filter((note) => !(showEditor && note._id === draftId))
+              .map((note) => (
               <div
                 key={note._id}
                 className="px-4 py-3 border-b border-ink-100 dark:border-ink-800 group"

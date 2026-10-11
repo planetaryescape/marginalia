@@ -2,22 +2,50 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useCallback } from "react";
+import { useEffect, useRef } from "react";
+
+const AUTOSAVE_DELAY_MS = 700;
 
 interface NoteEditorProps {
   selectedText: string;
-  onSave: (content: string, plainText: string) => void;
-  onCancel: () => void;
+  /** Called after a pause in typing, and once more on close if anything is unsaved. */
+  onAutosave: (content: string, plainText: string) => void;
+  onClose: () => void;
+  status: "idle" | "saving" | "saved";
   initialContent?: string;
 }
 
 export function NoteEditor({
   selectedText,
-  onSave,
-  onCancel,
+  onAutosave,
+  onClose,
+  status,
   initialContent,
 }: NoteEditorProps) {
+  const timer = useRef<number | null>(null);
+  const pending = useRef<{ html: string; plain: string } | null>(null);
+  const onAutosaveRef = useRef(onAutosave);
+  onAutosaveRef.current = onAutosave;
+
+  const flush = () => {
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+    if (pending.current) {
+      onAutosaveRef.current(pending.current.html, pending.current.plain);
+      pending.current = null;
+    }
+  };
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+
+  // Save whatever is left when the editor goes away
+  useEffect(() => () => flushRef.current(), []);
+
   const editor = useEditor({
+    // The page is server-rendered; rendering on the client only avoids hydration mismatches
+    immediatelyRender: false,
+    // The editor only mounts when you start a note, so put the cursor in it straight away
+    autofocus: "end",
     extensions: [
       StarterKit.configure({
         heading: { levels: [3] },
@@ -27,6 +55,12 @@ export function NoteEditor({
       }),
     ],
     content: initialContent || "",
+    onUpdate: ({ editor }) => {
+      pending.current = { html: editor.getHTML(), plain: editor.getText() };
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => flushRef.current(), AUTOSAVE_DELAY_MS);
+    },
+    onBlur: () => flushRef.current(),
     editorProps: {
       attributes: {
         class:
@@ -34,14 +68,6 @@ export function NoteEditor({
       },
     },
   });
-
-  const handleSave = useCallback(() => {
-    if (!editor) return;
-    const html = editor.getHTML();
-    const plain = editor.getText();
-    if (!plain.trim()) return;
-    onSave(html, plain);
-  }, [editor, onSave]);
 
   return (
     <div className="flex flex-col h-full">
@@ -90,19 +116,27 @@ export function NoteEditor({
         </div>
       )}
 
-      {/* Actions */}
-      <div className="px-4 py-3 flex items-center justify-end gap-2">
-        <button
-          onClick={onCancel}
-          className="px-3 py-1.5 text-xs font-sans text-ink-500 hover:text-ink-700 dark:hover:text-ink-300 transition-colors"
+      {/* Autosave status */}
+      <div className="px-4 py-2.5 flex items-center justify-between">
+        <span
+          className="text-[11px] font-sans text-ink-400 dark:text-ink-500"
+          aria-live="polite"
         >
-          Cancel
-        </button>
+          {status === "saving"
+            ? "Saving…"
+            : status === "saved"
+              ? "Saved"
+              : "Saves as you type"}
+        </span>
         <button
-          onClick={handleSave}
-          className="px-4 py-1.5 text-xs font-sans font-medium bg-ink-950 dark:bg-parchment-100 text-parchment-50 dark:text-ink-950 rounded-lg hover:opacity-90 transition-opacity"
+          type="button"
+          onClick={() => {
+            flush();
+            onClose();
+          }}
+          className="text-xs font-sans text-ink-500 hover:text-ink-700 dark:hover:text-ink-300 transition-colors"
         >
-          Save note
+          Close
         </button>
       </div>
     </div>
