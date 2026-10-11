@@ -8,15 +8,18 @@ import { isDarkTheme, type ReaderSettings } from "./reader-settings";
  * (and portals such as popovers and toasts) can use the --reader-* tokens.
  */
 export function useReaderTheme(settings: ReaderSettings) {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
 
   // Keep light/dark in step with an explicit reader theme (e.g. after toggling elsewhere in the app)
   useEffect(() => {
-    if (settings.theme === "auto" || !resolvedTheme) return;
-    const wantDark = isDarkTheme(settings.theme);
-    if ((resolvedTheme === "dark") !== wantDark)
-      setTheme(wantDark ? "dark" : "light");
-  }, [settings.theme, resolvedTheme, setTheme]);
+    const desired =
+      settings.theme === "auto"
+        ? "system"
+        : isDarkTheme(settings.theme)
+          ? "dark"
+          : "light";
+    if (theme !== desired) setTheme(desired);
+  }, [settings.theme, theme, setTheme]);
 
   useEffect(() => {
     const html = document.documentElement;

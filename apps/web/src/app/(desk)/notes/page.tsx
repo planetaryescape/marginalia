@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { DeskPage } from "@/components/desk-page";
 
 export default function NotesPage() {
@@ -42,7 +43,11 @@ export default function NotesPage() {
             key={articleId}
             articleId={articleNotes[0].articleId}
             notes={articleNotes}
-            onDelete={(noteId) => removeNote({ noteId })}
+            onDelete={(noteId) =>
+              removeNote({ noteId }).catch(() =>
+                toast.error("Couldn't delete the note. Try again."),
+              )
+            }
           />
         ))}
     </DeskPage>
@@ -110,7 +115,7 @@ function ArticleNotesGroup({
                 <button
                   type="button"
                   onClick={() => onDelete(note._id)}
-                  className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-[12px] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-opacity"
+                  className="md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-[12px] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-opacity"
                 >
                   Delete
                 </button>

@@ -13,7 +13,7 @@ export function MiniBar({
 }: MiniBarProps) {
   return (
     <div
-      className="rounded-full bg-ink-200 dark:bg-ink-700 overflow-hidden"
+      className="rounded-full bg-[var(--reader-chip)] overflow-hidden"
       style={{ width, height }}
     >
       <div

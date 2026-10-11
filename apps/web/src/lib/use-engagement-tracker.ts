@@ -45,7 +45,8 @@ export function useEngagementTracker() {
 
       // Calculate scroll percentage
       const scrollTop = window.scrollY;
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const docHeight =
+        document.documentElement.scrollHeight - window.innerHeight;
       if (docHeight > 0) {
         const pct = Math.min(100, Math.round((scrollTop / docHeight) * 100));
         if (pct > state.current.maxScrollPercent) {

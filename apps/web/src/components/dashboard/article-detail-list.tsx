@@ -1,15 +1,15 @@
 "use client";
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { MiniBar } from "./mini-bar";
-import { formatDate } from "@/lib/utils";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
+import { useState } from "react";
+import { formatDate } from "@/lib/utils";
+import { MiniBar } from "./mini-bar";
 
 interface ArticleDetail {
   articleId: string;
   title: string;
-  author: string | null;
-  estimatedReadMinutes: number | null;
+  author?: string;
+  estimatedReadMinutes?: number;
   readAt: number;
   activeTimeMs: number;
   wallTimeMs: number;
@@ -37,7 +37,7 @@ export function ArticleDetailList({ articles }: ArticleDetailListProps) {
 
   if (!articles || articles.length === 0) {
     return (
-      <p className="text-sm font-serif italic text-ink-400 text-center py-6">
+      <p className="text-sm font-serif italic text-[var(--reader-muted)] text-center py-6">
         No articles read this week.
       </p>
     );
@@ -49,9 +49,9 @@ export function ArticleDetailList({ articles }: ArticleDetailListProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.4 }}
     >
-      <p className="text-[10px] font-sans font-semibold text-ink-400 dark:text-ink-500 uppercase tracking-[0.2em] mb-5">
+      <h2 className="text-sm font-medium text-[var(--reader-fg)] mb-5">
         What you read
-      </p>
+      </h2>
 
       <div>
         {articles.map((a) => {
@@ -59,30 +59,35 @@ export function ArticleDetailList({ articles }: ArticleDetailListProps) {
           return (
             <div
               key={a.articleId}
-              className="border-b border-ink-100 dark:border-ink-800"
+              className="border-b border-[var(--reader-border)]"
             >
               {/* Collapsed row */}
               <button
-                onClick={() =>
-                  setExpanded(isOpen ? null : a.articleId)
-                }
-                className="w-full flex items-center gap-3 py-3 text-left hover:bg-ink-50 dark:hover:bg-ink-900/50 transition-colors"
+                type="button"
+                aria-expanded={isOpen}
+                onClick={() => setExpanded(isOpen ? null : a.articleId)}
+                className="w-full flex items-center gap-3 py-3 text-left hover:bg-[var(--reader-chip)] transition-colors"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-serif text-ink-800 dark:text-parchment-200 truncate">
+                  <p className="text-sm font-serif text-[var(--reader-fg)] truncate">
                     {a.title}
                   </p>
-                  <p className="text-[10px] font-sans text-ink-400 mt-0.5">
-                    {a.author} · {formatDate(a.readAt)}
+                  <p className="text-[11px] font-sans text-[var(--reader-muted)] mt-0.5">
+                    {a.author ? `${a.author} · ` : ""}
+                    {formatDate(a.readAt)}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <MiniBar value={a.maxScrollPercent} width="40px" height="3px" />
-                  <span className="text-[10px] font-sans text-ink-400 w-8">
+                  <MiniBar
+                    value={a.maxScrollPercent}
+                    width="40px"
+                    height="3px"
+                  />
+                  <span className="text-[11px] font-sans text-[var(--reader-muted)] w-8">
                     {formatMs(a.activeTimeMs)}
                   </span>
-                  <span className="text-[10px] font-sans text-ink-400 w-8">
+                  <span className="text-[11px] font-sans text-[var(--reader-muted)] w-8">
                     {a.annotationsOpened}/{a.annotationsTotal}
                   </span>
                   {a.isLoved && (
@@ -95,17 +100,29 @@ export function ArticleDetailList({ articles }: ArticleDetailListProps) {
               <AnimatePresence>
                 {isOpen && (
                   <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
                     <div className="pb-4 pl-4 grid grid-cols-2 gap-x-6 gap-y-2 text-xs font-sans">
-                      <Detail label="Scroll depth" value={`${a.maxScrollPercent}%`} />
-                      <Detail label="Active time" value={formatMs(a.activeTimeMs)} />
-                      <Detail label="Wall time" value={formatMs(a.wallTimeMs)} />
-                      <Detail label="Tab switches" value={`${a.tabHiddenCount}`} />
+                      <Detail
+                        label="Scroll depth"
+                        value={`${a.maxScrollPercent}%`}
+                      />
+                      <Detail
+                        label="Active time"
+                        value={formatMs(a.activeTimeMs)}
+                      />
+                      <Detail
+                        label="Wall time"
+                        value={formatMs(a.wallTimeMs)}
+                      />
+                      <Detail
+                        label="Tab switches"
+                        value={`${a.tabHiddenCount}`}
+                      />
                       <Detail
                         label="Annotations"
                         value={`${a.annotationsOpened} of ${a.annotationsTotal} opened`}
@@ -117,13 +134,17 @@ export function ArticleDetailList({ articles }: ArticleDetailListProps) {
                       />
                       <Detail
                         label="Read time"
-                        value={a.estimatedReadMinutes ? `${a.estimatedReadMinutes}m est` : "—"}
+                        value={
+                          a.estimatedReadMinutes
+                            ? `${a.estimatedReadMinutes}m est`
+                            : "—"
+                        }
                       />
                     </div>
                     <div className="pb-3 pl-4">
                       <Link
                         href={`/read/${a.articleId}`}
-                        className="text-xs font-sans text-annotation-crossref hover:underline"
+                        className="text-xs font-sans text-[var(--pen)] hover:underline"
                       >
                         Re-read &rarr;
                       </Link>
@@ -142,8 +163,8 @@ export function ArticleDetailList({ articles }: ArticleDetailListProps) {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between">
-      <span className="text-ink-400">{label}</span>
-      <span className="text-ink-700 dark:text-parchment-300">{value}</span>
+      <span className="text-[var(--reader-muted)]">{label}</span>
+      <span className="text-[var(--reader-fg-soft)]">{value}</span>
     </div>
   );
 }

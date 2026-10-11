@@ -20,9 +20,7 @@ export function useSiteNav(): NavItem[] {
     { href: "/library", label: "Library" },
     { href: "/notes", label: "Notes" },
     { href: "/reading", label: "This week" },
-    ...((savedCount ?? 0) > 0
-      ? [{ href: "/saved", label: `Saved · ${savedCount}` }]
-      : []),
+    { href: "/saved", label: savedCount ? `Saved · ${savedCount}` : "Saved" },
     { href: "/feeds", label: "Sources" },
   ];
 }
@@ -106,7 +104,10 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
       >
         Marginalia
       </Link>
-      <nav className="hidden md:flex items-center gap-5 text-[13px] text-[var(--reader-muted)]">
+      <nav
+        aria-label="Main navigation"
+        className="hidden md:flex items-center gap-5 text-[13px] text-[var(--reader-muted)]"
+      >
         {nav.map((item) => (
           <Link
             key={item.href}
@@ -140,7 +141,10 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
 export function MobileNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
   return (
-    <nav className="md:hidden shrink-0 h-11 px-5 flex items-center gap-5 overflow-x-auto border-t border-[var(--reader-border)] text-[13px] text-[var(--reader-muted)]">
+    <nav
+      aria-label="Main navigation"
+      className="md:hidden shrink-0 min-h-11 px-5 pb-[env(safe-area-inset-bottom)] flex items-center gap-5 overflow-x-auto border-t border-[var(--reader-border)] text-[13px] text-[var(--reader-muted)]"
+    >
       {items.map((item) => (
         <Link
           key={item.href}

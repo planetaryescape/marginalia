@@ -75,11 +75,7 @@ export default function ReadingPage() {
       <Divider />
 
       {/* E: Article Details */}
-      {articles ? (
-        <ArticleDetailList articles={articles as any} />
-      ) : (
-        <Skeleton />
-      )}
+      {articles ? <ArticleDetailList articles={articles} /> : <Skeleton />}
 
       <Divider />
 
@@ -98,10 +94,11 @@ export default function ReadingPage() {
 
 function Skeleton() {
   return (
-    <div className="animate-pulse space-y-3">
-      <div className="h-4 bg-ink-100 dark:bg-ink-800 rounded w-24" />
-      <div className="h-8 bg-ink-100 dark:bg-ink-800 rounded w-16" />
-      <div className="h-3 bg-ink-100 dark:bg-ink-800 rounded w-32" />
+    <div role="status" className="animate-pulse space-y-3">
+      <span className="sr-only">Loading reading activity…</span>
+      <div className="h-4 bg-[var(--reader-chip)] rounded w-24" />
+      <div className="h-8 bg-[var(--reader-chip)] rounded w-16" />
+      <div className="h-3 bg-[var(--reader-chip)] rounded w-32" />
     </div>
   );
 }

@@ -60,10 +60,14 @@ export async function streamFromConvex(
   }
   handlers.onModel(res.headers.get("X-Companion-Model"));
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    handlers.onText(value);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      handlers.onText(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
 }
 

@@ -18,11 +18,11 @@ export function SessionDistribution({ data }: SessionDistributionProps) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.15 }}
-      className="p-5 rounded-xl border border-ink-100 dark:border-ink-800 bg-white dark:bg-ink-900"
+      className="p-5 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)]"
     >
-      <p className="text-[10px] font-sans font-semibold text-ink-400 dark:text-ink-500 uppercase tracking-[0.2em] mb-4">
+      <h2 className="text-sm font-medium text-[var(--reader-fg)] mb-4">
         Session lengths
-      </p>
+      </h2>
       <div className="space-y-3">
         {[5, 10, 20, 30].map((mins) => {
           const d = data.find((x) => x.requestedMinutes === mins);
@@ -30,16 +30,16 @@ export function SessionDistribution({ data }: SessionDistributionProps) {
           const pct = (count / maxCount) * 100;
           return (
             <div key={mins} className="flex items-center gap-3">
-              <span className="text-xs font-sans text-ink-400 w-8 text-right">
+              <span className="text-xs font-sans text-[var(--reader-muted)] w-8 text-right">
                 {mins}m
               </span>
-              <div className="flex-1 h-4 rounded-full bg-ink-100 dark:bg-ink-800 overflow-hidden">
+              <div className="flex-1 h-4 rounded-full bg-[var(--reader-chip)] overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-annotation-crossref transition-all duration-500"
+                  className="h-full rounded-full bg-annotation-crossref transition-[width] duration-500 motion-reduce:transition-none"
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-xs font-sans font-medium text-ink-600 dark:text-ink-400 w-6">
+              <span className="text-xs font-sans font-medium text-[var(--reader-fg-soft)] w-6">
                 {count}
               </span>
             </div>
@@ -47,7 +47,7 @@ export function SessionDistribution({ data }: SessionDistributionProps) {
         })}
       </div>
       {data && data.length > 0 && (
-        <p className="text-[10px] font-sans text-ink-300 dark:text-ink-600 mt-3">
+        <p className="text-[11px] font-sans text-[var(--reader-muted)] mt-3">
           Avg actual:{" "}
           {data
             .filter((d) => d.avgActualMinutes > 0)

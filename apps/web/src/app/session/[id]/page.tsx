@@ -1,49 +1,58 @@
 "use client";
-import { useAction, useMutation, useQuery } from "convex/react";
-import { useParams, useRouter } from "next/navigation";
-import { useState, useCallback, useEffect } from "react";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { formatReadTime, formatDate } from "@/lib/utils";
-import { motion, AnimatePresence } from "framer-motion";
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
+import { useAction, useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { formatDate, formatReadTime } from "@/lib/utils";
 
 export default function SessionPage() {
   const { id } = useParams<{ id: string }>();
+  // SAFETY: session links come from stored IDs; Convex validates this route parameter with v.id("sessions").
+  const sessionId = id as Id<"sessions">;
   const router = useRouter();
   const session = useQuery(api.sessions.getById, {
-    sessionId: id as any,
+    sessionId,
   });
   const selectArticle = useAction(api.actions.selectArticle.select);
   const recordInteraction = useMutation(api.sessions.recordInteraction);
   const saveArticle = useMutation(api.savedArticles.save);
   const updateSession = useMutation(api.sessions.updateStatus);
 
-  const [candidates, setCandidates] = useState<any[]>([]);
+  const [candidates, setCandidates] = useState<
+    FunctionReturnType<typeof api.actions.selectArticle.select>
+  >([]);
+  const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [direction, setDirection] = useState(0);
 
-  // Load candidates on mount
+  const requestedMinutes = session?.requestedMinutes;
+  // Load candidates once the requested window is known.
   const loadCandidates = useCallback(async () => {
-    if (!session) return;
+    if (requestedMinutes === undefined) return;
     setLoading(true);
+    setError(null);
     try {
       const results = await selectArticle({
-        requestedMinutes: session.requestedMinutes,
+        requestedMinutes,
       });
       setCandidates(results);
     } catch (e) {
-      console.error("Failed to select articles:", e);
+      setError(
+        e instanceof Error ? e.message : "Couldn't find articles. Try again.",
+      );
     }
     setLoading(false);
-  }, [session, selectArticle]);
+  }, [requestedMinutes, selectArticle]);
 
   // Load candidates when session becomes available
   useEffect(() => {
-    if (session && candidates.length === 0 && loading) {
-      loadCandidates();
-    }
-  }, [session]);
+    void loadCandidates();
+  }, [loadCandidates]);
 
   const current = candidates[currentIndex];
 
@@ -51,11 +60,11 @@ export default function SessionPage() {
     if (!current) return;
     await recordInteraction({
       articleId: current._id,
-      sessionId: id as any,
+      sessionId,
       action: "opened",
     });
     await updateSession({
-      sessionId: id as any,
+      sessionId,
       readingStatus: "reading",
       articleId: current._id,
     });
@@ -66,7 +75,7 @@ export default function SessionPage() {
     if (!current) return;
     await recordInteraction({
       articleId: current._id,
-      sessionId: id as any,
+      sessionId,
       action: "skipped",
     });
     setDirection(1);
@@ -80,7 +89,7 @@ export default function SessionPage() {
     await saveArticle({ articleId: current._id });
     await recordInteraction({
       articleId: current._id,
-      sessionId: id as any,
+      sessionId,
       action: "saved",
     });
     // Move to next
@@ -90,7 +99,15 @@ export default function SessionPage() {
     }
   };
 
-  if (!session) {
+  if (session === null) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+        <p>This session isn't here.</p>
+        <Link href="/">Back to Home</Link>
+      </div>
+    );
+  }
+  if (session === undefined) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-ink-400 font-sans">Loading session...</p>
@@ -115,9 +132,18 @@ export default function SessionPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center">
         <p className="text-ink-600 dark:text-ink-400 text-lg mb-4">
-          No articles match your {session.requestedMinutes}-minute window right
-          now.
+          {error ||
+            `No articles match your ${session.requestedMinutes}-minute window right now.`}
         </p>
+        {error && (
+          <button
+            type="button"
+            onClick={() => loadCandidates()}
+            className="mb-4 text-sm underline"
+          >
+            Try again
+          </button>
+        )}
         <Link
           href="/"
           className="text-annotation-crossref hover:underline font-sans text-sm"

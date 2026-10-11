@@ -195,7 +195,7 @@ html[data-reader-theme="paper"] {
   --reader-surface: #ffffff;
   --reader-fg: #201d1b;
   --reader-fg-soft: #3b3733;
-  --reader-muted: #7a7068;
+  --reader-muted: #70675f;
   --reader-border: rgba(32, 29, 27, 0.1);
   --reader-border-strong: rgba(32, 29, 27, 0.2);
   --reader-chip: rgba(32, 29, 27, 0.05);
@@ -207,7 +207,7 @@ html[data-reader-theme="night"] {
   --reader-surface: #2a2623;
   --reader-fg: #f3f1ef;
   --reader-fg-soft: #dcd7d2;
-  --reader-muted: #958a81;
+  --reader-muted: #a3968c;
   --reader-border: rgba(255, 255, 255, 0.08);
   --reader-border-strong: rgba(255, 255, 255, 0.17);
   --reader-chip: rgba(255, 255, 255, 0.06);
@@ -218,7 +218,7 @@ html[data-reader-theme="sepia"] {
   --reader-surface: #faf4e7;
   --reader-fg: #3b2e20;
   --reader-fg-soft: #4a3b2a;
-  --reader-muted: #8a7660;
+  --reader-muted: #74624e;
   --reader-border: rgba(74, 59, 42, 0.14);
   --reader-border-strong: rgba(74, 59, 42, 0.26);
   --reader-chip: rgba(74, 59, 42, 0.07);
@@ -241,7 +241,7 @@ html[data-reader-theme="dusk"] {
   --reader-surface: #3e3935;
   --reader-fg: #f1ece6;
   --reader-fg-soft: #ddd6ce;
-  --reader-muted: #a59c93;
+  --reader-muted: #b3a99e;
   --reader-border: rgba(255, 255, 255, 0.09);
   --reader-border-strong: rgba(255, 255, 255, 0.18);
   --reader-chip: rgba(255, 255, 255, 0.07);

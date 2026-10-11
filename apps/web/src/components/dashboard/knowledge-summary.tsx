@@ -35,9 +35,9 @@ export function KnowledgeSummary({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.3 }}
     >
-      <p className="text-[10px] font-sans font-semibold text-ink-400 dark:text-ink-500 uppercase tracking-[0.2em] mb-5">
+      <h2 className="text-sm font-medium text-[var(--reader-fg)] mb-5">
         Knowledge building
-      </p>
+      </h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
         {/* Left: index-style counts */}
@@ -45,12 +45,12 @@ export function KnowledgeSummary({
           {rows.map((r) => (
             <div
               key={r.label}
-              className="flex items-baseline justify-between border-b border-dotted border-ink-200 dark:border-ink-700 pb-1"
+              className="flex items-baseline justify-between border-b border-dotted border-[var(--reader-border-strong)] pb-1"
             >
-              <span className="text-sm font-sans text-ink-600 dark:text-ink-400">
+              <span className="text-sm font-sans text-[var(--reader-fg-soft)]">
                 {r.label}
               </span>
-              <span className="text-lg font-serif text-ink-950 dark:text-parchment-100">
+              <span className="text-lg font-serif text-[var(--reader-fg)]">
                 {r.value}
               </span>
             </div>
@@ -60,7 +60,7 @@ export function KnowledgeSummary({
         {/* Right: recent notes */}
         <div>
           {!recentNotes || recentNotes.length === 0 ? (
-            <p className="text-sm font-serif italic text-ink-400">
+            <p className="text-sm font-serif italic text-[var(--reader-muted)]">
               No notes this week — try highlighting a passage next time.
             </p>
           ) : (
@@ -71,13 +71,13 @@ export function KnowledgeSummary({
                   href={`/read/${n.articleId}`}
                   className="block group"
                 >
-                  <blockquote className="text-[11px] font-serif italic text-ink-500 dark:text-ink-400 border-l-2 border-annotation-crossref pl-2 line-clamp-1 group-hover:text-annotation-crossref transition-colors">
+                  <blockquote className="text-[12px] font-serif italic text-[var(--reader-muted)] border-l border-[var(--reader-border-strong)] pl-2 line-clamp-1 group-hover:text-[var(--pen)] transition-colors">
                     {n.selectedText}
                   </blockquote>
-                  <p className="text-xs font-sans text-ink-600 dark:text-ink-400 mt-0.5 line-clamp-1">
+                  <p className="text-xs font-sans text-[var(--reader-fg-soft)] mt-0.5 line-clamp-1">
                     {n.contentPlain}
                   </p>
-                  <p className="text-[9px] font-sans text-ink-300 dark:text-ink-600 mt-0.5">
+                  <p className="text-[11px] font-sans text-[var(--reader-muted)] mt-0.5">
                     {n.articleTitle}
                   </p>
                 </Link>

@@ -73,7 +73,8 @@ const fontVariables = [
 
 export const metadata: Metadata = {
   title: "Marginalia",
-  description: "Read with context. An RSS reader with study Bible marginalia.",
+  description:
+    "A personal reading desk with contextual marginalia, notes and a searchable library.",
 };
 
 export default function RootLayout({
@@ -82,7 +83,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={fontVariables} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={fontVariables}
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+    >
       <body>
         <ThemeProvider
           attribute="class"

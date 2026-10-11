@@ -21,7 +21,7 @@ export function StatDelta({
     ? "text-annotation-context"
     : isNegative
       ? "text-annotation-tension"
-      : "text-ink-400";
+      : "text-[var(--reader-muted)]";
 
   return (
     <span className={`text-[10px] font-sans ${color}`}>

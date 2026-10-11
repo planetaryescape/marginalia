@@ -2,16 +2,24 @@
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createNoteAutosave } from "@/lib/note-autosave";
 
 const AUTOSAVE_DELAY_MS = 700;
 
 interface NoteEditorProps {
   selectedText: string;
   /** Called after a pause in typing, and once more on close if anything is unsaved. */
-  onAutosave: (content: string, plainText: string) => void;
+  onAutosave: (content: string, plainText: string) => Promise<boolean>;
   onClose: () => void;
-  status: "idle" | "saving" | "saved";
+  status: "idle" | "saving" | "saved" | "error";
+  onFlushReady?: (flush: (() => Promise<boolean>) | null) => void;
   initialContent?: string;
 }
 
@@ -21,25 +29,45 @@ export function NoteEditor({
   onClose,
   status,
   initialContent,
+  onFlushReady,
 }: NoteEditorProps) {
   const timer = useRef<number | null>(null);
-  const pending = useRef<{ html: string; plain: string } | null>(null);
   const onAutosaveRef = useRef(onAutosave);
-  onAutosaveRef.current = onAutosave;
+  useLayoutEffect(() => {
+    onAutosaveRef.current = onAutosave;
+  }, [onAutosave]);
+  const [autosave] = useState(() =>
+    createNoteAutosave((draft) =>
+      onAutosaveRef.current(draft.html, draft.plain),
+    ),
+  );
 
-  const flush = () => {
+  const flush = useCallback(() => {
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = null;
-    if (pending.current) {
-      onAutosaveRef.current(pending.current.html, pending.current.plain);
-      pending.current = null;
-    }
-  };
-  const flushRef = useRef(flush);
-  flushRef.current = flush;
+    return autosave.flush();
+  }, [autosave]);
 
   // Save whatever is left when the editor goes away
-  useEffect(() => () => flushRef.current(), []);
+  useEffect(
+    () => () => {
+      void flush();
+    },
+    [flush],
+  );
+  useEffect(() => {
+    onFlushReady?.(flush);
+    return () => onFlushReady?.(null);
+  }, [onFlushReady, flush]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!autosave.hasPending()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [autosave]);
 
   const editor = useEditor({
     // The page is server-rendered; rendering on the client only avoids hydration mismatches
@@ -56,21 +84,18 @@ export function NoteEditor({
     ],
     content: initialContent || "",
     onUpdate: ({ editor }) => {
-      pending.current = { html: editor.getHTML(), plain: editor.getText() };
+      autosave.change({ html: editor.getHTML(), plain: editor.getText() });
       if (timer.current) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(
-        () => flushRef.current(),
-        AUTOSAVE_DELAY_MS,
-      );
+      timer.current = window.setTimeout(() => flush(), AUTOSAVE_DELAY_MS);
     },
-    onBlur: () => flushRef.current(),
+    onBlur: () => flush(),
     editorProps: {
       attributes: {
         role: "textbox",
         "aria-label": "Your note",
         "aria-multiline": "true",
         class:
-          "min-h-[120px] max-h-[300px] overflow-y-auto px-4 py-3 font-sans text-sm text-ink-800 dark:text-parchment-200 leading-relaxed focus:outline-none",
+          "min-h-[120px] max-h-[300px] overflow-y-auto px-4 py-3 font-sans text-sm text-[var(--reader-fg)] leading-relaxed focus:outline-none",
       },
     },
   });
@@ -78,23 +103,25 @@ export function NoteEditor({
   return (
     <div className="flex flex-col h-full">
       {/* Selected text context */}
-      <div className="px-4 py-3 border-b border-ink-100 dark:border-ink-800">
-        <p className="text-[10px] font-sans font-semibold text-ink-400 dark:text-ink-500 uppercase tracking-wider mb-1.5">
-          Highlighting
-        </p>
-        <blockquote className="text-xs font-serif text-ink-600 dark:text-ink-400 leading-relaxed line-clamp-3 border-l-2 border-annotation-crossref pl-3 italic">
-          {selectedText}
-        </blockquote>
-      </div>
+      {selectedText && (
+        <div className="px-4 py-3 border-b border-[var(--reader-border)]">
+          <p className="text-[11px] font-sans font-semibold text-[var(--reader-muted)] mb-1.5">
+            Highlighting
+          </p>
+          <blockquote className="text-xs font-serif text-[var(--reader-fg-soft)] leading-relaxed line-clamp-3 border-l border-[var(--reader-border-strong)] pl-3 italic">
+            {selectedText}
+          </blockquote>
+        </div>
+      )}
 
       {/* Editor */}
-      <div className="flex-1 border-b border-ink-100 dark:border-ink-800">
+      <div className="flex-1 border-b border-[var(--reader-border)]">
         <EditorContent editor={editor} />
       </div>
 
       {/* Toolbar */}
       {editor && (
-        <div className="px-3 py-2 flex items-center gap-1 border-b border-ink-100 dark:border-ink-800">
+        <div className="px-3 py-2 flex items-center gap-1 border-b border-[var(--reader-border)]">
           <ToolbarButton
             label="Bold"
             active={editor.isActive("bold")}
@@ -129,22 +156,32 @@ export function NoteEditor({
       {/* Autosave status */}
       <div className="px-4 py-2.5 flex items-center justify-between">
         <span
-          className="text-[11px] font-sans text-ink-400 dark:text-ink-500"
+          className="text-[11px] font-sans text-[var(--reader-muted)]"
           aria-live="polite"
         >
-          {status === "saving"
-            ? "Saving…"
-            : status === "saved"
-              ? "Saved"
-              : "Saves as you type"}
+          {status === "error"
+            ? "Not saved. Your draft is still here."
+            : status === "saving"
+              ? "Saving…"
+              : status === "saved"
+                ? "Saved"
+                : "Saves as you type"}
         </span>
+        {status === "error" && (
+          <button
+            type="button"
+            onClick={() => flush()}
+            className="text-xs text-[var(--pen)] hover:underline"
+          >
+            Retry
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => {
-            flush();
-            onClose();
+          onClick={async () => {
+            if (await flush()) onClose();
           }}
-          className="text-xs font-sans text-ink-500 hover:text-ink-700 dark:hover:text-ink-300 transition-colors"
+          className="text-xs font-sans text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
         >
           Close
         </button>
@@ -171,7 +208,7 @@ function ToolbarButton({
       aria-pressed={active}
       onClick={onClick}
       className={`w-7 h-7 flex items-center justify-center rounded text-xs font-sans transition-colors
-        ${active ? "bg-ink-200 dark:bg-ink-700 text-ink-900 dark:text-parchment-100" : "text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800"}`}
+        ${active ? "bg-[var(--reader-chip)] text-[var(--reader-fg)]" : "text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]"}`}
     >
       {children}
     </button>

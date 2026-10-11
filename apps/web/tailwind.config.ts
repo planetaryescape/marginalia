@@ -6,7 +6,12 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        serif: ["var(--font-newsreader)", "Georgia", "Times New Roman", "serif"],
+        serif: [
+          "var(--font-newsreader)",
+          "Georgia",
+          "Times New Roman",
+          "serif",
+        ],
         sans: ["var(--font-dm-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-jetbrains-mono)", "monospace"],
       },
@@ -40,10 +45,10 @@ const config: Config = {
         },
         // Accent colors for annotation types
         annotation: {
-          crossref: "#5b7f95",   // Slate blue — connections
-          context: "#7a8f6f",    // Sage green — enrichment
-          tension: "#b07050",    // Terracotta — conflict
-          question: "#8b7bb0",   // Muted purple — inquiry
+          crossref: "#5b7f95", // Slate blue — connections
+          context: "#7a8f6f", // Sage green — enrichment
+          tension: "#b07050", // Terracotta — conflict
+          question: "#8b7bb0", // Muted purple — inquiry
         },
       },
       typography: {

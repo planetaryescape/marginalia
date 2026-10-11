@@ -32,7 +32,6 @@ vi.mock("@/lib/reader-settings", () => ({
   useReaderSettings: () => ({ settings: { theme: "ink" } }),
 }));
 vi.mock("@/lib/use-reader-theme", () => ({ useReaderTheme: applyTheme }));
-vi.mock("@/components/theme-toggle", () => ({ ThemeToggle: () => null }));
 vi.mock("convex/react", () => ({
   useQuery: (ref: FunctionReference<"query">) => {
     switch (getFunctionName(ref)) {

@@ -1,5 +1,6 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ export default function FeedsPage() {
 
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,9 +41,13 @@ export default function FeedsPage() {
     setAdding(false);
   };
 
-  const handleRemove = async (feedId: string) => {
-    await removeFeed({ feedId: feedId as any });
-    toast.success("Feed removed");
+  const handleRemove = async (feedId: Id<"feeds">) => {
+    try {
+      await removeFeed({ feedId });
+      toast.success("Feed removed");
+    } catch {
+      toast.error("Couldn't remove the feed. Try again.");
+    }
   };
 
   return (
@@ -85,7 +91,7 @@ export default function FeedsPage() {
             disabled={adding || !url.trim()}
             className="px-5 py-3 bg-[var(--reader-fg)] text-[var(--reader-bg)] rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
           >
-            {adding ? "..." : "Add"}
+            {adding ? "Adding…" : "Add"}
           </button>
         </div>
       </form>
@@ -94,48 +100,70 @@ export default function FeedsPage() {
       <div className="mb-10">
         <label className="relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[var(--reader-border-strong)] cursor-pointer hover:border-[var(--pen)] focus-within:outline focus-within:outline-1 focus-within:outline-[var(--reader-focus)] focus-within:outline-offset-2 transition-colors">
           <span className="text-xs text-[var(--reader-muted)]">
-            Import OPML file
+            {importing ? "Importing feeds…" : "Import OPML file"}
           </span>
           <input
             type="file"
             accept=".opml,.xml"
             className="sr-only"
+            disabled={importing}
             onChange={async (e) => {
-              const file = e.target.files?.[0];
+              const input = e.currentTarget;
+              const file = input.files?.[0];
               if (!file) return;
-              const text = await file.text();
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(text, "text/xml");
-              const outlines = doc.querySelectorAll("outline[xmlUrl]");
-              let added = 0;
-              let skipped = 0;
-              for (const outline of outlines) {
-                const feedUrl = outline.getAttribute("xmlUrl");
-                const title =
-                  outline.getAttribute("title") ||
-                  outline.getAttribute("text") ||
-                  "";
-                if (!feedUrl) continue;
-                try {
-                  await addFeed({
-                    url: feedUrl,
-                    title: title || new URL(feedUrl).hostname,
-                  });
-                  added++;
-                } catch {
-                  skipped++;
+              setImporting(true);
+              try {
+                const text = await file.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, "text/xml");
+                if (doc.querySelector("parsererror"))
+                  throw new Error("This OPML file isn't valid XML.");
+                const outlines = doc.querySelectorAll("outline[xmlUrl]");
+                if (!outlines.length)
+                  throw new Error("No feed URLs found in this OPML file.");
+                let added = 0;
+                let skipped = 0;
+                for (const outline of outlines) {
+                  const feedUrl = outline.getAttribute("xmlUrl");
+                  const title =
+                    outline.getAttribute("title") ||
+                    outline.getAttribute("text") ||
+                    "";
+                  if (!feedUrl) continue;
+                  try {
+                    await addFeed({
+                      url: feedUrl,
+                      title: title || new URL(feedUrl).hostname,
+                    });
+                    added++;
+                  } catch {
+                    skipped++;
+                  }
                 }
+                toast.success(
+                  `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
+                );
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Couldn't read the OPML file.",
+                );
+              } finally {
+                input.value = "";
+                setImporting(false);
               }
-              toast.success(
-                `Imported ${added} feeds${skipped ? `, ${skipped} skipped (duplicates)` : ""}`,
-              );
-              e.target.value = "";
             }}
           />
         </label>
       </div>
 
       {/* Feed list */}
+      {feeds === undefined && (
+        <p role="status" className="py-8 text-sm text-[var(--reader-muted)]">
+          Loading sources…
+        </p>
+      )}
       {feeds && feeds.length === 0 ? (
         <p className="text-center text-[var(--reader-muted)] text-sm py-12">
           No feeds yet. Add one above.
@@ -168,7 +196,14 @@ export default function FeedsPage() {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => toggleActive({ feedId: feed._id })}
+                  type="button"
+                  aria-pressed={feed.isActive}
+                  aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
+                  onClick={() =>
+                    toggleActive({ feedId: feed._id }).catch(() =>
+                      toast.error("Couldn't update the feed. Try again."),
+                    )
+                  }
                   className={`px-3 py-1 rounded-full text-xs font-sans font-medium transition-colors ${
                     feed.isActive
                       ? "bg-annotation-context/10 text-annotation-context"
@@ -178,6 +213,8 @@ export default function FeedsPage() {
                   {feed.isActive ? "Active" : "Paused"}
                 </button>
                 <button
+                  type="button"
+                  aria-label={`Remove ${feed.title}`}
                   onClick={() => handleRemove(feed._id)}
                   className="text-[var(--reader-muted)] hover:text-[var(--reader-fg)] text-sm transition-colors"
                   title="Remove feed"

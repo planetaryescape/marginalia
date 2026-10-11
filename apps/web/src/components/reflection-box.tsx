@@ -1,8 +1,8 @@
 "use client";
-import { useMutation } from "convex/react";
-import { useState } from "react";
 import { api } from "@marginalia/backend/convex/_generated/api";
+import { useMutation } from "convex/react";
 import { motion } from "framer-motion";
+import { useState } from "react";
 
 interface Reflection {
   _id: string;
@@ -103,6 +103,7 @@ export function ReflectionBox({ reflection, onDone }: ReflectionBoxProps) {
       {/* User response */}
       <div className="mt-10">
         <textarea
+          aria-label="Your reflection"
           value={response}
           onChange={(e) => setResponse(e.target.value)}
           placeholder="Your thoughts (optional)"

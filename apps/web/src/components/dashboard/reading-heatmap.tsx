@@ -17,18 +17,18 @@ export function ReadingHeatmap({ data }: HeatmapProps) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.1 }}
-      className="p-5 rounded-xl border border-ink-100 dark:border-ink-800 bg-white dark:bg-ink-900"
+      className="p-5 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)]"
     >
-      <p className="text-[10px] font-sans font-semibold text-ink-400 dark:text-ink-500 uppercase tracking-[0.2em] mb-4">
+      <h2 className="text-sm font-medium text-[var(--reader-fg)] mb-4">
         When you read
-      </p>
+      </h2>
       <div className="flex gap-1">
         {/* Time block labels */}
         <div className="flex flex-col gap-1 mr-1 pt-5">
           {BLOCKS.map((b) => (
             <div
               key={b}
-              className="h-5 flex items-center text-[9px] font-sans text-ink-300 dark:text-ink-600"
+              className="h-5 flex items-center text-[11px] font-sans text-[var(--reader-muted)]"
             >
               {b}
             </div>
@@ -40,7 +40,7 @@ export function ReadingHeatmap({ data }: HeatmapProps) {
           {DAYS.map((d, i) => (
             <div
               key={`day-${i}`}
-              className="h-4 flex items-center justify-center text-[9px] font-sans text-ink-300 dark:text-ink-600"
+              className="h-4 flex items-center justify-center text-[11px] font-sans text-[var(--reader-muted)]"
             >
               {d}
             </div>
@@ -52,7 +52,8 @@ export function ReadingHeatmap({ data }: HeatmapProps) {
                 (d) => d.dayOfWeek === day && d.timeBlock === block,
               );
               const count = cell?.count ?? 0;
-              const opacity = count > 0 ? 0.15 + (count / maxCount) * 0.85 : 0.05;
+              const opacity =
+                count > 0 ? 0.15 + (count / maxCount) * 0.85 : 0.05;
 
               return (
                 <div

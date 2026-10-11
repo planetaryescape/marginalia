@@ -13,7 +13,8 @@ export function ProgressRing({
 }: ProgressRingProps) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (Math.min(100, Math.max(0, value)) / 100) * circumference;
+  const offset =
+    circumference - (Math.min(100, Math.max(0, value)) / 100) * circumference;
 
   return (
     <svg width={size} height={size} className="transform -rotate-90">

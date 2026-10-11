@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useSyncExternalStore } from "react";
+import { z } from "zod";
 
 export type ReaderTheme =
   | "auto"
@@ -116,15 +117,68 @@ const STORAGE_KEY = "marginalia:reader-settings";
 const listeners = new Set<() => void>();
 let cached: ReaderSettings | null = null;
 
+const settingsSchema = z.object({
+  theme: z
+    .enum(["auto", "paper", "sepia", "snow", "dusk", "night", "ink"])
+    .catch(DEFAULT_SETTINGS.theme),
+  pen: z
+    .enum(["vermilion", "cobalt", "forest", "graphite"])
+    .catch(DEFAULT_SETTINGS.pen),
+  highlighter: z
+    .enum(["yellow", "green", "blue", "pink"])
+    .catch(DEFAULT_SETTINGS.highlighter),
+  numbers: z.boolean().catch(DEFAULT_SETTINGS.numbers),
+  map: z.boolean().catch(DEFAULT_SETTINGS.map),
+  focus: z.boolean().catch(DEFAULT_SETTINGS.focus),
+  typeface: z
+    .enum(["serif", "book", "sans", "legible"])
+    .catch(DEFAULT_SETTINGS.typeface),
+  size: z
+    .number()
+    .finite()
+    .min(SIZE_RANGE.min)
+    .max(SIZE_RANGE.max)
+    .catch(DEFAULT_SETTINGS.size),
+  spacing: z.enum(["snug", "even", "airy"]).catch(DEFAULT_SETTINGS.spacing),
+  width: z.enum(["narrow", "even", "wide"]).catch(DEFAULT_SETTINGS.width),
+  align: z.enum(["left", "justify"]).catch(DEFAULT_SETTINGS.align),
+  paragraphs: z.enum(["spaced", "indented"]).catch(DEFAULT_SETTINGS.paragraphs),
+  dropCap: z
+    .enum(["off", "text", "ornate", "gothic"])
+    .catch(DEFAULT_SETTINGS.dropCap),
+  dropCapLines: z
+    .number()
+    .int()
+    .min(2)
+    .max(5)
+    .catch(DEFAULT_SETTINGS.dropCapLines),
+  answerLength: z
+    .enum(["brief", "standard", "detailed"])
+    .catch(DEFAULT_SETTINGS.answerLength),
+  answerLevel: z
+    .enum(["plain", "balanced", "expert"])
+    .catch(DEFAULT_SETTINGS.answerLevel),
+  answerDepth: z.enum(["quick", "deep"]).catch(DEFAULT_SETTINGS.answerDepth),
+  webSearch: z
+    .enum(["off", "deep", "always"])
+    .catch(DEFAULT_SETTINGS.webSearch),
+});
+
+/** Stored preferences may outlive the version that wrote them. Repair per field. */
+export function parseReaderSettings(value: unknown): ReaderSettings {
+  const parsed = settingsSchema.safeParse(value);
+  return parsed.success ? parsed.data : { ...DEFAULT_SETTINGS };
+}
+
 function read(): ReaderSettings {
   if (cached) return cached;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    cached = { ...DEFAULT_SETTINGS, ...(raw ? JSON.parse(raw) : {}) };
+    cached = parseReaderSettings(raw ? JSON.parse(raw) : {});
   } catch {
     cached = DEFAULT_SETTINGS;
   }
-  return cached as ReaderSettings;
+  return cached;
 }
 
 function write(next: ReaderSettings) {
@@ -140,7 +194,7 @@ function write(next: ReaderSettings) {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   const onStorage = (e: StorageEvent) => {
-    if (e.key !== STORAGE_KEY) return;
+    if (e.key !== STORAGE_KEY && e.key !== null) return;
     cached = null;
     listener();
   };

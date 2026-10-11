@@ -2,6 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { DeskPage } from "@/components/desk-page";
 import { formatReadTime } from "@/lib/utils";
 
@@ -11,6 +12,11 @@ export default function SavedPage() {
 
   return (
     <DeskPage title="Saved articles">
+      {saved === undefined && (
+        <p role="status" className="py-8 text-sm text-[var(--reader-muted)]">
+          Loading saved articles…
+        </p>
+      )}
       {saved && saved.length === 0 ? (
         <p className="text-center text-[var(--reader-muted)] text-sm py-12">
           No saved articles yet.
@@ -41,7 +47,13 @@ export default function SavedPage() {
                 <button
                   type="button"
                   aria-label={`Remove ${item.article.title} from saved articles`}
-                  onClick={() => unsave({ articleId: item.article._id })}
+                  onClick={() =>
+                    unsave({ articleId: item.article._id }).catch(() =>
+                      toast.error(
+                        "Couldn't remove the saved article. Try again.",
+                      ),
+                    )
+                  }
                   className="text-[var(--reader-muted)] hover:text-[var(--reader-fg)] text-sm flex-shrink-0 transition-colors"
                 >
                   &times;
