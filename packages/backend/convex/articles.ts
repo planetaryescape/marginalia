@@ -195,6 +195,7 @@ export const insertExtracted = internalMutation({
     estimatedReadMinutes: v.number(),
     imageUrl: v.optional(v.string()),
     embedding: v.optional(v.array(v.float64())),
+    readerDocumentId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return ctx.db.insert("articles", {

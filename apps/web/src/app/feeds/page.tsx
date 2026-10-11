@@ -5,6 +5,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
+import { ReadwiseCard } from "@/components/readwise-card";
 
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
@@ -73,6 +74,8 @@ export default function FeedsPage() {
           {polling ? "Polling..." : "Poll now"}
         </button>
       </div>
+
+      <ReadwiseCard />
 
       {/* Add feed */}
       <form onSubmit={handleAdd} className="mb-10">

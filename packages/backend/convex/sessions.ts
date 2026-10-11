@@ -1,3 +1,4 @@
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { DEFAULT_USER_ID } from "./lib/constants";
@@ -84,6 +85,12 @@ export const recordInteraction = mutation({
       tabHiddenCount: args.tabHiddenCount,
       createdAt: Date.now(),
     });
+    // Finishing an article that came from Readwise Reader archives it there
+    if (args.action === "finished") {
+      await ctx.scheduler.runAfter(0, internal.actions.readwiseSync.archiveArticle, {
+        articleId: args.articleId,
+      });
+    }
   },
 });
 

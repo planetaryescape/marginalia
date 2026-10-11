@@ -29,8 +29,17 @@ export const create = mutation({
     const highlightId = await ctx.db.insert("highlights", {
       ...args,
       userId: DEFAULT_USER_ID,
+      source: "marginalia",
       createdAt: Date.now(),
     });
+    // Mirrors the mark to Readwise Reader when the article came from there
+    await ctx.scheduler.runAfter(
+      0,
+      internal.actions.readwiseSync.pushHighlight,
+      {
+        highlightId,
+      },
+    );
     await ctx.scheduler.runAfter(
       0,
       internal.actions.embedReaderActivity.embedHighlight,
@@ -45,7 +54,19 @@ export const create = mutation({
 export const remove = mutation({
   args: { highlightId: v.id("highlights") },
   handler: async (ctx, args) => {
+    const row = await ctx.db.get("highlights", args.highlightId);
     await ctx.db.delete("highlights", args.highlightId);
+    // Only marks that started in Marginalia are removed from Reader; deleting an
+    // imported Reader highlight here never deletes it there
+    if (row?.readerHighlightId && row.source !== "reader") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.actions.readwiseSync.deleteHighlight,
+        {
+          readerHighlightId: row.readerHighlightId,
+        },
+      );
+    }
   },
 });
 

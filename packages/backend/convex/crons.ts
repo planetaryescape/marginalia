@@ -10,4 +10,11 @@ crons.interval(
   internal.actions.pollFeeds.pollAllFeeds,
 );
 
+// Pull new Readwise Reader documents and highlights (no-op without READWISE_TOKEN)
+crons.interval(
+  "sync readwise reader",
+  { minutes: 15 },
+  internal.actions.readwiseSync.sync,
+);
+
 export default crons;

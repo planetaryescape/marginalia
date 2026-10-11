@@ -45,9 +45,12 @@ export default defineSchema({
       v.literal("skipped"),
     ),
     embedding: v.optional(v.array(v.float64())),
+    // Set when the article came from (or was matched to) Readwise Reader
+    readerDocumentId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_feed", ["feedId"])
+    .index("by_reader_document", ["readerDocumentId"])
     .index("by_user", ["userId"])
     .index("by_user_guid", ["userId", "guid"])
     .index("by_extraction_status", ["userId", "extractionStatus"])
@@ -255,9 +258,13 @@ export default defineSchema({
     text: v.string(),
     paragraphIndex: v.optional(v.number()),
     embedding: v.optional(v.array(v.float64())),
+    // Readwise Reader sync: where the mark came from, and its Reader id
+    source: v.optional(v.union(v.literal("marginalia"), v.literal("reader"))),
+    readerHighlightId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_article", ["articleId"])
+    .index("by_reader_highlight", ["readerHighlightId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
@@ -321,6 +328,10 @@ export default defineSchema({
     annotationModel: v.optional(v.string()),
     quickModel: v.optional(v.string()),
     deepModel: v.optional(v.string()),
+    // Readwise Reader sync: documents updated after this were not yet imported
+    readwiseSyncedAt: v.optional(v.number()),
+    readwiseCheckedAt: v.optional(v.number()),
+    readwiseError: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
 });
