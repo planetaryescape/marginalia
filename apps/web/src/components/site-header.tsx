@@ -138,13 +138,15 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
 }
 
 export function MobileNav({ items }: { items: NavItem[] }) {
+  const pathname = usePathname();
   return (
     <nav className="md:hidden shrink-0 h-11 px-5 flex items-center gap-5 overflow-x-auto border-t border-[var(--reader-border)] text-[13px] text-[var(--reader-muted)]">
       {items.map((item) => (
         <Link
           key={item.href}
           href={item.href}
-          className="shrink-0 hover:text-[var(--reader-fg)]"
+          aria-current={pathname === item.href ? "page" : undefined}
+          className="shrink-0 hover:text-[var(--reader-fg)] aria-[current=page]:text-[var(--reader-fg)]"
         >
           {item.label}
         </Link>

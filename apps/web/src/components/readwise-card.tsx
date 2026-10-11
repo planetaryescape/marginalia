@@ -27,13 +27,13 @@ export function ReadwiseCard() {
   if (!status) return null;
 
   return (
-    <section className="mb-10 rounded-xl border border-ink-200 dark:border-ink-800 p-4 font-sans">
+    <section className="mb-10 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)] p-4 font-sans">
       <div className="flex items-center gap-3">
         <span
           className={cn(
             "w-2 h-2 rounded-full",
             !status.connected
-              ? "bg-ink-300 dark:bg-ink-600"
+              ? "bg-[var(--reader-muted)]"
               : status.error
                 ? "bg-annotation-tension"
                 : "bg-annotation-context",
@@ -41,10 +41,10 @@ export function ReadwiseCard() {
           aria-hidden
         />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-ink-800 dark:text-parchment-200">
+          <p className="text-sm font-medium text-[var(--reader-fg)]">
             Readwise Reader
           </p>
-          <p className="text-xs text-ink-400 dark:text-ink-500">
+          <p className="text-xs text-[var(--reader-muted)]">
             {!status.connected
               ? "Not connected"
               : status.error
@@ -70,7 +70,7 @@ export function ReadwiseCard() {
               }
               setSyncing(false);
             }}
-            className="flex items-center gap-1.5 text-sm text-annotation-crossref hover:underline disabled:opacity-40"
+            className="shrink-0 flex items-center gap-1.5 text-sm text-[var(--pen)] hover:underline disabled:opacity-40"
           >
             <RefreshCw
               size={13}
@@ -86,7 +86,7 @@ export function ReadwiseCard() {
         </p>
       )}
       {!status.connected && (
-        <p className="mt-2 text-xs leading-relaxed text-ink-400 dark:text-ink-500">
+        <p className="mt-2 text-xs leading-relaxed text-[var(--reader-muted)]">
           Set <code className="font-mono">READWISE_TOKEN</code> in Convex to
           import your Inbox, Later and Shortlist. Finishing an article archives
           it in Reader, and highlights sync both ways.

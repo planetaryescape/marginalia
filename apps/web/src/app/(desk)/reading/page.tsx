@@ -1,18 +1,17 @@
 "use client";
-import { useQuery } from "convex/react";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { useQuery } from "convex/react";
+import { ArticleDetailList } from "@/components/dashboard/article-detail-list";
 import { DashboardOverview } from "@/components/dashboard/dashboard-overview";
-import { ReadingHeatmap } from "@/components/dashboard/reading-heatmap";
-import { SessionDistribution } from "@/components/dashboard/session-distribution";
 import { EngagementDepth } from "@/components/dashboard/engagement-depth";
 import { KnowledgeSummary } from "@/components/dashboard/knowledge-summary";
-import { ArticleDetailList } from "@/components/dashboard/article-detail-list";
+import { ReadingHeatmap } from "@/components/dashboard/reading-heatmap";
+import { SessionDistribution } from "@/components/dashboard/session-distribution";
 import { TrendComparison } from "@/components/dashboard/trend-comparison";
-import Link from "next/link";
+import { DeskPage } from "@/components/desk-page";
 
 function Divider() {
-  return <div className="w-12 h-px bg-ink-200 dark:bg-ink-700 mx-auto my-10" />;
+  return <div className="w-12 h-px bg-[var(--reader-border)] mx-auto my-10" />;
 }
 
 export default function ReadingPage() {
@@ -22,27 +21,9 @@ export default function ReadingPage() {
   const notes = useQuery(api.stats.getRecentNotes);
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-12">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-12">
-        <Link
-          href="/"
-          className="text-ink-400 hover:text-ink-600 font-sans text-sm transition-colors"
-        >
-          &larr; Back
-        </Link>
-        <h1 className="text-xl font-serif font-medium text-ink-950 dark:text-parchment-100">
-          Reading
-        </h1>
-        <ThemeToggle />
-      </div>
-
+    <DeskPage title="This week">
       {/* A: Overview */}
-      {overview ? (
-        <DashboardOverview data={overview} />
-      ) : (
-        <Skeleton />
-      )}
+      {overview ? <DashboardOverview data={overview} /> : <Skeleton />}
 
       <Divider />
 
@@ -111,7 +92,7 @@ export default function ReadingPage() {
       ) : (
         <Skeleton />
       )}
-    </div>
+    </DeskPage>
   );
 }
 

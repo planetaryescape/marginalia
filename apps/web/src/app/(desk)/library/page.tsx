@@ -8,11 +8,8 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { CompanionAnswer } from "@/components/companion-answer";
 import { RATINGS } from "@/components/impression-panel";
-import { MobileNav, SiteHeader, useSiteNav } from "@/components/site-header";
 import { streamFromConvex } from "@/lib/companion";
-import { useReaderSettings } from "@/lib/reader-settings";
 import { useShortcuts } from "@/lib/shortcuts";
-import { useReaderTheme } from "@/lib/use-reader-theme";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -318,23 +315,15 @@ function Librarian() {
 }
 
 export default function LibraryPage() {
-  const { settings } = useReaderSettings();
-  useReaderTheme(settings);
-  const nav = useSiteNav();
-
   return (
-    <div className="min-h-dvh flex flex-col bg-[var(--reader-bg)] text-[var(--reader-fg)] font-sans">
-      <SiteHeader />
-      <main className="flex-1 mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(1rem,5vh,3.5rem)] pb-20 grid gap-14 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-[72px]">
-        {/* useSearchParams needs a Suspense boundary for static rendering */}
-        <Suspense fallback={null}>
-          <Librarian />
-        </Suspense>
-        <aside className="lg:pt-3">
-          <Impressions />
-        </aside>
-      </main>
-      <MobileNav items={nav} />
-    </div>
+    <main className="mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3rem)] pb-10 grid gap-14 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-[72px]">
+      {/* useSearchParams needs a Suspense boundary for static rendering */}
+      <Suspense fallback={null}>
+        <Librarian />
+      </Suspense>
+      <aside className="lg:pt-3">
+        <Impressions />
+      </aside>
+    </main>
   );
 }

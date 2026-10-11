@@ -511,16 +511,18 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   cursor: pointer;
 }
 
-.reader-kbd {
-  display: inline-block;
-  min-width: 1.4em;
-  padding: 0 0.35em;
-  border-radius: 4px;
-  border: 1px solid var(--reader-border-strong);
-  background: var(--reader-chip);
-  font: 500 10px / 1.6 var(--font-jetbrains-mono), monospace;
-  text-align: center;
-  color: var(--reader-fg);
+@layer components {
+  .reader-kbd {
+    display: inline-block;
+    min-width: 1.4em;
+    padding: 0 0.35em;
+    border-radius: 4px;
+    border: 1px solid var(--reader-border-strong);
+    background: var(--reader-chip);
+    font: 500 10px / 1.6 var(--font-jetbrains-mono), monospace;
+    text-align: center;
+    color: var(--reader-fg);
+  }
 }
 
 @keyframes listen-pulse {
