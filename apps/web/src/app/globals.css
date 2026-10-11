@@ -26,6 +26,50 @@
     border-color: hsl(var(--border));
   }
 
+  /* Keyboard focus is always visible; components with their own ring override this */
+  :is(a, button, input, textarea, select, [contenteditable], [tabindex]):focus-visible {
+    outline: 1px solid var(--reader-focus);
+    outline-offset: 3px;
+  }
+
+  .skip-link {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 100;
+    transform: translateY(-200%);
+    padding: 8px 14px;
+    background: var(--reader-surface);
+    color: var(--reader-fg);
+    font-family: var(--font-dm-sans), sans-serif;
+    font-size: 14px;
+  }
+
+  .skip-link:focus-visible {
+    transform: none;
+  }
+
+  .reader-prose [data-keyboard-cursor] {
+    position: relative;
+    outline: none;
+    scroll-margin-top: 80px;
+  }
+
+  .reader-prose [data-keyboard-cursor]::after {
+    content: "";
+    position: absolute;
+    left: -14px;
+    top: 0.35em;
+    width: 2px;
+    height: 1.2em;
+    border-radius: 1px;
+    background: var(--reader-focus);
+  }
+
+  .focus-frame input:focus-visible {
+    outline: none;
+  }
+
   body {
     @apply bg-parchment-50 text-ink-950 font-serif antialiased;
     font-feature-settings: "liga" 1, "calt" 1, "kern" 1;
@@ -216,6 +260,7 @@ html[data-reader-theme="ink"] {
 
 :root {
   --pen: #3b63d9;
+  --reader-focus: color-mix(in srgb, var(--reader-fg) 65%, var(--reader-bg));
   --highlighter: rgba(246, 205, 72, 0.45);
   --reader-annotated: #b07050;
   --reader-font: var(--font-newsreader), Georgia, serif;

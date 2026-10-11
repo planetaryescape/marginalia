@@ -7,6 +7,7 @@ import { ArrowRight, ChevronDown, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { modelName } from "@/lib/models";
 import { getArticleBody, getParagraphs, paragraphText } from "@/lib/paragraphs";
+import { useCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { IdeaMap } from "./idea-map";
 
@@ -107,6 +108,12 @@ export function SummaryPanel({
       .split(/\s+/).length;
 
   const state = loading ? "loading" : summary ? "ready" : "idle";
+
+  // "u" on the reading page: summarise, or fold and unfold an existing summary
+  useCommand("toggle-summary", () => {
+    if (state === "ready") setExpanded((e) => !e);
+    else if (state === "idle") run();
+  });
 
   return (
     <motion.section

@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Globe, History, MessagesSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AnswerDepth } from "@/lib/reader-settings";
+import { useShortcuts } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 function when(timestamp: number) {
@@ -47,20 +48,25 @@ export function ArticleAsk({
   const [question, setQuestion] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
-      e.preventDefault();
-      setOpen(true);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  useShortcuts(
+    {
+      "/": () => {
+        setOpen(true);
+        window.setTimeout(
+          () => inputRef.current?.focus({ preventScroll: true }),
+          0,
+        );
+      },
+    },
+    !hidden,
+  );
 
   useEffect(() => {
-    if (open) inputRef.current?.focus({ preventScroll: true });
+    if (!open) return;
+    const frame = requestAnimationFrame(() =>
+      inputRef.current?.focus({ preventScroll: true }),
+    );
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   const submit = () => {
@@ -102,9 +108,6 @@ export function ArticleAsk({
                     onChange={(e) => setQuestion(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") setOpen(false);
-                    }}
-                    onBlur={() => {
-                      if (!question.trim()) setOpen(false);
                     }}
                     placeholder="Ask about the whole article…"
                     aria-label="Ask about the whole article"

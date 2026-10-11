@@ -1,28 +1,30 @@
 "use client";
-import * as Popover from "@radix-ui/react-popover";
-import { Star } from "lucide-react";
-import { useAction, useMutation, useQuery } from "convex/react";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { ArticleRenderer } from "@/components/article-renderer";
-import { ReflectionBox } from "@/components/reflection-box";
-import { NotesPanel } from "@/components/notes-panel";
-import { SelectionToolbar } from "@/components/selection-toolbar";
+import * as Popover from "@radix-ui/react-popover";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { Star } from "lucide-react";
+import Link from "next/link";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { AnnotationCard } from "@/components/annotation-card";
 import { ArticleAsk } from "@/components/article-ask";
+import { ArticleRenderer } from "@/components/article-renderer";
+import { CompanionCard } from "@/components/companion-card";
 import {
   ImpressionPanel,
   ImpressionSummary,
   RATINGS,
 } from "@/components/impression-panel";
-import { CompanionCard } from "@/components/companion-card";
-import { ReaderSettingsPanel } from "@/components/reader-settings-panel";
-import { ReaderMap } from "@/components/reader-map";
-import { SummaryPanel } from "@/components/summary-panel";
 import { ListenBar } from "@/components/listen-bar";
-import { useEngagementTracker } from "@/lib/use-engagement-tracker";
-import { usePassageHighlight, useCompanion } from "@/lib/companion";
+import { NotesPanel } from "@/components/notes-panel";
+import { ReaderMap } from "@/components/reader-map";
+import { ReaderSettingsPanel } from "@/components/reader-settings-panel";
+import { ReflectionBox } from "@/components/reflection-box";
+import { SelectionToolbar } from "@/components/selection-toolbar";
+import { SummaryPanel } from "@/components/summary-panel";
+import { useCompanion, usePassageHighlight } from "@/lib/companion";
+import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import {
   flashParagraph,
   getArticleBody,
@@ -30,10 +32,6 @@ import {
   paragraphIndexOf,
   useParagraphs,
 } from "@/lib/paragraphs";
-import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
-import { useSavedPassages } from "@/lib/saved-passages";
-import { useListen, useReadingPosition } from "@/lib/reading-modes";
-import { useReaderTheme } from "@/lib/use-reader-theme";
 import {
   DROP_CAP_FAMILIES,
   LINE_HEIGHTS,
@@ -42,9 +40,12 @@ import {
   useReaderSettings,
   webSearchEnabled,
 } from "@/lib/reader-settings";
+import { useListen, useReadingPosition } from "@/lib/reading-modes";
+import { useSavedPassages } from "@/lib/saved-passages";
+import { emitCommand, useShortcuts } from "@/lib/shortcuts";
+import { useEngagementTracker } from "@/lib/use-engagement-tracker";
+import { useReaderTheme } from "@/lib/use-reader-theme";
 import { cn, formatReadTime } from "@/lib/utils";
-import { toast } from "sonner";
-import Link from "next/link";
 
 export default function ReadPage() {
   const { articleId } = useParams<{ articleId: string }>();
@@ -80,6 +81,11 @@ export default function ReadPage() {
 
   const [scrollPercent, setScrollPercent] = useState(0);
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
+  const [ratingOpen, setRatingOpen] = useState(false);
+  const [cursor, setCursor] = useState<number | null>(null);
+  const passageCycle = useRef<{ paragraph: HTMLElement | null; index: number }>(
+    { paragraph: null, index: -1 },
+  );
   const [pendingSelection, setPendingSelection] = useState<{
     text: string;
     startOffset?: number;
@@ -175,10 +181,15 @@ export default function ReadPage() {
 
   // Focus mode keeps the passage under discussion lit
   const companionParagraph =
-    companion.thread?.paragraphIndex ?? activeAnnotation?.paragraphIndex ?? null;
+    companion.thread?.paragraphIndex ??
+    activeAnnotation?.paragraphIndex ??
+    null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reapply after article HTML changes
   useEffect(() => {
     if (companionParagraph === null) return;
-    const el = getParagraphs(getArticleBody(articleRef.current))[companionParagraph];
+    const el = getParagraphs(getArticleBody(articleRef.current))[
+      companionParagraph
+    ];
     el?.setAttribute("data-companion", "");
     return () => el?.removeAttribute("data-companion");
   }, [companionParagraph, paragraphs.version]);
@@ -189,7 +200,11 @@ export default function ReadPage() {
   }, []);
 
   const handleSaveCompanionNote = useCallback(
-    async (note: { selectedText: string; content: string; contentPlain: string }) => {
+    async (note: {
+      selectedText: string;
+      content: string;
+      contentPlain: string;
+    }) => {
       try {
         await createNote({ articleId: articleId as any, ...note });
         toast.success("Saved to notes");
@@ -209,6 +224,81 @@ export default function ReadPage() {
       listen.speakFrom(position.current ?? position.firstVisible ?? 0);
     }
   }, [listen, position.current, position.firstVisible]);
+
+  const currentParagraph = () => {
+    const focused = paragraphIndexOf(document.activeElement);
+    return (
+      getParagraphs(getArticleBody(articleRef.current))[
+        focused ?? cursor ?? position.current ?? position.firstVisible ?? 0
+      ] ?? null
+    );
+  };
+  const getCurrentParagraphRange = () => {
+    const paragraph = currentParagraph();
+    if (!paragraph) return null;
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    return range;
+  };
+  const moveParagraph = (direction: 1 | -1) => {
+    const list = getParagraphs(getArticleBody(articleRef.current));
+    if (!list.length) return;
+    const current = paragraphIndexOf(document.activeElement) ?? cursor;
+    const next =
+      current === null
+        ? (position.current ?? position.firstVisible ?? 0)
+        : Math.max(0, Math.min(list.length - 1, current + direction));
+    window.getSelection()?.removeAllRanges();
+    setCursor(next);
+    list[next].tabIndex = -1;
+    list[next].focus({ preventScroll: true });
+    list[next].scrollIntoView({ block: "center", behavior: "instant" });
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reapply after paragraph elements are replaced
+  useEffect(() => {
+    if (cursor === null) return;
+    const el = getParagraphs(getArticleBody(articleRef.current))[cursor];
+    el?.setAttribute("data-keyboard-cursor", "");
+    return () => el?.removeAttribute("data-keyboard-cursor");
+  }, [cursor, paragraphs.version]);
+
+  useShortcuts(
+    {
+      j: () => moveParagraph(1),
+      k: () => moveParagraph(-1),
+      r: () => setRatingOpen(true),
+      n: () => setNotesPanelOpen(true),
+      ",": () => emitCommand("open-settings"),
+      u: () => emitCommand("toggle-summary"),
+      l: () => toggleListen(),
+      o: () => {
+        const paragraph = currentParagraph();
+        if (!paragraph) return;
+        const openers = [
+          ...Array.from(
+            paragraph.querySelectorAll<HTMLElement>(".annotation-mark"),
+          ).map((annotation) => () => {
+            annotation.focus({ preventScroll: true });
+            annotation.click();
+          }),
+          ...savedPassages
+            .filter((p) => p.range.intersectsNode(paragraph))
+            .map((passage) => () => {
+              setActiveAnnotation(null);
+              companion.open(passage.doc, passage.range);
+            }),
+        ];
+        if (!openers.length) return;
+        const next =
+          passageCycle.current.paragraph === paragraph
+            ? (passageCycle.current.index + 1) % openers.length
+            : 0;
+        passageCycle.current = { paragraph, index: next };
+        openers[next]();
+      },
+    },
+    Boolean(article),
+  );
 
   // Scroll tracking
   useEffect(() => {
@@ -269,7 +359,14 @@ export default function ReadPage() {
       tabHiddenCount: snap.tabHiddenCount,
     });
     router.push("/");
-  }, [sessionId, articleId, updateSession, recordInteraction, getSnapshot, router]);
+  }, [
+    sessionId,
+    articleId,
+    updateSession,
+    recordInteraction,
+    getSnapshot,
+    router,
+  ]);
 
   const handleAnnotationSelect = useCallback(
     (annotationId: string | null) => {
@@ -281,23 +378,31 @@ export default function ReadPage() {
       const mark = articleRef.current?.querySelector(
         `[data-annotation-id="${CSS.escape(annotationId)}"]`,
       );
-      setActiveAnnotation({ id: annotationId, paragraphIndex: paragraphIndexOf(mark ?? null) });
+      setActiveAnnotation({
+        id: annotationId,
+        paragraphIndex: paragraphIndexOf(mark ?? null),
+      });
       trackAnnotationOpen(annotationId);
     },
     [trackAnnotationOpen, companion.close],
   );
 
-  const openAnnotation = annotations?.find((a) => a._id === activeAnnotation?.id);
+  const openAnnotation = annotations?.find(
+    (a) => a._id === activeAnnotation?.id,
+  );
   const removeNote = useMutation(api.userNotes.remove);
 
   const handleReflect = useCallback(
     async (text: string) => {
       if (!openAnnotation) return;
-      const escape = (value: string) =>
-        value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const escapeHtml = (value: string) =>
+        value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
       const paragraphs = text
         .split(/\n{2,}/)
-        .map((p) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`)
+        .map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br>")}</p>`)
         .join("");
       try {
         await createNote({
@@ -306,7 +411,7 @@ export default function ReadPage() {
           prompt: openAnnotation.content,
           selectedText: openAnnotation.anchorText,
           // Keep the prompt with the reflection so the note reads on its own in the Notes panel
-          content: `<blockquote><p>${escape(openAnnotation.content)}</p></blockquote>${paragraphs}`,
+          content: `<blockquote><p>${escapeHtml(openAnnotation.content)}</p></blockquote>${paragraphs}`,
           contentPlain: text,
         });
       } catch {
@@ -345,7 +450,10 @@ export default function ReadPage() {
   return (
     <>
       {/* Reading progress bar */}
-      <div className="reading-progress" style={{ width: `${scrollPercent}%` }} />
+      <div
+        className="reading-progress"
+        style={{ width: `${scrollPercent}%` }}
+      />
 
       {/* Top nav */}
       <div className="fixed top-0 left-0 right-0 z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm">
@@ -376,8 +484,19 @@ export default function ReadPage() {
                   : "hover:bg-ink-100 dark:hover:bg-ink-800 text-ink-400 hover:text-ink-600 dark:hover:text-ink-300"
               }`}
               title="Notes"
+              aria-label="Notes"
+              aria-keyshortcuts="n"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
@@ -401,14 +520,23 @@ export default function ReadPage() {
               className="w-8 h-8 flex items-center justify-center rounded-full text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800 transition-colors"
               title="Re-annotate with latest vault"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M23 4v6h-6" />
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
               </svg>
             </button>
 
             {/* Impression: rating, tags and what stayed with you */}
-            <Popover.Root>
+            <Popover.Root open={ratingOpen} onOpenChange={setRatingOpen}>
               <Popover.Trigger asChild>
                 <button
                   className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
@@ -416,10 +544,18 @@ export default function ReadPage() {
                       ? "text-[var(--pen)]"
                       : "text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800"
                   }`}
-                  title={impression?.rating ? `You rated this ${RATINGS[impression.rating - 1]}` : "Rate this article"}
+                  title={
+                    impression?.rating
+                      ? `You rated this ${RATINGS[impression.rating - 1]}`
+                      : "Rate this article"
+                  }
                   aria-label="Rate this article"
+                  aria-keyshortcuts="r"
                 >
-                  <Star size={15} fill={impression?.rating ? "currentColor" : "none"} />
+                  <Star
+                    size={15}
+                    fill={impression?.rating ? "currentColor" : "none"}
+                  />
                 </button>
               </Popover.Trigger>
               <Popover.Portal>
@@ -429,7 +565,10 @@ export default function ReadPage() {
                   collisionPadding={12}
                   className="reader-popover z-50 w-[340px] max-w-[calc(100vw-24px)] rounded-2xl p-4 bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
                 >
-                  <ImpressionPanel articleId={articleId as any} heading="Your impression" />
+                  <ImpressionPanel
+                    articleId={articleId as any}
+                    heading="Your impression"
+                  />
                 </Popover.Content>
               </Popover.Portal>
             </Popover.Root>
@@ -478,12 +617,15 @@ export default function ReadPage() {
       {/* Selection toolbar — Ask / Explain / Simplify, note and copy */}
       <SelectionToolbar
         containerRef={articleRef}
+        getCurrentParagraphRange={getCurrentParagraphRange}
         onAddNote={handleAddNote}
         onCompanion={startCompanion}
         depth={settings.answerDepth}
         onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
         web={webSearchEnabled(settings)}
-        onWebChange={(on) => updateSettings({ webSearch: on ? "always" : "off" })}
+        onWebChange={(on) =>
+          updateSettings({ webSearch: on ? "always" : "off" })
+        }
         isMarked={isMarked}
         onToggleMark={toggleMark}
       />
@@ -519,7 +661,9 @@ export default function ReadPage() {
             "--reader-leading": LINE_HEIGHTS[settings.spacing],
             "--dropcap-lines": settings.dropCapLines,
             "--dropcap-font":
-              settings.dropCap === "off" ? undefined : DROP_CAP_FAMILIES[settings.dropCap],
+              settings.dropCap === "off"
+                ? undefined
+                : DROP_CAP_FAMILIES[settings.dropCap],
           } as React.CSSProperties
         }
       >
@@ -624,7 +768,9 @@ export default function ReadPage() {
         depth={settings.answerDepth}
         onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
         web={webSearchEnabled(settings)}
-        onWebChange={(on) => updateSettings({ webSearch: on ? "always" : "off" })}
+        onWebChange={(on) =>
+          updateSettings({ webSearch: on ? "always" : "off" })
+        }
         history={(savedThreads ?? [])
           .filter((t) => t.mode === "article")
           .sort((a, b) => b.updatedAt - a.updatedAt)}
@@ -639,7 +785,9 @@ export default function ReadPage() {
         total={paragraphs.count}
         paused={listen.paused}
         onTogglePause={listen.togglePause}
-        onSkip={(index) => listen.speakFrom(Math.min(Math.max(0, index), paragraphs.count - 1))}
+        onSkip={(index) =>
+          listen.speakFrom(Math.min(Math.max(0, index), paragraphs.count - 1))
+        }
         onStop={listen.stop}
       />
 

@@ -10,6 +10,7 @@ import {
 } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { ConvexClientProvider } from "@/lib/convex";
 import "./globals.css";
 
@@ -90,8 +91,18 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <ConvexClientProvider>
-            <main className="min-h-screen">{children}</main>
+            <a href="#main-content" className="skip-link">
+              Skip to content
+            </a>
+            <div
+              id="main-content"
+              tabIndex={-1}
+              className="min-h-screen outline-none"
+            >
+              {children}
+            </div>
             <Toaster position="bottom-center" />
+            <KeyboardShortcuts />
           </ConvexClientProvider>
         </ThemeProvider>
       </body>

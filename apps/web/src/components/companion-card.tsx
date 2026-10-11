@@ -201,7 +201,7 @@ export function CompanionCard({
       </div>
 
       <form
-        className="mx-3 mb-3 flex items-center gap-2 rounded-xl bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--pen)]"
+        className="focus-frame mx-3 mb-3 flex items-center gap-2 rounded-xl bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--reader-focus)]"
         onSubmit={(e) => {
           e.preventDefault();
           if (streaming || !draft.trim()) return;

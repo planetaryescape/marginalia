@@ -1,11 +1,12 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useQuery } from "convex/react";
-import { ArrowRight, Link2 } from "lucide-react";
+import { ArrowRight, Keyboard, Link2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
+import { emitCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 export interface NavItem {
@@ -57,7 +58,7 @@ export function PasteLink({ large = false }: { large?: boolean }) {
     <form
       onSubmit={submit}
       className={cn(
-        "flex items-center gap-2 rounded-full bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--pen)] transition-shadow",
+        "focus-frame flex items-center gap-2 rounded-full bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--reader-focus)] transition-shadow",
         large ? "h-12 pl-5 pr-1.5 w-full max-w-xl" : "h-9 pl-3.5 pr-1 w-full",
       )}
     >
@@ -122,6 +123,16 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
           <PasteLink />
         </div>
       )}
+      <button
+        type="button"
+        aria-label="Keyboard shortcuts"
+        aria-keyshortcuts="Shift+/"
+        title="Keyboard shortcuts (?)"
+        onClick={() => emitCommand("open-shortcuts")}
+        className={`shrink-0 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--reader-muted)] hover:text-[var(--reader-fg)] ${showPaste ? "" : "ml-auto"}`}
+      >
+        <Keyboard size={17} />
+      </button>
     </header>
   );
 }

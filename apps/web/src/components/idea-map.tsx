@@ -356,7 +356,7 @@ export function IdeaMap({
                     aria-pressed={selected === idea.id}
                     className={cn(
                       "flex-1 basis-0 min-w-0 max-w-[200px] rounded-lg border px-2.5 py-2 text-left outline-none transition-shadow",
-                      "focus-visible:ring-1 focus-visible:ring-[var(--pen)]",
+                      "focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
                       style.box,
                       selected === idea.id && "ring-1 ring-[var(--reader-fg)]",
                     )}

@@ -29,6 +29,7 @@ import {
   TYPEFACE_FAMILIES,
   type Typeface,
 } from "@/lib/reader-settings";
+import { useCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 type ModelRole = "annotations" | "quick" | "deep";
@@ -56,7 +57,7 @@ function ModelRow({
           disabled={!models}
           onChange={(e) => onChange(role, e.target.value)}
           aria-label={`${label} model`}
-          className="w-full h-8 appearance-none rounded-[10px] bg-[var(--reader-chip)] pl-3 pr-8 text-[12.5px] text-[var(--reader-fg)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--pen)] cursor-pointer disabled:opacity-50"
+          className="w-full h-8 appearance-none rounded-[10px] bg-[var(--reader-chip)] pl-3 pr-8 text-[12.5px] text-[var(--reader-fg)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)] cursor-pointer disabled:opacity-50"
         >
           {models?.available.map((id) => (
             <option key={id} value={id}>
@@ -131,7 +132,7 @@ function Segmented<T extends string>({
           aria-pressed={value === option.id}
           onClick={() => onChange(option.id)}
           className={cn(
-            "flex-1 flex items-center justify-center gap-1.5 h-7 rounded-[8px] text-[12.5px] transition-all outline-none focus-visible:ring-1 focus-visible:ring-[var(--pen)]",
+            "flex-1 flex items-center justify-center gap-1.5 h-7 rounded-[8px] text-[12.5px] transition-all outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
             value === option.id
               ? "bg-[var(--reader-surface)] text-[var(--reader-fg)] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
               : "text-[var(--reader-muted)] hover:text-[var(--reader-fg)]",
@@ -247,6 +248,8 @@ export function ReaderSettingsPanel({
   onToggleListen: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("look");
+  const [open, setOpen] = useState(false);
+  useCommand("open-settings", () => setOpen(true));
   const models = useQuery(api.userSettings.getModels, {});
   const setModelMutation = useMutation(api.userSettings.setModel);
   const setModel = (role: ModelRole, model: string) => {
@@ -265,9 +268,10 @@ export function ReaderSettingsPanel({
   };
 
   return (
-    <Popover.Root>
+    <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button
+          aria-keyshortcuts=","
           className="h-8 px-2.5 flex items-center justify-center rounded-full font-serif text-[15px] text-ink-400 hover:text-ink-600 dark:hover:text-ink-300 hover:bg-ink-100 dark:hover:bg-ink-800 data-[state=open]:bg-ink-100 dark:data-[state=open]:bg-ink-800 transition-colors"
           title="Reading settings"
           aria-label="Reading settings"
@@ -554,7 +558,7 @@ export function ReaderSettingsPanel({
                         aria-pressed={active}
                         onClick={() => update({ dropCap: option.id })}
                         className={cn(
-                          "flex flex-col items-center justify-center h-[62px] rounded-xl border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--pen)]",
+                          "flex flex-col items-center justify-center h-[62px] rounded-xl border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
                           active
                             ? "border-[var(--reader-fg)] bg-[var(--reader-chip)]"
                             : "border-[var(--reader-border)] hover:bg-[var(--reader-chip)]",

@@ -11,6 +11,7 @@ import { RATINGS } from "@/components/impression-panel";
 import { MobileNav, SiteHeader, useSiteNav } from "@/components/site-header";
 import { streamFromConvex } from "@/lib/companion";
 import { useReaderSettings } from "@/lib/reader-settings";
+import { useShortcuts } from "@/lib/shortcuts";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -29,7 +30,11 @@ interface Turn {
 
 function RatingMarks({ rating }: { rating: number }) {
   return (
-    <span className="flex gap-[3px]" role="img" aria-label={RATINGS[rating - 1]}>
+    <span
+      className="flex gap-[3px]"
+      role="img"
+      aria-label={RATINGS[rating - 1]}
+    >
       {RATINGS.map((label, i) => (
         <span
           key={label}
@@ -118,6 +123,8 @@ function Librarian() {
   const abortRef = useRef<AbortController | null>(null);
   const askedFromUrl = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useShortcuts({ "/": () => inputRef.current?.focus() });
 
   const ask = useCallback(
     async (question: string) => {
@@ -248,10 +255,15 @@ function Librarian() {
           e.preventDefault();
           ask(draft);
         }}
-        className="mt-8 flex items-center gap-2 h-12 max-w-2xl rounded-full pl-5 pr-1.5 bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--pen)] transition-shadow"
+        className="focus-frame mt-8 flex items-center gap-2 h-12 max-w-2xl rounded-full pl-5 pr-1.5 bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--reader-focus)] transition-shadow"
       >
         <input
+          ref={inputRef}
           value={draft}
+          aria-keyshortcuts="/"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") e.currentTarget.blur();
+          }}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={
             turns.length

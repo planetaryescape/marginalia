@@ -2,7 +2,8 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useRef, useState } from "react";
+import { Star } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export const RATINGS = [
@@ -37,16 +38,21 @@ export function ImpressionPanel({
   const impression = useQuery(api.impressions.getByArticle, { articleId });
   const save = useMutation(api.impressions.save);
   const [note, setNote] = useState("");
-  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
+    "idle",
+  );
   const timer = useRef<number | null>(null);
-  const loadedFor = useRef<string | null>(null);
+  const ratingName = useId();
+  const pendingNote = useRef<{
+    articleId: Id<"articles">;
+    note: string;
+  } | null>(null);
 
-  // Seed the note once per article, so typing isn't overwritten by live updates
+  // Keep the two panels in sync, without replacing a locally edited draft.
   useEffect(() => {
-    if (impression === undefined || loadedFor.current === articleId) return;
-    loadedFor.current = articleId;
+    if (impression === undefined || pendingNote.current) return;
     setNote(impression?.note ?? "");
-  }, [impression, articleId]);
+  }, [impression]);
 
   const persist = async (patch: {
     rating?: number | null;
@@ -58,13 +64,31 @@ export function ImpressionPanel({
       await save({ articleId, ...patch });
       setStatus("saved");
     } catch {
-      setStatus("idle");
+      setStatus("error");
     }
   };
 
+  const flushNote = () => {
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+    const pending = pendingNote.current;
+    if (!pending) return;
+    pendingNote.current = null;
+    setStatus("saving");
+    void save(pending).then(
+      () => setStatus("saved"),
+      () => {
+        if (!pendingNote.current) pendingNote.current = pending;
+        setStatus("error");
+      },
+    );
+  };
+  const flushRef = useRef(flushNote);
+  flushRef.current = flushNote;
+
   useEffect(
     () => () => {
-      if (timer.current) window.clearTimeout(timer.current);
+      flushRef.current();
     },
     [],
   );
@@ -82,48 +106,69 @@ export function ImpressionPanel({
           className="text-[11px] text-[var(--reader-muted)]"
           aria-live="polite"
         >
-          {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : ""}
+          {status === "saving"
+            ? "Saving…"
+            : status === "saved"
+              ? "Saved"
+              : status === "error"
+                ? "Couldn't save. Try again."
+                : ""}
         </span>
       </div>
 
-      {/* Five steps that fill up to the chosen one; choosing it again clears */}
-      <div className="mt-3 flex gap-1.5" role="radiogroup" aria-label="Rating">
+      <fieldset className="mt-3 grid grid-cols-5 gap-1.5">
+        <legend className="sr-only">Rating</legend>
         {RATINGS.map((label, i) => {
           const value = i + 1;
           const filled = rating !== null && value <= rating;
           return (
-            <button
+            <label
               key={label}
-              type="button"
-              role="radio"
-              aria-checked={rating === value}
-              aria-label={label}
-              title={label}
-              onClick={() =>
-                persist({ rating: rating === value ? null : value })
-              }
               className={cn(
-                "group flex-1 h-9 rounded-lg ring-1 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--pen)]",
-                filled
-                  ? "bg-[var(--pen)] ring-[var(--pen)]"
-                  : "bg-[var(--reader-chip)] ring-[var(--reader-border)] hover:ring-[var(--pen)]",
+                "relative flex min-w-0 cursor-pointer flex-col items-center gap-1 rounded-lg px-1 py-2 ring-1 transition-colors focus-within:ring-[var(--reader-focus)]",
+                rating === value
+                  ? "bg-[var(--pen-soft)] text-[var(--pen)] ring-[var(--pen)]"
+                  : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] ring-[var(--reader-border)] hover:ring-[var(--pen)]",
               )}
-              style={
-                filled ? { opacity: 0.45 + (value / 5) * 0.55 } : undefined
-              }
-            />
+            >
+              <input
+                type="radio"
+                name={ratingName}
+                value={value}
+                checked={rating === value}
+                onChange={() => persist({ rating: value })}
+                className="sr-only"
+              />
+              <Star
+                size={19}
+                aria-hidden
+                fill={filled ? "currentColor" : "none"}
+              />
+              <span className="min-h-7 text-center text-[11px] leading-[14px]">
+                {label}
+              </span>
+            </label>
           );
         })}
-      </div>
-      <p className="mt-1.5 h-4 text-[12px] text-[var(--reader-muted)]">
+      </fieldset>
+      <div className="mt-2 flex items-center justify-between text-[12px] text-[var(--reader-muted)]">
         {rating ? (
           <span className="font-medium text-[var(--pen)]">
             {RATINGS[rating - 1]}
           </span>
         ) : (
-          "Rate it from Not for me to Loved it"
+          "Choose a rating · arrow keys to change"
         )}
-      </p>
+        {rating && (
+          <button
+            type="button"
+            onClick={() => persist({ rating: null })}
+            className="underline underline-offset-2"
+          >
+            Clear rating
+          </button>
+        )}
+      </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         {IMPRESSION_TAGS.map((tag) => {
@@ -139,7 +184,7 @@ export function ImpressionPanel({
                 })
               }
               className={cn(
-                "h-7 px-2.5 rounded-full text-[12px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--pen)]",
+                "h-7 px-2.5 rounded-full text-[12px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
                 active
                   ? "bg-[var(--pen-soft)] text-[var(--pen)] ring-1 ring-[var(--pen)]"
                   : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] hover:text-[var(--reader-fg)]",
@@ -157,15 +202,17 @@ export function ImpressionPanel({
         onChange={(e) => {
           const value = e.target.value;
           setNote(value);
+          pendingNote.current = { articleId, note: value };
           if (timer.current) window.clearTimeout(timer.current);
           timer.current = window.setTimeout(
-            () => persist({ note: value }),
+            () => flushRef.current(),
             NOTE_SAVE_DELAY_MS,
           );
         }}
+        onBlur={() => flushRef.current()}
         placeholder="What stayed with you?"
         aria-label="What stayed with you?"
-        className="mt-3 w-full resize-none rounded-lg bg-[var(--reader-chip)] px-3 py-2 font-serif text-[15px] leading-snug text-[var(--reader-fg)] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)] focus:ring-1 focus:ring-[var(--pen)]"
+        className="mt-3 w-full resize-none rounded-lg bg-[var(--reader-chip)] px-3 py-2 font-serif text-[15px] leading-snug text-[var(--reader-fg)] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)] focus:ring-1 focus:ring-[var(--reader-focus)]"
       />
     </div>
   );

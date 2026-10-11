@@ -1,9 +1,9 @@
 "use client";
-import { sanitizeHtml } from "@/lib/sanitize";
-import { useMutation, useQuery } from "convex/react";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 export default function NotesPage() {
   const notes = useQuery(api.userNotes.listAll);
@@ -122,7 +122,7 @@ function ArticleNotesGroup({
                 </span>
                 <button
                   onClick={() => onDelete(note._id)}
-                  className="opacity-0 group-hover:opacity-100 text-[10px] font-sans text-ink-300 hover:text-annotation-tension transition-all"
+                  className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-[10px] font-sans text-ink-300 hover:text-annotation-tension transition-all"
                 >
                   Delete
                 </button>

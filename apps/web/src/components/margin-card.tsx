@@ -104,6 +104,21 @@ export function MarginCard({
   const endRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef(getAnchorRect);
   anchorRef.current = getAnchorRect;
+  const hasLayout = layout !== null;
+  useEffect(() => {
+    if (!hasLayout) return;
+    const previous = document.activeElement;
+    // Keyboard-opened cards move focus directly to their controls. Pointer
+    // interactions keep the article selection and don't steal typing focus.
+    if (previous instanceof HTMLElement && previous.matches(":focus-visible")) {
+      cardRef.current
+        ?.querySelector<HTMLElement>("button, input, textarea")
+        ?.focus({ preventScroll: true });
+      return () => {
+        if (previous.isConnected) previous.focus({ preventScroll: true });
+      };
+    }
+  }, [hasLayout]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `anchorKey` and `layoutVersion` ask for a re-measure
   useLayoutEffect(() => {
@@ -123,6 +138,7 @@ export function MarginCard({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector("dialog[open]")) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest("[data-radix-popper-content-wrapper]")) return;
       if (

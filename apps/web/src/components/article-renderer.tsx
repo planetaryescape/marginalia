@@ -1,8 +1,8 @@
 "use client";
-import { sanitizeHtml, useMounted } from "@/lib/sanitize";
+import { api } from "@marginalia/backend/convex/_generated/api";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { api } from "@marginalia/backend/convex/_generated/api";
+import { sanitizeHtml, useMounted } from "@/lib/sanitize";
 
 interface Annotation {
   _id: string;
@@ -24,6 +24,13 @@ interface ArticleRendererProps {
   /** Called with the clicked annotation, or null when the open one is clicked again. */
   onAnnotationSelect: (annotationId: string | null) => void;
 }
+
+const ANNOTATION_LABELS: Record<string, string> = {
+  cross_reference: "Cross-reference",
+  context: "Context",
+  tension: "Tension",
+  question: "Question",
+};
 
 const ANNOTATION_COLORS: Record<string, string> = {
   cross_reference: "#5b7f95",
@@ -74,7 +81,8 @@ function injectAnnotations(
       const before = result.slice(0, match.index);
       const after = result.slice(match.index + match[0].length);
       const marker =
-        `<mark class="annotation-mark" data-annotation-id="${ann._id}" data-type="${ann.type}" data-weight="${weight}">` +
+        // Focusable so annotations can be opened from the keyboard (Tab, then Enter)
+        `<mark class="annotation-mark" data-annotation-id="${ann._id}" data-type="${ann.type}" data-weight="${weight}" tabindex="0" role="button" aria-label="${ANNOTATION_LABELS[ann.type] ?? "Annotation"}: open note">` +
         `${match[0]}<sup style="font-size: 0.6em; font-family: system-ui, sans-serif; font-weight: 700; color: ${color}; margin-left: 3px; user-select: none;">${idx}</sup></mark>`;
       result = before + marker + after;
     }
@@ -100,13 +108,7 @@ export function ArticleRenderer({
     if (!mounted) return "";
     const sanitized = sanitizeHtml(contentHtml || content, {
       ADD_TAGS: ["mark", "sup"],
-      ADD_ATTR: [
-        "data-annotation-id",
-        "data-type",
-        "style",
-        "class",
-        "target",
-      ],
+      ADD_ATTR: ["data-annotation-id", "data-type", "style", "class", "target"],
     });
     return injectAnnotations(sanitized, content, annotations);
   }, [mounted, content, contentHtml, annotations]);
@@ -127,8 +129,11 @@ export function ArticleRenderer({
   }, [activeAnnotationId, innerHtml]);
 
   const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      const target = (e.target as HTMLElement).closest(".annotation-mark");
+    (element: EventTarget) => {
+      const target =
+        element instanceof HTMLElement
+          ? element.closest(".annotation-mark")
+          : null;
       const annId = target?.getAttribute("data-annotation-id");
       if (!annId) return;
       if (activeAnnotationId === annId) {
@@ -142,7 +147,16 @@ export function ArticleRenderer({
   );
 
   return (
-    <div className="relative" onClick={handleClick}>
+    <div
+      className="relative"
+      onClick={(e) => handleClick(e.target)}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        if (!(e.target as HTMLElement).closest(".annotation-mark")) return;
+        e.preventDefault();
+        handleClick(e.target);
+      }}
+    >
       {/* Article HTML with full prose styling */}
       <div
         ref={bodyRef}

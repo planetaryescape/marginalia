@@ -16,10 +16,12 @@ import { toast } from "sonner";
 import { type CompanionMode, usePassageHighlight } from "@/lib/companion";
 import type { MarkKind } from "@/lib/highlights";
 import type { AnswerDepth } from "@/lib/reader-settings";
+import { useShortcuts } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement | null>;
+  getCurrentParagraphRange: () => Range | null;
   onAddNote: (selection: {
     text: string;
     startOffset?: number;
@@ -77,6 +79,7 @@ function placement(range: Range) {
 
 export function SelectionToolbar({
   containerRef,
+  getCurrentParagraphRange,
   onAddNote,
   onCompanion,
   depth,
@@ -193,22 +196,39 @@ export function SelectionToolbar({
     [range, onToggleMark, hide],
   );
 
-  // Keyboard: A / E / S / H / P while a passage is selected
-  useEffect(() => {
-    if (!range || asking) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
-      const action = SHORTCUTS[e.key.toLowerCase()];
-      if (!action) return;
-      e.preventDefault();
-      if (action === "highlight" || action === "underline") toggleMark(action);
-      else runMode(action);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [range, asking, runMode, toggleMark]);
+  useShortcuts(
+    Object.fromEntries(
+      Object.entries(SHORTCUTS).map(([key, action]) => [
+        key,
+        () => {
+          const selection = window.getSelection();
+          const selected =
+            selection && !selection.isCollapsed && selection.rangeCount
+              ? selection.getRangeAt(0)
+              : null;
+          const target =
+            selected &&
+            containerRef.current?.contains(selected.commonAncestorContainer)
+              ? selected.cloneRange()
+              : getCurrentParagraphRange();
+          if (!target?.toString().trim()) return;
+          if (action === "ask") {
+            setRange(target);
+            setPosition(placement(target));
+            setAsking(true);
+          } else {
+            if (action === "highlight" || action === "underline")
+              onToggleMark(action, target);
+            else onCompanion({ mode: action, range: target });
+            finish();
+          }
+        },
+      ]),
+    ),
+    !asking,
+  );
+
+  useShortcuts({ Escape: () => finish() }, Boolean(range) && !asking);
 
   const submitQuestion = () => {
     if (!range || !question.trim()) return;
