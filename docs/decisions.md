@@ -31,7 +31,7 @@ Replay these paths with [the reader guide](reader-guide.md) before changing them
 | One shortcut dispatcher | Prevent `g h` from also firing the reader's `h` action; ignore editable targets and overlays | `shortcuts.ts` and its tests |
 | Theme tokens on `<html>` | Panels, portals and desk routes share the selected palette | `use-reader-theme.ts`, `globals.css` |
 | Browser-local reading appearance | Immediate preferences without a network round trip; not synchronized across devices | `reader-settings.ts` |
-| Server-side model allowlist and role-specific fallbacks | Prevent arbitrary provider model IDs; recover from provider failures | `lib/openrouter.ts`, `userSettings.ts` |
+| Server-side model allowlist and role-specific fallbacks | Prevent arbitrary provider model IDs; recover from provider failures | `lib/providers.ts`, `userSettings.ts` |
 | Keep personal activity in retrieval context | Notes and conversations need the passage/question they respond to | `marginaliaContext.ts`, note embedding action |
 | Keep reflection prompt text with a note | Re-annotation may delete an annotation; the saved reflection still needs to make sense | `userNotes` schema and context builder |
 | Validate search IDs and embedding responses | Provider output is not trusted merely because it is valid JSON | Search and embedding parser tests |

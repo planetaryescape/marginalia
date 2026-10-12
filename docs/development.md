@@ -9,7 +9,8 @@ Get the app running with [the README](../README.md#run-locally) first. Use your 
 | `NEXT_PUBLIC_CONVEX_URL` | `apps/web/.env.local`; Vercel web environment | Live queries and mutations; the `.convex.cloud` URL |
 | `NEXT_PUBLIC_CONVEX_SITE_URL` | Same web environment | HTTP AI routes; `.convex.site`, derived from the cloud URL if omitted |
 | `CONVEX_DEPLOYMENT` | `packages/backend/.env.local`, created by Convex CLI | Selecting the CLI's development deployment |
-| `OPENROUTER_API_KEY` | Convex deployment environment; also local indexer environment if used | AI generation and embeddings |
+| `PROVIDER_KEYS_ENCRYPTION_KEY` | Convex deployment environment only | Encrypting readers' own AI provider keys; base64 of 32 random bytes (`openssl rand -base64 32`) |
+| `OPENROUTER_API_KEY` | Convex deployment environment (transition only); also local indexer environment if used | The owner's AI until they save their own key; the indexer's embeddings |
 | `READWISE_TOKEN` | Convex deployment environment only | Optional Readwise Reader integration |
 | `SITE_URL` | Convex deployment environment | Canonical HTTPS web origin for auth; defaults to `https://reader.bhekani.com` |
 | `BETTER_AUTH_SECRET` | Convex deployment environment only | Credential/session protection; random secret of at least 32 characters |
@@ -23,16 +24,21 @@ The web app proxies auth and personal HTTP requests through same-origin `/api/au
 
 ## Enable AI
 
-Run from the backend package so the CLI selects the correct project:
+Each reader brings their own key. Set the server-side encryption key first, from the backend package so the CLI selects the correct project:
 
 ```bash
 cd packages/backend
-bunx convex env set OPENROUTER_API_KEY
+openssl rand -base64 32   # copy the output into the next prompt
+bunx convex env set PROVIDER_KEYS_ENCRYPTION_KEY
 ```
 
-The CLI prompts for the value. The key is stored on the selected Convex deployment, not in the web bundle. Set a spending limit in OpenRouter. Model IDs and fallback order are in `convex/lib/openrouter.ts`; availability should be smoke-tested before changing the allowlist.
+Then open **Your account → AI providers** and save an OpenRouter, OpenAI or Anthropic key. The key is checked against that provider's model list, stored encrypted, and shown only by its last four characters. Search and Ask your library need an OpenAI or OpenRouter key (both embed with `text-embedding-3-small`); Anthropic covers answers, summaries and marginalia. Changing the encryption key makes saved keys unreadable, so readers would need to save them again.
 
-Verify by adding one article in your own deployment, waiting for extraction and opening its annotations. Ask Explain for one passage, then use Home search. Without a key, imports can store article content but AI generation/retrieval may fail; this is not a fully offline app.
+The curated models per provider, role defaults and fallback order are in `convex/lib/providers.ts`; smoke-test availability before changing them. A reader without a key can still read, note and highlight; AI features say to add a key.
+
+Transition: while the owner has no saved key, the deployment's `OPENROUTER_API_KEY` serves the owner's library only (`convex/lib/ownerTransition.ts`). Once the owner saves a key, theirs is used. Remove the variable and that function after the switch.
+
+Verify by adding one article in your own deployment, waiting for extraction and opening its annotations. Ask Explain for one passage, then use Home search.
 
 ## Enable Readwise Reader
 

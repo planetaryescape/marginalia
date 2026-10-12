@@ -2,8 +2,8 @@
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { embedText } from "./aiModels";
 import { WORDS_PER_MINUTE } from "./constants";
+import { embedForLibrary } from "./router";
 
 // Convex documents max out at 1 MiB, and the article stores both HTML and text
 const MAX_STORED_BYTES = 900_000;
@@ -57,7 +57,10 @@ export async function ingestArticle(
 
   let embedding: number[] | undefined;
   try {
-    embedding = await embedText(plainText.slice(0, 8000));
+    // Left unembedded (for a later backfill) when the library has no embedding key
+    embedding = (
+      await embedForLibrary(ctx, userId, [plainText.slice(0, 8000)])
+    )?.[0];
   } catch (error) {
     console.error("Embedding failed, continuing without:", error);
   }

@@ -15,7 +15,7 @@ import {
 } from "react";
 import { CompanionAnswer } from "@/components/companion-answer";
 import { RATINGS } from "@/components/impression-panel";
-import { streamFromConvex } from "@/lib/companion";
+import { ReaderRequestError, streamFromConvex } from "@/lib/companion";
 import { useShortcuts } from "@/lib/shortcuts";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -164,9 +164,13 @@ function Librarian() {
           },
         );
         if (!answer.trim()) setError("No answer came back. Try asking again.");
-      } catch {
+      } catch (e) {
         if (!controller.signal.aborted)
-          setError("Couldn't reach the librarian. Try again.");
+          setError(
+            e instanceof ReaderRequestError && e.code
+              ? e.message
+              : "Couldn't reach the librarian. Try again.",
+          );
       } finally {
         setStreaming(false);
       }

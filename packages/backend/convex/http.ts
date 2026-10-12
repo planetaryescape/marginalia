@@ -4,6 +4,7 @@ import { type ActionCtx, httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
 import {
   type ChatMessage,
+  completeJson,
   sourcesFooter,
   streamChat,
 } from "./lib/companionStream";
@@ -19,14 +20,14 @@ import {
   LIBRARY_SEARCH_SYSTEM,
   librarySearchRequestSchema,
   parseLibrarySearch,
-  searchCompletionSchema,
 } from "./lib/librarySearch";
-import { modelChain } from "./lib/openrouter";
+import { NO_EMBEDDINGS_MESSAGE, NO_PROVIDER_MESSAGE } from "./lib/providers";
 import { readingCheckpointSchema } from "./lib/readingActivity";
 import {
   buildCompanionPrompt,
   companionRequestSchema,
 } from "./lib/readingCompanion";
+import { loadReaderAI, type ProviderTarget } from "./lib/router";
 import { vaultUploadSchema } from "./lib/vaultUpload";
 
 const http = httpRouter();
@@ -48,6 +49,28 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Expose-Headers": "X-Companion-Model",
 };
+
+/**
+ * A reader without the keys a feature needs gets a stable code, checked
+ * before any provider is called.
+ */
+function setupNeeded(code: "no_provider" | "no_embeddings") {
+  return new Response(
+    JSON.stringify({
+      code,
+      error:
+        code === "no_provider" ? NO_PROVIDER_MESSAGE : NO_EMBEDDINGS_MESSAGE,
+    }),
+    {
+      status: 409,
+      headers: {
+        ...CORS_HEADERS,
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
 
 http.route({
   path: "/api/engagement",
@@ -101,13 +124,14 @@ http.route({
  */
 async function streamWithFallback(
   chat: ChatMessage[],
-  models: string[],
+  targets: ProviderTarget[],
   web: boolean,
   signal: AbortSignal,
 ): Promise<Response> {
-  for (const modelId of models) {
+  for (const target of targets) {
+    const modelId = target.id;
     const events = streamChat({
-      model: modelId,
+      target,
       messages: chat,
       web,
       maxTokens: 1200,
@@ -202,13 +226,6 @@ http.route({
         status: 401,
         headers: CORS_HEADERS,
       });
-    if (!process.env.OPENROUTER_API_KEY) {
-      return new Response("OPENROUTER_API_KEY not configured", {
-        status: 500,
-        headers: CORS_HEADERS,
-      });
-    }
-
     const parsed = companionRequestSchema.safeParse(
       await request.json().catch(() => null),
     );
@@ -219,21 +236,17 @@ http.route({
       });
     }
 
-    const models = await ctx.runQuery(internal.userSettings.getModelsInternal, {
-      userId: readerId,
-    });
+    const targets = (await loadReaderAI(ctx, readerId)).chain(
+      parsed.data.depth,
+    );
+    if (!targets.length) return setupNeeded("no_provider");
     const { system, messages } = buildCompanionPrompt(parsed.data);
     const chat: ChatMessage[] = [
       { role: "system", content: system },
       ...messages,
     ];
 
-    return streamWithFallback(
-      chat,
-      modelChain(models[parsed.data.depth], parsed.data.depth),
-      parsed.data.web,
-      request.signal,
-    );
+    return streamWithFallback(chat, targets, parsed.data.web, request.signal);
   }),
 });
 
@@ -359,12 +372,17 @@ http.route({
         headers: CORS_HEADERS,
       });
     }
-    const [context, models] = await Promise.all([
-      buildLibraryContext(ctx, readerId, parsed.data.question),
-      ctx.runQuery(internal.userSettings.getModelsInternal, {
-        userId: readerId,
-      }),
-    ]);
+    const ai = await loadReaderAI(ctx, readerId);
+    const targets = ai.chain("quick");
+    if (!targets.length) return setupNeeded("no_provider");
+    const embedder = ai.embedder();
+    if (!embedder) return setupNeeded("no_embeddings");
+    const context = await buildLibraryContext(
+      ctx,
+      readerId,
+      parsed.data.question,
+      embedder,
+    );
     const chat: ChatMessage[] = [
       { role: "system", content: LIBRARY_SYSTEM },
       {
@@ -385,12 +403,7 @@ http.route({
         },
       );
     }
-    return streamWithFallback(
-      chat,
-      modelChain(models.quick, "quick"),
-      false,
-      request.signal,
-    );
+    return streamWithFallback(chat, targets, false, request.signal);
   }),
 });
 
@@ -427,58 +440,43 @@ http.route({
         }),
         { status: 400, headers },
       );
+    const ai = await loadReaderAI(ctx, readerId);
+    const targets = ai.chain("quick");
+    if (!targets.length) return setupNeeded("no_provider");
+    const embedder = ai.embedder();
+    if (!embedder) return setupNeeded("no_embeddings");
     try {
-      const [{ context, articles }, models] = await Promise.all([
-        retrieveLibraryContext(ctx, readerId, parsed.data.question),
-        ctx.runQuery(internal.userSettings.getModelsInternal, {
-          userId: readerId,
-        }),
-      ]);
+      const { context, articles } = await retrieveLibraryContext(
+        ctx,
+        readerId,
+        parsed.data.question,
+        embedder,
+      );
       if (!articles.length)
         return new Response(JSON.stringify({ matches: [] }), { headers });
-      for (const model of modelChain(models.quick, "quick")) {
+      for (const target of targets) {
         if (request.signal.aborted) break;
         try {
-          const response = await fetch(
-            "https://openrouter.ai/api/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                "Content-Type": "application/json",
-                "X-Title": "Marginalia",
+          const { content, truncated } = await completeJson({
+            target,
+            messages: [
+              { role: "system", content: LIBRARY_SEARCH_SYSTEM },
+              {
+                role: "user",
+                content: `${context}\n\nSearch: ${parsed.data.question}`,
               },
-              body: JSON.stringify({
-                model,
-                messages: [
-                  { role: "system", content: LIBRARY_SEARCH_SYSTEM },
-                  {
-                    role: "user",
-                    content: `${context}\n\nSearch: ${parsed.data.question}`,
-                  },
-                ],
-                max_tokens: 3000,
-                response_format: {
-                  type: "json_schema",
-                  json_schema: LIBRARY_SEARCH_JSON_SCHEMA,
-                },
-              }),
-              signal: request.signal,
-            },
-          );
-          if (!response.ok)
-            throw new Error(`Search model returned ${response.status}`);
-          const completion = searchCompletionSchema.parse(
-            await response.json(),
-          );
-          const choice = completion.choices[0];
-          if (choice.finish_reason === "length")
+            ],
+            maxTokens: 3000,
+            jsonSchema: LIBRARY_SEARCH_JSON_SCHEMA,
+            signal: request.signal,
+          });
+          if (truncated)
             throw new Error("Search result exceeded its token limit");
-          const matches = parseLibrarySearch(choice.message.content, articles);
+          const matches = parseLibrarySearch(content, articles);
           return new Response(JSON.stringify({ matches }), { headers });
         } catch (error) {
           if (request.signal.aborted) break;
-          console.error(`Library search: ${model} failed`, error);
+          console.error(`Library search: ${target.id} failed`, error);
         }
       }
     } catch (error) {

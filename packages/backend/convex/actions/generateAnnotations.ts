@@ -9,7 +9,7 @@ import {
   MIN_RELEVANCE_SCORE,
 } from "../lib/constants";
 import { buildMarginaliaContext } from "../lib/marginaliaContext";
-import { modelChain } from "../lib/openrouter";
+import { loadReaderAI } from "../lib/router";
 
 type AnnotationResult = z.infer<typeof annotationCandidateSchema>;
 
@@ -141,14 +141,29 @@ export const generateForArticle = internalAction({
       return;
     }
 
+    // Marginalia use the keys of the library that owns the article
+    const ai = await loadReaderAI(ctx, article.userId);
+    const targets = ai.chain("annotations");
+    if (!targets.length) {
+      console.warn(
+        `Skipped marginalia for ${args.articleId}: no AI provider key`,
+      );
+      await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+        articleId: args.articleId,
+        status: "skipped",
+      });
+      return;
+    }
+
     try {
       // Step 1–2: Gather what the model should read: most of the article,
       // dates, and the reader's closely related notes, marks and questions
       const { articleText, contextText, vaultPaths } =
-        await buildMarginaliaContext(ctx, {
-          ...article,
-          content: article.content,
-        });
+        await buildMarginaliaContext(
+          ctx,
+          { ...article, content: article.content },
+          ai.embedder(),
+        );
 
       const prompt = `## Article: "${article.title}"
 ${article.author ? `By: ${article.author}` : ""}
@@ -160,16 +175,12 @@ ${contextText}
 Generate annotations and a reflection for this article. Remember: quality over quantity. Only annotate where you genuinely add value.`;
 
       // Step 3: Generate annotations via LLM
-      const models = await ctx.runQuery(
-        internal.userSettings.getModelsInternal,
-        { userId: article.userId },
-      );
       const { object, modelId } =
         await generateObjectWithFallback<AnnotationResult>({
           schema: annotationCandidateSchema,
           system: SYSTEM_PROMPT,
           prompt,
-          models: modelChain(models.annotations, "annotations"),
+          targets,
         });
 
       // Step 4: Quality gate

@@ -1,9 +1,24 @@
 // No "use node": embeddings are a plain fetch, so HTTP actions in the default
 // runtime can use them as well as Node actions.
 import { z } from "zod";
+import { type EmbeddingProvider, providerFailure } from "./providers";
 
-const EMBEDDING_MODEL = "openai/text-embedding-3-small";
-const OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
+export interface EmbeddingTarget {
+  provider: EmbeddingProvider;
+  apiKey: string;
+}
+
+// The same model either way, so vectors stay compatible with the 1536-dimension indexes
+const ENDPOINTS: Record<EmbeddingProvider, { url: string; model: string }> = {
+  openai: {
+    url: "https://api.openai.com/v1/embeddings",
+    model: "text-embedding-3-small",
+  },
+  openrouter: {
+    url: "https://openrouter.ai/api/v1/embeddings",
+    model: "openai/text-embedding-3-small",
+  },
+};
 
 const responseSchema = z.object({
   data: z.array(
@@ -27,35 +42,35 @@ export function parseEmbeddings(body: unknown, count: number): number[][] {
   return sorted.map((item) => item.embedding);
 }
 
-function getApiKey(): string {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error("OPENROUTER_API_KEY not configured");
-  return key;
-}
-
-export async function embedText(text: string): Promise<number[]> {
-  const [embedding] = await embedTexts([text]);
+export async function embedText(
+  target: EmbeddingTarget,
+  text: string,
+): Promise<number[]> {
+  const [embedding] = await embedTexts(target, [text]);
   return embedding;
 }
 
-export async function embedTexts(texts: string[]): Promise<number[][]> {
+export async function embedTexts(
+  target: EmbeddingTarget,
+  texts: string[],
+): Promise<number[][]> {
   if (!texts.length) return [];
-  const response = await fetch(OPENROUTER_EMBEDDINGS_URL, {
+  const { url, model } = ENDPOINTS[target.provider];
+  const response = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getApiKey()}`,
+      Authorization: `Bearer ${target.apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      input: texts,
-      model: EMBEDDING_MODEL,
-    }),
+    body: JSON.stringify({ input: texts, model }),
     signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Embedding API failed: ${response.status} ${body}`);
+    throw providerFailure(
+      response.status,
+      await response.text().catch(() => ""),
+    );
   }
 
   return parseEmbeddings(await response.json(), texts.length);

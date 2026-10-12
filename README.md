@@ -27,7 +27,7 @@ Replace both example URLs with `CONVEX_URL` and `CONVEX_SITE_URL` from your back
 bun run --cwd apps/web dev
 ```
 
-Open **http://localhost:3000**. Add an RSS feed in **Sources**, or paste an article URL into Home's search picker. For AI annotations and search, configure `OPENROUTER_API_KEY` on your Convex deployment; see [setup](docs/development.md). Ordinary library data lives in Convex, not in the web process.
+Open **http://localhost:3000**. Add an RSS feed in **Sources**, or paste an article URL into Home's search picker. For AI annotations and search, set `PROVIDER_KEYS_ENCRYPTION_KEY` on your Convex deployment and add your own provider key in Your account; see [setup](docs/development.md#enable-ai). Ordinary library data lives in Convex, not in the web process.
 
 ## Check a change
 

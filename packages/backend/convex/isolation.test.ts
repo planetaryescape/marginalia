@@ -1,12 +1,14 @@
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addReader, secondReaderTest } from "../test/owner";
+import { addReader, saveTestCredential, secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
 const embedding = Array.from({ length: 1536 }, () => 1);
+const READER_KEY = "sk-or-reader-own-key-fixture-0001";
+const DEPLOYMENT_KEY = "owner-deployment-key-fixture";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -191,6 +193,7 @@ async function seedOwnerLibrary({ t }: Fixture) {
 
 describe("separate reader libraries", () => {
   it("hides every owner document from a second reader's reads", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
     const { reader } = fixture;
     const owner = await seedOwnerLibrary(fixture);
@@ -250,8 +253,15 @@ describe("separate reader libraries", () => {
       {},
     );
     const readerModels = await reader.query(api.userSettings.getModels, {});
-    expect(ownerModels.selected.quick).toBe("google/gemini-3.8-flash");
-    expect(readerModels.selected.quick).not.toBe("google/gemini-3.8-flash");
+    expect(ownerModels.selected.quick).toBe(
+      "openrouter:google/gemini-3.8-flash",
+    );
+    // The owner's deployment key never gives another reader any models
+    expect(readerModels).toEqual({
+      selected: { annotations: null, quick: null, deep: null },
+      available: [],
+    });
+    expect(await reader.query(api.providerCredentials.list, {})).toEqual([]);
     expect(await reader.query(api.home.overview, {})).toMatchObject({
       annotatedTotal: 0,
       upNext: [],
@@ -484,9 +494,11 @@ describe("separate reader libraries", () => {
   it("keeps a second reader's writes in their own library, invisible to the owner", async () => {
     // Keep scheduled embedding and Readwise jobs from calling providers
     vi.useFakeTimers();
+    vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
     const { reader, owner, readerLibraryId, t } = fixture;
     const ownerIds = await seedOwnerLibrary(fixture);
+    await saveTestCredential(t, readerLibraryId, "openrouter", READER_KEY);
 
     // The same feed URL can exist in both libraries
     const feedId = await reader.mutation(api.feeds.add, {
@@ -568,7 +580,7 @@ describe("separate reader libraries", () => {
     });
     await reader.mutation(api.userSettings.setModel, {
       role: "quick",
-      model: "google/gemini-3.8-flash",
+      model: "openrouter:google/gemini-3.8-flash",
     });
 
     const rows = await t.run(async (ctx) => ({
@@ -628,7 +640,7 @@ describe("separate reader libraries", () => {
     ).rejects.toThrow(/not found/i);
     expect(
       (await owner.query(api.userSettings.getModels, {})).selected.quick,
-    ).toBe("google/gemini-3.8-flash");
+    ).toBe("openrouter:google/gemini-3.8-flash");
     expect(
       await t.run(async (ctx) =>
         ctx.db
@@ -640,10 +652,12 @@ describe("separate reader libraries", () => {
   });
 
   it("retrieves only the reader's own library for Ask and library search", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "test-only");
+    vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
     const { reader, readerLibraryId, t } = fixture;
     const ownerIds = await seedOwnerLibrary(fixture);
+    await saveTestCredential(t, readerLibraryId, "openrouter", READER_KEY);
+    const keys: (string | null)[] = [];
     const readerArticleId = await t.run((ctx) =>
       ctx.db.insert(
         "articles",
@@ -652,6 +666,7 @@ describe("separate reader libraries", () => {
     );
     const prompts: string[] = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      keys.push(new Headers(init?.headers).get("Authorization"));
       const body = String(init?.body ?? "");
       if (url.endsWith("/embeddings"))
         return Response.json({ data: [{ index: 0, embedding }] });
@@ -701,6 +716,9 @@ describe("separate reader libraries", () => {
     expect(await ask.text()).toBe("Answer.");
 
     expect(prompts).toHaveLength(2);
+    // Every provider call used the reader's own key, never the owner's
+    expect(keys.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(keys)).toEqual(new Set([`Bearer ${READER_KEY}`]));
     for (const prompt of prompts) {
       expect(prompt).toContain("Reader garden piece");
       expect(prompt).not.toContain("Owner");
@@ -709,12 +727,12 @@ describe("separate reader libraries", () => {
   });
 
   it("builds marginalia only from the article's own library", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "test-only");
-    // The AI SDK client may have been created before the key was stubbed
-    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
     const { readerLibraryId, t } = fixture;
     await seedOwnerLibrary(fixture);
+    await saveTestCredential(t, readerLibraryId, "openrouter", READER_KEY);
+    const keys: (string | null)[] = [];
     const readerArticleId = await t.run((ctx) =>
       ctx.db.insert(
         "articles",
@@ -726,6 +744,7 @@ describe("separate reader libraries", () => {
       "fetch",
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        keys.push(new Headers(init?.headers).get("Authorization"));
         const request = JSON.parse(String(init?.body));
         if (url.endsWith("/embeddings"))
           return Response.json({
@@ -765,6 +784,7 @@ describe("separate reader libraries", () => {
       articleId: readerArticleId,
     });
     expect(prompts).toHaveLength(1);
+    expect(new Set(keys)).toEqual(new Set([`Bearer ${READER_KEY}`]));
     expect(prompts[0]).toContain("Reader garden piece");
     expect(prompts[0]).not.toContain("Owner");
     const reflections = await t.run((ctx) =>

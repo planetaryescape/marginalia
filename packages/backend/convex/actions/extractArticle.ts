@@ -2,8 +2,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
-import { embedText } from "../lib/aiModels";
 import { WORDS_PER_MINUTE } from "../lib/constants";
+import { embedForLibrary } from "../lib/router";
 
 export const extractPending = internalAction({
   args: { userId: v.string() },
@@ -73,7 +73,9 @@ async function extractSingle(ctx: any, article: any) {
   try {
     // Use first ~2000 chars for embedding (captures main theme)
     const embeddingText = plainText.slice(0, 8000);
-    embedding = await embedText(embeddingText);
+    embedding = (
+      await embedForLibrary(ctx, article.userId, [embeddingText])
+    )?.[0];
   } catch (error) {
     console.error("Embedding failed, continuing without:", error);
   }

@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ownerTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 
-vi.mock("./lib/aiModels", () => ({
-  embedText: vi.fn().mockResolvedValue(undefined),
+vi.mock("./lib/router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./lib/router")>()),
+  embedForLibrary: vi.fn().mockResolvedValue(null),
 }));
 const modules = import.meta.glob("./**/*.ts");
 

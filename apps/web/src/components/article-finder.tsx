@@ -6,9 +6,11 @@ import {
 } from "@marginalia/backend/library-search";
 import { useAction, useQuery } from "convex/react";
 import { Link2, Search, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ReaderRequestError, readerRequestError } from "@/lib/companion";
 import { useShortcuts } from "@/lib/shortcuts";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import { cn } from "@/lib/utils";
@@ -27,6 +29,8 @@ export function ArticleFinder() {
     query: string;
     matches: LibrarySearchMatch[];
     status: "loading" | "ready" | "error";
+    /** Why search can't run yet, such as a missing provider key. */
+    reason?: string;
   }>({ query: "", matches: [], status: "ready" });
   const [selected, setSelected] = useState(0);
   const [fetchingUrl, setFetchingUrl] = useState(false);
@@ -67,7 +71,7 @@ export function ArticleFinder() {
             AbortSignal.timeout(30_000),
           ]),
         });
-        if (!response.ok) throw new Error(`Search failed (${response.status})`);
+        if (!response.ok) throw await readerRequestError(response);
         const { matches } = librarySearchResponseSchema.parse(
           await response.json(),
         );
@@ -78,9 +82,17 @@ export function ArticleFinder() {
         }
         cache.current.set(key, { time: Date.now(), matches });
         setResult({ query: text, matches, status: "ready" });
-      } catch {
+      } catch (error) {
         if (!controller.signal.aborted)
-          setResult({ query: text, matches: [], status: "error" });
+          setResult({
+            query: text,
+            matches: [],
+            status: "error",
+            reason:
+              error instanceof ReaderRequestError && error.code
+                ? error.message
+                : undefined,
+          });
       }
     }, 600);
     return () => {
@@ -341,21 +353,42 @@ export function ArticleFinder() {
                 paste a link.
               </p>
             )}
-          {result.query === text && result.status === "error" && !isLink && (
-            <div
-              role="alert"
-              className="px-3 py-6 text-[14px] text-[var(--reader-fg-soft)]"
-            >
-              Couldn&apos;t search your library.{" "}
-              <button
-                type="button"
-                onClick={() => setRetry((n) => n + 1)}
-                className="underline underline-offset-2"
+          {result.query === text &&
+            result.status === "error" &&
+            !isLink &&
+            result.reason && (
+              <div
+                role="alert"
+                className="px-3 py-6 text-[14px] text-[var(--reader-fg-soft)]"
               >
-                Try again
-              </button>
-            </div>
-          )}
+                {result.reason}{" "}
+                <Link
+                  href="/account"
+                  onClick={() => setOpen(false)}
+                  className="underline underline-offset-2"
+                >
+                  Open Your account
+                </Link>
+              </div>
+            )}
+          {result.query === text &&
+            result.status === "error" &&
+            !isLink &&
+            !result.reason && (
+              <div
+                role="alert"
+                className="px-3 py-6 text-[14px] text-[var(--reader-fg-soft)]"
+              >
+                Couldn&apos;t search your library.{" "}
+                <button
+                  type="button"
+                  onClick={() => setRetry((n) => n + 1)}
+                  className="underline underline-offset-2"
+                >
+                  Try again
+                </button>
+              </div>
+            )}
         </div>
         <div className="hidden md:flex items-center justify-between gap-3 border-t border-[var(--reader-border)] px-5 py-3 text-[11px] text-[var(--reader-muted)]">
           <span>

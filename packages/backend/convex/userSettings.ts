@@ -1,70 +1,74 @@
-import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import { internalQuery, mutation, type QueryCtx, query } from "./functions";
+import { ConvexError, v } from "convex/values";
+import { mutation, query } from "./functions";
 import {
-  DEFAULT_MODELS,
-  isTextModel,
+  availableModels,
+  MODEL_ROLES,
   type ModelRole,
-  TEXT_MODELS,
-  type TextModel,
-} from "./lib/openrouter";
+  selectModel,
+} from "./lib/providers";
+import {
+  readerProviders,
+  savedModelChoices,
+  settingsField,
+  settingsRow,
+} from "./lib/readerAI";
 
-const FIELDS = {
-  annotations: "annotationModel",
-  quick: "quickModel",
-  deep: "deepModel",
-} as const satisfies Record<ModelRole, keyof Doc<"userSettings">>;
+const role = v.union(
+  v.literal("annotations"),
+  v.literal("quick"),
+  v.literal("deep"),
+);
 
-async function getRow(ctx: QueryCtx, userId: string) {
-  return ctx.db
-    .query("userSettings")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .unique();
-}
-
-function resolve(
-  row: Doc<"userSettings"> | null,
-): Record<ModelRole, TextModel> {
-  const pick = (role: ModelRole) => {
-    const chosen = row?.[FIELDS[role]];
-    return isTextModel(chosen) ? chosen : DEFAULT_MODELS[role];
-  };
-  return {
-    annotations: pick("annotations"),
-    quick: pick("quick"),
-    deep: pick("deep"),
-  };
-}
-
+/**
+ * The reader's model per role, from the models their own keys reach. A choice
+ * whose key was removed falls back to a default; null means no key at all.
+ */
 export const getModels = query({
   args: {},
+  returns: v.object({
+    selected: v.object({
+      annotations: v.union(v.string(), v.null()),
+      quick: v.union(v.string(), v.null()),
+      deep: v.union(v.string(), v.null()),
+    }),
+    available: v.array(
+      v.object({ id: v.string(), name: v.string(), provider: v.string() }),
+    ),
+  }),
   handler: async (ctx) => {
+    const { providers } = await readerProviders(ctx, ctx.readerId);
+    const chosen = await savedModelChoices(ctx, ctx.readerId);
+    const selected = Object.fromEntries(
+      MODEL_ROLES.map((r) => [
+        r,
+        selectModel(chosen[r], r, providers)?.id ?? null,
+      ]),
+    ) as Record<ModelRole, string | null>;
     return {
-      selected: resolve(await getRow(ctx, ctx.readerId)),
-      available: [...TEXT_MODELS],
+      selected,
+      available: availableModels(providers).map(({ id, name, provider }) => ({
+        id,
+        name,
+        provider,
+      })),
     };
   },
 });
 
-export const getModelsInternal = internalQuery({
-  args: { userId: v.string() },
-  handler: async (ctx, args) => resolve(await getRow(ctx, args.userId)),
-});
-
 export const setModel = mutation({
-  args: {
-    role: v.union(
-      v.literal("annotations"),
-      v.literal("quick"),
-      v.literal("deep"),
-    ),
-    model: v.string(),
-  },
+  args: { role, model: v.string() },
+  returns: v.null(),
   handler: async (ctx, args) => {
-    if (!isTextModel(args.model))
-      throw new Error(`Unsupported model: ${args.model}`);
-    const row = await getRow(ctx, ctx.readerId);
-    const patch = { [FIELDS[args.role]]: args.model, updatedAt: Date.now() };
+    const { providers } = await readerProviders(ctx, ctx.readerId);
+    if (!availableModels(providers).some((m) => m.id === args.model))
+      throw new ConvexError(
+        "That model isn't available with your saved keys. Add its provider in Your account.",
+      );
+    const row = await settingsRow(ctx, ctx.readerId);
+    const patch = {
+      [settingsField(args.role)]: args.model,
+      updatedAt: Date.now(),
+    };
     if (row) {
       await ctx.db.patch("userSettings", row._id, patch);
     } else {
@@ -73,5 +77,6 @@ export const setModel = mutation({
         ...patch,
       });
     }
+    return null;
   },
 });

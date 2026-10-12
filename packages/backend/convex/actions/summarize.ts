@@ -1,11 +1,12 @@
 "use node";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { action } from "../functions";
 import { generateObjectWithFallback } from "../lib/aiModels";
-import { modelChain } from "../lib/openrouter";
+import { NO_PROVIDER_MESSAGE } from "../lib/providers";
+import { loadReaderAI } from "../lib/router";
 
 const MAX_CHARS = 200_000;
 const MAX_IDEAS = 9;
@@ -110,14 +111,15 @@ export const generate = action({
     );
     if (!article) throw new Error("Article not found");
 
-    const models = await ctx.runQuery(internal.userSettings.getModelsInternal, {
-      userId: ctx.readerId,
-    });
+    const targets = (await loadReaderAI(ctx, ctx.readerId)).chain(
+      "annotations",
+    );
+    if (!targets.length) throw new ConvexError(NO_PROVIDER_MESSAGE);
     const { object, modelId } = await generateObjectWithFallback<Summary>({
       schema: summarySchema,
       system: SYSTEM,
       prompt: `# ${args.title}\n\n${lines.join("\n\n")}`,
-      models: modelChain(models.annotations, "annotations"),
+      targets,
       maxOutputTokens: 4096,
     });
 

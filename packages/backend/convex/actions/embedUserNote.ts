@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
-import { embedText } from "../lib/aiModels";
+import { embedForLibrary } from "../lib/router";
 
 export const embed = internalAction({
   args: { noteId: v.id("userNotes") },
@@ -19,7 +19,9 @@ export const embed = internalAction({
         .filter(Boolean)
         .join("\n\n")
         .slice(0, 8000);
-      const embedding = await embedText(textToEmbed);
+      const [embedding] =
+        (await embedForLibrary(ctx, note.userId, [textToEmbed])) ?? [];
+      if (!embedding) return;
       await ctx.runMutation(internal.userNotes.setEmbedding, {
         noteId: args.noteId,
         embedding,

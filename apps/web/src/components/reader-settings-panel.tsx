@@ -12,10 +12,10 @@ import {
   RotateCcw,
   ScanEye,
 } from "lucide-react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
-import { modelName } from "@/lib/models";
 import {
   DROP_CAP_FAMILIES,
   DROP_CAP_LINES,
@@ -34,8 +34,14 @@ import { cn } from "@/lib/utils";
 
 type ModelRole = "annotations" | "quick" | "deep";
 type ModelSettings = {
-  selected: Record<ModelRole, string>;
-  available: string[];
+  selected: Record<ModelRole, string | null>;
+  available: { id: string; name: string; provider: string }[];
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openrouter: "OpenRouter",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
 };
 
 function ModelRow({
@@ -49,6 +55,9 @@ function ModelRow({
   models: ModelSettings | undefined;
   onChange: (role: ModelRole, model: string) => void;
 }) {
+  // Name the provider only when the same model could come from more than one
+  const manyProviders =
+    new Set(models?.available.map((m) => m.provider)).size > 1;
   return (
     <Row label={label}>
       <div className="relative flex-1">
@@ -59,9 +68,12 @@ function ModelRow({
           aria-label={`${label} model`}
           className="w-full h-8 appearance-none rounded-[10px] bg-[var(--reader-chip)] pl-3 pr-8 text-[12.5px] text-[var(--reader-fg)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)] cursor-pointer disabled:opacity-50"
         >
-          {models?.available.map((id) => (
-            <option key={id} value={id}>
-              {modelName(id)}
+          {models?.available.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+              {manyProviders
+                ? ` · ${PROVIDER_LABELS[model.provider] ?? model.provider}`
+                : ""}
             </option>
           ))}
         </select>
@@ -677,29 +689,45 @@ export function ReaderSettingsPanel({
 
               <div className="h-px bg-[var(--reader-border)]" />
               <p className="text-[12.5px] text-[var(--reader-muted)]">Models</p>
-              <ModelRow
-                label="Quick"
-                modelRole="quick"
-                models={models}
-                onChange={setModel}
-              />
-              <ModelRow
-                label="Deep"
-                modelRole="deep"
-                models={models}
-                onChange={setModel}
-              />
-              <ModelRow
-                label="Marginalia"
-                modelRole="annotations"
-                models={models}
-                onChange={setModel}
-              />
-              <p className="text-[11.5px] leading-relaxed text-[var(--reader-muted)]">
-                Marginalia writes the automatic notes, the end-of-article
-                reflection and summaries. Changes apply to the next one it
-                writes. If a model fails, Gemini 3.8 Flash steps in.
-              </p>
+              {models && !models.available.length ? (
+                <p className="text-[12.5px] leading-relaxed text-[var(--reader-fg-soft)]">
+                  Answers and marginalia need an AI provider key.{" "}
+                  <Link
+                    href="/account"
+                    onClick={() => setOpen(false)}
+                    className="inline-flex min-h-11 items-center underline underline-offset-2 sm:min-h-0"
+                  >
+                    Add a key in Your account
+                  </Link>
+                </p>
+              ) : (
+                <>
+                  <ModelRow
+                    label="Quick"
+                    modelRole="quick"
+                    models={models}
+                    onChange={setModel}
+                  />
+                  <ModelRow
+                    label="Deep"
+                    modelRole="deep"
+                    models={models}
+                    onChange={setModel}
+                  />
+                  <ModelRow
+                    label="Marginalia"
+                    modelRole="annotations"
+                    models={models}
+                    onChange={setModel}
+                  />
+                  <p className="text-[11.5px] leading-relaxed text-[var(--reader-muted)]">
+                    Marginalia writes the automatic notes, the end-of-article
+                    reflection and summaries. Changes apply to the next one it
+                    writes. If a model fails, another of your models steps in.
+                    The list comes from the keys in Your account.
+                  </p>
+                </>
+              )}
               <div className="h-px bg-[var(--reader-border)]" />
               <p className="text-[11.5px] leading-relaxed text-[var(--reader-muted)]">
                 Shortcuts: select text, then press{" "}

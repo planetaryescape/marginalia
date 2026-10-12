@@ -2,7 +2,7 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { embedText } from "./embeddings";
+import { type EmbeddingTarget, embedText } from "./embeddings";
 
 export const libraryRequestSchema = z.object({
   question: z.string().trim().min(1).max(2000),
@@ -62,8 +62,9 @@ export async function retrieveLibraryContext(
   ctx: ActionCtx,
   userId: string,
   question: string,
+  embedder: EmbeddingTarget,
 ) {
-  const vector = await embedText(question.slice(0, 4000));
+  const vector = await embedText(embedder, question.slice(0, 4000));
 
   const [articleHits, impressionHits, noteHits, highlightHits, threadHits] =
     await Promise.all([
@@ -238,6 +239,8 @@ export async function buildLibraryContext(
   ctx: ActionCtx,
   userId: string,
   question: string,
+  embedder: EmbeddingTarget,
 ): Promise<string> {
-  return (await retrieveLibraryContext(ctx, userId, question)).context;
+  return (await retrieveLibraryContext(ctx, userId, question, embedder))
+    .context;
 }

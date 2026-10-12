@@ -1,6 +1,9 @@
 import { convexTest } from "convex-test";
+import { vi } from "vitest";
 import { components } from "../convex/_generated/api";
 import authSchema from "../convex/betterAuth/schema";
+import { encryptProviderKey } from "../convex/lib/providerKeys";
+import type { Provider } from "../convex/lib/providers";
 import schema from "../convex/schema";
 
 type ReaderTest = ReturnType<typeof readerTest>;
@@ -121,4 +124,32 @@ export async function secondReaderTest(
     reader: second.client,
     readerLibraryId: second.libraryId,
   };
+}
+
+/** A fixed, test-only server key: 32 bytes, base64. */
+export const TEST_ENCRYPTION_KEY = btoa(
+  String.fromCharCode(...Array.from({ length: 32 }, (_, i) => i + 1)),
+);
+
+/** Stores a sealed provider key for a library, as saving it would. */
+export async function saveTestCredential(
+  t: Pick<ReaderTest, "run">,
+  userId: string,
+  provider: Provider,
+  apiKey: string,
+) {
+  vi.stubEnv("PROVIDER_KEYS_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
+  const sealed = await encryptProviderKey(apiKey, userId, provider);
+  const now = Date.now();
+  return t.run((ctx) =>
+    ctx.db.insert("providerCredentials", {
+      userId,
+      provider,
+      ...sealed,
+      last4: apiKey.slice(-4),
+      createdAt: now,
+      updatedAt: now,
+      validatedAt: now,
+    }),
+  );
 }

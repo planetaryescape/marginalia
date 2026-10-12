@@ -2,6 +2,7 @@
 import { Fingerprint, LogOut, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import QRCode from "react-qr-code";
+import { AiProviders } from "@/components/ai-providers";
 import { DeskPage } from "@/components/desk-page";
 import { FeedbackPreferences } from "@/components/interaction-feedback";
 import { authClient } from "@/lib/auth-client";
@@ -272,6 +273,7 @@ export default function AccountPage() {
           {message}
         </p>
       )}
+      <AiProviders />
       <FeedbackPreferences />
       <button
         className="app-button secondary mb-8"

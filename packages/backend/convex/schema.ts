@@ -432,7 +432,25 @@ export default defineSchema({
       filterFields: ["userId"],
     }),
 
-  // One row per user. Model IDs are validated against TEXT_MODELS in lib/openrouter.ts.
+  // A reader's own AI provider keys, one per provider, sealed with AES-GCM
+  // (lib/providerKeys.ts). Only provider actions decrypt them.
+  providerCredentials: defineTable({
+    userId: v.string(),
+    provider: v.union(
+      v.literal("openrouter"),
+      v.literal("openai"),
+      v.literal("anthropic"),
+    ),
+    ciphertext: v.string(),
+    iv: v.string(),
+    last4: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    validatedAt: v.number(),
+  }).index("by_userId_and_provider", ["userId", "provider"]),
+
+  // One row per user. Model IDs are validated against the reader's available
+  // models in lib/providers.ts; older rows hold bare OpenRouter IDs.
   userSettings: defineTable({
     userId: v.string(),
     annotationModel: v.optional(v.string()),

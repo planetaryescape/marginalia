@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
-import { embedText } from "../lib/aiModels";
+import { embedForLibrary } from "../lib/router";
 
 // Highlights and Ask / Explain / Simplify threads are embedded so the
 // marginalia for future articles can recall what the reader cared about.
@@ -17,7 +17,10 @@ export const embedHighlight = internalAction({
     );
     if (!row) return;
     try {
-      const embedding = await embedText(row.text.slice(0, 8000));
+      const [embedding] =
+        (await embedForLibrary(ctx, row.userId, [row.text.slice(0, 8000)])) ??
+        [];
+      if (!embedding) return;
       await ctx.runMutation(internal.highlights.setEmbedding, {
         ...args,
         embedding,
@@ -46,7 +49,9 @@ export const embedThread = internalAction({
       .join("\n\n")
       .slice(0, 8000);
     try {
-      const embedding = await embedText(text);
+      const [embedding] =
+        (await embedForLibrary(ctx, row.userId, [text])) ?? [];
+      if (!embedding) return;
       await ctx.runMutation(internal.companionThreads.setEmbedding, {
         ...args,
         embedding,
@@ -84,7 +89,9 @@ export const embedImpression = internalAction({
       .join("\n");
     if (!text.trim()) return;
     try {
-      const embedding = await embedText(text.slice(0, 8000));
+      const [embedding] =
+        (await embedForLibrary(ctx, row.userId, [text.slice(0, 8000)])) ?? [];
+      if (!embedding) return;
       await ctx.runMutation(internal.impressions.setEmbedding, {
         impressionId: args.impressionId,
         embedding,

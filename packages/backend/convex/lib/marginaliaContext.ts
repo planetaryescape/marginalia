@@ -2,7 +2,7 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { embedTexts } from "./aiModels";
+import { type EmbeddingTarget, embedTexts } from "./embeddings";
 
 /** How much of the article the marginalia model reads (~20k words). */
 export const MAX_ARTICLE_CHARS = 120_000;
@@ -134,13 +134,20 @@ async function articleTitle(
 export async function buildMarginaliaContext(
   ctx: ActionCtx,
   article: Doc<"articles"> & { content: string },
+  /** Without one, the marginalia are written from the article alone. */
+  embedder: EmbeddingTarget | null,
 ): Promise<{ articleText: string; contextText: string; vaultPaths: string[] }> {
   // Everything recalled here comes from the article's own library
   const userId = article.userId;
   const articleText = article.content.slice(0, MAX_ARTICLE_CHARS);
   const sections = splitIntoSections(articleText);
   const labels = sections.map(sectionLabel);
-  const vectors = await embedTexts(sections.map((s) => s.slice(0, 8_000)));
+  const vectors = embedder
+    ? await embedTexts(
+        embedder,
+        sections.map((s) => s.slice(0, 8_000)),
+      )
+    : [];
   const titles = new Map<string, string>([[article._id, article.title]]);
   const parts: string[] = [];
 

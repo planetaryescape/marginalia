@@ -41,6 +41,30 @@ export interface CompanionThread {
   model?: string | null;
 }
 
+/** A request the backend refused with a reason the reader can act on. */
+export class ReaderRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+  }
+}
+
+/** The backend's reason for a failed request, e.g. a missing provider key. */
+export async function readerRequestError(res: Response) {
+  const text = await res.text().catch(() => "");
+  try {
+    const body = JSON.parse(text) as { error?: unknown; code?: unknown };
+    if (typeof body.error === "string")
+      return new ReaderRequestError(
+        body.error,
+        typeof body.code === "string" ? body.code : undefined,
+      );
+  } catch {}
+  return new ReaderRequestError(text || `Request failed (${res.status})`);
+}
+
 /** Streams a plain-text answer from one of the Convex HTTP endpoints. */
 export async function streamFromConvex(
   path: "/api/companion" | "/api/library",
@@ -57,11 +81,7 @@ export async function streamFromConvex(
     body: JSON.stringify(body),
     signal: handlers.signal,
   });
-  if (!res.ok || !res.body) {
-    throw new Error(
-      (await res.text().catch(() => "")) || `Request failed (${res.status})`,
-    );
-  }
+  if (!res.ok || !res.body) throw await readerRequestError(res);
   handlers.onModel(res.headers.get("X-Companion-Model"));
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   try {
