@@ -50,6 +50,6 @@ Replay these paths with [the reader guide](reader-guide.md) before changing them
 2. **Deployment separation:** migrate the live reader off its currently shared Convex development deployment without losing the library.
 3. **Cost controls:** set model-call quotas/rate limits and decide whether vault content may be sent to external models.
 4. **Large-library behaviour:** decide pagination/retention before replacing bounded recent collections or unbounded analytics scans.
-5. **License and distribution:** no license or multi-user release has been chosen.
+5. **Distribution:** no multi-user release has been chosen. The code is dual-licensed MIT or Apache-2.0, the same as mxr.
 
 These are not silently resolved by a polish pass. Follow [operations](operations.md) and [limitations](limitations.md) when planning the next change.

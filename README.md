@@ -52,4 +52,4 @@ bun run build
 
 ## License
 
-No license has been selected. The workspace packages are marked private; this repository does not grant an open-source license.
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
