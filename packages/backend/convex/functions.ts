@@ -10,27 +10,27 @@ import {
   mutation as rawMutation,
   query as rawQuery,
 } from "./_generated/server";
-import { requireOwner } from "./access";
+import { requireReader } from "./access";
 
 export * from "./_generated/server";
+
+// Every public function runs for one signed-in reader. `ctx.readerId` is that
+// reader's library ID; it never comes from client arguments.
 export const query = customQuery(
   rawQuery,
-  customCtx(async (ctx) => {
-    await requireOwner(ctx);
-    return {};
-  }),
+  customCtx(async (ctx) => ({ readerId: await requireReader(ctx) })),
 );
 export const mutation = customMutation(
   rawMutation,
-  customCtx(async (ctx) => {
-    await requireOwner(ctx);
-    return {};
-  }),
+  customCtx(async (ctx) => ({ readerId: await requireReader(ctx) })),
 );
 export const action = customAction(
   rawAction,
   customCtx(async (ctx) => {
-    await ctx.runQuery(internal.access.assertOwner, {});
-    return {};
+    const readerId: string = await ctx.runQuery(
+      internal.access.assertReader,
+      {},
+    );
+    return { readerId };
   }),
 );

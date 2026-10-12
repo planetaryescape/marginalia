@@ -2,6 +2,7 @@
 import { v } from "convex/values";
 import { z } from "zod";
 import { internal } from "../_generated/api";
+import type { Doc } from "../_generated/dataModel";
 import { action } from "../functions";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { modelChain } from "../lib/openrouter";
@@ -103,10 +104,15 @@ export const generate = action({
       used += text.length;
     }
 
-    const models = await ctx.runQuery(
-      internal.userSettings.getModelsInternal,
-      {},
+    const article: Doc<"articles"> | null = await ctx.runQuery(
+      internal.articles.getForReaderInternal,
+      { articleId: args.articleId, userId: ctx.readerId },
     );
+    if (!article) throw new Error("Article not found");
+
+    const models = await ctx.runQuery(internal.userSettings.getModelsInternal, {
+      userId: ctx.readerId,
+    });
     const { object, modelId } = await generateObjectWithFallback<Summary>({
       schema: summarySchema,
       system: SYSTEM,
@@ -142,6 +148,7 @@ export const generate = action({
       .slice(0, MAX_LINKS);
 
     await ctx.runMutation(internal.summaries.save, {
+      userId: ctx.readerId,
       articleId: args.articleId,
       gist: object.gist.trim(),
       thesis: object.thesis.trim(),

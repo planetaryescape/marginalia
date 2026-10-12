@@ -2,7 +2,6 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { DEFAULT_USER_ID } from "./constants";
 import { embedText } from "./embeddings";
 
 export const libraryRequestSchema = z.object({
@@ -59,7 +58,11 @@ function host(url: string) {
  * Picks the library items relevant to the question, by meaning and by recency,
  * and formats them with read status, dates and the reader's own impressions.
  */
-export async function retrieveLibraryContext(ctx: ActionCtx, question: string) {
+export async function retrieveLibraryContext(
+  ctx: ActionCtx,
+  userId: string,
+  question: string,
+) {
   const vector = await embedText(question.slice(0, 4000));
 
   const [articleHits, impressionHits, noteHits, highlightHits, threadHits] =
@@ -67,34 +70,34 @@ export async function retrieveLibraryContext(ctx: ActionCtx, question: string) {
       ctx.vectorSearch("articles", "by_embedding", {
         vector,
         limit: 24,
-        filter: (q) => q.eq("userId", DEFAULT_USER_ID),
+        filter: (q) => q.eq("userId", userId),
       }),
       ctx.vectorSearch("impressions", "by_embedding", {
         vector,
         limit: 10,
-        filter: (q) => q.eq("userId", DEFAULT_USER_ID),
+        filter: (q) => q.eq("userId", userId),
       }),
       ctx.vectorSearch("userNotes", "by_embedding", {
         vector,
         limit: 8,
-        filter: (q) => q.eq("userId", DEFAULT_USER_ID),
+        filter: (q) => q.eq("userId", userId),
       }),
       ctx.vectorSearch("highlights", "by_embedding", {
         vector,
         limit: 8,
-        filter: (q) => q.eq("userId", DEFAULT_USER_ID),
+        filter: (q) => q.eq("userId", userId),
       }),
       ctx.vectorSearch("companionThreads", "by_embedding", {
         vector,
         limit: 6,
-        filter: (q) => q.eq("userId", DEFAULT_USER_ID),
+        filter: (q) => q.eq("userId", userId),
       }),
     ]);
 
   const activity: {
     impressions: Doc<"impressions">[];
     interactions: Doc<"articleInteractions">[];
-  } = await ctx.runQuery(internal.library.recentActivity, {});
+  } = await ctx.runQuery(internal.library.recentActivity, { userId });
 
   const related: {
     impressions: Doc<"impressions">[];
@@ -102,6 +105,7 @@ export async function retrieveLibraryContext(ctx: ActionCtx, question: string) {
     highlights: Doc<"highlights">[];
     threads: Doc<"companionThreads">[];
   } = await ctx.runQuery(internal.library.loadMatches, {
+    userId,
     impressionIds: impressionHits.map((h) => h._id),
     noteIds: noteHits.map((h) => h._id),
     highlightIds: highlightHits.map((h) => h._id),
@@ -128,6 +132,7 @@ export async function retrieveLibraryContext(ctx: ActionCtx, question: string) {
   const articles: (Doc<"articles"> | null)[] = await ctx.runQuery(
     internal.library.loadArticles,
     {
+      userId,
       articleIds: order,
     },
   );
@@ -231,7 +236,8 @@ export async function retrieveLibraryContext(ctx: ActionCtx, question: string) {
 
 export async function buildLibraryContext(
   ctx: ActionCtx,
+  userId: string,
   question: string,
 ): Promise<string> {
-  return (await retrieveLibraryContext(ctx, question)).context;
+  return (await retrieveLibraryContext(ctx, userId, question)).context;
 }

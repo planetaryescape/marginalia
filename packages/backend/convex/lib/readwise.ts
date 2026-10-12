@@ -1,6 +1,8 @@
 // Readwise Reader API client: https://readwise.io/reader_api
 // Rate limits are per token: 20/min for list and delete, 50/min for save and update.
 
+import { DEFAULT_USER_ID } from "./constants";
+
 const API = "https://readwise.io/api/v3";
 const MAX_RETRIES = 3;
 
@@ -27,6 +29,14 @@ export interface ReaderDocument {
 
 export function readwiseToken(): string | undefined {
   return process.env.READWISE_TOKEN?.trim() || undefined;
+}
+
+/**
+ * The deployment's Readwise token belongs to the owner, so it is only used for
+ * the owner's library. Other readers bring their own token in a later phase.
+ */
+export function readwiseTokenFor(userId: string): string | undefined {
+  return userId === DEFAULT_USER_ID ? readwiseToken() : undefined;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

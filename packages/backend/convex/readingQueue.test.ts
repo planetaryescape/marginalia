@@ -42,7 +42,9 @@ describe("whole-library reading queue counts", () => {
     });
     expect((await t.query(api.home.overview, {})).waiting).toBeNull();
     for (let i = 0; i < 40; i++)
-      await t.mutation(internal.readingQueue.initialize, {});
+      await t.mutation(internal.readingQueue.initialize, {
+        userId: "default_user",
+      });
     const overview = await t.query(api.home.overview, {});
     expect(overview).toMatchObject({
       countsReady: true,
@@ -52,13 +54,17 @@ describe("whole-library reading queue counts", () => {
     });
     expect(overview.upNext).toHaveLength(10);
     expect(overview.upNext.map((a) => a._id)).not.toContain(ids[249]);
-    await t.mutation(internal.readingQueue.initialize, {});
+    await t.mutation(internal.readingQueue.initialize, {
+      userId: "default_user",
+    });
     expect((await t.query(api.home.overview, {})).waiting).toBe(249);
   });
 
   it("updates counts transactionally for annotation, length changes, reannotation and repeated finishes", async () => {
     const t = await ownerTest(modules);
-    await t.mutation(internal.readingQueue.initialize, {});
+    await t.mutation(internal.readingQueue.initialize, {
+      userId: "default_user",
+    });
     const args = {
       userId: "default_user",
       guid: "one",

@@ -16,6 +16,7 @@ export const add = action({
 
     // Check for duplicate by URL
     const existing: any = await ctx.runQuery(internal.articles.getByUrl, {
+      userId: ctx.readerId,
       url,
     });
     if (existing) {
@@ -33,7 +34,7 @@ export const add = action({
       );
     }
 
-    const articleId = await ingestArticle(ctx, {
+    const articleId = await ingestArticle(ctx, ctx.readerId, {
       url,
       title: result.title || url,
       html: result.content,

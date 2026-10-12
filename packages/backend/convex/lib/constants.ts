@@ -1,4 +1,4 @@
-// Hardcoded user ID — no auth in v1
+// The owner's library ID. Other readers get their own (see access.ts getReader).
 export const DEFAULT_USER_ID = "default_user";
 
 // Reading speed: average adult reads ~220 WPM

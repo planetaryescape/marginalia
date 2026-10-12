@@ -4,6 +4,7 @@ import { ownerTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
+const OWNER = "default_user";
 afterEach(() => vi.useRealTimers());
 
 describe("resumable Reader sync", () => {
@@ -17,6 +18,7 @@ describe("resumable Reader sync", () => {
       }),
     );
     const state = await t.mutation(internal.readwiseSyncState.claim, {
+      userId: OWNER,
       token: "first",
     });
     expect(state).toMatchObject({
@@ -30,15 +32,25 @@ describe("resumable Reader sync", () => {
   it("rejects concurrent workers and fences a stale worker after lease recovery", async () => {
     vi.useFakeTimers();
     const t = await ownerTest(modules);
-    await t.mutation(internal.readwiseSyncState.claim, { token: "first" });
+    await t.mutation(internal.readwiseSyncState.claim, {
+      userId: OWNER,
+      token: "first",
+    });
     expect(
-      await t.mutation(internal.readwiseSyncState.claim, { token: "second" }),
+      await t.mutation(internal.readwiseSyncState.claim, {
+        userId: OWNER,
+        token: "second",
+      }),
     ).toBeNull();
     vi.setSystemTime(Date.now() + 16 * 60_000);
     expect(
-      await t.mutation(internal.readwiseSyncState.claim, { token: "recovery" }),
+      await t.mutation(internal.readwiseSyncState.claim, {
+        userId: OWNER,
+        token: "recovery",
+      }),
     ).not.toBeNull();
     await t.mutation(internal.readwiseSyncState.completePage, {
+      userId: OWNER,
       token: "first",
       nextPageCursor: "wrong",
     });
@@ -46,6 +58,7 @@ describe("resumable Reader sync", () => {
       "Inbox",
     );
     await t.mutation(internal.readwiseSyncState.completePage, {
+      userId: OWNER,
       token: "recovery",
       nextPageCursor: null,
     });
@@ -57,32 +70,46 @@ describe("resumable Reader sync", () => {
   it("retains cursor and document progress on failure, never advancing the watermark early", async () => {
     vi.useFakeTimers();
     const t = await ownerTest(modules);
-    await t.mutation(internal.readwiseSyncState.claim, { token: "one" });
+    await t.mutation(internal.readwiseSyncState.claim, {
+      userId: OWNER,
+      token: "one",
+    });
     await t.mutation(internal.readwiseSyncState.recordDocument, {
+      userId: OWNER,
       token: "one",
       documentId: "a",
       outcome: "imported",
     });
     await t.mutation(internal.readwiseSyncState.recordDocument, {
+      userId: OWNER,
       token: "one",
       documentId: "a",
       outcome: "imported",
     });
     await t.mutation(internal.readwiseSyncState.completePage, {
+      userId: OWNER,
       token: "one",
       nextPageCursor: "page-2",
     });
     expect(
-      await t.mutation(internal.readwiseSyncState.claim, { token: "too-soon" }),
+      await t.mutation(internal.readwiseSyncState.claim, {
+        userId: OWNER,
+        token: "too-soon",
+      }),
     ).toBeNull();
     vi.setSystemTime(Date.now() + 61_000);
-    await t.mutation(internal.readwiseSyncState.claim, { token: "two" });
+    await t.mutation(internal.readwiseSyncState.claim, {
+      userId: OWNER,
+      token: "two",
+    });
     await t.mutation(internal.readwiseSyncState.recordDocument, {
+      userId: OWNER,
       token: "two",
       documentId: "b",
       outcome: "imported",
     });
     await t.mutation(internal.readwiseSyncState.fail, {
+      userId: OWNER,
       token: "two",
       error: "temporary outage",
       retryAfterMs: 300_000,
@@ -91,11 +118,13 @@ describe("resumable Reader sync", () => {
     vi.setSystemTime(Date.now() + 61_000);
     expect(
       await t.mutation(internal.readwiseSyncState.claim, {
+        userId: OWNER,
         token: "rate-limited",
       }),
     ).toBeNull();
     vi.setSystemTime(Date.now() + 300_000);
     const resumed = await t.mutation(internal.readwiseSyncState.claim, {
+      userId: OWNER,
       token: "three",
     });
     expect(resumed).toMatchObject({
@@ -112,8 +141,12 @@ describe("resumable Reader sync", () => {
     const startedAt = Date.now();
     for (let phase = 0; phase < 4; phase++) {
       const token = `phase-${phase}`;
-      await t.mutation(internal.readwiseSyncState.claim, { token });
+      await t.mutation(internal.readwiseSyncState.claim, {
+        userId: OWNER,
+        token,
+      });
       await t.mutation(internal.readwiseSyncState.completePage, {
+        userId: OWNER,
         token,
         nextPageCursor: null,
       });
@@ -124,6 +157,7 @@ describe("resumable Reader sync", () => {
       progress: { active: false, backfilling: false, phase: "Complete" },
     });
     const next = await t.mutation(internal.readwiseSyncState.claim, {
+      userId: OWNER,
       token: "incremental",
     });
     expect(next?.updatedAfter).toBe(

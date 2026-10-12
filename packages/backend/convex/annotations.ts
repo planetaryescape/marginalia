@@ -1,9 +1,11 @@
 import { v } from "convex/values";
+import { ownedArticle } from "./access";
 import { internalMutation, mutation, query } from "./functions";
 
 export const listByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
     return ctx.db
       .query("annotations")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -14,6 +16,9 @@ export const listByArticle = query({
 export const markViewed = mutation({
   args: { annotationId: v.id("annotations") },
   handler: async (ctx, args) => {
+    const annotation = await ctx.db.get("annotations", args.annotationId);
+    if (annotation?.userId !== ctx.readerId)
+      throw new Error("Annotation not found");
     await ctx.db.patch(args.annotationId, { wasViewed: true });
   },
 });
@@ -21,6 +26,9 @@ export const markViewed = mutation({
 export const markDismissed = mutation({
   args: { annotationId: v.id("annotations") },
   handler: async (ctx, args) => {
+    const annotation = await ctx.db.get("annotations", args.annotationId);
+    if (annotation?.userId !== ctx.readerId)
+      throw new Error("Annotation not found");
     await ctx.db.patch(args.annotationId, { wasDismissed: true });
   },
 });

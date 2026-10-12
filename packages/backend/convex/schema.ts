@@ -14,6 +14,14 @@ export default defineSchema({
     setupHash: v.optional(v.string()),
     setupExpiresAt: v.optional(v.number()),
   }).index("by_key", ["key"]),
+  // Signed-in readers other than the owner, each with their own library.
+  // The owner is mapped through readerAccess and keeps the "default_user" library.
+  readers: defineTable({
+    authId: v.string(),
+    libraryId: v.string(),
+    status: v.union(v.literal("active"), v.literal("disabled")),
+    createdAt: v.number(),
+  }).index("by_authId", ["authId"]),
   feeds: defineTable({
     userId: v.string(),
     url: v.string(),
@@ -63,6 +71,7 @@ export default defineSchema({
   })
     .index("by_feed", ["feedId"])
     .index("by_reader_document", ["readerDocumentId"])
+    .index("by_userId_and_readerDocumentId", ["userId", "readerDocumentId"])
     .index("by_user", ["userId"])
     .index("by_user_guid", ["userId", "guid"])
     .index("by_extraction_status", ["userId", "extractionStatus"])
@@ -343,6 +352,7 @@ export default defineSchema({
   })
     .index("by_article", ["articleId"])
     .index("by_reader_highlight", ["readerHighlightId"])
+    .index("by_userId_and_readerHighlightId", ["userId", "readerHighlightId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,

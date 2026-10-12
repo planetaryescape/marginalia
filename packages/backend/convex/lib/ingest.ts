@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { embedText } from "./aiModels";
-import { DEFAULT_USER_ID, WORDS_PER_MINUTE } from "./constants";
+import { WORDS_PER_MINUTE } from "./constants";
 
 // Convex documents max out at 1 MiB, and the article stores both HTML and text
 const MAX_STORED_BYTES = 900_000;
@@ -33,6 +33,7 @@ export function htmlToPlainText(html: string): string {
  */
 export async function ingestArticle(
   ctx: ActionCtx,
+  userId: string,
   article: {
     url: string;
     title: string;
@@ -64,7 +65,7 @@ export async function ingestArticle(
   const articleId: Id<"articles"> = await ctx.runMutation(
     internal.articles.insertExtracted,
     {
-      userId: DEFAULT_USER_ID,
+      userId,
       guid: article.url,
       url: article.url,
       title: article.title || article.url,

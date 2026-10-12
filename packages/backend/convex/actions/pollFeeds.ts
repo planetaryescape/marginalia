@@ -1,12 +1,14 @@
 "use node";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
-import { DEFAULT_USER_ID } from "../lib/constants";
 
 export const pollAllFeeds = internalAction({
-  args: {},
-  handler: async (ctx) => {
-    const feeds = await ctx.runQuery(internal.feeds.listActive);
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const feeds = await ctx.runQuery(internal.feeds.listActive, {
+      userId: args.userId,
+    });
 
     for (const feed of feeds) {
       try {
@@ -41,13 +43,14 @@ async function pollSingleFeed(ctx: any, feed: any) {
 
     // Dedup by guid
     const existing = await ctx.runQuery(internal.articles.getByGuid, {
+      userId: feed.userId,
       guid,
     });
     if (existing) continue;
 
     await ctx.runMutation(internal.articles.insert, {
       feedId: feed._id,
-      userId: DEFAULT_USER_ID,
+      userId: feed.userId,
       guid,
       url: item.link || "",
       title: item.title || "Untitled",
@@ -73,7 +76,7 @@ async function pollSingleFeed(ctx: any, feed: any) {
     await ctx.scheduler.runAfter(
       0,
       internal.actions.extractArticle.extractPending,
-      {},
+      { userId: feed.userId },
     );
   }
 }

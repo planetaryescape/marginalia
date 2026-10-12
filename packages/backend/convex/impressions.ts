@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const RATING_LABELS = [
   "Not for me",
@@ -14,6 +14,7 @@ export const RATING_LABELS = [
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return null;
     return ctx.db
       .query("impressions")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -33,6 +34,7 @@ export const save = mutation({
     if (args.rating != null && (args.rating < 1 || args.rating > 5)) {
       throw new Error("Rating must be between 1 and 5");
     }
+    await requireArticle(ctx, args.articleId, ctx.readerId);
     const existing = await ctx.db
       .query("impressions")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -53,7 +55,7 @@ export const save = mutation({
       await ctx.db.patch("impressions", existing._id, patch);
     } else {
       impressionId = await ctx.db.insert("impressions", {
-        userId: DEFAULT_USER_ID,
+        userId: ctx.readerId,
         articleId: args.articleId,
         tags: [],
         createdAt: now,
@@ -81,7 +83,7 @@ export const listRecent = query({
   handler: async (ctx) => {
     const rows = await ctx.db
       .query("impressions")
-      .withIndex("by_user_updated", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user_updated", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
       .take(100);
     // A cleared impression (no rating, tags or note) isn't shown
@@ -90,7 +92,7 @@ export const listRecent = query({
     );
     return Promise.all(
       kept.map(async (row) => {
-        const article = await ctx.db.get("articles", row.articleId);
+        const article = await ownedArticle(ctx, row.articleId, ctx.readerId);
         return {
           _id: row._id,
           articleId: row.articleId,

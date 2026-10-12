@@ -1,15 +1,16 @@
 import { v } from "convex/values";
+import { ownedArticle, requireArticle } from "./access";
 import { mutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 import { nextReviewAt, snoozeReviewAt } from "./lib/spacedRepetition";
 
 export const love = mutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, ctx.readerId);
     const existing = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_article", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("articleId", args.articleId),
+        q.eq("userId", ctx.readerId).eq("articleId", args.articleId),
       )
       .first();
 
@@ -17,7 +18,7 @@ export const love = mutation({
 
     const now = Date.now();
     return ctx.db.insert("lovedArticles", {
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       articleId: args.articleId,
       lovedAt: now,
       reviewIndex: 0,
@@ -33,7 +34,7 @@ export const unlove = mutation({
     const existing = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_article", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("articleId", args.articleId),
+        q.eq("userId", ctx.readerId).eq("articleId", args.articleId),
       )
       .first();
 
@@ -49,7 +50,7 @@ export const isLoved = query({
     const existing = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_article", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("articleId", args.articleId),
+        q.eq("userId", ctx.readerId).eq("articleId", args.articleId),
       )
       .first();
     return !!existing;
@@ -63,7 +64,7 @@ export const advanceReview = mutation({
     const loved = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_article", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("articleId", args.articleId),
+        q.eq("userId", ctx.readerId).eq("articleId", args.articleId),
       )
       .first();
 
@@ -87,7 +88,7 @@ export const snooze = mutation({
     const loved = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_article", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("articleId", args.articleId),
+        q.eq("userId", ctx.readerId).eq("articleId", args.articleId),
       )
       .first();
 
@@ -107,13 +108,13 @@ export const getDueForReview = query({
     const loved = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_next_review", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).lte("nextReviewAt", now),
+        q.eq("userId", ctx.readerId).lte("nextReviewAt", now),
       )
       .take(5);
 
     const withArticles = await Promise.all(
       loved.map(async (l) => {
-        const article = await ctx.db.get(l.articleId);
+        const article = await ownedArticle(ctx, l.articleId, ctx.readerId);
         if (!article) return null;
 
         const daysSinceLastRead = l.lastReviewedAt
@@ -134,12 +135,12 @@ export const listAll = query({
   handler: async (ctx) => {
     const loved = await ctx.db
       .query("lovedArticles")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .collect();
 
     const withArticles = await Promise.all(
       loved.map(async (l) => {
-        const article = await ctx.db.get(l.articleId);
+        const article = await ownedArticle(ctx, l.articleId, ctx.readerId);
         return article ? { ...l, article } : null;
       }),
     );

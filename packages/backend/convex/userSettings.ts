@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalQuery, mutation, type QueryCtx, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 import {
   DEFAULT_MODELS,
   isTextModel,
@@ -16,10 +15,10 @@ const FIELDS = {
   deep: "deepModel",
 } as const satisfies Record<ModelRole, keyof Doc<"userSettings">>;
 
-async function getRow(ctx: QueryCtx) {
+async function getRow(ctx: QueryCtx, userId: string) {
   return ctx.db
     .query("userSettings")
-    .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+    .withIndex("by_user", (q) => q.eq("userId", userId))
     .unique();
 }
 
@@ -41,15 +40,15 @@ export const getModels = query({
   args: {},
   handler: async (ctx) => {
     return {
-      selected: resolve(await getRow(ctx)),
+      selected: resolve(await getRow(ctx, ctx.readerId)),
       available: [...TEXT_MODELS],
     };
   },
 });
 
 export const getModelsInternal = internalQuery({
-  args: {},
-  handler: async (ctx) => resolve(await getRow(ctx)),
+  args: { userId: v.string() },
+  handler: async (ctx, args) => resolve(await getRow(ctx, args.userId)),
 });
 
 export const setModel = mutation({
@@ -64,13 +63,13 @@ export const setModel = mutation({
   handler: async (ctx, args) => {
     if (!isTextModel(args.model))
       throw new Error(`Unsupported model: ${args.model}`);
-    const row = await getRow(ctx);
+    const row = await getRow(ctx, ctx.readerId);
     const patch = { [FIELDS[args.role]]: args.model, updatedAt: Date.now() };
     if (row) {
       await ctx.db.patch("userSettings", row._id, patch);
     } else {
       await ctx.db.insert("userSettings", {
-        userId: DEFAULT_USER_ID,
+        userId: ctx.readerId,
         ...patch,
       });
     }

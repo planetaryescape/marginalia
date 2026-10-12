@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const STEP_DELAY_MS = 60_000;
 const LEASE_MS = 15 * 60_000;
@@ -9,18 +8,18 @@ const OVERLAP_MS = 2 * 60_000;
 
 /** A transaction owns the lease: cron, continuation and manual sync cannot overlap. */
 export const claim = internalMutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
+  args: { userId: v.string(), token: v.string() },
+  handler: async (ctx, { userId, token }) => {
     const now = Date.now();
     let state = await ctx.db
       .query("readwiseSyncState")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .unique();
     if (state && (state.leaseUntil > now || state.nextRunAt > now)) return null;
     if (!state?.active) {
       const settings = await ctx.db
         .query("userSettings")
-        .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+        .withIndex("by_user", (q) => q.eq("userId", userId))
         .unique();
       // A legacy watermark does not prove the old 100-item import was complete.
       const updatedAfter =
@@ -28,7 +27,7 @@ export const claim = internalMutation({
           ? new Date(settings.readwiseSyncedAt - OVERLAP_MS).toISOString()
           : undefined;
       const fields = {
-        userId: DEFAULT_USER_ID,
+        userId,
         active: true,
         startedAt: now,
         updatedAfter,
@@ -65,6 +64,7 @@ export const claim = internalMutation({
 
 export const recordDocument = internalMutation({
   args: {
+    userId: v.string(),
     token: v.string(),
     documentId: v.string(),
     outcome: v.union(
@@ -79,7 +79,7 @@ export const recordDocument = internalMutation({
   handler: async (ctx, args) => {
     const state = await ctx.db
       .query("readwiseSyncState")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .unique();
     if (
       !state ||
@@ -103,13 +103,14 @@ export const recordDocument = internalMutation({
 
 export const completePage = internalMutation({
   args: {
+    userId: v.string(),
     token: v.string(),
     nextPageCursor: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
     const state = await ctx.db
       .query("readwiseSyncState")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .unique();
     if (!state || state.token !== args.token) return;
     const now = Date.now();
@@ -129,6 +130,7 @@ export const completePage = internalMutation({
     });
     if (done) {
       await ctx.runMutation(internal.readwise.recordSync, {
+        userId: args.userId,
         syncedAt: state.startedAt,
       });
     } else {
@@ -136,7 +138,7 @@ export const completePage = internalMutation({
       await ctx.scheduler.runAfter(
         STEP_DELAY_MS,
         internal.actions.readwiseSync.sync,
-        {},
+        { userId: args.userId },
       );
     }
   },
@@ -144,6 +146,7 @@ export const completePage = internalMutation({
 
 export const fail = internalMutation({
   args: {
+    userId: v.string(),
     token: v.string(),
     error: v.string(),
     retryAfterMs: v.optional(v.number()),
@@ -151,7 +154,7 @@ export const fail = internalMutation({
   handler: async (ctx, args) => {
     const state = await ctx.db
       .query("readwiseSyncState")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .unique();
     if (!state || state.token !== args.token) return;
     await ctx.db.patch(state._id, {
@@ -162,6 +165,9 @@ export const fail = internalMutation({
       nextRunAt: Date.now() + Math.max(STEP_DELAY_MS, args.retryAfterMs ?? 0),
     });
     // Leave cursor and watermark untouched. Manual sync or the cron resumes this page.
-    await ctx.runMutation(internal.readwise.recordSync, { error: args.error });
+    await ctx.runMutation(internal.readwise.recordSync, {
+      userId: args.userId,
+      error: args.error,
+    });
   },
 });

@@ -13,7 +13,7 @@ import {
   type ReaderDocument,
   type ReaderLocation,
   ReadwiseRateLimitError,
-  readwiseToken,
+  readwiseTokenFor,
 } from "../lib/readwise";
 
 // Unread queues only: the RSS Feed tab and Archive stay in Reader
@@ -32,14 +32,16 @@ function publishedAt(
 }
 
 export const sync = internalAction({
-  args: {},
-  handler: async (ctx): Promise<void> => {
-    if (!readwiseToken()) return;
-    await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {});
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }): Promise<void> => {
+    if (!readwiseTokenFor(userId)) return;
+    await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {
+      userId,
+    });
     const token = crypto.randomUUID();
     const state: Doc<"readwiseSyncState"> | null = await ctx.runMutation(
       internal.readwiseSyncState.claim,
-      { token },
+      { userId, token },
     );
     if (!state) return;
     try {
@@ -61,6 +63,7 @@ export const sync = internalAction({
         >["outcome"],
       ) => {
         await ctx.runMutation(internal.readwiseSyncState.recordDocument, {
+          userId,
           token,
           documentId,
           outcome,
@@ -77,7 +80,7 @@ export const sync = internalAction({
           }
           const article: Doc<"articles"> | null = await ctx.runQuery(
             internal.readwise.findArticle,
-            { readerDocumentId: doc.parent_id },
+            { userId, readerDocumentId: doc.parent_id },
           );
           if (!article) {
             await record(doc.id, "ignored");
@@ -86,6 +89,7 @@ export const sync = internalAction({
           const added: boolean = await ctx.runMutation(
             internal.readwise.importHighlight,
             {
+              userId,
               articleId: article._id,
               readerHighlightId: doc.id,
               text,
@@ -100,7 +104,7 @@ export const sync = internalAction({
           const url = doc.source_url || doc.url;
           const existing: Doc<"articles"> | null = await ctx.runQuery(
             internal.readwise.findArticle,
-            { readerDocumentId: doc.id, url },
+            { userId, readerDocumentId: doc.id, url },
           );
           if (existing) {
             if (!existing.readerDocumentId) {
@@ -121,6 +125,7 @@ export const sync = internalAction({
           }
           const articleId = await ingestArticle(
             ctx,
+            userId,
             {
               url,
               title: doc.title || url,
@@ -137,6 +142,7 @@ export const sync = internalAction({
         }
       }
       await ctx.runMutation(internal.readwiseSyncState.completePage, {
+        userId,
         token,
         nextPageCursor: page.nextPageCursor,
       });
@@ -144,6 +150,7 @@ export const sync = internalAction({
       const message = error instanceof Error ? error.message : String(error);
       console.error("Readwise sync failed:", message);
       await ctx.runMutation(internal.readwiseSyncState.fail, {
+        userId,
         token,
         error: message.slice(0, 300),
         retryAfterMs:
@@ -159,16 +166,17 @@ export const sync = internalAction({
 export const pushHighlight = internalAction({
   args: { highlightId: v.id("highlights") },
   handler: async (ctx, args): Promise<void> => {
-    if (!readwiseToken()) return;
     const row: Doc<"highlights"> | null = await ctx.runQuery(
       internal.highlights.getByIdInternal,
       args,
     );
     if (!row || row.source === "reader" || row.readerHighlightId) return;
+    if (!readwiseTokenFor(row.userId)) return;
     const parentId: string | null = await ctx.runQuery(
       internal.readwise.getArticleReaderId,
       {
         articleId: row.articleId,
+        userId: row.userId,
       },
     );
     if (!parentId) return;
@@ -189,9 +197,9 @@ export const pushHighlight = internalAction({
 });
 
 export const deleteHighlight = internalAction({
-  args: { readerHighlightId: v.string() },
+  args: { userId: v.string(), readerHighlightId: v.string() },
   handler: async (_ctx, args): Promise<void> => {
-    if (!readwiseToken()) return;
+    if (!readwiseTokenFor(args.userId)) return;
     try {
       await deleteDocument(args.readerHighlightId);
     } catch (error) {
@@ -205,9 +213,9 @@ export const deleteHighlight = internalAction({
 
 /** Archives the article in Reader when it's finished in Marginalia. */
 export const archiveArticle = internalAction({
-  args: { articleId: v.id("articles") },
+  args: { userId: v.string(), articleId: v.id("articles") },
   handler: async (ctx, args): Promise<void> => {
-    if (!readwiseToken()) return;
+    if (!readwiseTokenFor(args.userId)) return;
     const readerId: string | null = await ctx.runQuery(
       internal.readwise.getArticleReaderId,
       args,

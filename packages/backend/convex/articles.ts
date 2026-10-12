@@ -1,19 +1,22 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
+import { ownedArticle } from "./access";
 import { action, internalMutation, internalQuery, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 import { updateQueueStats } from "./readingQueue";
 
 export const getById = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    return ctx.db.get(args.articleId);
+    return ownedArticle(ctx, args.articleId, ctx.readerId);
   },
 });
 
 export const listByFeed = query({
   args: { feedId: v.id("feeds") },
   handler: async (ctx, args) => {
+    const feed = await ctx.db.get("feeds", args.feedId);
+    if (feed?.userId !== ctx.readerId) return [];
     return ctx.db
       .query("articles")
       .withIndex("by_feed", (q) => q.eq("feedId", args.feedId))
@@ -28,7 +31,7 @@ export const listAnnotated = query({
     return ctx.db
       .query("articles")
       .withIndex("by_annotation_status", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("annotationStatus", "annotated"),
+        q.eq("userId", ctx.readerId).eq("annotationStatus", "annotated"),
       )
       .order("desc")
       .take(50);
@@ -41,7 +44,7 @@ export const listPendingExtraction = query({
     return ctx.db
       .query("articles")
       .withIndex("by_extraction_status", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("extractionStatus", "pending"),
+        q.eq("userId", ctx.readerId).eq("extractionStatus", "pending"),
       )
       .take(20);
   },
@@ -50,12 +53,12 @@ export const listPendingExtraction = query({
 // --- Internal ---
 
 export const getByGuid = internalQuery({
-  args: { guid: v.string() },
+  args: { userId: v.string(), guid: v.string() },
   handler: async (ctx, args) => {
     return ctx.db
       .query("articles")
       .withIndex("by_user_guid", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("guid", args.guid),
+        q.eq("userId", args.userId).eq("guid", args.guid),
       )
       .first();
   },
@@ -66,6 +69,12 @@ export const getByIdInternal = internalQuery({
   handler: async (ctx, args) => {
     return ctx.db.get(args.articleId);
   },
+});
+
+/** The article only when it belongs to the given library. */
+export const getForReaderInternal = internalQuery({
+  args: { articleId: v.id("articles"), userId: v.string() },
+  handler: async (ctx, args) => ownedArticle(ctx, args.articleId, args.userId),
 });
 
 export const insert = internalMutation({
@@ -101,12 +110,12 @@ export const insert = internalMutation({
 });
 
 export const listPendingExtractionInternal = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
     return ctx.db
       .query("articles")
       .withIndex("by_extraction_status", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("extractionStatus", "pending"),
+        q.eq("userId", args.userId).eq("extractionStatus", "pending"),
       )
       .take(10);
   },
@@ -152,12 +161,12 @@ export const updateExtracted = internalMutation({
 });
 
 export const getByUrl = internalQuery({
-  args: { url: v.string() },
+  args: { userId: v.string(), url: v.string() },
   handler: async (ctx, args) => {
     return ctx.db
       .query("articles")
       .withIndex("by_user_guid", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("guid", args.url),
+        q.eq("userId", args.userId).eq("guid", args.url),
       )
       .first();
   },
@@ -166,6 +175,11 @@ export const getByUrl = internalQuery({
 export const requestReannotate = action({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    const article: Doc<"articles"> | null = await ctx.runQuery(
+      internal.articles.getForReaderInternal,
+      { articleId: args.articleId, userId: ctx.readerId },
+    );
+    if (!article) throw new Error("Article not found");
     // Delete existing annotations and reflection
     await ctx.runMutation(internal.annotations.deleteByArticle, {
       articleId: args.articleId,

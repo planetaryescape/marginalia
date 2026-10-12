@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 import {
   type ReadingCheckpoint,
   readingCheckpointSchema,
@@ -23,28 +22,32 @@ const args = {
   finished: v.optional(v.boolean()),
 };
 
-async function saveCheckpoint(ctx: MutationCtx, input: ReadingCheckpoint) {
+async function saveCheckpoint(
+  ctx: MutationCtx,
+  input: ReadingCheckpoint,
+  userId: string,
+) {
   const s = readingCheckpointSchema.parse(input);
   const now = Date.now();
   if (s.updatedAt > now + 60_000 || s.updatedAt < s.startedAt)
     throw new Error("Check your device clock and try again.");
   const articleId = ctx.db.normalizeId("articles", s.articleId);
   const article = articleId ? await ctx.db.get(articleId) : null;
-  if (!article || article.userId !== DEFAULT_USER_ID)
+  if (!article || article.userId !== userId)
     throw new Error("Article not found");
   const sessionId = s.sessionId
     ? ctx.db.normalizeId("sessions", s.sessionId)
     : null;
   if (s.sessionId && !sessionId) throw new Error("Invalid session");
   const session = sessionId ? await ctx.db.get(sessionId) : null;
-  if (sessionId && (!session || session.userId !== DEFAULT_USER_ID))
+  if (sessionId && (!session || session.userId !== userId))
     throw new Error("Session not found");
   if (session?.articleId && session.articleId !== article._id)
     throw new Error("Session belongs to another article");
   const old = await ctx.db
     .query("readingActivity")
     .withIndex("by_user_visit_day", (q) =>
-      q.eq("userId", DEFAULT_USER_ID).eq("visitId", s.visitId).eq("day", s.day),
+      q.eq("userId", userId).eq("visitId", s.visitId).eq("day", s.day),
     )
     .unique();
   if (old && (old.articleId !== article._id || old.startedAt !== s.startedAt))
@@ -53,7 +56,7 @@ async function saveCheckpoint(ctx: MutationCtx, input: ReadingCheckpoint) {
     const previousDay = await ctx.db
       .query("readingActivity")
       .withIndex("by_user_visit_day", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("visitId", s.visitId),
+        q.eq("userId", userId).eq("visitId", s.visitId),
       )
       .first();
     if (
@@ -66,7 +69,7 @@ async function saveCheckpoint(ctx: MutationCtx, input: ReadingCheckpoint) {
       );
     if (!previousDay)
       await ctx.db.insert("articleInteractions", {
-        userId: DEFAULT_USER_ID,
+        userId: userId,
         articleId: article._id,
         sessionId: sessionId ?? undefined,
         visitId: s.visitId,
@@ -81,7 +84,7 @@ async function saveCheckpoint(ctx: MutationCtx, input: ReadingCheckpoint) {
   ].slice(0, 128);
   const finishing = Boolean(s.finished && !old?.finishedAt);
   const data = {
-    userId: DEFAULT_USER_ID,
+    userId: userId,
     articleId: article._id,
     sessionId: sessionId ?? undefined,
     visitId: s.visitId,
@@ -113,7 +116,7 @@ async function saveCheckpoint(ctx: MutationCtx, input: ReadingCheckpoint) {
     // Keep existing reading history and queue semantics, but exclude these
     // marker-only interactions from measured time in statistics.
     await ctx.db.insert("articleInteractions", {
-      userId: DEFAULT_USER_ID,
+      userId: userId,
       articleId: article._id,
       sessionId: sessionId ?? undefined,
       action: "finished",
@@ -127,12 +130,18 @@ async function saveCheckpoint(ctx: MutationCtx, input: ReadingCheckpoint) {
       await ctx.scheduler.runAfter(
         0,
         internal.actions.readwiseSync.archiveArticle,
-        { articleId: article._id },
+        { userId, articleId: article._id },
       );
     }
   }
   return null;
 }
 
-export const checkpoint = mutation({ args, handler: saveCheckpoint });
-export const record = internalMutation({ args, handler: saveCheckpoint });
+export const checkpoint = mutation({
+  args,
+  handler: (ctx, input) => saveCheckpoint(ctx, input, ctx.readerId),
+});
+export const record = internalMutation({
+  args: { ...args, userId: v.string() },
+  handler: (ctx, { userId, ...input }) => saveCheckpoint(ctx, input, userId),
+});

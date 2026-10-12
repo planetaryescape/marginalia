@@ -1,5 +1,5 @@
+import { ownedArticle } from "./access";
 import { query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 function hostOf(url: string) {
   try {
@@ -18,7 +18,7 @@ export const overview = query({
         .query("articles")
         .withIndex("by_user_annotationStatus_finishedAt", (q) =>
           q
-            .eq("userId", DEFAULT_USER_ID)
+            .eq("userId", ctx.readerId)
             .eq("annotationStatus", "annotated")
             .eq("finishedAt", undefined),
         )
@@ -26,18 +26,18 @@ export const overview = query({
         .take(10),
       ctx.db
         .query("readingQueueStats")
-        .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+        .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
         .unique(),
       ctx.db
         .query("userNotes")
-        .withIndex("by_user_recent", (q) => q.eq("userId", DEFAULT_USER_ID))
+        .withIndex("by_user_recent", (q) => q.eq("userId", ctx.readerId))
         .order("desc")
         .take(1),
     ]);
 
     const latest = notes[0];
     const latestNoteArticle = latest
-      ? await ctx.db.get("articles", latest.articleId)
+      ? await ownedArticle(ctx, latest.articleId, ctx.readerId)
       : null;
 
     return {

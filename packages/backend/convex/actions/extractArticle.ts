@@ -6,10 +6,11 @@ import { embedText } from "../lib/aiModels";
 import { WORDS_PER_MINUTE } from "../lib/constants";
 
 export const extractPending = internalAction({
-  args: {},
-  handler: async (ctx) => {
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
     const pending = await ctx.runQuery(
       internal.articles.listPendingExtractionInternal,
+      { userId: args.userId },
     );
 
     for (const article of pending) {

@@ -1,12 +1,13 @@
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
-import { httpAction } from "./_generated/server";
+import { type ActionCtx, httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
 import {
   type ChatMessage,
   sourcesFooter,
   streamChat,
 } from "./lib/companionStream";
+import { DEFAULT_USER_ID } from "./lib/constants";
 import {
   buildLibraryContext,
   LIBRARY_SYSTEM,
@@ -31,6 +32,15 @@ import { vaultUploadSchema } from "./lib/vaultUpload";
 const http = httpRouter();
 authComponent.registerRoutes(http, createAuth);
 
+/** The signed-in reader's library ID, or null when the request isn't signed in. */
+async function signedInReader(ctx: ActionCtx): Promise<string | null> {
+  try {
+    return await ctx.runQuery(internal.access.assertReader, {});
+  } catch {
+    return null;
+  }
+}
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin":
     process.env.SITE_URL ?? "https://reader.bhekani.com",
@@ -50,14 +60,12 @@ http.route({
   path: "/api/engagement",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    try {
-      await ctx.runQuery(internal.access.assertOwner, {});
-    } catch {
+    const readerId = await signedInReader(ctx);
+    if (!readerId)
       return new Response("Sign in to your reader", {
         status: 401,
         headers: CORS_HEADERS,
       });
-    }
     if (Number(request.headers.get("content-length")) > 32_000)
       return new Response("Checkpoint too large", {
         status: 413,
@@ -72,7 +80,10 @@ http.route({
         headers: CORS_HEADERS,
       });
     try {
-      await ctx.runMutation(internal.readingActivity.record, parsed.data);
+      await ctx.runMutation(internal.readingActivity.record, {
+        ...parsed.data,
+        userId: readerId,
+      });
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     } catch {
       return new Response("Couldn't save reading activity", {
@@ -185,14 +196,12 @@ http.route({
   path: "/api/companion",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    try {
-      await ctx.runQuery(internal.access.assertOwner, {});
-    } catch {
+    const readerId = await signedInReader(ctx);
+    if (!readerId)
       return new Response("Sign in to your reader", {
         status: 401,
         headers: CORS_HEADERS,
       });
-    }
     if (!process.env.OPENROUTER_API_KEY) {
       return new Response("OPENROUTER_API_KEY not configured", {
         status: 500,
@@ -210,10 +219,9 @@ http.route({
       });
     }
 
-    const models = await ctx.runQuery(
-      internal.userSettings.getModelsInternal,
-      {},
-    );
+    const models = await ctx.runQuery(internal.userSettings.getModelsInternal, {
+      userId: readerId,
+    });
     const { system, messages } = buildCompanionPrompt(parsed.data);
     const chat: ChatMessage[] = [
       { role: "system", content: system },
@@ -247,9 +255,12 @@ http.route({
     );
     if (!parsed.success) return new Response("Bad request", { status: 400 });
     const body = parsed.data;
+    // The indexer key belongs to the owner, so the vault is the owner's library
+    const userId = DEFAULT_USER_ID;
 
     if (body.action === "delete") {
       await ctx.runMutation(internal.noteChunks.deleteByFile, {
+        userId,
         filePath: body.filePath,
       });
       return new Response(JSON.stringify({ ok: true }), {
@@ -259,11 +270,13 @@ http.route({
 
     if (body.action === "replace") {
       await ctx.runMutation(internal.noteChunks.replaceFile, {
+        userId,
         filePath: body.filePath,
         chunks: body.chunks,
       });
     } else {
       await ctx.runMutation(internal.noteChunks.insertBatch, {
+        userId,
         chunks: body.chunks,
       });
     }
@@ -288,7 +301,10 @@ http.route({
       return new Response("Unauthorized", { status: 401 });
     }
 
-    const hashes = await ctx.runQuery(internal.noteChunks.allFilePaths);
+    // The indexer key belongs to the owner, so the vault is the owner's library
+    const hashes = await ctx.runQuery(internal.noteChunks.allFilePaths, {
+      userId: DEFAULT_USER_ID,
+    });
     return new Response(JSON.stringify(hashes), {
       headers: { "Content-Type": "application/json" },
     });
@@ -300,16 +316,12 @@ http.route({
   path: "/api/feeds/poll",
   method: "POST",
   handler: httpAction(async (ctx) => {
-    try {
-      await ctx.runQuery(internal.access.assertOwner, {});
-    } catch {
+    const readerId = await signedInReader(ctx);
+    if (!readerId)
       return new Response("Sign in to your reader", { status: 401 });
-    }
-    await ctx.scheduler.runAfter(
-      0,
-      internal.actions.pollFeeds.pollAllFeeds,
-      {},
-    );
+    await ctx.scheduler.runAfter(0, internal.actions.pollFeeds.pollAllFeeds, {
+      userId: readerId,
+    });
     return new Response(
       JSON.stringify({ ok: true, message: "Polling scheduled" }),
       {
@@ -332,14 +344,12 @@ http.route({
   path: "/api/library",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    try {
-      await ctx.runQuery(internal.access.assertOwner, {});
-    } catch {
+    const readerId = await signedInReader(ctx);
+    if (!readerId)
       return new Response("Sign in to your reader", {
         status: 401,
         headers: CORS_HEADERS,
       });
-    }
     const parsed = libraryRequestSchema.safeParse(
       await request.json().catch(() => null),
     );
@@ -350,8 +360,10 @@ http.route({
       });
     }
     const [context, models] = await Promise.all([
-      buildLibraryContext(ctx, parsed.data.question),
-      ctx.runQuery(internal.userSettings.getModelsInternal, {}),
+      buildLibraryContext(ctx, readerId, parsed.data.question),
+      ctx.runQuery(internal.userSettings.getModelsInternal, {
+        userId: readerId,
+      }),
     ]);
     const chat: ChatMessage[] = [
       { role: "system", content: LIBRARY_SYSTEM },
@@ -394,14 +406,12 @@ http.route({
   path: "/api/library/search",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    try {
-      await ctx.runQuery(internal.access.assertOwner, {});
-    } catch {
+    const readerId = await signedInReader(ctx);
+    if (!readerId)
       return new Response("Sign in to your reader", {
         status: 401,
         headers: CORS_HEADERS,
       });
-    }
     const headers = {
       ...CORS_HEADERS,
       "Content-Type": "application/json",
@@ -419,8 +429,10 @@ http.route({
       );
     try {
       const [{ context, articles }, models] = await Promise.all([
-        retrieveLibraryContext(ctx, parsed.data.question),
-        ctx.runQuery(internal.userSettings.getModelsInternal, {}),
+        retrieveLibraryContext(ctx, readerId, parsed.data.question),
+        ctx.runQuery(internal.userSettings.getModelsInternal, {
+          userId: readerId,
+        }),
       ]);
       if (!articles.length)
         return new Response(JSON.stringify({ matches: [] }), { headers });

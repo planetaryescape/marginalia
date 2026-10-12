@@ -1,21 +1,21 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
-// Data access for the "Ask your library" endpoint (lib/library.ts)
+// Data access for the "Ask your library" endpoint (lib/library.ts). Every
+// lookup is scoped to the caller's library, including vector search hits.
 
 export const recentActivity = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
     const [impressions, interactions] = await Promise.all([
       ctx.db
         .query("impressions")
-        .withIndex("by_user_updated", (q) => q.eq("userId", DEFAULT_USER_ID))
+        .withIndex("by_user_updated", (q) => q.eq("userId", args.userId))
         .order("desc")
         .take(60),
       ctx.db
         .query("articleInteractions")
-        .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+        .withIndex("by_user", (q) => q.eq("userId", args.userId))
         .order("desc")
         .take(1000),
     ]);
@@ -25,14 +25,15 @@ export const recentActivity = internalQuery({
 
 export const loadMatches = internalQuery({
   args: {
+    userId: v.string(),
     impressionIds: v.array(v.id("impressions")),
     noteIds: v.array(v.id("userNotes")),
     highlightIds: v.array(v.id("highlights")),
     threadIds: v.array(v.id("companionThreads")),
   },
   handler: async (ctx, args) => {
-    const present = <T>(rows: (T | null)[]) =>
-      rows.filter((row): row is T => row !== null);
+    const present = <T extends { userId: string }>(rows: (T | null)[]) =>
+      rows.filter((row): row is T => row?.userId === args.userId);
     const [impressions, notes, highlights, threads] = await Promise.all([
       Promise.all(
         args.impressionIds.map((id) => ctx.db.get("impressions", id)),
@@ -53,14 +54,14 @@ export const loadMatches = internalQuery({
 });
 
 export const loadArticles = internalQuery({
-  args: { articleIds: v.array(v.id("articles")) },
+  args: { userId: v.string(), articleIds: v.array(v.id("articles")) },
   handler: async (ctx, args) => {
     const rows = await Promise.all(
       args.articleIds.map((id) => ctx.db.get("articles", id)),
     );
     // Only what the librarian needs; article bodies stay out of the prompt
     return rows.map((row) =>
-      row?.userId === DEFAULT_USER_ID
+      row?.userId === args.userId
         ? {
             ...row,
             content: undefined,

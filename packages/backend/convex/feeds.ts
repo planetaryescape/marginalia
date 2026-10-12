@@ -7,14 +7,13 @@ import {
   mutation,
   query,
 } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
     return ctx.db
       .query("feeds")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .collect();
   },
 });
@@ -31,7 +30,7 @@ export const add = mutation({
     const existing = await ctx.db
       .query("feeds")
       .withIndex("by_user_url", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("url", args.url),
+        q.eq("userId", ctx.readerId).eq("url", args.url),
       )
       .first();
 
@@ -40,7 +39,7 @@ export const add = mutation({
     }
 
     return ctx.db.insert("feeds", {
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       url: args.url,
       title: args.title,
       siteUrl: args.siteUrl,
@@ -54,6 +53,8 @@ export const add = mutation({
 export const remove = mutation({
   args: { feedId: v.id("feeds") },
   handler: async (ctx, args) => {
+    const feed = await ctx.db.get(args.feedId);
+    if (feed?.userId !== ctx.readerId) throw new Error("Feed not found");
     await ctx.db.delete(args.feedId);
   },
 });
@@ -62,7 +63,7 @@ export const toggleActive = mutation({
   args: { feedId: v.id("feeds") },
   handler: async (ctx, args) => {
     const feed = await ctx.db.get(args.feedId);
-    if (!feed) throw new Error("Feed not found");
+    if (feed?.userId !== ctx.readerId) throw new Error("Feed not found");
     await ctx.db.patch(args.feedId, { isActive: !feed.isActive });
   },
 });
@@ -70,11 +71,11 @@ export const toggleActive = mutation({
 // --- Internal ---
 
 export const listActive = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
     const feeds = await ctx.db
       .query("feeds")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .collect();
     return feeds.filter((f) => f.isActive);
   },
@@ -93,11 +94,9 @@ export const updateLastFetched = internalMutation({
 export const pollNow = action({
   args: {},
   handler: async (ctx) => {
-    await ctx.scheduler.runAfter(
-      0,
-      internal.actions.pollFeeds.pollAllFeeds,
-      {},
-    );
+    await ctx.scheduler.runAfter(0, internal.actions.pollFeeds.pollAllFeeds, {
+      userId: ctx.readerId,
+    });
   },
 });
 

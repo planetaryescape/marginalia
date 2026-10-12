@@ -1,11 +1,12 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const listByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
     return ctx.db
       .query("highlights")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -30,9 +31,10 @@ export const create = mutation({
     paragraphIndex: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, ctx.readerId);
     const highlightId = await ctx.db.insert("highlights", {
       ...args,
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       source: "marginalia",
       createdAt: Date.now(),
     });
@@ -59,14 +61,16 @@ export const remove = mutation({
   args: { highlightId: v.id("highlights") },
   handler: async (ctx, args) => {
     const row = await ctx.db.get("highlights", args.highlightId);
+    if (row?.userId !== ctx.readerId) throw new Error("Highlight not found");
     await ctx.db.delete("highlights", args.highlightId);
     // Only marks that started in Marginalia are removed from Reader; deleting an
     // imported Reader highlight here never deletes it there
-    if (row?.readerHighlightId && row.source !== "reader") {
+    if (row.readerHighlightId && row.source !== "reader") {
       await ctx.scheduler.runAfter(
         0,
         internal.actions.readwiseSync.deleteHighlight,
         {
+          userId: row.userId,
           readerHighlightId: row.readerHighlightId,
         },
       );

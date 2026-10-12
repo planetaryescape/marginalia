@@ -1,10 +1,11 @@
 import { v } from "convex/values";
+import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return null;
     return ctx.db
       .query("summaries")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -15,6 +16,7 @@ export const getByArticle = query({
 /** Replaces any existing summary for the article. */
 export const save = internalMutation({
   args: {
+    userId: v.string(),
     articleId: v.id("articles"),
     gist: v.string(),
     thesis: v.string(),
@@ -49,6 +51,7 @@ export const save = internalMutation({
     model: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, args.userId);
     const existing = await ctx.db
       .query("summaries")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -56,7 +59,6 @@ export const save = internalMutation({
     for (const row of existing) await ctx.db.delete("summaries", row._id);
     return ctx.db.insert("summaries", {
       ...args,
-      userId: DEFAULT_USER_ID,
       createdAt: Date.now(),
     });
   },

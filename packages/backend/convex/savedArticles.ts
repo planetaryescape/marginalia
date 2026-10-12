@@ -1,19 +1,19 @@
 import { v } from "convex/values";
+import { ownedArticle, requireArticle } from "./access";
 import { mutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const saved = await ctx.db
       .query("savedArticles")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
       .take(50);
 
     const articles = await Promise.all(
       saved.map(async (s) => {
-        const article = await ctx.db.get(s.articleId);
+        const article = await ownedArticle(ctx, s.articleId, ctx.readerId);
         return article ? { ...s, article } : null;
       }),
     );
@@ -25,17 +25,18 @@ export const list = query({
 export const save = mutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, ctx.readerId);
     const existing = await ctx.db
       .query("savedArticles")
       .withIndex("by_user_article", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("articleId", args.articleId),
+        q.eq("userId", ctx.readerId).eq("articleId", args.articleId),
       )
       .first();
 
     if (existing) return existing._id;
 
     return ctx.db.insert("savedArticles", {
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       articleId: args.articleId,
       savedAt: Date.now(),
     });
@@ -48,7 +49,7 @@ export const unsave = mutation({
     const existing = await ctx.db
       .query("savedArticles")
       .withIndex("by_user_article", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("articleId", args.articleId),
+        q.eq("userId", ctx.readerId).eq("articleId", args.articleId),
       )
       .first();
 
@@ -63,7 +64,7 @@ export const count = query({
   handler: async (ctx) => {
     const saved = await ctx.db
       .query("savedArticles")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .collect();
     return saved.length;
   },

@@ -5,7 +5,6 @@ import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import {
-  DEFAULT_USER_ID,
   MAX_ANNOTATIONS_PER_ARTICLE,
   MIN_RELEVANCE_SCORE,
 } from "../lib/constants";
@@ -163,7 +162,7 @@ Generate annotations and a reflection for this article. Remember: quality over q
       // Step 3: Generate annotations via LLM
       const models = await ctx.runQuery(
         internal.userSettings.getModelsInternal,
-        {},
+        { userId: article.userId },
       );
       const { object, modelId } =
         await generateObjectWithFallback<AnnotationResult>({
@@ -247,7 +246,7 @@ Generate annotations and a reflection for this article. Remember: quality over q
         const resolvedPath = resolveNotePath(a.notePath);
         await ctx.runMutation(internal.annotations.insert, {
           articleId: args.articleId,
-          userId: DEFAULT_USER_ID,
+          userId: article.userId,
           type: a.type,
           anchorText: a.anchorText,
           anchorStartOffset: startOffset,
@@ -262,7 +261,7 @@ Generate annotations and a reflection for this article. Remember: quality over q
       // Step 6: Persist reflection
       await ctx.runMutation(internal.reflections.insert, {
         articleId: args.articleId,
-        userId: DEFAULT_USER_ID,
+        userId: article.userId,
         strongestPoint: object.reflection.strongestPoint,
         weakestAssumption: object.reflection.weakestAssumption,
         credibleCounterview: object.reflection.credibleCounterview,

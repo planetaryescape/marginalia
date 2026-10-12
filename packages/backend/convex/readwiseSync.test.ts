@@ -52,7 +52,9 @@ describe("Reader backfill action", () => {
       }),
     );
     for (let step = 0; step < 28; step++) {
-      await t.action(internal.actions.readwiseSync.sync, {});
+      await t.action(internal.actions.readwiseSync.sync, {
+        userId: "default_user",
+      });
       vi.setSystemTime(Date.now() + 61_000);
     }
     const status = await t.query(api.readwise.status, {});
@@ -64,6 +66,7 @@ describe("Reader backfill action", () => {
     });
     expect(
       await t.query(internal.readwise.findArticle, {
+        userId: "default_user",
         readerDocumentId: "reader-124",
       }),
     ).toMatchObject({ title: "Piece 124" });
@@ -105,7 +108,9 @@ describe("Reader backfill action", () => {
       ),
     );
     const t = await ownerTest(modules);
-    await t.action(internal.actions.readwiseSync.sync, {});
+    await t.action(internal.actions.readwiseSync.sync, {
+      userId: "default_user",
+    });
     expect((await t.query(api.readwise.status, {})).progress).toMatchObject({
       scanned: 3,
       skipped: 2,

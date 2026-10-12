@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const create = mutation({
   args: {
@@ -15,9 +15,16 @@ export const create = mutation({
     contentPlain: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (args.annotationId) {
+      // The annotation may since have been replaced, but never another reader's
+      const annotation = await ctx.db.get("annotations", args.annotationId);
+      if (annotation && annotation.userId !== ctx.readerId)
+        throw new Error("Annotation not found");
+    }
     const now = Date.now();
     const noteId = await ctx.db.insert("userNotes", {
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       articleId: args.articleId,
       selectedText: args.selectedText,
       selectedStartOffset: args.selectedStartOffset,
@@ -44,6 +51,8 @@ export const update = mutation({
     contentPlain: v.string(),
   },
   handler: async (ctx, args) => {
+    const note = await ctx.db.get("userNotes", args.noteId);
+    if (note?.userId !== ctx.readerId) throw new Error("Note not found");
     await ctx.db.patch(args.noteId, {
       content: args.content,
       contentPlain: args.contentPlain,
@@ -60,6 +69,8 @@ export const update = mutation({
 export const remove = mutation({
   args: { noteId: v.id("userNotes") },
   handler: async (ctx, args) => {
+    const note = await ctx.db.get("userNotes", args.noteId);
+    if (note?.userId !== ctx.readerId) throw new Error("Note not found");
     await ctx.db.delete(args.noteId);
   },
 });
@@ -67,6 +78,7 @@ export const remove = mutation({
 export const listByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
     return ctx.db
       .query("userNotes")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -80,7 +92,7 @@ export const listAll = query({
   handler: async (ctx) => {
     return ctx.db
       .query("userNotes")
-      .withIndex("by_user_recent", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user_recent", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
       .take(100);
   },
@@ -89,7 +101,8 @@ export const listAll = query({
 export const getById = query({
   args: { noteId: v.id("userNotes") },
   handler: async (ctx, args) => {
-    return ctx.db.get(args.noteId);
+    const note = await ctx.db.get(args.noteId);
+    return note?.userId === ctx.readerId ? note : null;
   },
 });
 

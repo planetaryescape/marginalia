@@ -1,7 +1,7 @@
+import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 function contribution(article: Doc<"articles"> | null) {
   const annotated =
@@ -60,24 +60,25 @@ export async function updateQueueStats(
       ...counts,
       ready: false,
     });
-    if (after.userId === DEFAULT_USER_ID)
-      await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {});
+    await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {
+      userId: after.userId,
+    });
   }
   await ctx.db.patch(after._id, { queueCounted: true, finishedAt });
 }
 
 /** Idempotent, small-page initialization of existing articles and historical finishes. */
 export const initialize = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
     let stats = await ctx.db
       .query("readingQueueStats")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .unique();
     if (stats?.ready) return;
     if (!stats) {
       const id = await ctx.db.insert("readingQueueStats", {
-        userId: DEFAULT_USER_ID,
+        userId: args.userId,
         annotated: 0,
         waiting: 0,
         pending: 0,
@@ -91,7 +92,7 @@ export const initialize = internalMutation({
     if (!stats) return;
     const page = await ctx.db
       .query("articles")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .paginate({
         cursor: stats.cursor ?? null,
         numItems: 8,
@@ -105,6 +106,8 @@ export const initialize = internalMutation({
       ready: page.isDone,
     });
     if (!page.isDone)
-      await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {});
+      await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {
+        userId: args.userId,
+      });
   },
 });

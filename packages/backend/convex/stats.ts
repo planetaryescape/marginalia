@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { ownedArticle } from "./access";
 import { query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 import { dayKey, statsPeriod } from "./lib/statsPeriod";
 
 const args = {
@@ -48,14 +48,14 @@ function legacyReadings(events: Doc<"articleInteractions">[]) {
   return [...sessions.values()];
 }
 
-async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
+async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
   const period = statsPeriod(Date.now(), options.timeZone, options.range);
   const [activity, interactions, notes, reflections] = await Promise.all([
     ctx.db
       .query("readingActivity")
       .withIndex("by_user_started", (q) =>
         q
-          .eq("userId", DEFAULT_USER_ID)
+          .eq("userId", userId)
           .gte("startedAt", period.previousStart)
           .lt("startedAt", period.end),
       )
@@ -64,7 +64,7 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
       .query("articleInteractions")
       .withIndex("by_user_created", (q) =>
         q
-          .eq("userId", DEFAULT_USER_ID)
+          .eq("userId", userId)
           .gte("createdAt", period.previousStart)
           .lt("createdAt", period.end),
       )
@@ -73,7 +73,7 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
       .query("userNotes")
       .withIndex("by_user_created", (q) =>
         q
-          .eq("userId", DEFAULT_USER_ID)
+          .eq("userId", userId)
           .gte("createdAt", period.previousStart)
           .lt("createdAt", period.end),
       )
@@ -82,7 +82,7 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
       .query("reflections")
       .withIndex("by_user_responded", (q) =>
         q
-          .eq("userId", DEFAULT_USER_ID)
+          .eq("userId", userId)
           .gte("respondedAt", period.previousStart)
           .lt("respondedAt", period.end),
       )
@@ -228,7 +228,7 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
         .sort((a, b) => b[1].readAt - a[1].readAt)
         .slice(0, 25)
         .map(async ([articleId, d]) => {
-          const article = await ctx.db.get(articleId);
+          const article = await ownedArticle(ctx, articleId, userId);
           if (!article) return null;
           return {
             articleId,
@@ -284,7 +284,8 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
         contentPlain: n.contentPlain,
         createdAt: n.createdAt,
         articleTitle:
-          (await ctx.db.get(n.articleId))?.title ?? "Unavailable article",
+          (await ownedArticle(ctx, n.articleId, userId))?.title ??
+          "Unavailable article",
       })),
   );
   return {
@@ -299,21 +300,29 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
   };
 }
 
-export const getDashboard = query({ args, handler: dashboard });
+export const getDashboard = query({
+  args,
+  handler: (ctx, options) => dashboard(ctx, options, ctx.readerId),
+});
 // Compatibility for already-loaded older clients. New UI uses one coherent query.
-export const getDashboardOverview = query({ args, handler: dashboard });
+export const getDashboardOverview = query({
+  args,
+  handler: (ctx, options) => dashboard(ctx, options, ctx.readerId),
+});
 export const getArticleDetails = query({
   args,
-  handler: async (ctx, options) => (await dashboard(ctx, options)).articles,
+  handler: async (ctx, options) =>
+    (await dashboard(ctx, options, ctx.readerId)).articles,
 });
 export const getRecentNotes = query({
   args,
-  handler: async (ctx, options) => (await dashboard(ctx, options)).recentNotes,
+  handler: async (ctx, options) =>
+    (await dashboard(ctx, options, ctx.readerId)).recentNotes,
 });
 export const getReadingPatterns = query({
   args,
   handler: async (ctx, options) => {
-    const data = await dashboard(ctx, options);
+    const data = await dashboard(ctx, options, ctx.readerId);
     return {
       daily: data.daily,
       hourlyHeatmap: [],
@@ -332,7 +341,7 @@ export const getReadingPatterns = query({
 export const getWeeklyStats = query({
   args,
   handler: async (ctx, options) => {
-    const { thisWeek: s } = await dashboard(ctx, options);
+    const { thisWeek: s } = await dashboard(ctx, options, ctx.readerId);
     return {
       articlesReadCount: s.articlesFinished,
       totalActiveTimeMinutes: Math.round(s.totalActiveTimeMs / 60000),

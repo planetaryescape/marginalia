@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 const turnValidator = v.object({
   role: v.union(v.literal("user"), v.literal("assistant")),
@@ -11,6 +11,7 @@ const turnValidator = v.object({
 export const listByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
     return ctx.db
       .query("companionThreads")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -44,10 +45,11 @@ export const create = mutation({
     model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, ctx.readerId);
     const now = Date.now();
     const threadId = await ctx.db.insert("companionThreads", {
       ...args,
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       createdAt: now,
       updatedAt: now,
     });
@@ -69,6 +71,8 @@ export const updateTurns = mutation({
     model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const thread = await ctx.db.get("companionThreads", args.threadId);
+    if (thread?.userId !== ctx.readerId) throw new Error("Thread not found");
     await ctx.db.patch("companionThreads", args.threadId, {
       turns: args.turns,
       model: args.model,
@@ -87,6 +91,8 @@ export const updateTurns = mutation({
 export const remove = mutation({
   args: { threadId: v.id("companionThreads") },
   handler: async (ctx, args) => {
+    const thread = await ctx.db.get("companionThreads", args.threadId);
+    if (thread?.userId !== ctx.readerId) throw new Error("Thread not found");
     await ctx.db.delete("companionThreads", args.threadId);
   },
 });

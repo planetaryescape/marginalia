@@ -1,9 +1,11 @@
 import { v } from "convex/values";
+import { ownedArticle } from "./access";
 import { internalMutation, mutation, query } from "./functions";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return null;
     return ctx.db
       .query("reflections")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -18,9 +20,11 @@ export const saveResponse = mutation({
   },
   handler: async (ctx, args) => {
     const previous = await ctx.db.get(args.reflectionId);
+    if (previous?.userId !== ctx.readerId)
+      throw new Error("Reflection not found");
     await ctx.db.patch(args.reflectionId, {
       userResponse: args.userResponse,
-      respondedAt: previous?.respondedAt ?? Date.now(),
+      respondedAt: previous.respondedAt ?? Date.now(),
     });
   },
 });

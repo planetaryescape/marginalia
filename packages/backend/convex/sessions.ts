@@ -1,14 +1,15 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { ownedArticle, requireArticle } from "./access";
 import { mutation, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 import { updateQueueStats } from "./readingQueue";
 
 export const create = mutation({
   args: { requestedMinutes: v.number() },
   handler: async (ctx, args) => {
     return ctx.db.insert("sessions", {
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       requestedMinutes: args.requestedMinutes,
       startedAt: Date.now(),
       readingStatus: "selecting",
@@ -19,7 +20,8 @@ export const create = mutation({
 export const getById = query({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
-    return ctx.db.get(args.sessionId);
+    const session = await ctx.db.get(args.sessionId);
+    return session?.userId === ctx.readerId ? session : null;
   },
 });
 
@@ -40,6 +42,10 @@ export const updateStatus = mutation({
   },
   handler: async (ctx, args) => {
     const { sessionId, ...updates } = args;
+    const session = await ctx.db.get(sessionId);
+    if (session?.userId !== ctx.readerId) throw new Error("Session not found");
+    if (updates.articleId)
+      await requireArticle(ctx, updates.articleId, ctx.readerId);
     const patch: any = { ...updates };
     if (
       updates.readingStatus === "completed" ||
@@ -72,8 +78,14 @@ export const recordInteraction = mutation({
     tabHiddenCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (args.sessionId) {
+      const session = await ctx.db.get(args.sessionId);
+      if (session?.userId !== ctx.readerId)
+        throw new Error("Session not found");
+    }
     await ctx.db.insert("articleInteractions", {
-      userId: DEFAULT_USER_ID,
+      userId: ctx.readerId,
       articleId: args.articleId,
       sessionId: args.sessionId,
       action: args.action,
@@ -98,6 +110,7 @@ export const recordInteraction = mutation({
         0,
         internal.actions.readwiseSync.archiveArticle,
         {
+          userId: ctx.readerId,
           articleId: args.articleId,
         },
       );
@@ -112,13 +125,13 @@ export const getInProgress = query({
     // Get recent interactions, newest first
     const interactions = await ctx.db
       .query("articleInteractions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
       .take(200);
 
     // Find articles that were opened but never finished
     const openedArticles = new Map<
-      string,
+      Id<"articles">,
       { maxScroll: number; activeTime: number }
     >();
     const finishedArticles = new Set<string>();
@@ -144,10 +157,7 @@ export const getInProgress = query({
     for (const [articleId, data] of openedArticles) {
       if (data.maxScroll >= 90) continue;
 
-      const article = await ctx.db
-        .query("articles")
-        .filter((q) => q.eq(q.field("_id"), articleId as any))
-        .first();
+      const article = await ownedArticle(ctx, articleId, ctx.readerId);
       if (!article) continue;
 
       const remainingMin = article.estimatedReadMinutes
@@ -176,7 +186,7 @@ export const listRecentInteractions = query({
   handler: async (ctx) => {
     return ctx.db
       .query("articleInteractions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
       .take(200);
   },

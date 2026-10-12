@@ -3,7 +3,6 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { embedTexts } from "./aiModels";
-import { DEFAULT_USER_ID } from "./constants";
 
 /** How much of the article the marginalia model reads (~20k words). */
 export const MAX_ARTICLE_CHARS = 120_000;
@@ -64,6 +63,7 @@ function sectionLabel(section: string) {
 
 async function searchBySection<T extends Searchable>(
   ctx: ActionCtx,
+  userId: string,
   table: T,
   vectors: number[][],
   labels: string[],
@@ -80,7 +80,7 @@ async function searchBySection<T extends Searchable>(
       {
         vector,
         limit,
-        filter: (q) => q.eq("userId", DEFAULT_USER_ID),
+        filter: (q) => q.eq("userId", userId),
       },
     );
     for (const result of results) {
@@ -116,16 +116,15 @@ function matchedNear(match: Match<Searchable>) {
 
 async function articleTitle(
   ctx: ActionCtx,
+  userId: string,
   articleId: Id<"articles">,
   cache: Map<string, string>,
 ) {
   const cached = cache.get(articleId);
   if (cached) return cached;
   const article: Doc<"articles"> | null = await ctx.runQuery(
-    internal.articles.getByIdInternal,
-    {
-      articleId,
-    },
+    internal.articles.getForReaderInternal,
+    { articleId, userId },
   );
   const title = article?.title ?? "another article";
   cache.set(articleId, title);
@@ -136,6 +135,8 @@ export async function buildMarginaliaContext(
   ctx: ActionCtx,
   article: Doc<"articles"> & { content: string },
 ): Promise<{ articleText: string; contextText: string; vaultPaths: string[] }> {
+  // Everything recalled here comes from the article's own library
+  const userId = article.userId;
   const articleText = article.content.slice(0, MAX_ARTICLE_CHARS);
   const sections = splitIntoSections(articleText);
   const labels = sections.map(sectionLabel);
@@ -165,6 +166,7 @@ export async function buildMarginaliaContext(
   // Vault notes, searched per section, weak matches dropped
   const chunkMatches = await searchBySection(
     ctx,
+    userId,
     "noteChunks",
     vectors,
     labels,
@@ -180,7 +182,7 @@ export async function buildMarginaliaContext(
       internal.noteChunks.getByIdInternal,
       { chunkId: match.id },
     );
-    if (!chunk) continue;
+    if (chunk?.userId !== userId) continue;
     const count = perNote.get(chunk.filePath) ?? 0;
     if (count >= MAX_CHUNKS_PER_NOTE) continue;
     perNote.set(chunk.filePath, count + 1);
@@ -194,11 +196,12 @@ export async function buildMarginaliaContext(
   );
 
   // Reader activity on other articles: notes and reflections, highlights, questions
-  const isElsewhere = (row: { articleId: Id<"articles"> }) =>
-    row.articleId !== article._id;
+  const isElsewhere = (row: { userId: string; articleId: Id<"articles"> }) =>
+    row.userId === userId && row.articleId !== article._id;
 
   const noteMatches = await searchBySection(
     ctx,
+    userId,
     "userNotes",
     vectors,
     labels,
@@ -215,7 +218,7 @@ export async function buildMarginaliaContext(
       },
     );
     if (!note || !isElsewhere(note)) continue;
-    const title = await articleTitle(ctx, note.articleId, titles);
+    const title = await articleTitle(ctx, userId, note.articleId, titles);
     noteBlocks.push(
       [
         `--- From "${title}" (${matchedNear(match)}) ---`,
@@ -234,6 +237,7 @@ export async function buildMarginaliaContext(
 
   const highlightMatches = await searchBySection(
     ctx,
+    userId,
     "highlights",
     vectors,
     labels,
@@ -250,7 +254,7 @@ export async function buildMarginaliaContext(
       },
     );
     if (!row || !isElsewhere(row)) continue;
-    const title = await articleTitle(ctx, row.articleId, titles);
+    const title = await articleTitle(ctx, row.userId, row.articleId, titles);
     const verb = row.kind === "underline" ? "Underlined" : "Highlighted";
     highlightBlocks.push(
       `--- ${verb} in "${title}" (${matchedNear(match)}) ---\n"${row.text}"`,
@@ -264,6 +268,7 @@ export async function buildMarginaliaContext(
 
   const threadMatches = await searchBySection(
     ctx,
+    userId,
     "companionThreads",
     vectors,
     labels,
@@ -334,7 +339,7 @@ async function formatThread(
   titles: Map<string, string>,
   note?: string,
 ) {
-  const title = await articleTitle(ctx, row.articleId, titles);
+  const title = await articleTitle(ctx, row.userId, row.articleId, titles);
   const verb = {
     ask: "Asked about",
     explain: "Asked to explain",

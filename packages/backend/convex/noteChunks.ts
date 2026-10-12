@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./functions";
-import { DEFAULT_USER_ID } from "./lib/constants";
 
 const chunkValidator = v.object({
   userId: v.string(),
@@ -22,24 +21,24 @@ export const getByIdInternal = internalQuery({
 });
 
 export const listByFile = internalQuery({
-  args: { filePath: v.string() },
+  args: { userId: v.string(), filePath: v.string() },
   handler: async (ctx, args) => {
     return ctx.db
       .query("noteChunks")
       .withIndex("by_user_file", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("filePath", args.filePath),
+        q.eq("userId", args.userId).eq("filePath", args.filePath),
       )
       .collect();
   },
 });
 
 export const getFileHash = internalQuery({
-  args: { filePath: v.string() },
+  args: { userId: v.string(), filePath: v.string() },
   handler: async (ctx, args) => {
     const chunk = await ctx.db
       .query("noteChunks")
       .withIndex("by_user_file", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("filePath", args.filePath),
+        q.eq("userId", args.userId).eq("filePath", args.filePath),
       )
       .first();
     return chunk?.fileHash ?? null;
@@ -47,12 +46,12 @@ export const getFileHash = internalQuery({
 });
 
 export const deleteByFile = internalMutation({
-  args: { filePath: v.string() },
+  args: { userId: v.string(), filePath: v.string() },
   handler: async (ctx, args) => {
     const chunks = await ctx.db
       .query("noteChunks")
       .withIndex("by_user_file", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("filePath", args.filePath),
+        q.eq("userId", args.userId).eq("filePath", args.filePath),
       )
       .collect();
     for (const chunk of chunks) {
@@ -63,18 +62,23 @@ export const deleteByFile = internalMutation({
 
 export const insertBatch = internalMutation({
   args: {
+    userId: v.string(),
     chunks: v.array(chunkValidator),
   },
   handler: async (ctx, args) => {
     for (const chunk of args.chunks) {
-      await ctx.db.insert("noteChunks", { ...chunk, userId: DEFAULT_USER_ID });
+      await ctx.db.insert("noteChunks", { ...chunk, userId: args.userId });
     }
   },
 });
 
 /** A complete replacement commits together or leaves the old file untouched. */
 export const replaceFile = internalMutation({
-  args: { filePath: v.string(), chunks: v.array(chunkValidator) },
+  args: {
+    userId: v.string(),
+    filePath: v.string(),
+    chunks: v.array(chunkValidator),
+  },
   handler: async (ctx, args) => {
     const hash = args.chunks[0]?.fileHash;
     if (
@@ -96,12 +100,12 @@ export const replaceFile = internalMutation({
     const previous = await ctx.db
       .query("noteChunks")
       .withIndex("by_user_file", (q) =>
-        q.eq("userId", DEFAULT_USER_ID).eq("filePath", args.filePath),
+        q.eq("userId", args.userId).eq("filePath", args.filePath),
       )
       .collect();
     for (const chunk of previous) await ctx.db.delete(chunk._id);
     for (const chunk of args.chunks)
-      await ctx.db.insert("noteChunks", { ...chunk, userId: DEFAULT_USER_ID });
+      await ctx.db.insert("noteChunks", { ...chunk, userId: args.userId });
   },
 });
 
@@ -110,18 +114,18 @@ export const count = query({
   handler: async (ctx) => {
     const chunks = await ctx.db
       .query("noteChunks")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .collect();
     return chunks.length;
   },
 });
 
 export const allFilePaths = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
     const chunks = await ctx.db
       .query("noteChunks")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .collect();
     // Return unique file paths with their hashes
     const fileMap = new Map<string, string>();
