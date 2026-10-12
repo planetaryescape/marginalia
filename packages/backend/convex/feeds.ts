@@ -6,7 +6,7 @@ import {
   internalQuery,
   mutation,
   query,
-} from "./_generated/server";
+} from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const list = query({

@@ -1,4 +1,4 @@
-import { query } from "./_generated/server";
+import { query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 function hostOf(url: string) {

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const getByArticle = query({

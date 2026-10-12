@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { action } from "../_generated/server";
+import { action } from "../functions";
 import { WORDS_PER_MINUTE } from "../lib/constants";
 
 interface ArticleCandidate {

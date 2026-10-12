@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test";
+
 import { describe, expect, it } from "vitest";
+import { ownerTest } from "../test/owner";
 import { internal } from "./_generated/api";
-import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const chunk = (fileHash: string, chunkIndex = 0) => ({
@@ -18,7 +18,7 @@ const chunk = (fileHash: string, chunkIndex = 0) => ({
 
 describe("atomic vault replacement", () => {
   it("replaces only the requested file and ignores a client-supplied user identity", async () => {
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     await t.mutation(internal.noteChunks.insertBatch, {
       chunks: [chunk("old"), { ...chunk("other"), filePath: "Other.md" }],
     });
@@ -49,7 +49,7 @@ describe("atomic vault replacement", () => {
   ])("preserves existing chunks when the replacement is incomplete", async ({
     chunks,
   }) => {
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     await t.mutation(internal.noteChunks.insertBatch, {
       chunks: [chunk("old")],
     });

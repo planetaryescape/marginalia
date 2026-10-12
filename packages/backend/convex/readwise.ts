@@ -8,7 +8,7 @@ import {
   type MutationCtx,
   type QueryCtx,
   query,
-} from "./_generated/server";
+} from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { readwiseToken } from "./lib/readwise";
 

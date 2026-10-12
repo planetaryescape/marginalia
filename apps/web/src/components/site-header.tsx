@@ -1,7 +1,18 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useQuery } from "convex/react";
-import { ArrowRight, Keyboard, Link2 } from "lucide-react";
+import {
+  ArrowRight,
+  Bookmark,
+  BookOpen,
+  ChartNoAxesColumn,
+  Home,
+  Keyboard,
+  Library,
+  Link2,
+  NotebookPen,
+  UserRound,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -101,6 +112,7 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
     <header className="shrink-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 h-14 md:h-16 flex items-center gap-4 md:gap-6">
       <Link
         href="/"
+        data-reader-transition
         className="font-serif text-[21px] md:text-[22px] tracking-tight shrink-0"
       >
         Marginalia
@@ -113,6 +125,7 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
           <Link
             key={item.href}
             href={item.href}
+            data-reader-transition
             aria-current={pathname === item.href ? "page" : undefined}
             className="hover:text-[var(--reader-fg)] transition-colors aria-[current=page]:text-[var(--reader-fg)]"
           >
@@ -126,6 +139,14 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
         </div>
       )}
       <div className={`flex items-center gap-1 ${showPaste ? "" : "ml-auto"}`}>
+        <Link
+          href="/account"
+          data-reader-transition
+          aria-label="Your account"
+          className="w-11 h-11 md:w-8 md:h-8 flex items-center justify-center text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
+        >
+          <UserRound size={19} />
+        </Link>
         <InstallApp />
         <button
           type="button"
@@ -144,21 +165,47 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
 
 export function MobileNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
+  const mobile = [{ href: "/", label: "Home" }, ...items];
+  const icons = {
+    "/": Home,
+    "/library": Library,
+    "/notes": NotebookPen,
+    "/reading": ChartNoAxesColumn,
+    "/saved": Bookmark,
+    "/feeds": BookOpen,
+  };
   return (
     <nav
       aria-label="Main navigation"
-      className="md:hidden shrink-0 px-2 pb-[env(safe-area-inset-bottom)] grid grid-cols-5 border-t border-[var(--reader-border)] text-[11px] min-[360px]:text-[12px] text-[var(--reader-muted)]"
+      className="mobile-app-nav md:hidden shrink-0 px-1 pb-[env(safe-area-inset-bottom)] grid grid-cols-6 border-t border-[var(--reader-border)] bg-[var(--reader-surface)] text-[10px] min-[390px]:text-[11px] text-[var(--reader-muted)]"
     >
-      {items.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          aria-current={pathname === item.href ? "page" : undefined}
-          className="flex min-h-12 min-w-0 items-center justify-center px-1 text-center whitespace-nowrap hover:text-[var(--reader-fg)] aria-[current=page]:text-[var(--reader-fg)]"
-        >
-          {item.label}
-        </Link>
-      ))}
+      {mobile.map((item) => {
+        const Icon = icons[item.href as keyof typeof icons];
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            data-reader-transition
+            aria-current={pathname === item.href ? "page" : undefined}
+            className="flex flex-col min-h-14 min-w-0 items-center justify-center gap-1 px-0.5 text-center whitespace-nowrap hover:text-[var(--reader-fg)] aria-[current=page]:text-[var(--reader-fg)]"
+          >
+            {Icon && (
+              <Icon
+                size={20}
+                strokeWidth={pathname === item.href ? 2.25 : 1.6}
+                aria-hidden
+              />
+            )}
+            <span>
+              {item.href === "/reading"
+                ? "Activity"
+                : item.href === "/saved"
+                  ? "Saved"
+                  : item.label}
+            </span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }

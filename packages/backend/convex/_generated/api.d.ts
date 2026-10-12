@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as access from "../access.js";
 import type * as actions_addArticleByUrl from "../actions/addArticleByUrl.js";
 import type * as actions_embedReaderActivity from "../actions/embedReaderActivity.js";
 import type * as actions_embedUserNote from "../actions/embedUserNote.js";
@@ -19,9 +20,11 @@ import type * as actions_selectArticle from "../actions/selectArticle.js";
 import type * as actions_summarize from "../actions/summarize.js";
 import type * as annotations from "../annotations.js";
 import type * as articles from "../articles.js";
+import type * as auth from "../auth.js";
 import type * as companionThreads from "../companionThreads.js";
 import type * as crons from "../crons.js";
 import type * as feeds from "../feeds.js";
+import type * as functions from "../functions.js";
 import type * as highlights from "../highlights.js";
 import type * as home from "../home.js";
 import type * as http from "../http.js";
@@ -35,13 +38,16 @@ import type * as lib_library from "../lib/library.js";
 import type * as lib_librarySearch from "../lib/librarySearch.js";
 import type * as lib_marginaliaContext from "../lib/marginaliaContext.js";
 import type * as lib_openrouter from "../lib/openrouter.js";
+import type * as lib_readingActivity from "../lib/readingActivity.js";
 import type * as lib_readingCompanion from "../lib/readingCompanion.js";
 import type * as lib_readwise from "../lib/readwise.js";
 import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
+import type * as lib_statsPeriod from "../lib/statsPeriod.js";
 import type * as lib_vaultUpload from "../lib/vaultUpload.js";
 import type * as library from "../library.js";
 import type * as lovedArticles from "../lovedArticles.js";
 import type * as noteChunks from "../noteChunks.js";
+import type * as readingActivity from "../readingActivity.js";
 import type * as readingQueue from "../readingQueue.js";
 import type * as readwise from "../readwise.js";
 import type * as readwiseSyncState from "../readwiseSyncState.js";
@@ -60,6 +66,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  access: typeof access;
   "actions/addArticleByUrl": typeof actions_addArticleByUrl;
   "actions/embedReaderActivity": typeof actions_embedReaderActivity;
   "actions/embedUserNote": typeof actions_embedUserNote;
@@ -71,9 +78,11 @@ declare const fullApi: ApiFromModules<{
   "actions/summarize": typeof actions_summarize;
   annotations: typeof annotations;
   articles: typeof articles;
+  auth: typeof auth;
   companionThreads: typeof companionThreads;
   crons: typeof crons;
   feeds: typeof feeds;
+  functions: typeof functions;
   highlights: typeof highlights;
   home: typeof home;
   http: typeof http;
@@ -87,13 +96,16 @@ declare const fullApi: ApiFromModules<{
   "lib/librarySearch": typeof lib_librarySearch;
   "lib/marginaliaContext": typeof lib_marginaliaContext;
   "lib/openrouter": typeof lib_openrouter;
+  "lib/readingActivity": typeof lib_readingActivity;
   "lib/readingCompanion": typeof lib_readingCompanion;
   "lib/readwise": typeof lib_readwise;
   "lib/spacedRepetition": typeof lib_spacedRepetition;
+  "lib/statsPeriod": typeof lib_statsPeriod;
   "lib/vaultUpload": typeof lib_vaultUpload;
   library: typeof library;
   lovedArticles: typeof lovedArticles;
   noteChunks: typeof noteChunks;
+  readingActivity: typeof readingActivity;
   readingQueue: typeof readingQueue;
   readwise: typeof readwise;
   readwiseSyncState: typeof readwiseSyncState;
@@ -132,4 +144,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  betterAuth: import("../betterAuth/_generated/component.js").ComponentApi<"betterAuth">;
+};

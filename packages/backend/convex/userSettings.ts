@@ -1,11 +1,6 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import {
-  internalQuery,
-  mutation,
-  type QueryCtx,
-  query,
-} from "./_generated/server";
+import { internalQuery, mutation, type QueryCtx, query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import {
   DEFAULT_MODELS,

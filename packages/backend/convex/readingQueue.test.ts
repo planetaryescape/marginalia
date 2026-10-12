@@ -1,14 +1,14 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test";
+
 import { describe, expect, it } from "vitest";
+import { ownerTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
-import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
 describe("whole-library reading queue counts", () => {
   it("counts beyond 200 articles and honours finishes older than 500 interactions", async () => {
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     const ids = await t.run(async (ctx) => {
       const ids = [];
       for (let i = 0; i < 250; i++) {
@@ -57,7 +57,7 @@ describe("whole-library reading queue counts", () => {
   });
 
   it("updates counts transactionally for annotation, length changes, reannotation and repeated finishes", async () => {
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     await t.mutation(internal.readingQueue.initialize, {});
     const args = {
       userId: "default_user",

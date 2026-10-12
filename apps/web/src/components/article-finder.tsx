@@ -9,7 +9,6 @@ import { Link2, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CONVEX_SITE_URL } from "@/lib/convex-site";
 import { useShortcuts } from "@/lib/shortcuts";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import { cn } from "@/lib/utils";
@@ -59,7 +58,7 @@ export function ArticleFinder() {
     setResult({ query: text, matches: [], status: "loading" });
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch(`${CONVEX_SITE_URL}/api/library/search`, {
+        const response = await fetch("/api/reader/library/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question: text }),

@@ -1,11 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import {
-  action,
-  internalMutation,
-  internalQuery,
-  query,
-} from "./_generated/server";
+import { action, internalMutation, internalQuery, query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { updateQueueStats } from "./readingQueue";
 

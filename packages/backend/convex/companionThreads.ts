@@ -1,11 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 const turnValidator = v.object({
@@ -21,6 +16,15 @@ export const listByArticle = query({
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
       .take(200);
   },
+});
+
+export const listByArticleInternal = internalQuery({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) =>
+    ctx.db
+      .query("companionThreads")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .take(200),
 });
 
 export const create = mutation({

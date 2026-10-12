@@ -1,8 +1,7 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ownerTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
-import schema from "./schema";
 
 vi.mock("./lib/aiModels", () => ({
   embedText: vi.fn().mockResolvedValue(undefined),
@@ -43,7 +42,7 @@ describe("Reader backfill action", () => {
       );
     });
     vi.stubGlobal("fetch", fetchMock);
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     // An already-connected account must still discover its older, unchanged items.
     await t.run((ctx) =>
       ctx.db.insert("userSettings", {
@@ -105,7 +104,7 @@ describe("Reader backfill action", () => {
         ),
       ),
     );
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     await t.action(internal.actions.readwiseSync.sync, {});
     expect((await t.query(api.readwise.status, {})).progress).toMatchObject({
       scanned: 3,

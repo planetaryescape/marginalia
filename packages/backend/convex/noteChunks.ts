@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 const chunkValidator = v.object({

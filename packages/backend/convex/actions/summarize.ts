@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { z } from "zod";
 import { internal } from "../_generated/api";
-import { action } from "../_generated/server";
+import { action } from "../functions";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { modelChain } from "../lib/openrouter";
 
@@ -112,6 +112,7 @@ export const generate = action({
       system: SYSTEM,
       prompt: `# ${args.title}\n\n${lines.join("\n\n")}`,
       models: modelChain(models.annotations, "annotations"),
+      maxOutputTokens: 4096,
     });
 
     const clamp = (n: number) => Math.min(Math.max(1, Math.round(n)), total);

@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { authComponent, createAuth } from "./auth";
 import {
   type ChatMessage,
   sourcesFooter,
@@ -20,6 +21,7 @@ import {
   searchCompletionSchema,
 } from "./lib/librarySearch";
 import { modelChain } from "./lib/openrouter";
+import { readingCheckpointSchema } from "./lib/readingActivity";
 import {
   buildCompanionPrompt,
   companionRequestSchema,
@@ -27,13 +29,59 @@ import {
 import { vaultUploadSchema } from "./lib/vaultUpload";
 
 const http = httpRouter();
+authComponent.registerRoutes(http, createAuth);
 
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin":
+    process.env.SITE_URL ?? "https://reader.bhekani.com",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Expose-Headers": "X-Companion-Model",
 };
+
+http.route({
+  path: "/api/engagement",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+http.route({
+  path: "/api/engagement",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      await ctx.runQuery(internal.access.assertOwner, {});
+    } catch {
+      return new Response("Sign in to your reader", {
+        status: 401,
+        headers: CORS_HEADERS,
+      });
+    }
+    if (Number(request.headers.get("content-length")) > 32_000)
+      return new Response("Checkpoint too large", {
+        status: 413,
+        headers: CORS_HEADERS,
+      });
+    const parsed = readingCheckpointSchema.safeParse(
+      await request.json().catch(() => null),
+    );
+    if (!parsed.success)
+      return new Response("Invalid checkpoint", {
+        status: 400,
+        headers: CORS_HEADERS,
+      });
+    try {
+      await ctx.runMutation(internal.readingActivity.record, parsed.data);
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    } catch {
+      return new Response("Couldn't save reading activity", {
+        status: 400,
+        headers: CORS_HEADERS,
+      });
+    }
+  }),
+});
 
 /**
  * Streams a chat completion as plain text, trying each model in turn. It waits
@@ -137,6 +185,14 @@ http.route({
   path: "/api/companion",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    try {
+      await ctx.runQuery(internal.access.assertOwner, {});
+    } catch {
+      return new Response("Sign in to your reader", {
+        status: 401,
+        headers: CORS_HEADERS,
+      });
+    }
     if (!process.env.OPENROUTER_API_KEY) {
       return new Response("OPENROUTER_API_KEY not configured", {
         status: 500,
@@ -244,6 +300,11 @@ http.route({
   path: "/api/feeds/poll",
   method: "POST",
   handler: httpAction(async (ctx) => {
+    try {
+      await ctx.runQuery(internal.access.assertOwner, {});
+    } catch {
+      return new Response("Sign in to your reader", { status: 401 });
+    }
     await ctx.scheduler.runAfter(
       0,
       internal.actions.pollFeeds.pollAllFeeds,
@@ -271,6 +332,14 @@ http.route({
   path: "/api/library",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    try {
+      await ctx.runQuery(internal.access.assertOwner, {});
+    } catch {
+      return new Response("Sign in to your reader", {
+        status: 401,
+        headers: CORS_HEADERS,
+      });
+    }
     const parsed = libraryRequestSchema.safeParse(
       await request.json().catch(() => null),
     );
@@ -325,6 +394,14 @@ http.route({
   path: "/api/library/search",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    try {
+      await ctx.runQuery(internal.access.assertOwner, {});
+    } catch {
+      return new Response("Sign in to your reader", {
+        status: 401,
+        headers: CORS_HEADERS,
+      });
+    }
     const headers = {
       ...CORS_HEADERS,
       "Content-Type": "application/json",

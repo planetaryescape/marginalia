@@ -1,5 +1,5 @@
 "use node";
-import { api, internal } from "../_generated/api";
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { embedTexts } from "./aiModels";
@@ -292,11 +292,15 @@ export async function buildMarginaliaContext(
     Doc<"companionThreads">[],
     Doc<"userNotes">[],
   ] = await Promise.all([
-    ctx.runQuery(api.highlights.listByArticle, { articleId: article._id }),
-    ctx.runQuery(api.companionThreads.listByArticle, {
+    ctx.runQuery(internal.highlights.listByArticleInternal, {
       articleId: article._id,
     }),
-    ctx.runQuery(api.userNotes.listByArticle, { articleId: article._id }),
+    ctx.runQuery(internal.companionThreads.listByArticleInternal, {
+      articleId: article._id,
+    }),
+    ctx.runQuery(internal.userNotes.listByArticleInternal, {
+      articleId: article._id,
+    }),
   ]);
   const own: string[] = [
     ...ownHighlights

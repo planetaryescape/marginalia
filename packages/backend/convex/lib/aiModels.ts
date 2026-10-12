@@ -29,6 +29,8 @@ export async function generateObjectWithFallback<T>(options: {
   system?: string;
   /** Tried in order; later models are used only after a retryable failure. */
   models: TextModel[];
+  /** Bound output reservation for tasks that need only a short response. */
+  maxOutputTokens?: number;
   modelIndex?: number;
 }): Promise<{ object: T; modelId: TextModel }> {
   if (!process.env.OPENROUTER_API_KEY) {
@@ -48,6 +50,7 @@ export async function generateObjectWithFallback<T>(options: {
       schema: options.schema,
       prompt: options.prompt,
       system: options.system,
+      maxOutputTokens: options.maxOutputTokens,
     });
     return { object: result.object as T, modelId };
   } catch (error) {

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ownerTest } from "../test/owner";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -8,6 +9,81 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+describe("library search HTTP results", () => {
+  it("does not expose a model's exclusion explanation as a search result", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-only");
+    const t = await ownerTest(modules);
+    const embedding = Array.from({ length: 1536 }, () => 1);
+    const [rejectedId, matchedId] = await t.run(async (ctx) => {
+      const ids = [];
+      for (const [guid, title] of [
+        ["rejected", "Cows and methane"],
+        ["matched", "Sleep in daily life"],
+      ])
+        ids.push(
+          await ctx.db.insert("articles", {
+            userId: "default_user",
+            guid,
+            url: `https://example.com/${guid}`,
+            title,
+            excerpt: title,
+            embedding,
+            extractionStatus: "extracted",
+            annotationStatus: "annotated",
+            createdAt: Date.now(),
+          }),
+        );
+      return ids;
+    });
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/embeddings"))
+        return Response.json({ data: [{ index: 0, embedding }] });
+      if (!url.endsWith("/chat/completions"))
+        throw new Error("Unexpected provider request");
+      return Response.json({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({
+                matches: [
+                  {
+                    articleId: rejectedId,
+                    relevant: true,
+                    reason: "Not a match for life directly; omitted.",
+                  },
+                  {
+                    articleId: matchedId,
+                    relevant: true,
+                    reason: "Explores sleep's role in daily life.",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      });
+    });
+    const response = await t.fetch("/api/library/search", {
+      method: "POST",
+      body: JSON.stringify({ question: "life" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      matches: [
+        {
+          articleId: matchedId,
+          title: "Sleep in daily life",
+          author: null,
+          minutes: null,
+          status: "Unread",
+          reason: "Explores sleep's role in daily life.",
+        },
+      ],
+    });
+  });
 });
 const request = {
   mode: "explain",
@@ -36,7 +112,7 @@ describe("companion HTTP streaming", () => {
         ]),
       );
     vi.stubGlobal("fetch", provider);
-    const response = await convexTest(schema, modules).fetch("/api/companion", {
+    const response = await (await ownerTest(modules)).fetch("/api/companion", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -59,7 +135,7 @@ describe("companion HTTP streaming", () => {
         ]),
       ),
     );
-    const response = await convexTest(schema, modules).fetch("/api/companion", {
+    const response = await (await ownerTest(modules)).fetch("/api/companion", {
       method: "POST",
       body: JSON.stringify(request),
     });

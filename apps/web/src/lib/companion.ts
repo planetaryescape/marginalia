@@ -3,7 +3,6 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CONVEX_SITE_URL } from "./convex-site";
 import {
   getArticleBody,
   getParagraphs,
@@ -52,7 +51,7 @@ export async function streamFromConvex(
     onText: (chunk: string) => void;
   },
 ) {
-  const res = await fetch(`${CONVEX_SITE_URL}${path}`, {
+  const res = await fetch(`/api/reader/${path.replace(/^\/api\//, "")}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

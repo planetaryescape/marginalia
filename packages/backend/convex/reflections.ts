@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./functions";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
@@ -17,8 +17,10 @@ export const saveResponse = mutation({
     userResponse: v.string(),
   },
   handler: async (ctx, args) => {
+    const previous = await ctx.db.get(args.reflectionId);
     await ctx.db.patch(args.reflectionId, {
       userResponse: args.userResponse,
+      respondedAt: previous?.respondedAt ?? Date.now(),
     });
   },
 });

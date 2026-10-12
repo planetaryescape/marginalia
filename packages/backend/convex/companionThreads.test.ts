@@ -1,13 +1,13 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test";
+
 import { expect, it } from "vitest";
+import { ownerTest } from "../test/owner";
 import { api } from "./_generated/api";
-import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
 it("saves and reopens a contextual definition with its original passage and follow-ups", async () => {
-  const t = convexTest(schema, modules);
+  const t = await ownerTest(modules);
   const articleId = await t.run((ctx) =>
     ctx.db.insert("articles", {
       userId: "default_user",

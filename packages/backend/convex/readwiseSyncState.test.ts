@@ -1,15 +1,14 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ownerTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
-import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 afterEach(() => vi.useRealTimers());
 
 describe("resumable Reader sync", () => {
   it("backfills legacy installations regardless of their old incremental watermark", async () => {
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     await t.run((ctx) =>
       ctx.db.insert("userSettings", {
         userId: "default_user",
@@ -30,7 +29,7 @@ describe("resumable Reader sync", () => {
 
   it("rejects concurrent workers and fences a stale worker after lease recovery", async () => {
     vi.useFakeTimers();
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     await t.mutation(internal.readwiseSyncState.claim, { token: "first" });
     expect(
       await t.mutation(internal.readwiseSyncState.claim, { token: "second" }),
@@ -57,7 +56,7 @@ describe("resumable Reader sync", () => {
 
   it("retains cursor and document progress on failure, never advancing the watermark early", async () => {
     vi.useFakeTimers();
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     await t.mutation(internal.readwiseSyncState.claim, { token: "one" });
     await t.mutation(internal.readwiseSyncState.recordDocument, {
       token: "one",
@@ -109,7 +108,7 @@ describe("resumable Reader sync", () => {
 
   it("only completes after all document locations and highlights, then uses an overlapping incremental watermark", async () => {
     vi.useFakeTimers();
-    const t = convexTest(schema, modules);
+    const t = await ownerTest(modules);
     const startedAt = Date.now();
     for (let phase = 0; phase < 4; phase++) {
       const token = `phase-${phase}`;

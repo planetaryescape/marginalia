@@ -1,11 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 export const create = mutation({
@@ -99,6 +94,16 @@ export const getById = query({
 });
 
 // --- Internal ---
+
+export const listByArticleInternal = internalQuery({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) =>
+    ctx.db
+      .query("userNotes")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .order("desc")
+      .take(500),
+});
 
 export const getByIdInternal = internalQuery({
   args: { noteId: v.id("userNotes") },

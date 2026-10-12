@@ -2,6 +2,18 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  authAttempts: defineTable({
+    scope: v.literal("password"),
+    startedAt: v.number(),
+    count: v.number(),
+  }).index("by_scope", ["scope"]),
+  readerAccess: defineTable({
+    key: v.literal("owner"),
+    email: v.optional(v.string()),
+    authId: v.optional(v.string()),
+    setupHash: v.optional(v.string()),
+    setupExpiresAt: v.optional(v.number()),
+  }).index("by_key", ["key"]),
   feeds: defineTable({
     userId: v.string(),
     url: v.string(),
@@ -98,10 +110,13 @@ export default defineSchema({
     credibleCounterview: v.string(),
     questionForYou: v.string(),
     userResponse: v.optional(v.string()),
+    respondedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_article", ["articleId"])
-    .index("by_user", ["userId"]),
+    .index("by_user", ["userId"])
+    .index("by_user_created", ["userId", "createdAt"])
+    .index("by_user_responded", ["userId", "respondedAt"]),
 
   sessions: defineTable({
     userId: v.string(),
@@ -127,6 +142,7 @@ export default defineSchema({
     userId: v.string(),
     articleId: v.id("articles"),
     sessionId: v.optional(v.id("sessions")),
+    visitId: v.optional(v.string()),
     action: v.union(
       v.literal("presented"),
       v.literal("opened"),
@@ -146,9 +162,30 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
+    .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
     .index("by_user_article", ["userId", "articleId"])
     .index("by_user_article_action", ["userId", "articleId", "action"]),
+
+  // Cumulative checkpoints per page visit and local day make retries idempotent.
+  readingActivity: defineTable({
+    userId: v.string(),
+    visitId: v.string(),
+    day: v.string(),
+    articleId: v.id("articles"),
+    sessionId: v.optional(v.id("sessions")),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    activeTimeMs: v.number(),
+    visibleTimeMs: v.number(),
+    timeSpentMs: v.number(),
+    maxScrollPercent: v.number(),
+    annotationsOpened: v.array(v.string()),
+    finishedAt: v.optional(v.number()),
+  })
+    .index("by_user_visit_day", ["userId", "visitId", "day"])
+    .index("by_user_started", ["userId", "startedAt"])
+    .index("by_user_article", ["userId", "articleId"]),
 
   readingQueueStats: defineTable({
     userId: v.string(),
@@ -234,6 +271,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
+    .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
     .index("by_user_recent", ["userId", "updatedAt"])
     .vectorIndex("by_embedding", {

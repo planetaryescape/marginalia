@@ -1,402 +1,343 @@
-import { query } from "./_generated/server";
+import { v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
+import { query } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { dayKey, statsPeriod } from "./lib/statsPeriod";
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const args = {
+  timeZone: v.optional(v.string()),
+  range: v.optional(
+    v.union(v.literal("week"), v.literal("7days"), v.literal("30days")),
+  ),
+};
+const LIMIT = 5000;
+type PeriodArgs = { timeZone?: string; range?: "week" | "7days" | "30days" };
+const finite = (value: number | undefined) =>
+  Number.isFinite(value) ? Math.max(0, value ?? 0) : 0;
 
-// Helper: partition interactions into this week and last week
-function partitionByWeek(interactions: any[], now: number) {
-  const weekAgo = now - WEEK_MS;
-  const twoWeeksAgo = now - 2 * WEEK_MS;
-  return {
-    thisWeek: interactions.filter((i) => i.createdAt >= weekAgo),
-    lastWeek: interactions.filter(
-      (i) => i.createdAt >= twoWeeksAgo && i.createdAt < weekAgo,
-    ),
-  };
+function legacyReadings(events: Doc<"articleInteractions">[]) {
+  const sessions = new Map<string, Doc<"articleInteractions">>();
+  for (const event of events) {
+    if (
+      !["finished", "abandoned"].includes(event.action) ||
+      (event.activeTimeMs === undefined && event.timeSpentMs === undefined)
+    )
+      continue;
+    const key = event.sessionId
+      ? `${event.articleId}:${event.sessionId}`
+      : event._id;
+    const old = sessions.get(key);
+    if (!old) {
+      sessions.set(key, event);
+      continue;
+    }
+    const latest = old.createdAt > event.createdAt ? old : event;
+    sessions.set(key, {
+      ...latest,
+      activeTimeMs: Math.max(
+        finite(old.activeTimeMs),
+        finite(event.activeTimeMs),
+      ),
+      maxScrollPercent: Math.max(
+        finite(old.maxScrollPercent),
+        finite(event.maxScrollPercent),
+      ),
+    });
+  }
+  return [...sessions.values()];
 }
 
-function computeWeekMetrics(interactions: any[]) {
-  const finished = interactions.filter((i) => i.action === "finished");
-  const finishedOrAbandoned = interactions.filter(
-    (i) => i.action === "finished" || i.action === "abandoned",
-  );
-
-  const articlesFinished = new Set(finished.map((i) => i.articleId)).size;
-
-  const totalActiveTimeMs = finishedOrAbandoned.reduce(
-    (sum, i) => sum + (i.activeTimeMs ?? i.timeSpentMs ?? 0),
-    0,
-  );
-
-  const totalWallTimeMs = finishedOrAbandoned.reduce(
-    (sum, i) => sum + (i.timeSpentMs ?? i.activeTimeMs ?? 0),
-    0,
-  );
-
-  const scrollDepths = finishedOrAbandoned
-    .filter((i) => i.maxScrollPercent != null)
-    .map((i) => i.maxScrollPercent!);
-  const avgScrollDepth =
-    scrollDepths.length > 0
-      ? Math.round(
-          scrollDepths.reduce((a: number, b: number) => a + b, 0) /
-            scrollDepths.length,
-        )
-      : 0;
-
-  const annotationsOpened = interactions.flatMap(
-    (i) => i.annotationsOpened ?? [],
-  );
-
-  const focusRatio =
-    totalWallTimeMs > 0
-      ? Math.round((totalActiveTimeMs / totalWallTimeMs) * 100)
-      : 0;
-
-  const skippedCount = interactions.filter(
-    (i) => i.action === "skipped",
-  ).length;
-
-  return {
-    articlesFinished,
-    totalActiveTimeMs,
-    totalWallTimeMs,
-    avgScrollDepth,
-    annotationsOpenedCount: annotationsOpened.length,
-    focusRatio,
-    skippedCount,
-  };
-}
-
-// ─── Query 1: Dashboard Overview ─────────────────────────────
-
-export const getDashboardOverview = query({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const weekAgo = now - WEEK_MS;
-
-    const allInteractions = await ctx.db
+async function dashboard(ctx: QueryCtx, options: PeriodArgs) {
+  const period = statsPeriod(Date.now(), options.timeZone, options.range);
+  const [activity, interactions, notes, reflections] = await Promise.all([
+    ctx.db
+      .query("readingActivity")
+      .withIndex("by_user_started", (q) =>
+        q
+          .eq("userId", DEFAULT_USER_ID)
+          .gte("startedAt", period.previousStart)
+          .lt("startedAt", period.end),
+      )
+      .take(LIMIT + 1),
+    ctx.db
       .query("articleInteractions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(1000);
-
-    const { thisWeek, lastWeek } = partitionByWeek(allInteractions, now);
-    const tw = computeWeekMetrics(thisWeek);
-    const lw = computeWeekMetrics(lastWeek);
-
-    // Notes this week
-    const allNotes = await ctx.db
+      .withIndex("by_user_created", (q) =>
+        q
+          .eq("userId", DEFAULT_USER_ID)
+          .gte("createdAt", period.previousStart)
+          .lt("createdAt", period.end),
+      )
+      .take(LIMIT + 1),
+    ctx.db
       .query("userNotes")
-      .withIndex("by_user_recent", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(200);
-    const twNotes = allNotes.filter((n) => n.createdAt >= weekAgo).length;
-    const lwNotes = allNotes.filter(
-      (n) => n.createdAt >= now - 2 * WEEK_MS && n.createdAt < weekAgo,
-    ).length;
-
-    // Reflections this week
-    const allReflections = await ctx.db
+      .withIndex("by_user_created", (q) =>
+        q
+          .eq("userId", DEFAULT_USER_ID)
+          .gte("createdAt", period.previousStart)
+          .lt("createdAt", period.end),
+      )
+      .take(LIMIT + 1),
+    ctx.db
       .query("reflections")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(200);
-    const twReflections = allReflections.filter(
-      (r) => r.createdAt >= weekAgo && r.userResponse,
-    ).length;
-    const lwReflections = allReflections.filter(
-      (r) =>
-        r.createdAt >= now - 2 * WEEK_MS &&
-        r.createdAt < weekAgo &&
-        r.userResponse,
-    ).length;
-
-    // Sessions this week
-    const allSessions = await ctx.db
-      .query("sessions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(200);
-    const twSessions = allSessions.filter((s) => s.startedAt >= weekAgo).length;
-
-    // Loved articles total
-    const loved = await ctx.db
-      .query("lovedArticles")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .collect();
-
-    // Engagement score: weighted composite
-    const annotationRate =
-      tw.annotationsOpenedCount > 0
-        ? Math.min(100, tw.annotationsOpenedCount * 10)
-        : 0;
-    const engagementScore = Math.round(
-      0.4 * tw.avgScrollDepth + 0.3 * tw.focusRatio + 0.3 * annotationRate,
+      .withIndex("by_user_responded", (q) =>
+        q
+          .eq("userId", DEFAULT_USER_ID)
+          .gte("respondedAt", period.previousStart)
+          .lt("respondedAt", period.end),
+      )
+      .take(LIMIT + 1),
+  ]);
+  const partial = [activity, interactions, notes, reflections].some(
+    (rows) => rows.length > LIMIT,
+  );
+  const within = (at: number, start: number, end: number) =>
+    at >= start && at < end;
+  const legacySessions = legacyReadings(interactions);
+  function metrics(start: number, end: number) {
+    const measured = activity.filter((s) => within(s.startedAt, start, end));
+    const events = interactions.filter((s) => within(s.createdAt, start, end));
+    const legacy = legacySessions.filter((s) =>
+      within(s.createdAt, start, end),
     );
-
+    const finishes = new Set(
+      events.filter((s) => s.action === "finished").map((s) => s.articleId),
+    );
+    const started = new Set([
+      ...measured.filter((s) => s.activeTimeMs > 0).map((s) => s.articleId),
+      ...events.filter((s) => s.action === "opened").map((s) => s.articleId),
+      ...legacy.map((s) => s.articleId),
+    ]);
+    const annotationIds = new Set([
+      ...measured.flatMap((s) => s.annotationsOpened),
+      ...events.flatMap((s) => s.annotationsOpened ?? []),
+    ]);
+    const totalActiveTimeMs =
+      measured.reduce((n, s) => n + s.activeTimeMs, 0) +
+      legacy.reduce((n, s) => n + finite(s.activeTimeMs), 0);
+    const visibleTimeMs = measured.reduce((n, s) => n + s.visibleTimeMs, 0);
+    const measuredActiveTimeMs = measured.reduce(
+      (n, s) => n + s.activeTimeMs,
+      0,
+    );
+    const scrolls = measured
+      .map((s) => s.maxScrollPercent)
+      .concat(
+        legacy.flatMap((s) =>
+          s.maxScrollPercent === undefined
+            ? []
+            : [Math.min(100, finite(s.maxScrollPercent))],
+        ),
+      );
+    const days = new Set(
+      measured
+        .filter((s) => s.activeTimeMs > 0)
+        .map((s) => dayKey(s.startedAt, period.timeZone)),
+    );
+    for (const s of legacy)
+      if (finite(s.activeTimeMs) > 0)
+        days.add(dayKey(s.createdAt, period.timeZone));
+    const periodNotes = notes.filter(
+      (n) => within(n.createdAt, start, end) && n.contentPlain.trim(),
+    );
     return {
-      thisWeek: {
-        ...tw,
-        notesTaken: twNotes,
-        reflectionsWritten: twReflections,
-        sessionsCount: twSessions,
-        lovedTotal: loved.length,
-      },
-      lastWeek: {
-        ...lw,
-        notesTaken: lwNotes,
-        reflectionsWritten: lwReflections,
-      },
-      engagementScore,
+      articlesFinished: finishes.size,
+      articlesStarted: started.size,
+      totalActiveTimeMs,
+      visibleTimeMs,
+      totalWallTimeMs: measured.reduce((n, s) => n + s.timeSpentMs, 0),
+      avgScrollDepth: scrolls.length
+        ? Math.round(scrolls.reduce((a, b) => a + b, 0) / scrolls.length)
+        : null,
+      annotationsOpenedCount: annotationIds.size,
+      focusRatio: visibleTimeMs
+        ? Math.round((measuredActiveTimeMs / visibleTimeMs) * 100)
+        : null,
+      notesTaken: periodNotes.length,
+      reflectionsWritten:
+        periodNotes.filter((n) => n.annotationId).length +
+        reflections.filter(
+          (r) =>
+            within(r.respondedAt ?? 0, start, end) && r.userResponse?.trim(),
+        ).length,
+      readingDays: days.size,
+      visitsCount: new Set(
+        measured.filter((s) => s.activeTimeMs > 0).map((s) => s.visitId),
+      ).size,
+      skippedCount: events.filter((s) => s.action === "skipped").length,
+      untrackedOpens: events.filter(
+        (s) =>
+          s.action === "opened" &&
+          (!s.visitId || !measured.some((m) => m.visitId === s.visitId)),
+      ).length,
+      legacyReadings: legacy.length,
     };
-  },
-});
-
-// ─── Query 2: Reading Patterns ───────────────────────────────
-
-function getTimeBlock(hour: number): number {
-  if (hour >= 6 && hour < 12) return 0; // morning
-  if (hour >= 12 && hour < 17) return 1; // afternoon
-  if (hour >= 17 && hour < 22) return 2; // evening
-  return 3; // night
+  }
+  const thisWeek = metrics(period.start, period.end);
+  const lastWeek = metrics(period.previousStart, period.previousEnd);
+  const weekActivity = activity.filter((s) => s.startedAt >= period.start);
+  const weekEvents = interactions.filter((s) => s.createdAt >= period.start);
+  const detailMap = new Map<
+    Id<"articles">,
+    {
+      readAt: number;
+      activeTimeMs: number;
+      maxScrollPercent: number | null;
+      finished: boolean;
+      annotations: Set<string>;
+    }
+  >();
+  function detail(articleId: Id<"articles">, at: number) {
+    let d = detailMap.get(articleId);
+    if (!d) {
+      d = {
+        readAt: at,
+        activeTimeMs: 0,
+        maxScrollPercent: null,
+        finished: false,
+        annotations: new Set(),
+      };
+      detailMap.set(articleId, d);
+    }
+    d.readAt = Math.max(d.readAt, at);
+    return d;
+  }
+  for (const s of weekActivity) {
+    const d = detail(s.articleId, s.updatedAt);
+    d.activeTimeMs += s.activeTimeMs;
+    d.maxScrollPercent = Math.max(d.maxScrollPercent ?? 0, s.maxScrollPercent);
+    d.finished ||= s.finishedAt !== undefined;
+    for (const id of s.annotationsOpened) d.annotations.add(id);
+  }
+  for (const s of weekEvents) {
+    if (!["opened", "finished", "abandoned"].includes(s.action)) continue;
+    const d = detail(s.articleId, s.createdAt);
+    d.finished ||= s.action === "finished";
+    if (s.maxScrollPercent !== undefined)
+      d.maxScrollPercent = Math.max(
+        d.maxScrollPercent ?? 0,
+        Math.min(100, finite(s.maxScrollPercent)),
+      );
+    for (const id of s.annotationsOpened ?? []) d.annotations.add(id);
+  }
+  for (const s of legacySessions.filter((s) => s.createdAt >= period.start))
+    detail(s.articleId, s.createdAt).activeTimeMs += finite(s.activeTimeMs);
+  const articleDetails = (
+    await Promise.all(
+      [...detailMap.entries()]
+        .sort((a, b) => b[1].readAt - a[1].readAt)
+        .slice(0, 25)
+        .map(async ([articleId, d]) => {
+          const article = await ctx.db.get(articleId);
+          if (!article) return null;
+          return {
+            articleId,
+            title: article.title,
+            author: article.author,
+            readAt: d.readAt,
+            activeTimeMs: d.activeTimeMs,
+            maxScrollPercent: d.maxScrollPercent,
+            finished: d.finished,
+            annotationsOpened: d.annotations.size,
+            notesCount: notes.filter(
+              (n) =>
+                n.articleId === articleId &&
+                n.createdAt >= period.start &&
+                n.contentPlain.trim(),
+            ).length,
+          };
+        }),
+    )
+  ).filter((a) => a !== null);
+  const daily = [];
+  const todayKey = dayKey(period.end - 1, period.timeZone);
+  const firstKey = dayKey(period.start, period.timeZone);
+  for (
+    let at = Date.parse(`${firstKey}T12:00:00Z`);
+    at <= Date.parse(`${todayKey}T12:00:00Z`);
+    at += 86_400_000
+  ) {
+    const date = new Date(at).toISOString().slice(0, 10);
+    daily.push({
+      date,
+      activeTimeMs:
+        weekActivity
+          .filter((s) => dayKey(s.startedAt, period.timeZone) === date)
+          .reduce((n, s) => n + s.activeTimeMs, 0) +
+        legacySessions
+          .filter(
+            (s) =>
+              s.createdAt >= period.start &&
+              dayKey(s.createdAt, period.timeZone) === date,
+          )
+          .reduce((n, s) => n + finite(s.activeTimeMs), 0),
+    });
+  }
+  const recentNotes = await Promise.all(
+    notes
+      .filter((n) => n.createdAt >= period.start && n.contentPlain.trim())
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 3)
+      .map(async (n) => ({
+        articleId: n.articleId,
+        selectedText: n.selectedText,
+        contentPlain: n.contentPlain,
+        createdAt: n.createdAt,
+        articleTitle:
+          (await ctx.db.get(n.articleId))?.title ?? "Unavailable article",
+      })),
+  );
+  return {
+    period,
+    thisWeek,
+    lastWeek,
+    daily,
+    articles: articleDetails,
+    recentNotes,
+    partial,
+    engagementScore: null,
+  };
 }
 
-export const getReadingPatterns = query({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const weekAgo = now - WEEK_MS;
-
-    const allInteractions = await ctx.db
-      .query("articleInteractions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(500);
-
-    const thisWeek = allInteractions.filter((i) => i.createdAt >= weekAgo);
-
-    // Heatmap: day x time block
-    const heatmap: Array<{
-      dayOfWeek: number;
-      timeBlock: number;
-      count: number;
-    }> = [];
-    const heatmapMap = new Map<string, number>();
-
-    for (const i of thisWeek) {
-      if (i.action !== "opened" && i.action !== "finished") continue;
-      const d = new Date(i.createdAt);
-      const key = `${d.getDay()}-${getTimeBlock(d.getHours())}`;
-      heatmapMap.set(key, (heatmapMap.get(key) ?? 0) + 1);
-    }
-
-    for (let day = 0; day < 7; day++) {
-      for (let block = 0; block < 4; block++) {
-        heatmap.push({
-          dayOfWeek: day,
-          timeBlock: block,
-          count: heatmapMap.get(`${day}-${block}`) ?? 0,
-        });
-      }
-    }
-
-    // Session durations
-    const allSessions = await ctx.db
-      .query("sessions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(200);
-    const weekSessions = allSessions.filter((s) => s.startedAt >= weekAgo);
-
-    const durationGroups = new Map<
-      number,
-      { count: number; totalActual: number }
-    >();
-    for (const s of weekSessions) {
-      const req = s.requestedMinutes;
-      const group = durationGroups.get(req) ?? { count: 0, totalActual: 0 };
-      group.count++;
-      if (s.endedAt) {
-        group.totalActual += (s.endedAt - s.startedAt) / 60000;
-      }
-      durationGroups.set(req, group);
-    }
-
-    const sessionDurations = [...durationGroups.entries()].map(
-      ([requestedMinutes, g]) => ({
-        requestedMinutes,
-        count: g.count,
-        avgActualMinutes: g.count > 0 ? Math.round(g.totalActual / g.count) : 0,
-      }),
-    );
-
-    // Scroll depth distribution
-    const finishedOrAbandoned = thisWeek.filter(
-      (i) => i.action === "finished" || i.action === "abandoned",
-    );
-    const scrollBuckets = [0, 0, 0, 0, 0];
-    for (const i of finishedOrAbandoned) {
-      const pct = i.maxScrollPercent ?? 0;
-      const bucket = Math.min(4, Math.floor(pct / 20));
-      scrollBuckets[bucket]++;
-    }
-
-    // Annotations by type
-    const finishedArticleIds = new Set(
-      thisWeek.filter((i) => i.action === "finished").map((i) => i.articleId),
-    );
-    const annotationsByType = {
-      cross_reference: { viewed: 0, total: 0 },
-      context: { viewed: 0, total: 0 },
-      tension: { viewed: 0, total: 0 },
-      question: { viewed: 0, total: 0 },
-    };
-
-    for (const articleId of finishedArticleIds) {
-      const annotations = await ctx.db
-        .query("annotations")
-        .withIndex("by_article", (q) => q.eq("articleId", articleId))
-        .collect();
-      for (const ann of annotations) {
-        const t = annotationsByType[ann.type];
-        if (t) {
-          t.total++;
-          if (ann.wasViewed) t.viewed++;
-        }
-      }
-    }
-
-    return {
-      hourlyHeatmap: heatmap,
-      sessionDurations,
-      scrollDepthDistribution: {
-        bucket0to20: scrollBuckets[0],
-        bucket20to40: scrollBuckets[1],
-        bucket40to60: scrollBuckets[2],
-        bucket60to80: scrollBuckets[3],
-        bucket80to100: scrollBuckets[4],
-      },
-      annotationsByType,
-    };
-  },
-});
-
-// ─── Query 3: Article Details ────────────────────────────────
-
+export const getDashboard = query({ args, handler: dashboard });
+// Compatibility for already-loaded older clients. New UI uses one coherent query.
+export const getDashboardOverview = query({ args, handler: dashboard });
 export const getArticleDetails = query({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const weekAgo = now - WEEK_MS;
-
-    const allInteractions = await ctx.db
-      .query("articleInteractions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(500);
-
-    const finished = allInteractions
-      .filter((i) => i.action === "finished" && i.createdAt >= weekAgo)
-      .slice(0, 15);
-
-    const results = await Promise.all(
-      finished.map(async (i) => {
-        const article = await ctx.db.get(i.articleId);
-        if (!article) return null;
-
-        const annotations = await ctx.db
-          .query("annotations")
-          .withIndex("by_article", (q) => q.eq("articleId", i.articleId))
-          .collect();
-
-        const notes = await ctx.db
-          .query("userNotes")
-          .withIndex("by_article", (q) => q.eq("articleId", i.articleId))
-          .collect();
-
-        const reflection = await ctx.db
-          .query("reflections")
-          .withIndex("by_article", (q) => q.eq("articleId", i.articleId))
-          .first();
-
-        const loved = await ctx.db
-          .query("lovedArticles")
-          .withIndex("by_user_article", (q) =>
-            q.eq("userId", DEFAULT_USER_ID).eq("articleId", i.articleId),
-          )
-          .first();
-
-        return {
-          articleId: i.articleId,
-          title: article.title,
-          author: article.author,
-          estimatedReadMinutes: article.estimatedReadMinutes,
-          readAt: i.createdAt,
-          activeTimeMs: i.activeTimeMs ?? i.timeSpentMs ?? 0,
-          wallTimeMs: i.timeSpentMs ?? i.activeTimeMs ?? 0,
-          maxScrollPercent: i.maxScrollPercent ?? 0,
-          annotationsOpened: (i.annotationsOpened ?? []).length,
-          annotationsTotal: annotations.length,
-          tabHiddenCount: i.tabHiddenCount ?? 0,
-          notesCount: notes.length,
-          hasReflection: !!reflection?.userResponse,
-          isLoved: !!loved,
-        };
-      }),
-    );
-
-    return results.filter((result) => result !== null);
-  },
+  args,
+  handler: async (ctx, options) => (await dashboard(ctx, options)).articles,
 });
-
-// ─── Query 4: Recent Notes ──────────────────────────────────
-
 export const getRecentNotes = query({
-  args: {},
-  handler: async (ctx) => {
-    const notes = await ctx.db
-      .query("userNotes")
-      .withIndex("by_user_recent", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(3);
-
-    return Promise.all(
-      notes.map(async (n) => {
-        const article = await ctx.db.get(n.articleId);
-        return {
-          selectedText: n.selectedText,
-          contentPlain: n.contentPlain,
-          articleId: n.articleId,
-          articleTitle: article?.title ?? "Unknown",
-          createdAt: n.createdAt,
-        };
-      }),
-    );
+  args,
+  handler: async (ctx, options) => (await dashboard(ctx, options)).recentNotes,
+});
+export const getReadingPatterns = query({
+  args,
+  handler: async (ctx, options) => {
+    const data = await dashboard(ctx, options);
+    return {
+      daily: data.daily,
+      hourlyHeatmap: [],
+      sessionDurations: [],
+      scrollDepthDistribution: {
+        bucket0to20: 0,
+        bucket20to40: 0,
+        bucket40to60: 0,
+        bucket60to80: 0,
+        bucket80to100: 0,
+      },
+      annotationsByType: {},
+    };
   },
 });
-
-// Keep old query for backward compat (can remove later)
 export const getWeeklyStats = query({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const weekAgo = now - WEEK_MS;
-    const allInteractions = await ctx.db
-      .query("articleInteractions")
-      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-      .order("desc")
-      .take(500);
-    const weekInteractions = allInteractions.filter(
-      (i) => i.createdAt >= weekAgo,
-    );
-    const tw = computeWeekMetrics(weekInteractions);
+  args,
+  handler: async (ctx, options) => {
+    const { thisWeek: s } = await dashboard(ctx, options);
     return {
-      articlesReadCount: tw.articlesFinished,
-      totalActiveTimeMinutes: Math.round(tw.totalActiveTimeMs / 60000),
-      avgScrollDepth: tw.avgScrollDepth,
-      annotationsOpenedCount: tw.annotationsOpenedCount,
+      articlesReadCount: s.articlesFinished,
+      totalActiveTimeMinutes: Math.round(s.totalActiveTimeMs / 60000),
+      avgScrollDepth: s.avgScrollDepth,
+      annotationsOpenedCount: s.annotationsOpenedCount,
     };
   },
 });
