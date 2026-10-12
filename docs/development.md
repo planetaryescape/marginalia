@@ -39,7 +39,7 @@ cd packages/backend
 bunx convex env set READWISE_TOKEN
 ```
 
-In **Sources**, the Reader card should show it is connected. Use its sync button to trigger the first pull. That first sync imports up to 100 recently updated text documents from Reader's Inbox (`new`), Later and Shortlist; subsequent runs overlap the incremental cursor by two minutes. Archive, Feed, PDFs, EPUBs, tweets and videos are not imported. Automatic sync runs every 15 minutes.
+In **Sources**, the Reader card should show it is connected. Use **Sync now** to start or resume the pull. The full Inbox (`new`), Later and Shortlist is imported in pages of five documents, with a minute between pages and paced annotation jobs. There is no total import cap. Older installations also get this full backfill, even if the earlier 100-item sync recorded a watermark. After backfill, each completed sync overlaps its incremental watermark by two minutes. Archive, Feed, PDFs, EPUBs, tweets and videos remain excluded; missing text and oversized documents are skipped. The card shows checked/imported/skipped counts and pending annotations. A large library takes time and incurs model costs as eligible new articles are embedded and annotated. Automatic sync starts or resumes every 15 minutes; successful pages continue without the browser staying open.
 
 This integration is **not read-only**: reading actions can move a linked document between Reader locations, and highlights are pushed to Reader. Inspect `actions/readwiseSync.ts` before testing against a personal account. Use [operations](operations.md#readwise-sync) to verify a change without deleting real data.
 

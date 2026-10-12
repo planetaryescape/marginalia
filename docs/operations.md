@@ -16,6 +16,8 @@ Treat it as live: `convex dev --once` uploads changes to the real reader's backe
 
 Verify the actual web environment and Convex dashboard before deploying. This record describes the observed setup, not a guarantee it remains unchanged.
 
+The Reader backfill/Define release is deployed at `https://marginalia-gan9v8hcs-planetaryescape.vercel.app`, aliased to the reader domain. The shared backend has matching Define validators and active paced backfill; see [deployment verification](verification.md#deployment-verification). Backfill runs without keeping a browser or local frontend open.
+
 ## Deploy
 
 First, select the intended deployment and take a backup using the Convex dashboard/export tools. Then verify locally:
@@ -62,7 +64,11 @@ To roll back the frontend, promote the previously verified Vercel deployment usi
 
 ## Readwise sync
 
-Sources shows connection and last-sync state. Sync runs every 15 minutes when `READWISE_TOKEN` is set. A manual sync may import text and enqueue annotation/model calls. Finishing or abandoning a linked article can move its Reader location; creating/removing linked highlights changes Reader records.
+Sources shows connection, progress and last completed sync. The 15-minute cron starts or resumes a single leased job; successful pages schedule their successor after one minute. It checks every page of Inbox, Later and Shortlist before highlights. A failure retains the cursor and bounded current-page checkpoints; **Sync now** retries after the pacing delay. The watermark advances only after all phases finish. Finishing a linked article archives it in Reader; creating/removing linked highlights changes Reader records.
+
+Deploy the backend before the frontend: the new `define` mode requires matching schema and mutation validators. **Backend deployment automatically enables a full backfill on the next Reader cron, including on previously connected accounts, and can incur embedding/annotation costs.** Obtain approval before updating the shared live backend. Removing `READWISE_TOKEN` pauses further sync steps without deleting imports or checkpoints; already scheduled annotation jobs can still run.
+
+Home totals are maintained transactionally in `readingQueueStats`, independent of the ten-item Up next list. Existing article counts and historical finishes are initialized in bounded, resumable pages by `readingQueue:initialize`; the 15-minute initialization cron runs even without Reader. To initialize immediately after an approved deployment, run `bunx convex run readingQueue:initialize '{}'` from `packages/backend`. This writes derived counts and finish markers, not notes or article bodies. Home displays “Counting your library…” until initialization completes. Do not manually delete counters or edit queue-affecting article fields in the dashboard; use the article/session mutations so counts stay consistent.
 
 Before testing, choose a disposable article in a separate Reader account if possible. Do not delete real Reader documents to verify cleanup. Inspect Convex logs and `readwiseSyncState` after a failure; provider rate limits use bounded retries. Removing the token stops new integration calls but does not delete imported content.
 

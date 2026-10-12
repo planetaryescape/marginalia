@@ -17,6 +17,8 @@ Use this record to preserve decisions that would otherwise be rediscovered durin
 | Preserve existing notes during improvements | Polish must not replace personal reading history with test or demo data | No data migration in this pass; test fixtures stay isolated |
 | Commit and ship finished work to the reader domain | Completed work should be usable, not only local | Vercel production deployment plus live transition checks |
 | Assess phone usability and make the app a PWA | The reader should be usable from a phone and launch from its home screen | Mobile controls, manifest, install instructions and offline fallback; see [phone guide](mobile-and-pwa.md) |
+| Import the remaining eligible Reader library | The 100-item first sync left older unchanged documents permanently unimported | Resumable full backfill, then paginated incremental sync; no total cap |
+| Define terms in their sentence, not just in a dictionary | The reader needs the contextual sense, useful origins and substitutes that fit | Define passage action and `d`; persisted companion mode and prompt tests |
 
 Replay these paths with [the reader guide](reader-guide.md) before changing them.
 
@@ -36,6 +38,8 @@ Replay these paths with [the reader guide](reader-guide.md) before changing them
 | Whole-file atomic vault replacement | A failed upload must not destroy the previous complete index | `noteChunks.replaceFile` and mutation tests |
 | Retain failed note drafts in the editor | Closing should wait for an acknowledged save; offline storage is not promised | Autosave queue tests and reader panel |
 | Reader sync imports unread text queues only | Avoid importing the entire Reader archive or unsupported document formats | `actions/readwiseSync.ts` |
+| Leased, paced Reader pages and durable checkpoints | Avoid overlapping syncs, silent page truncation and uncontrolled annotation bursts; five documents per minute trades speed for predictable load | `readwiseSyncState.ts`, Reader action regression tests |
+| Transactional whole-library Home counts | Separate accurate totals from bounded suggestions; initialize old articles/finishes in small idempotent pages | `readingQueue.ts`, queue count regression tests |
 | Loved-article revisit intervals | Current schedule grows through 3, 5, 8, 13, 21, 34 and 55 days, with jitter | `spacedRepetition.ts`; implementation choice, not a recovered user request |
 | Installable, online-first PWA | Cache only the offline screen, not personal content or versioned Next pages; installation does not promise offline reading | `manifest.ts`, `public/sw.js`, `pwa-runtime.tsx` and worker regression tests |
 | Mobile question inputs and bottom passage tools | Give typing space without fighting native selection handles; VisualViewport positions panels above the keyboard | `article-ask.tsx`, `selection-toolbar.tsx`, `pwa-runtime.tsx` |
