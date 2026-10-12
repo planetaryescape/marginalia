@@ -4,9 +4,34 @@ This app has a Vercel frontend and a separate Convex backend. Deploying one does
 
 ## Access control
 
-**There is no login, per-user authorization or model-call rate limit.** Public Convex queries/mutations/actions operate on `default_user`, and the companion/Library HTTP endpoints are public with permissive CORS. Anyone able to call them may access or mutate the shared library or cause provider spend. The vault upload/hash endpoints alone require `VAULT_INDEXER_API_KEY`.
+The new implementation requires a live owner session on personal Convex queries, mutations, actions and companion/Library/checkpoint HTTP endpoints. Better Auth stores credentials in a local Convex component. The existing library keeps its `default_user` IDs; `readerAccess` binds access to the owner and deployment issuer. Signing out revokes session access, including through an otherwise unexpired JWT. Vault endpoints still use the separate `VAULT_INDEXER_API_KEY`.
 
-A Vercel-only password, obscure domain or restricted CORS does not protect direct Convex APIs. Before storing sensitive material, enforce identity/ownership on the backend and authenticate the AI endpoints. Until then, remove provider credentials or pause the deployment if access/cost exposure is unacceptable. This polish pass does not claim launch security.
+**Authentication is deployed.** The October 12 rollout denies anonymous `home:overview` queries and returns 401 from personal/AI HTTP endpoints. Public signup returns 403. The owner confirmed access to the existing library and enrolled a passkey; the final backup verifies one owner binding and passkey record with the setup token consumed. Passkey sign-in after sign-out and phone/PWA access still need testing. See [rollout verification](verification.md#owner-authentication-rollout).
+
+## Roll out owner authentication
+
+Schedule a short maintenance window with the owner present. Backend-first deployment denies the old frontend's unauthenticated requests until the matching frontend is promoted and the reader is claimed. Do not add a public bypass to avoid that window.
+
+1. Export the intended deployment, including storage. Retain the verified previous frontend and backend source. Verify the CLI deployment before any mutation: the reader currently uses a shared **dev** backend, not Convex production.
+2. Provision a random, password-manager-held `BETTER_AUTH_SECRET` of at least 32 characters on Convex. Set `SITE_URL=https://reader.bhekani.com`. Confirm the web deployment's cloud/site URLs match this backend. Never put secrets in `NEXT_PUBLIC_*` variables.
+3. Run checks and build the matching frontend. Deploy the backend only after approval, then promote the frontend promptly. `convex codegen` uploads bundles for analysis and generates bindings; the observed live check confirmed it had not activated these auth functions. `convex dev --once` is a live update, not a verification command.
+4. Generate a cryptographically random setup token and its lowercase SHA-256 hex digest on the administrator's computer. Keep the token in a private file or password manager, not terminal output, shell history or chat. Issue the digest with a ten-minute expiry through the deployment-admin CLI:
+
+   ```sh
+   cd packages/backend
+   # SETUP_HASH is the digest; EXPIRES_AT is the expiry in Unix milliseconds.
+   bunx convex run access:prepareSetup "{\"hash\":\"$SETUP_HASH\",\"expiresAt\":$EXPIRES_AT}"
+   ```
+
+   This is an internal mutation, not a public signup endpoint. Reissuing a token clears an uncompleted reservation; it refuses once an owner exists. The command contains only a hash, never the plaintext token.
+5. Open `https://reader.bhekani.com/#setup=<token>` privately. The UI immediately removes the fragment and sends the token in `x-reader-setup`. Choose the owner's email and a password of at least 12 characters. Claiming consumes the token transactionally; signup without it remains closed.
+6. In **Your account**, add a passkey. Verify sign-out and passkey sign-in before relying on it. Keep the fallback password in a password manager. Sessions persist for up to 30 days and refresh during use. Password attempts have a shared eight-per-minute budget; passkeys remain available if that budget is flooded.
+7. Optionally set up authenticator codes. Save the displayed recovery codes **before** verifying: verification may refresh the session and close the panel. Password sign-in then asks for an authenticator or recovery code; passkeys instead require device verification. There is no email provider, magic-link or email password-reset flow. Losing all credentials requires administrator recovery; automatic owner reassignment is not implemented.
+8. Verify anonymous backend queries are denied, anonymous companion requests return 401 without provider activity, the owner sees the existing library, and sign-out denies session replay. Then check phone/PWA sign-in and installation on the reader domain.
+
+Passkeys are origin-bound. Development at `localhost:3107` or `localhost:3108` uses separate **localhost** credentials; production credentials do not work there. Raw LAN HTTP addresses and Vercel preview aliases are not trusted auth origins. Use the HTTPS reader domain for phone access. For another installation, set `SITE_URL` to its canonical HTTPS origin.
+
+Include owner/auth component records in backups. Rolling back only the frontend does not remove backend auth; reverting to the previous public backend reopens personal content. Do not clear auth tables or detach the owner as a rollback shortcut.
 
 ## Current deployment
 
@@ -16,7 +41,7 @@ Treat it as live: `convex dev --once` uploads changes to the real reader's backe
 
 Verify the actual web environment and Convex dashboard before deploying. This record describes the observed setup, not a guarantee it remains unchanged.
 
-The Reader backfill/Define release is deployed at `https://marginalia-gan9v8hcs-planetaryescape.vercel.app`, aliased to the reader domain. The shared backend has matching Define validators and active paced backfill; see [deployment verification](verification.md#deployment-verification). Backfill runs without keeping a browser or local frontend open.
+The current release is deployed at `https://marginalia-m5qhcwvpt-planetaryescape.vercel.app`, aliased to the reader domain. It includes the statistics/mobile/auth release, the [search rejection and iPhone feedback fixes](verification.md#search-rejections-and-iphone-feedback), the [summary and mobile collision fixes](verification.md#summary-credit-reservation-and-mobile-collisions), and the [docked mobile Ask correction](verification.md#docked-mobile-ask-correction). The shared backend has the matching owner authentication component and retains paced Reader backfill. See [auth rollout verification](verification.md#owner-authentication-rollout). Backfill runs without keeping a browser or local frontend open.
 
 ## Deploy
 

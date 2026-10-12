@@ -14,20 +14,26 @@ Launch the new home-screen icon. A supporting browser opens Marginalia in a stan
 
 ## Read and write with touch
 
-Use the bottom navigation to move between Library, Notes, This week, Saved and Sources. Tap the wordmark to return Home. All five destinations fit without horizontal navigation scrolling at the inspected phone widths.
+Use the icon-labelled bottom navigation for Home, Library, Notes, Activity, Saved and Sources. Activity opens the reading report; desktop navigation calls it **This week**. Open **Your account** in the header to manage credentials and interaction feedback.
 
 While reading:
 
-- Tap the notes icon, then **+ New** to write an article note. The editor focuses immediately. Wait for **Saved** before leaving it.
-- Select a passage using your phone's text selection. The passage toolbar sits at the bottom on narrow screens; choose a highlight, underline, note or AI action. Native selection handles and menus vary by browser.
+- Tap **Notes** in the reader's bottom controls, then **+ New** to write an article note. The editor focuses immediately. Wait for **Saved** before leaving it.
+- Select a passage using your phone's text selection. Phone passage actions form a labelled two-column context menu beside the selection, rather than a desktop pill at the bottom of the screen. Ask, Explain, Simplify, Define, Highlight, Underline, Note and Copy remain available. Native selection handles and menus vary by browser and still need physical-phone verification.
 - Tap **Ask about this article** for a whole-article question. The question field has its own row on phones; **×** closes it without requiring an Escape key.
-- Tap the star to rate, the heart to love, or **Aa** for appearance and reading settings. Panels scroll when the screen is short.
+- Use **More reading actions** for rating, love and other actions. Reading settings remain in the header; panels scroll on short screens. **Listen** and **Finish** stay in the bottom controls.
 
 Home remains a one-screen desk. On very short displays, its optional Up next list may have no room; use the search picker to reach those articles. Library and the other desk pages scroll within the shared navigation.
 
+After the auth rollout, use a passkey or fallback password to sign in. Enrollment happens in **Your account**. Sessions persist between visits, though browser and installed-PWA storage can differ and may require separate initial sign-ins. No magic links or email setup are required.
+
+In **Your account → Touch feedback**, choose haptics and optional quiet sounds. Sounds default to off. **Test feedback** uses a best-effort iPhone fallback: Safari's native switch control can produce a brief tap during a touch action. This is not a general vibration API, and installing the PWA does not provide one. Older browsers and device settings may prevent the tap. Reduced-motion preferences disable feedback. See [follow-up verification](verification.md#search-rejections-and-iphone-feedback) for deployment status and device-test limits.
+
+Tap **Test feedback** on your iPhone with haptics enabled, then try navigation and a reader action. Test Safari and the installed PWA separately. The tap should not move focus, change reader settings, vibrate continuously or play sounds unless you enabled them. If silent, check Reduce Motion and device haptic settings; soft tap sounds remain optional. Safari's [switch control](https://webkit.org/blog/15054/an-html-switch-control/) arrived in 17.4, but its use for haptics is a workaround, not a platform guarantee.
+
 ## Keep a connection for reading and saves
 
-The PWA caches only a small, self-contained offline screen. It does **not** download articles, persist note drafts, queue offline writes, cache AI answers or provide background sync.
+The PWA caches only a small, self-contained offline screen. It does **not** download articles, persist note drafts, queue offline note writes, cache AI answers or provide background sync. Reading-time checkpoints have their own bounded retry queue; this does not make notes or articles available offline.
 
 If you lose your connection with a note open, keep that window open. Reconnect, use **Retry** if shown, and wait for **Saved**. Do not reload, close the app or navigate away with unsaved text. A phone may discard a background app without showing the browser's tab-close warning.
 

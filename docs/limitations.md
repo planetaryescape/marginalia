@@ -4,8 +4,8 @@ These remain after the polish pass. They are not reasons to replace settled UI d
 
 ## Resolve before a confidential or multi-user release
 
-- **Unauthenticated shared data:** `default_user` is not a security boundary. Public backend functions expose the shared library and mutation surface.
-- **Unbounded AI spend:** public AI endpoints have request validation and a model allowlist but no per-user quota/rate limit.
+- **Credential verification pending:** owner-only authentication is deployed, anonymous access is denied, and the owner confirmed library access and passkey enrollment. Passkey sign-in after sign-out, authenticator enrollment, token refresh and phone/PWA sign-in still need testing. Follow the [account verification steps](operations.md#roll-out-owner-authentication).
+- **AI quotas:** authentication blocks anonymous requests, but there is no owner spending quota. Authorized reading, re-annotation, sync and companion requests can still incur provider spend.
 - **Shared dev/live backend:** the existing production web app uses a Convex development deployment also used locally. Separate it with an explicit backup/migration plan.
 - **External providers:** articles, selections, stored context and indexed notes may be sent to OpenRouter/model providers. Readwise receives linked reading/highlight changes. Consent/retention policy has not been formalized.
 
@@ -15,8 +15,10 @@ See [operations](operations.md#access-control) before deploying sensitive conten
 
 - Notes have in-memory retry and a best-effort tab-close warning, not an offline outbox or durable local draft backup. Navigation away from the reader can still lose unsaved text.
 - PWA installation adds a standalone launcher and an offline fallback, not downloaded articles, offline writes or background sync. Physical phone installation, native text selection and resume/keyboard behaviour still need device checks; see [the phone guide](mobile-and-pwa.md).
-- Some collections are bounded recent views; analytics also retain legacy scans/joins. There is no full pagination/large-library performance contract yet.
-- Reader sync imports unread text queues and limits the first import to 100 recently updated items; it is not a complete mirror of Reader.
+- iPhone touch feedback uses a deployed best-effort Safari native-switch fallback, not a general vibration API. It still needs a physical-phone check; simulated switch toggles cannot prove the device produced a tap.
+- Some collections are bounded recent views. Reading reports cap each input dataset at 5,001 rows and explicitly label partial totals, with the 25 most recent articles shown. There is no full pagination/large-library performance contract yet.
+- Reader sync checks all pages of Inbox, Later and Shortlist with leased/resumable pacing. Archive, Feed, unsupported formats, missing text and oversized documents remain excluded; it is not a complete mirror of Reader.
+- Active reading estimates do not measure comprehension. Historical unrecorded time cannot be reconstructed. Checkpoint retries retain at most 64 visit/day snapshots in local storage; cleared, unavailable or full storage can lose unsent activity. Notes do not use that outbox.
 - Publisher extraction, speech voices and AI provider availability vary. A saved URL does not guarantee successful article extraction.
 - Vault indexing excludes some paths and files over 100KB, may omit small multi-section content and does not split huge single paragraphs. Empty notes do not clear a prior nonempty index. Hashes track file content, so chunker/model changes require an explicit reindex strategy.
 - The vault removal list is derived from eligible local files, not a separate explicit deletion manifest. Always dry-run, especially when switching paths or scanner rules.

@@ -11,11 +11,15 @@ Get the app running with [the README](../README.md#run-locally) first. Use your 
 | `CONVEX_DEPLOYMENT` | `packages/backend/.env.local`, created by Convex CLI | Selecting the CLI's development deployment |
 | `OPENROUTER_API_KEY` | Convex deployment environment; also local indexer environment if used | AI generation and embeddings |
 | `READWISE_TOKEN` | Convex deployment environment only | Optional Readwise Reader integration |
+| `SITE_URL` | Convex deployment environment | Canonical HTTPS web origin for auth; defaults to `https://reader.bhekani.com` |
+| `BETTER_AUTH_SECRET` | Convex deployment environment only | Credential/session protection; random secret of at least 32 characters |
 | `VAULT_INDEXER_API_KEY` | Convex deployment and local indexer environment, matching values | Authenticated vault index uploads and hash reads |
 | `CONVEX_SITE_URL` | Local indexer environment | Vault HTTP endpoints, not the `.convex.cloud` URL |
 | `VAULT_PATH` | Local indexer environment, or `--vault` argument | Vault directory to index |
 
 Only deployment URLs belong in public web variables. Never prefix provider keys with `NEXT_PUBLIC_`, put secrets in docs, or commit a populated environment file. Use your password manager to inject secrets, or an ignored local env file.
+
+The web app proxies auth and personal HTTP requests through same-origin `/api/auth/*`, `/api/reader/*` and `/api/engagement`; Convex queries use an authenticated JWT. Use a separate backend with disposable content for owner setup tests. [The rollout guide](operations.md#roll-out-owner-authentication) explains claiming and credential recovery limits. Local `convex-test` fixtures exercise authentication without enrolling a real owner.
 
 ## Enable AI
 
