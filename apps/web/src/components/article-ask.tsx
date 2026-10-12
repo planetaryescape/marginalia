@@ -21,11 +21,13 @@ function when(timestamp: number) {
 }
 
 /**
- * A pill at the foot of the page for questions about the whole article, with
- * no passage selected. Expands into a question box; "/" opens it.
+ * Desktop pill and whole-article question editor. On phones the reading bar
+ * opens the editor instead of leaving a floating trigger over the content.
  */
 export function ArticleAsk({
   hidden,
+  open,
+  onOpenChange: setOpen,
   onAsk,
   depth,
   onDepthChange,
@@ -35,6 +37,8 @@ export function ArticleAsk({
   onOpen,
 }: {
   hidden: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onAsk: (question: string) => void;
   depth: AnswerDepth;
   onDepthChange: (depth: AnswerDepth) => void;
@@ -44,7 +48,6 @@ export function ArticleAsk({
   history: Doc<"companionThreads">[];
   onOpen: (thread: Doc<"companionThreads">) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -62,12 +65,12 @@ export function ArticleAsk({
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || hidden) return;
     const frame = requestAnimationFrame(() =>
       inputRef.current?.focus({ preventScroll: true }),
     );
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, hidden]);
 
   const submit = () => {
     if (!question.trim()) return;
@@ -85,7 +88,10 @@ export function ArticleAsk({
           exit={{ opacity: 0, y: 12 }}
           transition={{ duration: 0.2 }}
           // Centred by the flex container: motion's inline transform would override a translate class
-          className="fixed bottom-[calc(var(--app-keyboard-inset)+env(safe-area-inset-bottom)+1rem)] inset-x-3 z-30 flex justify-center pointer-events-none"
+          className={cn(
+            "article-ask fixed inset-x-3 z-30 justify-center pointer-events-none",
+            open ? "flex" : "hidden sm:flex",
+          )}
         >
           <div
             className={cn(
@@ -105,6 +111,7 @@ export function ArticleAsk({
             >
               {open ? (
                 <form
+                  id="article-question"
                   className="flex flex-wrap md:flex-nowrap items-center gap-1 px-2 md:pl-3 md:pr-0 w-full"
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -192,14 +199,14 @@ export function ArticleAsk({
               )}
             </motion.div>
 
-            {history.length > 0 && !open && (
+            {history.length > 0 && (
               <Popover.Root>
                 <Popover.Trigger asChild>
                   <button
                     type="button"
                     title="Earlier questions about this article"
                     aria-label="Earlier questions about this article"
-                    className="relative w-10 h-10 flex items-center justify-center rounded-full font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
+                    className="relative shrink-0 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center rounded-full font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
                   >
                     <History size={15} />
                     <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[var(--pen)] text-white text-[9px] font-bold flex items-center justify-center">
@@ -222,7 +229,10 @@ export function ArticleAsk({
                       <Popover.Close asChild key={thread._id}>
                         <button
                           type="button"
-                          onClick={() => onOpen(thread)}
+                          onClick={() => {
+                            setOpen(false);
+                            onOpen(thread);
+                          }}
                           className="w-full text-left rounded-lg px-2.5 py-2 hover:bg-[var(--reader-chip)] transition-colors"
                         >
                           <span className="block text-[13px] leading-snug line-clamp-2">

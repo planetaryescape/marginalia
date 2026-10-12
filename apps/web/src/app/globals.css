@@ -142,6 +142,18 @@ html {
   --app-viewport-height: 100dvh;
   --app-viewport-top: 0px;
   --app-keyboard-inset: 0px;
+  --reader-bottom-clearance: env(safe-area-inset-bottom, 0px);
+}
+
+.article-ask { bottom: calc(max(var(--app-keyboard-inset), var(--reader-bottom-clearance)) + 1rem); }
+@media (max-width: 639px) {
+  :root { --reader-bottom-clearance: calc(51px + max(6px, env(safe-area-inset-bottom))); }
+  .reader-article { padding-bottom: calc(var(--reader-bottom-clearance) + 7rem); }
+}
+
+/* Keep native selection/drag handles, but let the passage menu own touch actions. */
+@media (pointer: coarse) {
+  [data-article-body] { -webkit-touch-callout: none; }
 }
 
 .desk-shell {
@@ -151,7 +163,37 @@ html {
   padding-right: env(safe-area-inset-right);
 }
 
+.auth-screen { min-height: 100dvh; padding: max(2rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-left)); display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: var(--font-dm-sans), sans-serif; background: var(--reader-bg); color: var(--reader-fg); }
+.app-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 18px; border-radius: 12px; font-size: 14px; font-weight: 500; background: var(--reader-fg); color: var(--reader-bg); }
+.app-button.secondary { background: var(--reader-chip); color: var(--reader-fg); border: 1px solid var(--reader-border); }
+.app-button:disabled { opacity: 0.45; }
+.app-input { display: block; width: 100%; min-height: 48px; border: 1px solid var(--reader-border-strong); border-radius: 10px; background: var(--reader-surface); color: var(--reader-fg); padding: 10px 12px; font-size: 16px; }
+.account-section { padding-block: 24px; border-top: 1px solid var(--reader-border); }
+.mobile-menu-action { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 10px; font-family: var(--font-dm-sans), sans-serif; font-size: 14px; text-align: left; }
+.mobile-menu-action:hover { background: var(--reader-chip); }
+.mobile-reader-bar { position: fixed; z-index: 30; inset-inline: 0; bottom: 0; display: flex; align-items: center; padding: 6px max(12px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--reader-surface); border-top: 1px solid var(--reader-border); font-family: var(--font-dm-sans), sans-serif; }
+.mobile-reader-bar button { flex: 1; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; line-height: 14px; color: var(--reader-fg); border-radius: 10px; }
+.mobile-reader-bar button:last-child { background: var(--reader-chip); }
+.mobile-reader-bar button:disabled { opacity: 0.5; }
+.desk-route { scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) { animation: view-away 140ms ease-out both; }
+  ::view-transition-new(root) { animation: view-arrive 180ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes view-away { to { opacity: 0; } }
+  @keyframes view-arrive { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+  .desk-route { animation: desk-arrival 160ms cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes desk-arrival { from { opacity: 0.7; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+}
+@media (pointer: coarse) {
+  :is(button:not(.app-button), .mobile-app-nav a):active { background-color: var(--reader-chip); }
+  .app-button:active { opacity: 0.8; }
+}
+@media (min-width: 640px) { .mobile-reader-bar { display: none; } }
+
 @media (max-width: 767px) {
+  [data-radix-popper-content-wrapper]:has(> .reader-popover) { position: fixed !important; inset: auto 12px calc(var(--app-keyboard-inset) + env(safe-area-inset-bottom) + 12px) !important; transform: none !important; min-width: 0 !important; }
+  .reader-popover { width: 100% !important; max-height: calc(var(--app-viewport-height) - 84px) !important; overflow-y: auto; }
+  .desk-route { scrollbar-gutter: auto; }
   /* Safari zooms small editable text on focus. Keep zoom available to readers. */
   input, textarea, select, [contenteditable="true"] {
     font-size: max(16px, 1em) !important;
@@ -170,12 +212,9 @@ html {
   .reader-prose table { display: block; }
 
   .passage-toolbar {
-    top: auto !important;
-    left: 12px !important;
-    right: 12px;
-    bottom: calc(var(--app-keyboard-inset) + env(safe-area-inset-bottom) + 12px);
-    transform: none !important;
-    translate: none !important;
+    width: min(276px, calc(100vw - 24px));
+    max-height: calc(var(--app-viewport-height) - 80px);
+    overflow-y: auto;
   }
 }
 
@@ -586,6 +625,8 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   .para-flash {
     animation: none;
   }
+  .reader-popover { animation: none !important; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
 }
 
 /* ───────────────────────── Reader: summary ───────────────────────── */

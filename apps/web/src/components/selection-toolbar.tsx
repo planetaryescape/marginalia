@@ -1,5 +1,5 @@
 "use client";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowUp,
   BookA,
@@ -23,8 +23,9 @@ import {
 import { toast } from "sonner";
 import { type CompanionMode, usePassageHighlight } from "@/lib/companion";
 import type { MarkKind } from "@/lib/highlights";
+import { passagePlacement } from "@/lib/passage-placement";
 import type { AnswerDepth } from "@/lib/reader-settings";
-import { useShortcuts } from "@/lib/shortcuts";
+import { isTypingTarget, useShortcuts } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 interface SelectionToolbarProps {
@@ -67,15 +68,27 @@ const MARK_TOOLS = [
   },
   {
     kind: "underline",
-    label: "Pen",
+    label: "Underline",
     key: "P",
     Icon: Underline,
     swatch: "var(--pen)",
   },
 ] as const;
 
-function placement(range: Range) {
+function placement(range: Range, menu?: HTMLElement | null) {
   const rect = range.getBoundingClientRect();
+  if (window.innerWidth < 768) {
+    const v = window.visualViewport;
+    return passagePlacement(
+      rect,
+      {
+        width: v?.width ?? innerWidth,
+        height: v?.height ?? innerHeight,
+        top: v?.offsetTop ?? 0,
+      },
+      { width: 276, height: menu?.offsetHeight || 192 },
+    );
+  }
   const centre = rect.left + rect.width / 2;
   const half = Math.min(270, window.innerWidth / 2 - 12);
   const below = rect.top < 120;
@@ -83,6 +96,7 @@ function placement(range: Range) {
     top: below ? rect.bottom + 10 : rect.top - 10,
     left: Math.min(Math.max(centre, half + 12), window.innerWidth - half - 12),
     below,
+    mobile: false,
   };
 }
 
@@ -98,6 +112,7 @@ export function SelectionToolbar({
   isMarked,
   onToggleMark,
 }: SelectionToolbarProps) {
+  const reducedMotion = useReducedMotion();
   const [range, setRange] = useState<Range | null>(null);
   const [position, setPosition] = useState<ReturnType<typeof placement> | null>(
     null,
@@ -154,17 +169,48 @@ export function SelectionToolbar({
       document.removeEventListener("selectionchange", handleSelectionChange);
   }, [handleSelectionChange]);
 
+  useEffect(() => {
+    const preventDuplicateMenu = (event: MouseEvent) => {
+      if (!window.matchMedia("(pointer: coarse)").matches) return;
+      if (isTypingTarget(event.target)) return;
+      const body = containerRef.current?.querySelector("[data-article-body]");
+      const selection = window.getSelection();
+      if (
+        event.target instanceof Node &&
+        body?.contains(event.target) &&
+        selection &&
+        !selection.isCollapsed &&
+        selection.rangeCount &&
+        selection.toString().trim().length >= 2 &&
+        body.contains(selection.getRangeAt(0).commonAncestorContainer)
+      )
+        event.preventDefault();
+    };
+    document.addEventListener("contextmenu", preventDuplicateMenu);
+    return () =>
+      document.removeEventListener("contextmenu", preventDuplicateMenu);
+  }, [containerRef]);
+
   // Follow the passage while the page scrolls
   useEffect(() => {
     if (!range) return;
-    const reposition = () => setPosition(placement(range));
+    const reposition = () => setPosition(placement(range, toolbarRef.current));
     window.addEventListener("scroll", reposition, { passive: true });
     window.addEventListener("resize", reposition);
+    window.visualViewport?.addEventListener("resize", reposition);
+    window.visualViewport?.addEventListener("scroll", reposition);
     return () => {
       window.removeEventListener("scroll", reposition);
       window.removeEventListener("resize", reposition);
+      window.visualViewport?.removeEventListener("resize", reposition);
+      window.visualViewport?.removeEventListener("scroll", reposition);
     };
   }, [range]);
+  // Re-measure when the Ask editor changes the menu's height.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asking changes the rendered dimensions.
+  useLayoutEffect(() => {
+    if (range) setPosition(placement(range, toolbarRef.current));
+  }, [range, asking]);
 
   // Typing a question moves focus out of the article, so keep the passage tinted
   usePassageHighlight("companion-pending", asking ? range : null);
@@ -250,25 +296,35 @@ export function SelectionToolbar({
   const text = range?.toString().trim() ?? "";
 
   const actionClass =
-    "flex items-center gap-1.5 h-11 md:h-8 px-2.5 rounded-full text-[13px] font-medium transition-colors hover:bg-white/10 dark:hover:bg-ink-950/[0.07]";
+    "flex items-center justify-start gap-2 h-11 md:h-8 px-3 md:px-2.5 rounded-lg md:rounded-full text-[14px] md:text-[13px] font-medium transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10 dark:md:hover:bg-ink-950/[0.07]";
   const iconClass =
-    "w-11 h-11 md:w-8 md:h-8 flex items-center justify-center rounded-full transition-colors hover:bg-white/10 dark:hover:bg-ink-950/[0.07] opacity-70 hover:opacity-100";
+    "h-11 md:w-8 md:h-8 px-3 md:px-0 flex gap-2 items-center justify-start md:justify-center rounded-lg md:rounded-full text-[14px] transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10 dark:md:hover:bg-ink-950/[0.07]";
 
   return (
     <AnimatePresence>
       {position && range && (
         <motion.div
           ref={toolbarRef}
-          initial={{ opacity: 0, y: position.below ? -4 : 4, scale: 0.98 }}
+          initial={
+            reducedMotion
+              ? false
+              : { opacity: 0, y: position.below ? -4 : 4, scale: 0.98 }
+          }
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: position.below ? -4 : 4, scale: 0.98 }}
-          transition={{ duration: 0.14, ease: "easeOut" }}
+          exit={
+            reducedMotion
+              ? { opacity: 0 }
+              : { opacity: 0, y: position.below ? -4 : 4, scale: 0.98 }
+          }
+          transition={{ duration: reducedMotion ? 0 : 0.14, ease: "easeOut" }}
           className="passage-toolbar fixed z-50"
+          role="toolbar"
+          aria-label="Passage actions"
           style={{
             top: position.top,
             left: position.left,
-            translateX: "-50%",
-            translateY: position.below ? "0%" : "-100%",
+            x: "-50%",
+            translateY: position.mobile || position.below ? "0%" : "-100%",
           }}
           onMouseDown={(e) => {
             // Keep the article selection alive, except when typing a question
@@ -276,9 +332,16 @@ export function SelectionToolbar({
           }}
         >
           <motion.div
-            layout
-            transition={{ type: "spring", damping: 30, stiffness: 420 }}
-            className="flex flex-wrap md:flex-nowrap items-center justify-center gap-y-1 p-1 rounded-2xl md:rounded-full font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_8px_30px_-6px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
+            layout={!reducedMotion}
+            transition={
+              reducedMotion
+                ? { duration: 0 }
+                : { type: "spring", damping: 30, stiffness: 420 }
+            }
+            className={cn(
+              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-2xl md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:bg-ink-950 md:text-parchment-50 dark:md:bg-parchment-50 dark:md:text-ink-950 shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
+              asking && "block",
+            )}
           >
             {asking ? (
               <form
@@ -383,7 +446,7 @@ export function SelectionToolbar({
                   <BookA size={14} />
                   Define
                 </button>
-                <span className="w-px h-4 mx-1 bg-current opacity-20" />
+                <span className="hidden md:block w-px h-4 mx-1 bg-current opacity-20" />
                 {MARK_TOOLS.map(({ kind, label, key, Icon, swatch }) => {
                   const active = isMarked(kind, range);
                   return (
@@ -402,6 +465,9 @@ export function SelectionToolbar({
                       onClick={() => toggleMark(kind)}
                     >
                       <Icon size={14} />
+                      <span className="md:hidden">
+                        {active ? "Remove mark" : label}
+                      </span>
                       <span
                         className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-[2px] w-3 rounded-full"
                         style={{ background: swatch }}
@@ -419,6 +485,7 @@ export function SelectionToolbar({
                   }}
                 >
                   <NotebookPen size={14} />
+                  <span className="md:hidden">Note</span>
                 </button>
                 <button
                   className={iconClass}
@@ -431,6 +498,7 @@ export function SelectionToolbar({
                   }}
                 >
                   <Copy size={14} />
+                  <span className="md:hidden">Copy</span>
                 </button>
               </>
             )}

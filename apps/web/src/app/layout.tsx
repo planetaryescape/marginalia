@@ -10,7 +10,9 @@ import {
 } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
+import { InteractionFeedback } from "@/components/interaction-feedback";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { PageTransitions } from "@/components/page-transitions";
 import { PwaRuntime } from "@/components/pwa-runtime";
 import { ConvexClientProvider } from "@/lib/convex";
 import "./globals.css";
@@ -125,8 +127,10 @@ export default function RootLayout({
             </div>
             <Toaster position="bottom-center" />
             <KeyboardShortcuts />
-            <PwaRuntime />
           </ConvexClientProvider>
+          <PwaRuntime />
+          <InteractionFeedback />
+          <PageTransitions />
         </ThemeProvider>
       </body>
     </html>

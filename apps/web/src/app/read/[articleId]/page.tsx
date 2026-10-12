@@ -2,7 +2,14 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import * as Popover from "@radix-ui/react-popover";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Star } from "lucide-react";
+import {
+  Check,
+  Headphones,
+  MessagesSquare,
+  MoreHorizontal,
+  NotebookPen,
+  Star,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -75,12 +82,9 @@ export default function ReadPage() {
     articleId: articleId as any,
   });
 
-  const updateSession = useMutation(api.sessions.updateStatus);
-  const recordInteraction = useMutation(api.sessions.recordInteraction);
-  const { trackAnnotationOpen, getSnapshot } = useEngagementTracker();
-
-  const [scrollPercent, setScrollPercent] = useState(0);
+  const [finishing, setFinishing] = useState(false);
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
+  const [articleAskOpen, setArticleAskOpen] = useState(false);
   const [ratingOpen, setRatingOpen] = useState(false);
   const [cursor, setCursor] = useState<number | null>(null);
   const passageCycle = useRef<{ paragraph: HTMLElement | null; index: number }>(
@@ -92,7 +96,6 @@ export default function ReadPage() {
     endOffset?: number;
   } | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
-  const hasRecordedAbandon = useRef(false);
 
   const createNote = useMutation(api.userNotes.create);
   const { settings, update: updateSettings, resetText } = useReaderSettings();
@@ -111,6 +114,19 @@ export default function ReadPage() {
     settings,
   });
   const listen = useListen(articleRef);
+  const {
+    trackAnnotationOpen,
+    finish,
+    retry,
+    saveError,
+    progress: scrollPercent,
+  } = useEngagementTracker({
+    articleId,
+    sessionId,
+    ready: Boolean(article),
+    containerRef: articleRef,
+    listening: listen.active,
+  });
   usePassageHighlight("companion-passage", companion.thread?.range ?? null);
 
   // One margin card at a time: an auto annotation or a companion thread
@@ -300,73 +316,20 @@ export default function ReadPage() {
     Boolean(article),
   );
 
-  // Scroll tracking
-  useEffect(() => {
-    const handleScroll = () => {
-      const el = articleRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const totalHeight = el.scrollHeight;
-      const scrolled = Math.max(0, -rect.top);
-      const pct = Math.min(
-        100,
-        Math.round((scrolled / (totalHeight - viewportHeight)) * 100),
-      );
-      setScrollPercent(pct);
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  // Abandon tracking
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (hasRecordedAbandon.current) return;
-      hasRecordedAbandon.current = true;
-      const snap = getSnapshot();
-      navigator.sendBeacon?.(
-        "/api/engagement",
-        JSON.stringify({ articleId, sessionId, action: "abandoned", ...snap }),
-      );
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [articleId, sessionId, getSnapshot]);
-
   const handleDone = useCallback(async () => {
-    hasRecordedAbandon.current = true;
-    const snap = getSnapshot();
-    if (sessionId) {
-      await updateSession({
-        sessionId: sessionId as any,
-        readingStatus: "completed",
-        scrollPercentage: snap.maxScrollPercent,
-        annotationsViewed: snap.annotationsOpened.length,
-        timeSpentMs: snap.activeTimeMs,
-      });
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      await finish();
+      router.push("/");
+    } catch {
+      toast.error(
+        "Couldn't save your reading activity. Check your connection and try again.",
+      );
+    } finally {
+      setFinishing(false);
     }
-    await recordInteraction({
-      articleId: articleId as any,
-      sessionId: sessionId ? (sessionId as any) : undefined,
-      action: "finished",
-      scrollPercentage: snap.maxScrollPercent,
-      timeSpentMs: snap.activeTimeMs,
-      activeTimeMs: snap.activeTimeMs,
-      maxScrollPercent: snap.maxScrollPercent,
-      annotationsOpened: snap.annotationsOpened,
-      totalScrollEvents: snap.totalScrollEvents,
-      tabHiddenCount: snap.tabHiddenCount,
-    });
-    router.push("/");
-  }, [
-    sessionId,
-    articleId,
-    updateSession,
-    recordInteraction,
-    getSnapshot,
-    router,
-  ]);
+  }, [finish, finishing, router]);
 
   const handleAnnotationSelect = useCallback(
     (annotationId: string | null) => {
@@ -468,6 +431,10 @@ export default function ReadPage() {
             &larr; Back
           </Link>
 
+          <span className="sm:hidden flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--reader-fg-soft)]">
+            {article.title}
+          </span>
+
           <div className="flex items-center gap-0 sm:gap-3">
             <span className="hidden sm:inline text-[var(--reader-muted)] font-sans text-xs">
               {estimatedMinRemaining
@@ -478,7 +445,7 @@ export default function ReadPage() {
             {/* Notes button */}
             <button
               onClick={() => setNotesPanelOpen((o) => !o)}
-              className={`relative w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full transition-colors ${
+              className={`relative w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full transition-colors ${
                 notesPanelOpen
                   ? "bg-annotation-crossref/20 text-annotation-crossref"
                   : "hover:bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
@@ -517,7 +484,7 @@ export default function ReadPage() {
                   toast.error("Failed to re-annotate");
                 }
               }}
-              className="w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] transition-colors"
+              className="w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] transition-colors"
               title="Re-annotate with latest vault"
               aria-label="Re-annotate with latest vault"
             >
@@ -540,7 +507,7 @@ export default function ReadPage() {
             <Popover.Root open={ratingOpen} onOpenChange={setRatingOpen}>
               <Popover.Trigger asChild>
                 <button
-                  className={`w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full transition-colors ${
+                  className={`w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full transition-colors ${
                     impression?.rating
                       ? "text-[var(--pen)]"
                       : "text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]"
@@ -583,7 +550,7 @@ export default function ReadPage() {
                   await loveArticle({ articleId: articleId as any });
                 }
               }}
-              className={`w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center rounded-full transition-colors ${
+              className={`w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full transition-colors ${
                 isLoved
                   ? "text-red-500"
                   : "text-[var(--reader-muted)] hover:text-red-400 hover:bg-[var(--reader-chip)]"
@@ -612,9 +579,111 @@ export default function ReadPage() {
               listening={listen.active}
               onToggleListen={toggleListen}
             />
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  className="sm:hidden w-11 h-11 flex items-center justify-center"
+                  aria-label="More reading actions"
+                >
+                  <MoreHorizontal size={22} />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  align="end"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className="reader-popover z-50 p-2 w-60 rounded-2xl bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-lg"
+                >
+                  <button
+                    className="mobile-menu-action"
+                    onClick={() => setRatingOpen(true)}
+                  >
+                    Rate this article
+                  </button>
+                  <button
+                    className="mobile-menu-action"
+                    onClick={async () => {
+                      try {
+                        if (isLoved)
+                          await unloveArticle({ articleId: articleId as any });
+                        else await loveArticle({ articleId: articleId as any });
+                      } catch {
+                        toast.error("Couldn't update loved articles");
+                      }
+                    }}
+                  >
+                    {isLoved ? "Remove from loved" : "Love this article"}
+                  </button>
+                  <button
+                    className="mobile-menu-action"
+                    onClick={async () => {
+                      try {
+                        await reannotate({ articleId: articleId as any });
+                        toast.success("Re-annotating with latest vault…");
+                      } catch {
+                        toast.error("Couldn't re-annotate");
+                      }
+                    }}
+                  >
+                    Re-annotate
+                  </button>
+                  <Link className="mobile-menu-action" href="/account">
+                    Your account
+                  </Link>
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
           </div>
         </div>
       </div>
+
+      <nav
+        aria-label="Reading controls"
+        className="mobile-reader-bar sm:hidden"
+      >
+        <button
+          aria-label="Ask about this article"
+          aria-expanded={articleAskOpen}
+          aria-controls={articleAskOpen ? "article-question" : undefined}
+          disabled={listen.active || Boolean(saveError)}
+          onClick={() => {
+            setNotesPanelOpen(false);
+            setActiveAnnotation(null);
+            companion.close();
+            setArticleAskOpen((open) => !open);
+          }}
+        >
+          <MessagesSquare size={19} />
+          Ask
+        </button>
+        <button onClick={() => setNotesPanelOpen(true)}>
+          <NotebookPen size={19} />
+          Notes{noteCount ? ` · ${noteCount}` : ""}
+        </button>
+        <button onClick={toggleListen} aria-pressed={listen.active}>
+          <Headphones size={19} />
+          {listen.active ? "Stop" : "Listen"}
+        </button>
+        <button disabled={finishing} onClick={handleDone}>
+          <Check size={19} />
+          {finishing ? "Saving…" : "Finish"}
+        </button>
+      </nav>
+      {saveError && (
+        <div
+          role="status"
+          className="fixed z-40 left-3 right-3 bottom-20 rounded-xl bg-[var(--reader-surface)] p-3 text-sm font-sans ring-1 ring-[var(--reader-border)]"
+        >
+          Reading activity is waiting to sync.{" "}
+          <button
+            className="underline min-h-11"
+            onClick={() => void retry().catch(() => {})}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Selection toolbar — Ask / Explain / Simplify, note and copy */}
       <SelectionToolbar
@@ -647,7 +716,7 @@ export default function ReadPage() {
       <article
         ref={articleRef}
         className={cn(
-          "mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
+          "reader-article mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
           settings.numbers && "reader-numbers",
           settings.focus && "reader-focus",
           settings.align === "justify" && "reader-justify",
@@ -762,7 +831,15 @@ export default function ReadPage() {
       )}
 
       <ArticleAsk
-        hidden={companion.thread?.mode === "article" || listen.active}
+        open={articleAskOpen}
+        onOpenChange={setArticleAskOpen}
+        hidden={Boolean(
+          companion.thread ||
+            activeAnnotation ||
+            notesPanelOpen ||
+            listen.active ||
+            saveError,
+        )}
         onAsk={(question) => {
           setActiveAnnotation(null);
           companion.startArticle(question);
