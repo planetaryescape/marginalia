@@ -1,5 +1,9 @@
 "use client";
-import { Fingerprint, LogOut, ShieldCheck } from "lucide-react";
+import { api } from "@marginalia/backend/convex/_generated/api";
+import { useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
+import { Fingerprint, LogOut, ShieldCheck, Users } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import QRCode from "react-qr-code";
 import { AiProviders } from "@/components/ai-providers";
@@ -9,6 +13,7 @@ import { authClient } from "@/lib/auth-client";
 
 export default function AccountPage() {
   const { data: session } = authClient.useSession();
+  const reader = useQuery(api.auth.currentReader, {});
   const { data: passkeys, refetch } = authClient.useListPasskeys();
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -39,8 +44,19 @@ export default function AccountPage() {
   return (
     <DeskPage title="Your account">
       <p className="text-sm text-[var(--reader-muted)] mb-8">
-        {session?.user.email} · Private, owner-only reader
+        {reader?.email ?? session?.user.email}
+        {reader?.isOwner && " · Owner"}
       </p>
+      {reader?.isOwner && (
+        <Link
+          href="/readers"
+          data-reader-transition
+          className="app-button secondary mb-8"
+        >
+          <Users size={18} />
+          Manage readers and requests
+        </Link>
+      )}
       <section className="account-section">
         <h2 className="flex items-center gap-2 font-serif text-2xl">
           <Fingerprint size={22} />
@@ -282,6 +298,61 @@ export default function AccountPage() {
         <LogOut size={18} />
         Sign out
       </button>
+      {reader && !reader.isOwner && <DeleteAccount />}
     </DeskPage>
+  );
+}
+
+const CONFIRM = "DELETE";
+
+function DeleteAccount() {
+  const deleteMine = useMutation(api.account.deleteMine);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <section className="account-section mb-8">
+      <h2 className="font-serif text-2xl mb-3">Delete my account</h2>
+      <p className="text-sm text-[var(--reader-muted)] mb-4">
+        Removes your library, notes, highlights, saved keys and Readwise
+        connection, then your sign-in. This can't be undone.
+      </p>
+      <label className="block text-sm">
+        Type {CONFIRM} to confirm
+        <input
+          className="app-input mt-2 max-w-sm"
+          autoComplete="off"
+          spellCheck={false}
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+        />
+      </label>
+      <button
+        className="app-button secondary mt-4"
+        disabled={busy || typed !== CONFIRM}
+        onClick={async () => {
+          setBusy(true);
+          setError("");
+          try {
+            await deleteMine({ confirmation: typed });
+            await authClient.signOut().catch(() => {});
+          } catch (e) {
+            setError(
+              e instanceof ConvexError && typeof e.data === "string"
+                ? e.data
+                : "Couldn't delete your account. Try again.",
+            );
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Deleting…" : "Delete my account"}
+      </button>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-annotation-tension">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }

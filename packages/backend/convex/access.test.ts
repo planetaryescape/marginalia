@@ -10,21 +10,32 @@ afterEach(() => {
 });
 
 describe("private reader access", () => {
-  it("limits password attempts independently of forwarded IP headers", async () => {
+  it("limits password attempts per email, with a global ceiling, independently of forwarded IP headers", async () => {
     const t = readerTest(modules);
+    const attempt = (email: string) =>
+      t.mutation(internal.access.allowPasswordAttempt, { email });
     vi.useFakeTimers();
     try {
       for (let i = 0; i < 8; i++)
-        expect(await t.mutation(internal.access.allowPasswordAttempt, {})).toBe(
-          true,
-        );
-      expect(await t.mutation(internal.access.allowPasswordAttempt, {})).toBe(
-        false,
-      );
+        expect(await attempt("owner@example.com")).toBe(true);
+      expect(await attempt("owner@example.com")).toBe(false);
+      // Case and spacing don't open a fresh budget for the same account
+      expect(await attempt(" OWNER@example.com ")).toBe(false);
+      // Another account keeps its own budget
+      expect(await attempt("reader@example.com")).toBe(true);
       vi.advanceTimersByTime(60000);
-      expect(await t.mutation(internal.access.allowPasswordAttempt, {})).toBe(
-        true,
-      );
+      expect(await attempt("owner@example.com")).toBe(true);
+
+      // Spraying many emails hits the global ceiling
+      vi.advanceTimersByTime(60000);
+      for (let i = 0; i < 60; i++)
+        expect(await attempt(`spray-${i}@example.com`)).toBe(true);
+      expect(await attempt("fresh@example.com")).toBe(false);
+      expect(await attempt("owner@example.com")).toBe(false);
+      vi.advanceTimersByTime(60000);
+      expect(await attempt("owner@example.com")).toBe(true);
+      // A refused attempt doesn't spend another account's budget
+      expect(await attempt("spray-0@example.com")).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -242,8 +253,10 @@ describe("private reader access", () => {
 
   it("accepts only the owner's live session from this deployment", async () => {
     const t = await ownerTest(modules);
-    expect(await t.query(api.auth.currentOwner, {})).toEqual({
+    expect(await t.query(api.auth.currentReader, {})).toEqual({
+      isOwner: true,
       email: "owner@example.com",
+      name: "Owner fixture",
     });
     const identity = await t.run((ctx) => ctx.auth.getUserIdentity());
     if (!identity) throw new Error("Fixture missing identity");
@@ -264,7 +277,7 @@ describe("private reader access", () => {
       },
     });
     await expect(t.query(api.home.overview, {})).rejects.toThrow("Sign in");
-    expect(await t.query(api.auth.currentOwner, {})).toBeNull();
+    expect(await t.query(api.auth.currentReader, {})).toBeNull();
   });
 
   it("rejects expired sessions even when their JWT identity remains", async () => {

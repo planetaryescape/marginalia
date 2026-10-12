@@ -1,5 +1,6 @@
-// Reader API keys are sealed with AES-256-GCM under a server-held key. Only
-// actions that call a provider decrypt them; nothing returns or logs them.
+// Reader API keys and Readwise tokens are sealed with AES-256-GCM under a
+// server-held key. Only actions that call the service decrypt them; nothing
+// returns or logs them.
 import { ConvexError } from "convex/values";
 import { PROVIDER_NAMES, type Provider } from "./providers";
 
@@ -35,8 +36,11 @@ async function serverKey(): Promise<CryptoKey> {
   ]);
 }
 
-// Binds a ciphertext to its reader and provider: a row copied elsewhere fails
-function additionalData(userId: string, provider: Provider) {
+/** What a sealed secret belongs to: an AI provider, or the reader's Readwise. */
+export type SealedService = Provider | "readwise";
+
+// Binds a ciphertext to its reader and service: a row copied elsewhere fails
+function additionalData(userId: string, provider: SealedService) {
   return new TextEncoder().encode(
     `marginalia/provider-key/v1\u0000${userId}\u0000${provider}`,
   );
@@ -45,7 +49,7 @@ function additionalData(userId: string, provider: Provider) {
 export async function encryptProviderKey(
   plaintext: string,
   userId: string,
-  provider: Provider,
+  provider: SealedService,
 ): Promise<{ ciphertext: string; iv: string }> {
   const key = await serverKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -59,7 +63,7 @@ export async function encryptProviderKey(
 
 export async function decryptProviderKey(row: {
   userId: string;
-  provider: Provider;
+  provider: SealedService;
   ciphertext: string;
   iv: string;
 }): Promise<string> {

@@ -1,8 +1,9 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -104,13 +105,119 @@ export function ReadwiseCard() {
           {status.error}
         </p>
       )}
-      {!status.connected && (
-        <p className="mt-2 text-xs leading-relaxed text-[var(--reader-muted)]">
-          Set <code className="font-mono">READWISE_TOKEN</code> in Convex to
-          import your Inbox, Later and Shortlist. Finishing an article archives
-          it in Reader, and highlights sync both ways.
-        </p>
+      {status.source === "saved" && status.last4 && (
+        <DisconnectReadwise last4={status.last4} />
+      )}
+      {status.source !== "saved" && (
+        <ConnectReadwise deployment={status.source === "deployment"} />
       )}
     </section>
+  );
+}
+
+function ConnectReadwise({ deployment }: { deployment: boolean }) {
+  const id = useId();
+  const connect = useAction(api.readwise.connect);
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <form
+      className="mt-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!token.trim()) return;
+        setBusy(true);
+        setError("");
+        try {
+          await connect({ token });
+          toast.success("Readwise connected. Your first sync is starting.");
+        } catch (err) {
+          setError(
+            err instanceof ConvexError && typeof err.data === "string"
+              ? err.data
+              : "Couldn't connect Readwise. Try again.",
+          );
+        } finally {
+          // The token never stays in the page once it has been sent
+          setToken("");
+          setBusy(false);
+        }
+      }}
+    >
+      <label
+        htmlFor={id}
+        className="block text-xs leading-relaxed text-[var(--reader-muted)]"
+      >
+        {deployment
+          ? "Using the reader's built-in Readwise token. Connect your own to replace it. "
+          : "Connect Readwise to import your Inbox, Later and Shortlist. Finishing an article archives it in Reader, and highlights sync both ways. "}
+        Get your token at{" "}
+        <a
+          className="underline"
+          href="https://readwise.io/access_token"
+          target="_blank"
+          rel="noreferrer"
+        >
+          readwise.io/access_token
+        </a>
+        .
+      </label>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <input
+          id={id}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Readwise access token"
+          className="app-input max-w-sm flex-1"
+          value={token}
+          disabled={busy}
+          aria-invalid={Boolean(error)}
+          onChange={(e) => setToken(e.target.value)}
+        />
+        <button
+          type="submit"
+          className="app-button secondary"
+          disabled={busy || !token.trim()}
+        >
+          {busy ? "Checking…" : "Connect"}
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-annotation-tension">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+function DisconnectReadwise({ last4 }: { last4: string }) {
+  const disconnect = useMutation(api.readwise.disconnect);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[var(--reader-muted)]">
+      <span>Your token, ending {last4}</span>
+      <button
+        type="button"
+        className="min-h-11 px-3 text-sm text-[var(--reader-fg)]"
+        disabled={busy}
+        onClick={() => {
+          if (
+            !confirm(
+              "Disconnect Readwise? Articles already imported stay in your library.",
+            )
+          )
+            return;
+          setBusy(true);
+          disconnect({})
+            .catch(() => toast.error("Couldn't disconnect Readwise"))
+            .finally(() => setBusy(false));
+        }}
+      >
+        Disconnect
+      </button>
+    </div>
   );
 }

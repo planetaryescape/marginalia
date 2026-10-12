@@ -106,7 +106,7 @@ Before testing, choose a disposable article in a separate Reader account if poss
 | No annotation output | Check extraction and annotation status; inspect model errors/quota before manually retrying one article |
 | Answer stops mid-stream | Retry; do not treat the incomplete answer as finished. Check provider/network logs |
 | Note says it was not saved | Keep the editor open, restore connectivity and Retry before navigating away |
-| Reader card disconnected | Set `READWISE_TOKEN` on the backend, not in web variables |
+| Reader card disconnected | Connect a Readwise token from the Sources page; it's stored encrypted per reader |
 | Vault request returns 401 | The local and deployment vault keys must match |
 | Vault run exits non-zero | Old file index is preserved for failed replacements; resolve the error and rerun the same vault |
 | Route typecheck refers to an old path | `bun run typecheck` regenerates Next route types before checking |

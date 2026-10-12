@@ -10,7 +10,7 @@ import {
   mutation as rawMutation,
   query as rawQuery,
 } from "./_generated/server";
-import { requireReader } from "./access";
+import { requireOwner, requireReader } from "./access";
 
 export * from "./_generated/server";
 
@@ -32,5 +32,28 @@ export const action = customAction(
       {},
     );
     return { readerId };
+  }),
+);
+
+// Administration that only the owner's live session may run
+export const ownerQuery = customQuery(
+  rawQuery,
+  customCtx(async (ctx) => {
+    await requireOwner(ctx);
+    return {};
+  }),
+);
+export const ownerMutation = customMutation(
+  rawMutation,
+  customCtx(async (ctx) => {
+    await requireOwner(ctx);
+    return {};
+  }),
+);
+export const ownerAction = customAction(
+  rawAction,
+  customCtx(async (ctx) => {
+    await ctx.runQuery(internal.access.assertOwner, {});
+    return {};
   }),
 );

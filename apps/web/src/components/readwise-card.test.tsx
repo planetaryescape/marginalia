@@ -7,13 +7,17 @@ const fixture = vi.hoisted(() => {
     error: string | null;
     active: boolean;
     pending: number | null;
-  } = { error: null, active: true, pending: null };
+    connected: boolean;
+  } = { error: null, active: true, pending: null, connected: true };
   return state;
 });
 vi.mock("convex/react", () => ({
   useAction: () => vi.fn(),
+  useMutation: () => vi.fn(),
   useQuery: () => ({
-    connected: true,
+    connected: fixture.connected,
+    source: fixture.connected ? "saved" : null,
+    last4: fixture.connected ? "abcd" : null,
     syncedAt: 1,
     checkedAt: 1,
     error: fixture.error,
@@ -34,6 +38,7 @@ afterEach(() => {
   fixture.error = null;
   fixture.active = true;
   fixture.pending = null;
+  fixture.connected = true;
 });
 
 describe("Reader progress", () => {
@@ -56,5 +61,13 @@ describe("Reader progress", () => {
       "15 articles awaiting annotation across your library",
     );
     expect(html).toContain("Reader is temporarily unavailable");
+  });
+  it("lets a reader connect their own token, or disconnect a saved one", () => {
+    expect(renderToStaticMarkup(<ReadwiseCard />)).toContain("ending abcd");
+    fixture.connected = false;
+    const html = renderToStaticMarkup(<ReadwiseCard />);
+    expect(html).toContain("Not connected");
+    expect(html).toContain("Readwise access token");
+    expect(html).not.toContain("READWISE_TOKEN");
   });
 });

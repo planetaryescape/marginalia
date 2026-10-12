@@ -2,11 +2,56 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // Fixed-window budgets for unauthenticated endpoints: "password" (global),
+  // "password:<email>" and "waitlist". Stale rows are swept hourly.
   authAttempts: defineTable({
-    scope: v.literal("password"),
+    scope: v.string(),
     startedAt: v.number(),
     count: v.number(),
-  }).index("by_scope", ["scope"]),
+  })
+    .index("by_scope", ["scope"])
+    .index("by_startedAt", ["startedAt"]),
+  // Per-reader fixed-window budgets, one row per reader and bucket
+  readerLimits: defineTable({
+    userId: v.string(),
+    bucket: v.string(),
+    startedAt: v.number(),
+    count: v.number(),
+  }).index("by_userId_and_bucket", ["userId", "bucket"]),
+  // Public waitlist. Never reveals whether an email is already on it.
+  accessRequests: defineTable({
+    email: v.string(),
+    name: v.string(),
+    note: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("declined"),
+    ),
+    createdAt: v.number(),
+    decidedAt: v.optional(v.number()),
+    inviteId: v.optional(v.id("invites")),
+  })
+    .index("by_email", ["email"])
+    .index("by_status_and_createdAt", ["status", "createdAt"]),
+  // One-time invites. Only the SHA-256 of the token is stored; the owner
+  // receives the plaintext link once, when approving.
+  invites: defineTable({
+    tokenHash: v.string(),
+    email: v.string(),
+    name: v.optional(v.string()),
+    requestId: v.optional(v.id("accessRequests")),
+    expiresAt: v.number(),
+    // Set by the sign-up hook once the token checks out; the user trigger
+    // only consumes a recently reserved invite
+    reservedAt: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
+    consumedBy: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_email", ["email"]),
   readerAccess: defineTable({
     key: v.literal("owner"),
     email: v.optional(v.string()),
@@ -20,8 +65,15 @@ export default defineSchema({
     authId: v.string(),
     libraryId: v.string(),
     status: v.union(v.literal("active"), v.literal("disabled")),
+    email: v.optional(v.string()),
+    name: v.optional(v.string()),
+    // Set when the reader deletes their account; the purge runs in batches
+    deletingAt: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_authId", ["authId"]),
+  })
+    .index("by_authId", ["authId"])
+    .index("by_libraryId", ["libraryId"])
+    .index("by_status", ["status"]),
   feeds: defineTable({
     userId: v.string(),
     url: v.string(),
@@ -330,6 +382,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_article", ["articleId"])
+    .index("by_user", ["userId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
@@ -410,7 +463,9 @@ export default defineSchema({
     ),
     model: v.string(),
     createdAt: v.number(),
-  }).index("by_article", ["articleId"]),
+  })
+    .index("by_article", ["articleId"])
+    .index("by_user", ["userId"]),
 
   // How an article landed with the reader: a 1–5 rating, quick tags and a
   // line on what stayed with them. Embedded so the library can recall it.
@@ -448,6 +503,18 @@ export default defineSchema({
     updatedAt: v.number(),
     validatedAt: v.number(),
   }).index("by_userId_and_provider", ["userId", "provider"]),
+
+  // A reader's own Readwise access token, sealed like provider keys but kept
+  // apart so it never appears among AI providers or model lists.
+  readwiseCredentials: defineTable({
+    userId: v.string(),
+    ciphertext: v.string(),
+    iv: v.string(),
+    last4: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    validatedAt: v.number(),
+  }).index("by_userId", ["userId"]),
 
   // One row per user. Model IDs are validated against the reader's available
   // models in lib/providers.ts; older rows hold bare OpenRouter IDs.

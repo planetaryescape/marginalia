@@ -8,7 +8,6 @@ afterEach(() => {
 
 describe("Reader page requests", () => {
   it("defers long rate-limit waits rather than retrying before Retry-After", async () => {
-    vi.stubEnv("READWISE_TOKEN", "test-token");
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("rate limited", {
         status: 429,
@@ -16,13 +15,12 @@ describe("Reader page requests", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    await expect(listDocumentPage({ location: "new" })).rejects.toEqual(
-      new ReadwiseRateLimitError(300_250),
-    );
+    await expect(
+      listDocumentPage("test-token", { location: "new" }),
+    ).rejects.toEqual(new ReadwiseRateLimitError(300_250));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it("sends a bounded limit and preserved cursor and incremental filter", async () => {
-    vi.stubEnv("READWISE_TOKEN", "test-token");
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -32,7 +30,7 @@ describe("Reader page requests", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
     expect(
-      await listDocumentPage({
+      await listDocumentPage("test-token", {
         location: "later",
         pageCursor: "saved cursor",
         updatedAfter: "2026-01-01T00:00:00Z",
@@ -50,11 +48,12 @@ describe("Reader page requests", () => {
   });
 
   it("doesn't hide API errors as an empty or complete page", async () => {
-    vi.stubEnv("READWISE_TOKEN", "test-token");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("outage", { status: 503 })),
     );
-    await expect(listDocumentPage({ location: "new" })).rejects.toThrow("503");
+    await expect(
+      listDocumentPage("test-token", { location: "new" }),
+    ).rejects.toThrow("503");
   });
 });

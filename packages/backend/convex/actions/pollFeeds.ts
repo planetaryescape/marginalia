@@ -6,6 +6,8 @@ import { internalAction } from "../_generated/server";
 export const pollAllFeeds = internalAction({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    // Disabled and deleted readers get no background work
+    if (!(await ctx.runQuery(internal.access.libraryActive, args))) return;
     const feeds = await ctx.runQuery(internal.feeds.listActive, {
       userId: args.userId,
     });

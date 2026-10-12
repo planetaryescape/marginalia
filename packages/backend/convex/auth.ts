@@ -8,12 +8,21 @@ import { convex } from "@convex-dev/better-auth/plugins";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { type BetterAuthOptions, betterAuth } from "better-auth/minimal";
 import { twoFactor } from "better-auth/plugins";
+import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
-import { query } from "./_generated/server";
-import { getOwner } from "./access";
+// Raw, unauthenticated query: used ONLY for `currentReader`, which tells the
+// web app whether this session may enter and returns null otherwise.
+import { query as publicQuery } from "./_generated/server";
+import { getReaderSession } from "./access";
 import authConfig from "./auth.config";
 import authSchema from "./betterAuth/schema";
+import { DEFAULT_USER_ID } from "./lib/constants";
+import { sha256Hex } from "./lib/tokens";
+import { claimInvite } from "./waitlist";
+
+const SIGNUP_CLOSED = "This is a private reader. Public signup is disabled.";
+const INVITE_INVALID = "This invite link is invalid or has expired.";
 
 const authFunctions: AuthFunctions = internal.auth;
 export const authComponent = createClient<DataModel, typeof authSchema>(
@@ -29,18 +38,22 @@ export const authComponent = createClient<DataModel, typeof authSchema>(
             .withIndex("by_key", (q) => q.eq("key", "owner"))
             .unique();
           if (
-            !owner ||
-            owner.authId ||
-            owner.email !== user.email.toLowerCase() ||
-            !owner.setupHash ||
-            (owner.setupExpiresAt ?? 0) <= Date.now()
-          )
+            owner &&
+            !owner.authId &&
+            owner.email === user.email.toLowerCase() &&
+            owner.setupHash &&
+            (owner.setupExpiresAt ?? 0) > Date.now()
+          ) {
+            await ctx.db.patch(owner._id, {
+              authId: user._id,
+              setupHash: undefined,
+              setupExpiresAt: undefined,
+            });
+            return;
+          }
+          // Otherwise only a reserved, matching invite may create an account
+          if (!(await claimInvite(ctx, user)))
             throw new Error("Public registration is disabled");
-          await ctx.db.patch(owner._id, {
-            authId: user._id,
-            setupHash: undefined,
-            setupExpiresAt: undefined,
-          });
         },
         onUpdate: async (_ctx, next, previous) => {
           if (next.email !== previous.email)
@@ -48,8 +61,10 @@ export const authComponent = createClient<DataModel, typeof authSchema>(
               "Owner email changes require administrator recovery",
             );
         },
+        // Readers delete their accounts through account.deleteMine, which
+        // purges auth records directly; Better Auth's own route stays closed
         onDelete: async () => {
-          throw new Error("Owner deletion requires administrator recovery");
+          throw new Error("Account deletion runs from the account page");
         },
       },
     },
@@ -106,9 +121,13 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
       }),
       before: createAuthMiddleware(async (request) => {
         if (request.path === "/sign-in/email") {
+          const email =
+            typeof request.body?.email === "string" ? request.body.email : "";
           if (
             !("runMutation" in ctx) ||
-            !(await ctx.runMutation(internal.access.allowPasswordAttempt, {}))
+            !(await ctx.runMutation(internal.access.allowPasswordAttempt, {
+              email,
+            }))
           )
             throw new APIError("TOO_MANY_REQUESTS", {
               message:
@@ -116,31 +135,36 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
             });
         }
         if (request.path !== "/sign-up/email") return;
-        const token = request.headers?.get("x-reader-setup");
+        const invite = request.headers?.get("x-reader-invite");
+        const setup = request.headers?.get("x-reader-setup");
+        const token = invite || setup;
         const email =
           typeof request.body?.email === "string"
             ? request.body.email.trim().toLowerCase()
             : "";
-        if (!token || !email)
-          throw new APIError("FORBIDDEN", {
-            message: "This is a private reader. Public signup is disabled.",
-          });
-        const digest = await crypto.subtle.digest(
-          "SHA-256",
-          new TextEncoder().encode(token),
-        );
-        const hash = [...new Uint8Array(digest)]
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
+        if (!token || !email || token.length > 200)
+          throw new APIError("FORBIDDEN", { message: SIGNUP_CLOSED });
+        const hash = await sha256Hex(token);
         if (!("runMutation" in ctx))
           throw new APIError("FORBIDDEN", {
             message: "Signup requires a writable context",
           });
         try {
-          await ctx.runMutation(internal.access.reserveSetup, { hash, email });
+          if (invite)
+            await ctx.runMutation(internal.waitlist.reserveInvite, {
+              hash,
+              email,
+            });
+          else
+            await ctx.runMutation(internal.access.reserveSetup, {
+              hash,
+              email,
+            });
         } catch {
           throw new APIError("FORBIDDEN", {
-            message: "Owner setup is closed or this link has expired.",
+            message: invite
+              ? INVITE_INVALID
+              : "Owner setup is closed or this link has expired.",
           });
         }
         request.body.email = email;
@@ -179,10 +203,24 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth(createAuthOptions(ctx));
 
-export const currentOwner = query({
+/** Who is signed in, when this session may use the reader; otherwise null. */
+export const currentReader = publicQuery({
   args: {},
+  returns: v.union(
+    v.null(),
+    v.object({ isOwner: v.boolean(), email: v.string(), name: v.string() }),
+  ),
   handler: async (ctx) => {
-    const owner = await getOwner(ctx);
-    return owner ? { email: owner.email } : null;
+    const session = await getReaderSession(ctx);
+    if (!session) return null;
+    const user = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: "_id", value: session.authId }],
+    });
+    return {
+      isOwner: session.libraryId === DEFAULT_USER_ID,
+      email: String(user?.email ?? ""),
+      name: String(user?.name ?? ""),
+    };
   },
 });

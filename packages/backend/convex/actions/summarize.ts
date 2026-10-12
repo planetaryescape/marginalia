@@ -7,6 +7,7 @@ import { action } from "../functions";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { NO_PROVIDER_MESSAGE } from "../lib/providers";
 import { loadReaderAI } from "../lib/router";
+import { requireReaderLimit } from "../limits";
 
 const MAX_CHARS = 200_000;
 const MAX_IDEAS = 9;
@@ -96,6 +97,7 @@ export const generate = action({
   handler: async (ctx, args) => {
     const total = args.paragraphs.length;
     if (total === 0) throw new Error("Nothing to summarise");
+    await requireReaderLimit(ctx, ctx.readerId, "ai");
 
     let used = 0;
     const lines: string[] = [];

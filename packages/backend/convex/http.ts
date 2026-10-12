@@ -29,6 +29,7 @@ import {
 } from "./lib/readingCompanion";
 import { loadReaderAI, type ProviderTarget } from "./lib/router";
 import { vaultUploadSchema } from "./lib/vaultUpload";
+import { READER_LIMITS } from "./limits";
 
 const http = httpRouter();
 authComponent.registerRoutes(http, createAuth);
@@ -49,6 +50,30 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Expose-Headers": "X-Companion-Model",
 };
+
+/** Null while the reader is within their AI request budget; a 429 otherwise. */
+async function aiBudgetExceeded(
+  ctx: ActionCtx,
+  readerId: string,
+): Promise<Response | null> {
+  const allowed: boolean = await ctx.runMutation(internal.limits.spend, {
+    userId: readerId,
+    bucket: "ai",
+  });
+  if (allowed) return null;
+  return new Response(
+    JSON.stringify({ code: "rate_limited", error: READER_LIMITS.ai.message }),
+    {
+      status: 429,
+      headers: {
+        ...CORS_HEADERS,
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "Retry-After": "60",
+      },
+    },
+  );
+}
 
 /**
  * A reader without the keys a feature needs gets a stable code, checked
@@ -226,6 +251,8 @@ http.route({
         status: 401,
         headers: CORS_HEADERS,
       });
+    const limited = await aiBudgetExceeded(ctx, readerId);
+    if (limited) return limited;
     const parsed = companionRequestSchema.safeParse(
       await request.json().catch(() => null),
     );
@@ -363,6 +390,8 @@ http.route({
         status: 401,
         headers: CORS_HEADERS,
       });
+    const limited = await aiBudgetExceeded(ctx, readerId);
+    if (limited) return limited;
     const parsed = libraryRequestSchema.safeParse(
       await request.json().catch(() => null),
     );
@@ -425,6 +454,8 @@ http.route({
         status: 401,
         headers: CORS_HEADERS,
       });
+    const limited = await aiBudgetExceeded(ctx, readerId);
+    if (limited) return limited;
     const headers = {
       ...CORS_HEADERS,
       "Content-Type": "application/json",

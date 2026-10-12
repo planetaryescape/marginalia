@@ -9,6 +9,7 @@
  */
 
 import type * as access from "../access.js";
+import type * as account from "../account.js";
 import type * as actions_addArticleByUrl from "../actions/addArticleByUrl.js";
 import type * as actions_embedReaderActivity from "../actions/embedReaderActivity.js";
 import type * as actions_embedUserNote from "../actions/embedUserNote.js";
@@ -21,6 +22,7 @@ import type * as actions_summarize from "../actions/summarize.js";
 import type * as annotations from "../annotations.js";
 import type * as articles from "../articles.js";
 import type * as auth from "../auth.js";
+import type * as background from "../background.js";
 import type * as companionThreads from "../companionThreads.js";
 import type * as crons from "../crons.js";
 import type * as feeds from "../feeds.js";
@@ -47,11 +49,14 @@ import type * as lib_readwise from "../lib/readwise.js";
 import type * as lib_router from "../lib/router.js";
 import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
 import type * as lib_statsPeriod from "../lib/statsPeriod.js";
+import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_vaultUpload from "../lib/vaultUpload.js";
 import type * as library from "../library.js";
+import type * as limits from "../limits.js";
 import type * as lovedArticles from "../lovedArticles.js";
 import type * as noteChunks from "../noteChunks.js";
 import type * as providerCredentials from "../providerCredentials.js";
+import type * as readers from "../readers.js";
 import type * as readingActivity from "../readingActivity.js";
 import type * as readingQueue from "../readingQueue.js";
 import type * as readwise from "../readwise.js";
@@ -63,6 +68,7 @@ import type * as stats from "../stats.js";
 import type * as summaries from "../summaries.js";
 import type * as userNotes from "../userNotes.js";
 import type * as userSettings from "../userSettings.js";
+import type * as waitlist from "../waitlist.js";
 
 import type {
   ApiFromModules,
@@ -72,6 +78,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   access: typeof access;
+  account: typeof account;
   "actions/addArticleByUrl": typeof actions_addArticleByUrl;
   "actions/embedReaderActivity": typeof actions_embedReaderActivity;
   "actions/embedUserNote": typeof actions_embedUserNote;
@@ -84,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   annotations: typeof annotations;
   articles: typeof articles;
   auth: typeof auth;
+  background: typeof background;
   companionThreads: typeof companionThreads;
   crons: typeof crons;
   feeds: typeof feeds;
@@ -110,11 +118,14 @@ declare const fullApi: ApiFromModules<{
   "lib/router": typeof lib_router;
   "lib/spacedRepetition": typeof lib_spacedRepetition;
   "lib/statsPeriod": typeof lib_statsPeriod;
+  "lib/tokens": typeof lib_tokens;
   "lib/vaultUpload": typeof lib_vaultUpload;
   library: typeof library;
+  limits: typeof limits;
   lovedArticles: typeof lovedArticles;
   noteChunks: typeof noteChunks;
   providerCredentials: typeof providerCredentials;
+  readers: typeof readers;
   readingActivity: typeof readingActivity;
   readingQueue: typeof readingQueue;
   readwise: typeof readwise;
@@ -126,6 +137,7 @@ declare const fullApi: ApiFromModules<{
   summaries: typeof summaries;
   userNotes: typeof userNotes;
   userSettings: typeof userSettings;
+  waitlist: typeof waitlist;
 }>;
 
 /**

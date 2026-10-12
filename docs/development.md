@@ -11,7 +11,7 @@ Get the app running with [the README](../README.md#run-locally) first. Use your 
 | `CONVEX_DEPLOYMENT` | `packages/backend/.env.local`, created by Convex CLI | Selecting the CLI's development deployment |
 | `PROVIDER_KEYS_ENCRYPTION_KEY` | Convex deployment environment only | Encrypting readers' own AI provider keys; base64 of 32 random bytes (`openssl rand -base64 32`) |
 | `OPENROUTER_API_KEY` | Convex deployment environment (transition only); also local indexer environment if used | The owner's AI until they save their own key; the indexer's embeddings |
-| `READWISE_TOKEN` | Convex deployment environment only | Optional Readwise Reader integration |
+| `READWISE_TOKEN` | Convex deployment environment (transition only) | The owner's Readwise sync until they connect their own token on the Sources page; never used for other readers |
 | `SITE_URL` | Convex deployment environment | Canonical HTTPS web origin for auth; defaults to `https://reader.bhekani.com` |
 | `BETTER_AUTH_SECRET` | Convex deployment environment only | Credential/session protection; random secret of at least 32 characters |
 | `VAULT_INDEXER_API_KEY` | Convex deployment and local indexer environment, matching values | Authenticated vault index uploads and hash reads |

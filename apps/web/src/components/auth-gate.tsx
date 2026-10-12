@@ -1,6 +1,7 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { Fingerprint, LockKeyhole } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
@@ -11,47 +12,68 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const { settings } = useReaderSettings();
   useReaderTheme(settings);
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const owner = useQuery(api.auth.currentOwner, isAuthenticated ? {} : "skip");
-  if (isLoading || (isAuthenticated && owner === undefined))
+  const reader = useQuery(
+    api.auth.currentReader,
+    isAuthenticated ? {} : "skip",
+  );
+  if (isLoading || (isAuthenticated && reader === undefined))
     return (
       <div className="auth-screen" role="status">
         Opening your reader…
       </div>
     );
-  if (isAuthenticated && owner) return children;
+  if (isAuthenticated && reader) return children;
   if (isAuthenticated)
     return (
-      <div className="auth-screen">
-        <p>This reader is private.</p>
-        <button className="app-button" onClick={() => authClient.signOut()}>
-          Sign out
-        </button>
-      </div>
+      <main className="auth-screen">
+        <div className="w-full max-w-sm">
+          <p className="font-serif text-2xl mb-10">Marginalia</p>
+          <h1 className="font-serif text-3xl mb-3">No access right now</h1>
+          <p className="text-sm text-[var(--reader-muted)] mb-7">
+            This account can't open the reader. It may have been disabled, or it
+            was never approved. Sign out to use a different account.
+          </p>
+          <button
+            className="app-button w-full"
+            onClick={() => authClient.signOut()}
+          >
+            Sign out
+          </button>
+        </div>
+      </main>
     );
   return <SignIn />;
 }
 
+/** Takes a one-time token from the URL fragment and removes it immediately. */
+function takeFragmentToken(name: "setup" | "invite") {
+  const token = new URLSearchParams(window.location.hash.slice(1)).get(name);
+  if (token)
+    history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search,
+    );
+  return token ?? "";
+}
+
 function SignIn() {
   const [setup, setSetup] = useState("");
+  const [invite, setInvite] = useState("");
+  const [requesting, setRequesting] = useState(false);
   const [passwordForm, setPasswordForm] = useState(false);
   const [factor, setFactor] = useState(false);
   const [backup, setBackup] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    const token = new URLSearchParams(window.location.hash.slice(1)).get(
-      "setup",
-    );
-    if (token) {
-      setSetup(token);
-      setPasswordForm(true);
-      history.replaceState(
-        null,
-        "",
-        window.location.pathname + window.location.search,
-      );
-    }
+    const invited = takeFragmentToken("invite");
+    const owner = invited ? "" : takeFragmentToken("setup");
+    if (invited) setInvite(invited);
+    if (owner) setSetup(owner);
+    if (invited || owner) setPasswordForm(true);
   }, []);
+  const signingUp = Boolean(setup || invite);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -70,19 +92,26 @@ function SignIn() {
       } else {
         const email = String(fields.get("email") ?? "").trim();
         const password = String(fields.get("password") ?? "");
-        const result = setup
+        const name = String(fields.get("name") ?? "").trim();
+        const result = signingUp
           ? await authClient.signUp.email({
               email,
               password,
-              name: "Reader owner",
-              fetchOptions: { headers: { "x-reader-setup": setup } },
+              name: invite ? name || email : "Reader owner",
+              fetchOptions: {
+                headers: invite
+                  ? { "x-reader-invite": invite }
+                  : { "x-reader-setup": setup },
+              },
             })
           : await authClient.signIn.email({ email, password });
         if (result.error)
           throw new Error(
-            setup
-              ? "Couldn't claim the reader. Check your setup link and use a password of at least 12 characters."
-              : "Couldn't sign in. Check your email and password, or try your passkey.",
+            invite
+              ? "Couldn't create your account. Use the email your invite was sent for, a password of at least 12 characters, and a link that hasn't expired."
+              : setup
+                ? "Couldn't claim the reader. Check your setup link and use a password of at least 12 characters."
+                : "Couldn't sign in. Check your email and password, or try your passkey.",
           );
         if (
           result.data &&
@@ -90,7 +119,10 @@ function SignIn() {
           result.data.twoFactorRedirect
         )
           setFactor(true);
-        else setSetup("");
+        else {
+          setSetup("");
+          setInvite("");
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't sign in. Try again.");
@@ -98,20 +130,24 @@ function SignIn() {
       setBusy(false);
     }
   }
+  if (requesting && !signingUp)
+    return <RequestAccess onBack={() => setRequesting(false)} />;
   return (
     <main className="auth-screen bg-[var(--reader-bg)] text-[var(--reader-fg)]">
       <div className="w-full max-w-sm">
         <p className="font-serif text-2xl mb-10">Marginalia</p>
         <LockKeyhole size={24} className="mb-4 text-[var(--reader-muted)]" />
         <h1 className="font-serif text-3xl mb-3">
-          {setup
-            ? "Make this reader yours"
-            : factor
-              ? "One more check"
-              : "Your reading desk"}
+          {invite
+            ? "Set up your reader"
+            : setup
+              ? "Make this reader yours"
+              : factor
+                ? "One more check"
+                : "Your reading desk"}
         </h1>
         <p className="text-sm text-[var(--reader-muted)] mb-7">
-          {setup
+          {signingUp
             ? "Choose your fallback password. Add a passkey after signing in for quicker access next time."
             : factor
               ? "Enter your authenticator code, or use a saved recovery code."
@@ -158,6 +194,18 @@ function SignIn() {
               </label>
             ) : (
               <>
+                {invite && (
+                  <label className="block text-sm">
+                    Your name
+                    <input
+                      className="app-input mt-2"
+                      name="name"
+                      autoComplete="name"
+                      maxLength={100}
+                      required
+                    />
+                  </label>
+                )}
                 <label className="block text-sm">
                   Email
                   <input
@@ -174,8 +222,10 @@ function SignIn() {
                     className="app-input mt-2"
                     name="password"
                     type="password"
-                    autoComplete={setup ? "new-password" : "current-password"}
-                    minLength={setup ? 12 : undefined}
+                    autoComplete={
+                      signingUp ? "new-password" : "current-password"
+                    }
+                    minLength={signingUp ? 12 : undefined}
                     required
                   />
                 </label>
@@ -184,15 +234,17 @@ function SignIn() {
             <button className="app-button w-full" disabled={busy}>
               {busy
                 ? "Please wait…"
-                : setup
-                  ? "Claim my reader"
-                  : factor
-                    ? "Verify and sign in"
-                    : "Sign in"}
+                : invite
+                  ? "Create my account"
+                  : setup
+                    ? "Claim my reader"
+                    : factor
+                      ? "Verify and sign in"
+                      : "Sign in"}
             </button>
           </form>
         )}
-        {!setup && (
+        {!signingUp && (
           <button
             className="min-h-11 w-full text-sm text-[var(--reader-muted)] mt-2"
             onClick={() => {
@@ -210,6 +262,113 @@ function SignIn() {
                 : "Use email and password"}
           </button>
         )}
+        {!signingUp && !factor && (
+          <button
+            className="min-h-11 w-full text-sm text-[var(--reader-muted)]"
+            onClick={() => {
+              setRequesting(true);
+              setError("");
+            }}
+          >
+            Request access
+          </button>
+        )}
+        {error && (
+          <p role="alert" className="mt-4 text-sm text-[var(--reader-fg)]">
+            {error}
+          </p>
+        )}
+      </div>
+    </main>
+  );
+}
+
+export function RequestAccess({ onBack }: { onBack: () => void }) {
+  const request = useMutation(api.waitlist.request);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const fields = new FormData(event.currentTarget);
+    try {
+      const result = await request({
+        email: String(fields.get("email") ?? ""),
+        name: String(fields.get("name") ?? ""),
+        note: String(fields.get("note") ?? "") || undefined,
+      });
+      setDone(result.message);
+    } catch (e) {
+      setError(
+        e instanceof ConvexError && typeof e.data === "string"
+          ? e.data
+          : "Couldn't send your request. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="auth-screen bg-[var(--reader-bg)] text-[var(--reader-fg)]">
+      <div className="w-full max-w-sm">
+        <p className="font-serif text-2xl mb-10">Marginalia</p>
+        <h1 className="font-serif text-3xl mb-3">Request access</h1>
+        {done ? (
+          <p role="status" className="text-sm mb-7">
+            {done}
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-[var(--reader-muted)] mb-7">
+              Marginalia is a small, invite-only reader. Leave your details and
+              the owner may send you an invite.
+            </p>
+            <form onSubmit={submit} className="space-y-4">
+              <label className="block text-sm">
+                Email
+                <input
+                  className="app-input mt-2"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  required
+                />
+              </label>
+              <label className="block text-sm">
+                Name
+                <input
+                  className="app-input mt-2"
+                  name="name"
+                  autoComplete="name"
+                  maxLength={100}
+                  required
+                />
+              </label>
+              <label className="block text-sm">
+                What you'd like to read with it{" "}
+                <span className="text-[var(--reader-muted)]">(optional)</span>
+                <textarea
+                  className="app-input mt-2"
+                  name="note"
+                  rows={3}
+                  maxLength={500}
+                />
+              </label>
+              <button className="app-button w-full" disabled={busy}>
+                {busy ? "Sending…" : "Request access"}
+              </button>
+            </form>
+          </>
+        )}
+        <button
+          className="min-h-11 w-full text-sm text-[var(--reader-muted)] mt-2"
+          onClick={onBack}
+        >
+          Back to sign in
+        </button>
         {error && (
           <p role="alert" className="mt-4 text-sm text-[var(--reader-fg)]">
             {error}

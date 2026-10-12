@@ -1,0 +1,370 @@
+/// <reference types="vite/client" />
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { saveTestCredential, secondReaderTest } from "../test/owner";
+import { api, components, internal } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
+import authSchema from "./betterAuth/schema";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+const OWNER = "default_user";
+const embedding = Array.from({ length: 1536 }, () => 0.25);
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+type Fixture = Awaited<ReturnType<typeof secondReaderTest>>;
+
+/** One row in every table that holds a library's data. */
+async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
+  const now = Date.now();
+  for (let i = 0; i < copies; i++) {
+    const feedId = await ctx.db.insert("feeds", {
+      userId,
+      url: `https://${userId}.example/feed/${i}`,
+      title: "Feed",
+      isActive: true,
+      createdAt: now,
+    });
+    const articleId = await ctx.db.insert("articles", {
+      feedId,
+      userId,
+      guid: `${userId}-${i}`,
+      url: `https://${userId}.example/${i}`,
+      title: "Article",
+      contentHtml: "<p>Text</p>",
+      extractionStatus: "extracted",
+      annotationStatus: "annotated",
+      embedding,
+      createdAt: now,
+    });
+    const annotationId = await ctx.db.insert("annotations", {
+      articleId,
+      userId,
+      type: "context",
+      anchorText: "Text",
+      anchorStartOffset: 0,
+      anchorEndOffset: 4,
+      content: "Note",
+      relevanceScore: 0.5,
+      wasViewed: false,
+      wasDismissed: false,
+      createdAt: now,
+    });
+    await ctx.db.insert("reflections", {
+      articleId,
+      userId,
+      strongestPoint: "s",
+      weakestAssumption: "w",
+      credibleCounterview: "c",
+      questionForYou: "q",
+      createdAt: now,
+    });
+    const sessionId = await ctx.db.insert("sessions", {
+      userId,
+      requestedMinutes: 10,
+      startedAt: now,
+      articleId,
+      readingStatus: "reading",
+    });
+    await ctx.db.insert("articleInteractions", {
+      userId,
+      articleId,
+      sessionId,
+      action: "opened",
+      createdAt: now,
+    });
+    await ctx.db.insert("readingActivity", {
+      userId,
+      visitId: `visit-${i}`,
+      day: "2026-10-12",
+      articleId,
+      startedAt: now,
+      updatedAt: now,
+      activeTimeMs: 1,
+      visibleTimeMs: 1,
+      timeSpentMs: 1,
+      maxScrollPercent: 1,
+      annotationsOpened: [],
+    });
+    await ctx.db.insert("noteChunks", {
+      userId,
+      filePath: `notes/${i}.md`,
+      fileName: `${i}.md`,
+      chunkIndex: 0,
+      content: "Vault note",
+      embedding,
+      fileHash: `hash-${i}`,
+      indexedAt: now,
+    });
+    await ctx.db.insert("savedArticles", { userId, articleId, savedAt: now });
+    await ctx.db.insert("userNotes", {
+      userId,
+      articleId,
+      annotationId,
+      selectedText: "Text",
+      content: "<p>Mine</p>",
+      contentPlain: "Mine",
+      embedding,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("lovedArticles", {
+      userId,
+      articleId,
+      lovedAt: now,
+      reviewIndex: 0,
+      nextReviewAt: now,
+      reviewCount: 0,
+    });
+    await ctx.db.insert("companionThreads", {
+      userId,
+      articleId,
+      mode: "ask",
+      selection: "Text",
+      turns: [{ role: "user", content: "Why?" }],
+      embedding,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("highlights", {
+      userId,
+      articleId,
+      kind: "highlight",
+      text: "Text",
+      embedding,
+      createdAt: now,
+    });
+    await ctx.db.insert("summaries", {
+      userId,
+      articleId,
+      gist: "Gist",
+      model: "fixture",
+      createdAt: now,
+    });
+    await ctx.db.insert("impressions", {
+      userId,
+      articleId,
+      tags: [],
+      embedding,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  await ctx.db.insert("readingQueueStats", {
+    userId,
+    annotated: 1,
+    waiting: 1,
+    pending: 0,
+    fits5: 0,
+    fits10: 0,
+    fits20: 0,
+    ready: true,
+  });
+  await ctx.db.insert("readwiseSyncState", {
+    userId,
+    active: false,
+    startedAt: now,
+    phase: 4,
+    pageProcessedIds: [],
+    leaseUntil: 0,
+    nextRunAt: 0,
+    scanned: 0,
+    imported: 0,
+    linked: 0,
+    skipped: 0,
+    highlights: 0,
+    updatedAt: now,
+  });
+  await ctx.db.insert("userSettings", { userId, updatedAt: now });
+  await ctx.db.insert("readwiseCredentials", {
+    userId,
+    ciphertext: "sealed",
+    iv: "iv",
+    last4: "1234",
+    createdAt: now,
+    updatedAt: now,
+    validatedAt: now,
+  });
+  await ctx.db.insert("readerLimits", {
+    userId,
+    bucket: "ai",
+    startedAt: now,
+    count: 1,
+  });
+}
+
+/** Every app and auth row that still mentions this ID anywhere. */
+async function rowsMentioning(t: Fixture["t"], id: string) {
+  const found: string[] = [];
+  const mentions = (row: Record<string, unknown>) =>
+    Object.entries(row).some(([, value]) => value === id);
+  for (const table of Object.keys(
+    schema.tables,
+  ) as (keyof typeof schema.tables)[]) {
+    const rows = await t.run((ctx) => ctx.db.query(table).take(2000));
+    for (const row of rows)
+      if (mentions(row as Record<string, unknown>)) found.push(table);
+  }
+  for (const model of Object.keys(authSchema.tables)) {
+    const result = await t.query(components.betterAuth.adapter.findMany, {
+      model: model as "user",
+      paginationOpts: { numItems: 500, cursor: null },
+    });
+    for (const row of result.page)
+      if (mentions(row as Record<string, unknown>)) found.push(`auth:${model}`);
+  }
+  return found;
+}
+
+async function counts(t: Fixture["t"]) {
+  const out: Record<string, number> = {};
+  for (const table of Object.keys(
+    schema.tables,
+  ) as (keyof typeof schema.tables)[])
+    out[table] = (await t.run((ctx) => ctx.db.query(table).take(2000))).filter(
+      (row) => (row as { userId?: string }).userId === OWNER,
+    ).length;
+  return out;
+}
+
+describe("account deletion", () => {
+  it("removes every trace of the reader in batches and leaves the owner untouched", async () => {
+    vi.useFakeTimers();
+    const fixture = await secondReaderTest(modules);
+    const { t, reader, owner, readerLibraryId } = fixture;
+    await t.run(async (ctx) => {
+      await seedLibrary(ctx, readerLibraryId, 40);
+      await seedLibrary(ctx, OWNER, 2);
+      await ctx.db.patch((await ctx.db.query("readers").first())!._id, {
+        email: "reader@example.com",
+      });
+      const requestId = await ctx.db.insert("accessRequests", {
+        email: "reader@example.com",
+        name: "Reader",
+        status: "approved",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("invites", {
+        tokenHash: "c".repeat(64),
+        email: "reader@example.com",
+        requestId,
+        expiresAt: Date.now(),
+        consumedAt: Date.now(),
+        consumedBy: readerLibraryId,
+        createdAt: Date.now(),
+      });
+    });
+    await saveTestCredential(
+      t,
+      readerLibraryId,
+      "openai",
+      "sk-reader-openai-0000000001",
+    );
+    await saveTestCredential(t, OWNER, "openai", "sk-owner-openai-00000000002");
+    for (const model of ["account", "passkey", "twoFactor"] as const) {
+      const data = {
+        account: {
+          accountId: readerLibraryId,
+          providerId: "credential",
+          userId: readerLibraryId,
+          password: "hashed",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+        passkey: {
+          userId: readerLibraryId,
+          publicKey: "pk",
+          credentialID: "cred",
+          counter: 0,
+          deviceType: "singleDevice",
+          backedUp: false,
+          createdAt: Date.now(),
+        },
+        twoFactor: {
+          userId: readerLibraryId,
+          secret: "s",
+          backupCodes: "b",
+        },
+      }[model];
+      await t.mutation(components.betterAuth.adapter.create, {
+        input: { model, data } as never,
+      });
+    }
+    const ownerBefore = await counts(t);
+    expect((await rowsMentioning(t, readerLibraryId)).length).toBeGreaterThan(
+      20,
+    );
+
+    await expect(
+      reader.mutation(api.account.deleteMine, { confirmation: "delete" }),
+    ).rejects.toThrow("Type DELETE");
+    await reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
+    // Access ends before the purge runs
+    await expect(reader.query(api.home.overview, {})).rejects.toThrow(
+      "Sign in",
+    );
+    expect(await reader.query(api.auth.currentReader, {})).toBeNull();
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
+    expect(await counts(t)).toEqual(ownerBefore);
+    expect(await owner.query(api.feeds.list, {})).toHaveLength(2);
+    const purges = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").take(500)).filter(
+        (job) => job.name.includes("purge"),
+      ),
+    );
+    // 40 articles at 16 per batch, among other tables, needs many batches
+    expect(purges.length).toBeGreaterThan(10);
+    expect(purges.every((job) => job.state.kind === "success")).toBe(true);
+
+    // Idempotent: running it again finds nothing and fails nothing
+    await t.mutation(internal.account.purge, {
+      userId: readerLibraryId,
+      authId: readerLibraryId,
+      step: 0,
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
+  });
+
+  it("refuses to delete the owner or a reader who didn't ask", async () => {
+    const { t, owner, readerLibraryId } = await secondReaderTest(modules);
+    await t.run((ctx) => seedLibrary(ctx, OWNER));
+    await expect(
+      owner.mutation(api.account.deleteMine, { confirmation: "DELETE" }),
+    ).rejects.toThrow("owner's account");
+    await expect(
+      t.mutation(internal.account.purge, {
+        userId: OWNER,
+        authId: "anything",
+        step: 0,
+      }),
+    ).rejects.toThrow("never purged");
+    const ownerAuth = await t.run(
+      async (ctx) => (await ctx.db.query("readerAccess").first())?.authId,
+    );
+    await expect(
+      t.mutation(internal.account.purge, {
+        userId: "someone",
+        authId: String(ownerAuth),
+        step: 0,
+      }),
+    ).rejects.toThrow("never purged");
+    await expect(
+      t.mutation(internal.account.purge, {
+        userId: readerLibraryId,
+        authId: readerLibraryId,
+        step: 0,
+      }),
+    ).rejects.toThrow("isn't being deleted");
+    expect(await owner.query(api.feeds.list, {})).toHaveLength(1);
+    expect(await owner.query(api.auth.currentReader, {})).toMatchObject({
+      isOwner: true,
+    });
+  });
+});

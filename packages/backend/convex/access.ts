@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
@@ -57,10 +57,13 @@ export async function requireOwner(ctx: QueryCtx): Promise<void> {
 export const assertOwner = internalQuery({ args: {}, handler: requireOwner });
 
 /**
- * The signed-in reader's library ID, derived only from the session. The owner
- * keeps the original "default_user" library; other readers need an active row.
+ * The signed-in reader's library and auth user, derived only from the session.
+ * The owner keeps the original "default_user" library; other readers need an
+ * active row.
  */
-export async function getReader(ctx: QueryCtx): Promise<string | null> {
+export async function getReaderSession(
+  ctx: QueryCtx,
+): Promise<{ libraryId: string; authId: string } | null> {
   const identity = await deploymentIdentity(ctx);
   if (!identity) return null;
   const owner = await ownerRow(ctx);
@@ -81,7 +84,13 @@ export async function getReader(ctx: QueryCtx): Promise<string | null> {
       libraryId = reader.libraryId;
   }
   if (!libraryId) return null;
-  return (await hasLiveSession(ctx, identity)) ? libraryId : null;
+  return (await hasLiveSession(ctx, identity))
+    ? { libraryId, authId: identity.subject }
+    : null;
+}
+
+export async function getReader(ctx: QueryCtx): Promise<string | null> {
+  return (await getReaderSession(ctx))?.libraryId ?? null;
 }
 
 export async function requireReader(ctx: QueryCtx): Promise<string> {
@@ -116,28 +125,126 @@ export async function requireArticle(
   return article;
 }
 
-// This single-owner fallback has one shared budget, independent of spoofable
-// forwarded IP headers. A passkey still works if the password budget is full.
+/**
+ * Whether a library may still receive background work: the owner's always,
+ * another reader's only while their row is active.
+ */
+export async function libraryIsActive(
+  ctx: Pick<QueryCtx, "db">,
+  libraryId: string,
+): Promise<boolean> {
+  if (libraryId === DEFAULT_USER_ID) return true;
+  const reader = await ctx.db
+    .query("readers")
+    .withIndex("by_libraryId", (q) => q.eq("libraryId", libraryId))
+    .first();
+  return reader?.status === "active";
+}
+
+export const libraryActive = internalQuery({
+  args: { userId: v.string() },
+  returns: v.boolean(),
+  handler: (ctx, args) => libraryIsActive(ctx, args.userId),
+});
+
+/** Signs a user out everywhere by deleting their Better Auth sessions. */
+export async function revokeSessions(ctx: MutationCtx, authId: string) {
+  for (let page = 0; page < 10; page++) {
+    const result = await ctx.runMutation(
+      components.betterAuth.adapter.deleteMany,
+      {
+        input: {
+          model: "session",
+          where: [{ field: "userId", value: authId }],
+        },
+        paginationOpts: { numItems: 100, cursor: null },
+      },
+    );
+    if (result.isDone || !result.count) return;
+  }
+}
+
+type AttemptRow = Doc<"authAttempts"> | null;
+
+function attemptsUsed(row: AttemptRow, now: number, windowMs: number) {
+  return row && now - row.startedAt < windowMs ? row.count : 0;
+}
+
+async function attemptRow(ctx: MutationCtx, scope: string) {
+  return ctx.db
+    .query("authAttempts")
+    .withIndex("by_scope", (q) => q.eq("scope", scope))
+    .unique();
+}
+
+async function recordAttempt(
+  ctx: MutationCtx,
+  scope: string,
+  row: AttemptRow,
+  now: number,
+  windowMs: number,
+) {
+  if (row && now - row.startedAt < windowMs)
+    await ctx.db.patch("authAttempts", row._id, { count: row.count + 1 });
+  else if (row)
+    await ctx.db.patch("authAttempts", row._id, { startedAt: now, count: 1 });
+  else await ctx.db.insert("authAttempts", { scope, startedAt: now, count: 1 });
+}
+
+/** Spends one unit of an unauthenticated fixed-window budget, if any is left. */
+export async function spendAuthBudget(
+  ctx: MutationCtx,
+  scope: string,
+  max: number,
+  windowMs: number,
+): Promise<boolean> {
+  const now = Date.now();
+  const row = await attemptRow(ctx, scope);
+  if (attemptsUsed(row, now, windowMs) >= max) return false;
+  await recordAttempt(ctx, scope, row, now, windowMs);
+  return true;
+}
+
+export const PASSWORD_LIMITS = { perEmail: 8, global: 60, windowMs: 60_000 };
+
+// Budgets are per email plus a global ceiling, independent of spoofable
+// forwarded IP headers. A passkey still works if a password budget is full.
 export const allowPasswordAttempt = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { email: v.optional(v.string()) },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
     const now = Date.now();
-    const previous = await ctx.db
-      .query("authAttempts")
-      .withIndex("by_scope", (q) => q.eq("scope", "password"))
-      .unique();
-    if (previous && now - previous.startedAt < 60000) {
-      if (previous.count >= 8) return false;
-      await ctx.db.patch(previous._id, { count: previous.count + 1 });
-    } else if (previous)
-      await ctx.db.patch(previous._id, { startedAt: now, count: 1 });
-    else
-      await ctx.db.insert("authAttempts", {
-        scope: "password",
-        startedAt: now,
-        count: 1,
-      });
+    const { perEmail, global, windowMs } = PASSWORD_LIMITS;
+    const email = (args.email ?? "").trim().toLowerCase().slice(0, 320);
+    const emailScope = `password:${email}`;
+    const all = await attemptRow(ctx, "password");
+    const mine = await attemptRow(ctx, emailScope);
+    if (
+      attemptsUsed(all, now, windowMs) >= global ||
+      attemptsUsed(mine, now, windowMs) >= perEmail
+    )
+      return false;
+    await recordAttempt(ctx, "password", all, now, windowMs);
+    await recordAttempt(ctx, emailScope, mine, now, windowMs);
     return true;
+  },
+});
+
+/** Drops budget rows whose window ended long ago, in bounded batches. */
+export const sweepAuthAttempts = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const stale = await ctx.db
+      .query("authAttempts")
+      .withIndex("by_startedAt", (q) =>
+        q.lt("startedAt", Date.now() - 2 * 60 * 60_000),
+      )
+      .take(200);
+    for (const row of stale) await ctx.db.delete("authAttempts", row._id);
+    if (stale.length === 200)
+      await ctx.scheduler.runAfter(0, internal.access.sweepAuthAttempts, {});
+    return null;
   },
 });
 

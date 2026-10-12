@@ -106,7 +106,12 @@ export function PasteLink({ large = false }: { large?: boolean }) {
 
 /** Wordmark, page links and the paste-a-link field, shared by home and library. */
 export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
-  const nav = useSiteNav();
+  const reader = useQuery(api.auth.currentReader, {});
+  const siteNav = useSiteNav();
+  // Access management is the owner's alone; the backend refuses everyone else
+  const nav = reader?.isOwner
+    ? [...siteNav, { href: "/readers", label: "Readers" }]
+    : siteNav;
   const pathname = usePathname();
   return (
     <header className="shrink-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 h-14 md:h-16 flex items-center gap-4 md:gap-6">

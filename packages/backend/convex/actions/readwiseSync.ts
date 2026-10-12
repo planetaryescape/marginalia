@@ -34,7 +34,8 @@ function publishedAt(
 export const sync = internalAction({
   args: { userId: v.string() },
   handler: async (ctx, { userId }): Promise<void> => {
-    if (!readwiseTokenFor(userId)) return;
+    const readwise = await readwiseTokenFor(ctx, userId);
+    if (!readwise) return;
     await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {
       userId,
     });
@@ -46,7 +47,7 @@ export const sync = internalAction({
     if (!state) return;
     try {
       const highlightPhase = state.phase === LOCATIONS.length;
-      const page = await listDocumentPage({
+      const page = await listDocumentPage(readwise, {
         location: highlightPhase ? undefined : LOCATIONS[state.phase],
         category: highlightPhase ? "highlight" : undefined,
         updatedAfter: state.updatedAfter,
@@ -171,7 +172,8 @@ export const pushHighlight = internalAction({
       args,
     );
     if (!row || row.source === "reader" || row.readerHighlightId) return;
-    if (!readwiseTokenFor(row.userId)) return;
+    const readwise = await readwiseTokenFor(ctx, row.userId);
+    if (!readwise) return;
     const parentId: string | null = await ctx.runQuery(
       internal.readwise.getArticleReaderId,
       {
@@ -181,7 +183,11 @@ export const pushHighlight = internalAction({
     );
     if (!parentId) return;
     try {
-      const readerHighlightId = await createHighlight(parentId, row.text);
+      const readerHighlightId = await createHighlight(
+        readwise,
+        parentId,
+        row.text,
+      );
       await ctx.runMutation(internal.readwise.setHighlightReaderId, {
         highlightId: args.highlightId,
         readerHighlightId,
@@ -198,10 +204,11 @@ export const pushHighlight = internalAction({
 
 export const deleteHighlight = internalAction({
   args: { userId: v.string(), readerHighlightId: v.string() },
-  handler: async (_ctx, args): Promise<void> => {
-    if (!readwiseTokenFor(args.userId)) return;
+  handler: async (ctx, args): Promise<void> => {
+    const readwise = await readwiseTokenFor(ctx, args.userId);
+    if (!readwise) return;
     try {
-      await deleteDocument(args.readerHighlightId);
+      await deleteDocument(readwise, args.readerHighlightId);
     } catch (error) {
       console.error(
         `Couldn't delete highlight ${args.readerHighlightId} in Reader:`,
@@ -215,14 +222,15 @@ export const deleteHighlight = internalAction({
 export const archiveArticle = internalAction({
   args: { userId: v.string(), articleId: v.id("articles") },
   handler: async (ctx, args): Promise<void> => {
-    if (!readwiseTokenFor(args.userId)) return;
+    const readwise = await readwiseTokenFor(ctx, args.userId);
+    if (!readwise) return;
     const readerId: string | null = await ctx.runQuery(
       internal.readwise.getArticleReaderId,
       args,
     );
     if (!readerId) return;
     try {
-      await moveDocument(readerId, "archive");
+      await moveDocument(readwise, readerId, "archive");
     } catch (error) {
       console.error(`Couldn't archive ${args.articleId} in Reader:`, error);
     }

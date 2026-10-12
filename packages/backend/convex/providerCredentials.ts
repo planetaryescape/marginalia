@@ -18,6 +18,7 @@ import {
   savedCredentials,
   savedModelChoices,
 } from "./lib/readerAI";
+import { requireReaderLimit } from "./limits";
 
 const provider = v.union(
   v.literal("openrouter"),
@@ -71,6 +72,7 @@ export const save = action({
   args: { provider, apiKey: v.string() },
   returns: v.object({ provider, last4: v.string() }),
   handler: async (ctx, args) => {
+    await requireReaderLimit(ctx, ctx.readerId, "providerKeySave");
     const key = cleanProviderKey(args.apiKey);
     // Sealing first means a server without its encryption key never sends
     // the reader's key anywhere, and never stores it in plain text

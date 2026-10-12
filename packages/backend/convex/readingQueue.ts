@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import { libraryIsActive } from "./access";
 
 function contribution(article: Doc<"articles"> | null) {
   const annotated =
@@ -71,6 +72,7 @@ export async function updateQueueStats(
 export const initialize = internalMutation({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    if (!(await libraryIsActive(ctx, args.userId))) return;
     let stats = await ctx.db
       .query("readingQueueStats")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
