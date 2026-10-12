@@ -6,6 +6,7 @@
   "main": "./convex/_generated/api.js",
   "types": "./convex/_generated/dataModel.d.ts",
   "exports": {
+    "./reading-activity": "./convex/lib/readingActivity.ts",
     "./library-search": "./convex/lib/librarySearch.ts",
     "./*": "./convex/*",
     "./_generated/*": "./convex/_generated/*",
@@ -21,9 +22,13 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",
+    "@better-auth/passkey": "~1.6.15",
+    "@convex-dev/better-auth": "0.12.5",
     "@extractus/article-extractor": "^8.0.14",
     "ai": "^6.0.27",
-    "convex": "^1.31.3",
+    "better-auth": "~1.6.15",
+    "convex": "1.46.0",
+    "convex-helpers": "0.1.126",
     "rss-parser": "^3.13.0",
     "zod": "^4"
   },

@@ -13,6 +13,7 @@
       "**/*.jsx",
       "**/*.json",
       "!**/convex/_generated",
+      "!**/convex/betterAuth/_generated",
       "!**/components/ui",
       "!**/.next",
       "!**/dist",
