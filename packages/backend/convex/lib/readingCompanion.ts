@@ -8,7 +8,7 @@ export const MAX_CONTEXT_CHARS = 120_000;
 export const companionRequestSchema = z
   .object({
     // "article" questions are about the whole piece and have no passage
-    mode: z.enum(["explain", "simplify", "ask", "article"]),
+    mode: z.enum(["explain", "simplify", "define", "ask", "article"]),
     title: z.string().max(500),
     paragraphs: z.array(z.string().max(20_000)).max(4000),
     selection: z.string().trim().max(4000).default(""),
@@ -36,7 +36,7 @@ export const companionRequestSchema = z
     },
   )
   .refine((r) => r.mode === "article" || Boolean(r.selection), {
-    message: "Explain, Simplify and Ask need a highlighted passage",
+    message: "Explain, Simplify, Define and Ask need a highlighted passage",
     path: ["selection"],
   });
 
@@ -86,6 +86,8 @@ const TASKS: Record<CompanionRequest["mode"], string> = {
     "Explain what the highlighted passage means in the context of this article: what the author is saying, why it matters at this point in the piece, and any jargon, reference or background the reader needs.",
   simplify:
     "Rewrite the highlighted passage in plain, everyday language a curious non-expert would follow. The first sentence is the plain-language rewrite itself. Afterwards, briefly note any nuance the simpler version loses, if it matters.",
+  define:
+    "Define the selected word or phrase, rather than explaining the whole argument. Start with its ordinary dictionary-style meaning and part of speech. Then identify the precise sense in this sentence and article, including technical, idiomatic or figurative usage, citing the surrounding paragraph. If several words are selected, treat an idiom as a unit; otherwise identify the key term and name it explicitly. Briefly give etymology only when you know it reliably and it helps; acknowledge uncertainty rather than inventing an origin. Offer two or three synonyms or short substitute phrases that fit the grammar, tone and meaning of this actual sentence, showing the relevant sentence fragment with each replacement and noting any change in nuance. If no faithful substitute exists, say so. Prioritize meaning and context when the answer length is brief.",
   ask: "Answer the reader's question about the highlighted passage.",
   article:
     "Answer the reader's question about the article as a whole. Draw on whichever parts of the article bear on it, citing them by ¶.",

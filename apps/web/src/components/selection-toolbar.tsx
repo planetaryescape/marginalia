@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUp,
+  BookA,
   BookOpenText,
   Copy,
   Globe,
@@ -51,6 +52,7 @@ const SHORTCUTS: Record<string, CompanionMode | MarkKind> = {
   a: "ask",
   e: "explain",
   s: "simplify",
+  d: "define",
   h: "highlight",
   p: "underline",
 };
@@ -75,7 +77,7 @@ const MARK_TOOLS = [
 function placement(range: Range) {
   const rect = range.getBoundingClientRect();
   const centre = rect.left + rect.width / 2;
-  const half = Math.min(220, window.innerWidth / 2 - 12);
+  const half = Math.min(270, window.innerWidth / 2 - 12);
   const below = rect.top < 120;
   return {
     top: below ? rect.bottom + 10 : rect.top - 10,
@@ -371,6 +373,15 @@ export function SelectionToolbar({
                 >
                   <Wand2 size={14} />
                   Simplify
+                </button>
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("define")}
+                  title="Define in context (D)"
+                  aria-keyshortcuts="d"
+                >
+                  <BookA size={14} />
+                  Define
                 </button>
                 <span className="w-px h-4 mx-1 bg-current opacity-20" />
                 {MARK_TOOLS.map(({ kind, label, key, Icon, swatch }) => {

@@ -45,6 +45,8 @@ export default defineSchema({
     embedding: v.optional(v.array(v.float64())),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
+    finishedAt: v.optional(v.number()),
+    queueCounted: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_feed", ["feedId"])
@@ -53,6 +55,11 @@ export default defineSchema({
     .index("by_user_guid", ["userId", "guid"])
     .index("by_extraction_status", ["userId", "extractionStatus"])
     .index("by_annotation_status", ["userId", "annotationStatus"])
+    .index("by_user_annotationStatus_finishedAt", [
+      "userId",
+      "annotationStatus",
+      "finishedAt",
+    ])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
@@ -140,7 +147,41 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_article", ["articleId"])
-    .index("by_user_article", ["userId", "articleId"]),
+    .index("by_user_article", ["userId", "articleId"])
+    .index("by_user_article_action", ["userId", "articleId", "action"]),
+
+  readingQueueStats: defineTable({
+    userId: v.string(),
+    annotated: v.number(),
+    waiting: v.number(),
+    pending: v.number(),
+    fits5: v.number(),
+    fits10: v.number(),
+    fits20: v.number(),
+    ready: v.boolean(),
+    cursor: v.optional(v.string()),
+  }).index("by_user", ["userId"]),
+
+  readwiseSyncState: defineTable({
+    userId: v.string(),
+    active: v.boolean(),
+    backfilledAt: v.optional(v.number()),
+    startedAt: v.number(),
+    updatedAfter: v.optional(v.string()),
+    phase: v.number(),
+    pageCursor: v.optional(v.string()),
+    pageProcessedIds: v.array(v.string()),
+    token: v.optional(v.string()),
+    leaseUntil: v.number(),
+    nextRunAt: v.number(),
+    scanned: v.number(),
+    imported: v.number(),
+    linked: v.number(),
+    skipped: v.number(),
+    highlights: v.number(),
+    error: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
 
   noteChunks: defineTable({
     userId: v.string(),
@@ -214,7 +255,7 @@ export default defineSchema({
     .index("by_user_article", ["userId", "articleId"])
     .index("by_user_next_review", ["userId", "nextReviewAt"]),
 
-  // Ask / Explain / Simplify conversations about a highlighted passage.
+  // Ask / Explain / Simplify / Define conversations about a highlighted passage.
   // `turns` is bounded: the companion endpoint accepts at most 30 history turns.
   companionThreads: defineTable({
     userId: v.string(),
@@ -222,6 +263,7 @@ export default defineSchema({
     mode: v.union(
       v.literal("explain"),
       v.literal("simplify"),
+      v.literal("define"),
       v.literal("ask"),
       v.literal("article"),
     ),

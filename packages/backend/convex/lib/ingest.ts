@@ -78,13 +78,9 @@ export async function ingestArticle(
       imageUrl: article.imageUrl,
       embedding,
       readerDocumentId: article.readerDocumentId,
+      annotateAfterMs: options.annotateAfterMs,
     },
   );
 
-  await ctx.scheduler.runAfter(
-    options.annotateAfterMs ?? 500,
-    internal.actions.generateAnnotations.generateForArticle,
-    { articleId },
-  );
   return articleId;
 }

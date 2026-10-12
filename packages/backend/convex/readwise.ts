@@ -34,11 +34,34 @@ export const status = query({
   args: {},
   handler: async (ctx) => {
     const row = await settingsRow(ctx);
+    const sync = await ctx.db
+      .query("readwiseSyncState")
+      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .unique();
+    const queue = await ctx.db
+      .query("readingQueueStats")
+      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .unique();
     return {
       connected: Boolean(readwiseToken()),
       syncedAt: row?.readwiseSyncedAt ?? null,
       checkedAt: row?.readwiseCheckedAt ?? null,
-      error: row?.readwiseError ?? null,
+      error: sync ? (sync.error ?? null) : (row?.readwiseError ?? null),
+      progress: sync
+        ? {
+            active: sync.active,
+            backfilling: !sync.backfilledAt,
+            phase:
+              ["Inbox", "Later", "Shortlist", "Highlights"][sync.phase] ??
+              "Complete",
+            scanned: sync.scanned,
+            imported: sync.imported,
+            linked: sync.linked,
+            skipped: sync.skipped,
+            highlights: sync.highlights,
+          }
+        : null,
+      pendingAnnotations: queue?.ready ? queue.pending : null,
     };
   },
 });
@@ -47,7 +70,14 @@ export const syncNow = action({
   args: {},
   handler: async (ctx) => {
     if (!readwiseToken()) throw new Error("Readwise isn't connected");
-    await ctx.scheduler.runAfter(0, internal.actions.readwiseSync.sync, {});
+    await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {});
+    const state: { syncedAt: number | null; nextRunAt: number } =
+      await ctx.runQuery(internal.readwise.getSyncState, {});
+    await ctx.scheduler.runAfter(
+      Math.max(0, state.nextRunAt - Date.now()),
+      internal.actions.readwiseSync.sync,
+      {},
+    );
   },
 });
 
@@ -55,7 +85,14 @@ export const getSyncState = internalQuery({
   args: {},
   handler: async (ctx) => {
     const row = await settingsRow(ctx);
-    return { syncedAt: row?.readwiseSyncedAt ?? null };
+    const sync = await ctx.db
+      .query("readwiseSyncState")
+      .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
+      .unique();
+    return {
+      syncedAt: row?.readwiseSyncedAt ?? null,
+      nextRunAt: sync?.nextRunAt ?? 0,
+    };
   },
 });
 

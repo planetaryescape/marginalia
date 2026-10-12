@@ -1,6 +1,7 @@
 "use client";
 import {
   ArrowUp,
+  BookA,
   BookOpenText,
   Check,
   Copy,
@@ -20,6 +21,7 @@ import { CardQuote, cardIconButton, MarginCard } from "./margin-card";
 const MODES = {
   explain: { label: "Explain", Icon: BookOpenText },
   simplify: { label: "Simplify", Icon: Wand2 },
+  define: { label: "Define", Icon: BookA },
   ask: { label: "Ask", Icon: MessageCircleQuestion },
   article: { label: "Article", Icon: MessagesSquare },
 } as const;

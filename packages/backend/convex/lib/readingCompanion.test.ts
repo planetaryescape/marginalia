@@ -61,9 +61,40 @@ describe("readingCompanion", () => {
       const parsed = companionRequestSchema.parse({ ...base, mode: "explain" });
       expect(parsed.history).toEqual([]);
     });
+
+    it("accepts Define without a question but requires a selected term", () => {
+      expect(
+        companionRequestSchema.safeParse({ ...base, mode: "define" }).success,
+      ).toBe(true);
+      expect(
+        companionRequestSchema.safeParse({
+          ...base,
+          mode: "define",
+          selection: " ",
+        }).success,
+      ).toBe(false);
+    });
   });
 
   describe("buildCompanionPrompt", () => {
+    it("grounds definitions and substitute phrases in the actual sentence without inventing etymology", () => {
+      const request = companionRequestSchema.parse({
+        mode: "define",
+        title: "Markets",
+        paragraphs: ["Demand for this product is elastic."],
+        selection: "elastic",
+        paragraphIndex: 0,
+      });
+      const { messages } = buildCompanionPrompt(request);
+      const opening = messages[0].content;
+      expect(opening).toContain("Demand for this product is elastic.");
+      expect(opening).toContain("dictionary-style meaning and part of speech");
+      expect(opening).toContain("precise sense in this sentence");
+      expect(opening).toContain(
+        "acknowledge uncertainty rather than inventing an origin",
+      );
+      expect(opening).toContain("sentence fragment with each replacement");
+    });
     it("puts the article, passage and question first, then follow-ups", () => {
       const { system, messages } = buildCompanionPrompt({
         mode: "ask",

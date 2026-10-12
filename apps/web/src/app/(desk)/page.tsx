@@ -330,11 +330,13 @@ export default function HomePage() {
               {today}
               <span className="mx-2 opacity-50">·</span>
               <span className="text-[var(--reader-fg-soft)]">
-                {overview.waiting === 0
-                  ? "You're all caught up"
-                  : `${overview.waiting} ${overview.waiting === 1 ? "piece" : "pieces"} waiting`}
+                {overview.waiting === null
+                  ? "Counting your library…"
+                  : overview.waiting === 0
+                    ? "You're all caught up"
+                    : `${overview.waiting} ${overview.waiting === 1 ? "piece" : "pieces"} waiting`}
                 <span className="hidden sm:inline">
-                  {overview.waiting === 0
+                  {overview.waiting === null || overview.waiting === 0
                     ? ""
                     : ", annotated against your notes"}
                 </span>
@@ -383,7 +385,11 @@ export default function HomePage() {
                       {option.label}
                     </span>
                     <span className="mt-1 sm:mt-0 text-[11px] sm:text-[11.5px] text-[var(--reader-muted)]">
-                      {fits === 0 ? "none" : `${fits} fit`}
+                      {fits === null
+                        ? "counting…"
+                        : fits === 0
+                          ? "none"
+                          : `${fits} fit`}
                     </span>
                   </button>
                 );

@@ -1,8 +1,5 @@
-import type { Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import { DEFAULT_USER_ID } from "./lib/constants";
-
-const TIME_BUCKETS = [5, 10, 20, 30] as const;
 
 function hostOf(url: string) {
   try {
@@ -16,19 +13,21 @@ function hostOf(url: string) {
 export const overview = query({
   args: {},
   handler: async (ctx) => {
-    const [annotated, interactions, notes] = await Promise.all([
+    const [unread, stats, notes] = await Promise.all([
       ctx.db
         .query("articles")
-        .withIndex("by_annotation_status", (q) =>
-          q.eq("userId", DEFAULT_USER_ID).eq("annotationStatus", "annotated"),
+        .withIndex("by_user_annotationStatus_finishedAt", (q) =>
+          q
+            .eq("userId", DEFAULT_USER_ID)
+            .eq("annotationStatus", "annotated")
+            .eq("finishedAt", undefined),
         )
         .order("desc")
-        .take(200),
+        .take(10),
       ctx.db
-        .query("articleInteractions")
+        .query("readingQueueStats")
         .withIndex("by_user", (q) => q.eq("userId", DEFAULT_USER_ID))
-        .order("desc")
-        .take(500),
+        .unique(),
       ctx.db
         .query("userNotes")
         .withIndex("by_user_recent", (q) => q.eq("userId", DEFAULT_USER_ID))
@@ -36,35 +35,22 @@ export const overview = query({
         .take(1),
     ]);
 
-    const finished = new Set<Id<"articles">>(
-      interactions
-        .filter((i) => i.action === "finished")
-        .map((i) => i.articleId),
-    );
-    const unread = annotated.filter((a) => !finished.has(a._id));
-
-    // How many unread pieces fit each time choice; "30" means 30 minutes or more
-    const fits = Object.fromEntries(
-      TIME_BUCKETS.map((minutes) => [
-        minutes,
-        minutes === 30
-          ? unread.length
-          : unread.filter(
-              (a) =>
-                (a.estimatedReadMinutes ?? Number.POSITIVE_INFINITY) <= minutes,
-            ).length,
-      ]),
-    ) as Record<(typeof TIME_BUCKETS)[number], number>;
-
     const latest = notes[0];
     const latestNoteArticle = latest
       ? await ctx.db.get("articles", latest.articleId)
       : null;
 
     return {
-      annotatedTotal: annotated.length,
-      waiting: unread.length,
-      fits,
+      countsReady: stats?.ready ?? false,
+      annotatedTotal: stats?.annotated ?? unread.length,
+      waiting: stats?.ready ? stats.waiting : null,
+      pending: stats?.ready ? stats.pending : null,
+      fits: {
+        5: stats?.ready ? stats.fits5 : null,
+        10: stats?.ready ? stats.fits10 : null,
+        20: stats?.ready ? stats.fits20 : null,
+        30: stats?.ready ? stats.waiting : null,
+      },
       upNext: unread.slice(0, 10).map((a) => ({
         _id: a._id,
         title: a.title,

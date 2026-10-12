@@ -622,8 +622,8 @@ export function ReaderSettingsPanel({
           {tab === "answers" && (
             <div className="mt-4 space-y-3.5">
               <p className="text-[12.5px] leading-relaxed text-[var(--reader-muted)]">
-                How Ask, Explain and Simplify answer when you highlight a
-                passage.
+                How Ask, Explain, Simplify and Define answer when you highlight
+                a passage.
               </p>
               <Row label="Length">
                 <Segmented
@@ -705,7 +705,8 @@ export function ReaderSettingsPanel({
                 Shortcuts: select text, then press{" "}
                 <kbd className="reader-kbd">A</kbd> to ask,{" "}
                 <kbd className="reader-kbd">E</kbd> to explain or{" "}
-                <kbd className="reader-kbd">S</kbd> to simplify.
+                <kbd className="reader-kbd">S</kbd> to simplify and{" "}
+                <kbd className="reader-kbd">D</kbd> to define in context.
               </p>
             </div>
           )}

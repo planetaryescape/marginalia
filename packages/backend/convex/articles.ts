@@ -7,6 +7,7 @@ import {
   query,
 } from "./_generated/server";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { updateQueueStats } from "./readingQueue";
 
 export const getById = query({
   args: { articleId: v.id("articles") },
@@ -97,7 +98,10 @@ export const insert = internalMutation({
     createdAt: v.number(),
   },
   handler: async (ctx, args) => {
-    return ctx.db.insert("articles", args);
+    const id = await ctx.db.insert("articles", args);
+    const article = await ctx.db.get(id);
+    if (article) await updateQueueStats(ctx, null, article);
+    return id;
   },
 });
 
@@ -142,10 +146,13 @@ export const updateExtracted = internalMutation({
   },
   handler: async (ctx, args) => {
     const { articleId, ...updates } = args;
+    const before = await ctx.db.get(articleId);
     await ctx.db.patch(articleId, {
       ...updates,
       extractionStatus: "extracted" as const,
     });
+    const after = await ctx.db.get(articleId);
+    if (after) await updateQueueStats(ctx, before, after);
   },
 });
 
@@ -201,14 +208,38 @@ export const insertExtracted = internalMutation({
     imageUrl: v.optional(v.string()),
     embedding: v.optional(v.array(v.float64())),
     readerDocumentId: v.optional(v.string()),
+    annotateAfterMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    return ctx.db.insert("articles", {
-      ...args,
+    const existing = await ctx.db
+      .query("articles")
+      .withIndex("by_user_guid", (q) =>
+        q.eq("userId", args.userId).eq("guid", args.guid),
+      )
+      .first();
+    if (existing) {
+      if (args.readerDocumentId && !existing.readerDocumentId) {
+        await ctx.db.patch(existing._id, {
+          readerDocumentId: args.readerDocumentId,
+        });
+      }
+      return existing._id;
+    }
+    const { annotateAfterMs, ...article } = args;
+    const id = await ctx.db.insert("articles", {
+      ...article,
       extractionStatus: "extracted",
       annotationStatus: "pending",
       createdAt: Date.now(),
     });
+    const inserted = await ctx.db.get(id);
+    if (inserted) await updateQueueStats(ctx, null, inserted);
+    await ctx.scheduler.runAfter(
+      annotateAfterMs ?? 500,
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId: id },
+    );
+    return id;
   },
 });
 
@@ -223,6 +254,9 @@ export const updateAnnotationStatus = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const before = await ctx.db.get(args.articleId);
     await ctx.db.patch(args.articleId, { annotationStatus: args.status });
+    const after = await ctx.db.get(args.articleId);
+    if (after) await updateQueueStats(ctx, before, after);
   },
 });

@@ -14,7 +14,12 @@ import { type ReaderSettings, webSearchEnabled } from "./reader-settings";
 import { findTextRange } from "./text-range";
 
 /** "article" is a question about the whole piece, with no highlighted passage. */
-export type CompanionMode = "explain" | "simplify" | "ask" | "article";
+export type CompanionMode =
+  | "explain"
+  | "simplify"
+  | "define"
+  | "ask"
+  | "article";
 
 export interface CompanionTurn {
   role: "user" | "assistant";

@@ -29,6 +29,7 @@ export const create = mutation({
     mode: v.union(
       v.literal("explain"),
       v.literal("simplify"),
+      v.literal("define"),
       v.literal("ask"),
       v.literal("article"),
     ),

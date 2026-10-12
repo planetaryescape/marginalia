@@ -31,6 +31,14 @@ export function readwiseToken(): string | undefined {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export class ReadwiseRateLimitError extends Error {
+  constructor(public readonly retryAfterMs: number) {
+    super(
+      `Reader rate limit reached; retry after ${Math.ceil(retryAfterMs / 1000)} seconds.`,
+    );
+  }
+}
+
 async function request(
   path: string,
   init: RequestInit = {},
@@ -40,15 +48,21 @@ async function request(
   for (let attempt = 0; ; attempt++) {
     const response = await fetch(`${API}${path}`, {
       ...init,
+      signal: AbortSignal.timeout(30_000),
       headers: {
         Authorization: `Token ${token}`,
         "Content-Type": "application/json",
         ...init.headers,
       },
     });
-    if (response.status === 429 && attempt < MAX_RETRIES) {
+    if (response.status === 429) {
       const wait = Number(response.headers.get("Retry-After") ?? "5");
-      await sleep((Number.isFinite(wait) ? wait : 5) * 1000 + 250);
+      const retryAfterMs =
+        (Number.isFinite(wait) ? Math.max(0, wait) : 5) * 1000 + 250;
+      // Long waits belong in the durable scheduler, not inside a time-limited action.
+      if (attempt >= MAX_RETRIES || retryAfterMs > 60_250)
+        throw new ReadwiseRateLimitError(retryAfterMs);
+      await sleep(retryAfterMs);
       continue;
     }
     if (!response.ok) {
@@ -61,31 +75,27 @@ async function request(
   }
 }
 
-/** Pages through the document list, newest updates included, up to `maxPages`. */
-export async function* listDocuments(params: {
+/** Fetch one bounded page. Callers persist the cursor before advancing. */
+export async function listDocumentPage(params: {
   location?: ReaderLocation;
   category?: string;
   updatedAfter?: string;
   withHtmlContent?: boolean;
-  maxPages?: number;
-}): AsyncGenerator<ReaderDocument> {
-  let cursor: string | null = null;
-  for (let page = 0; page < (params.maxPages ?? 10); page++) {
-    const query = new URLSearchParams();
-    if (params.location) query.set("location", params.location);
-    if (params.category) query.set("category", params.category);
-    if (params.updatedAfter) query.set("updatedAfter", params.updatedAfter);
-    if (params.withHtmlContent) query.set("withHtmlContent", "true");
-    if (cursor) query.set("pageCursor", cursor);
-    const response = await request(`/list/?${query}`);
-    const body = (await response.json()) as {
-      results: ReaderDocument[];
-      nextPageCursor: string | null;
-    };
-    yield* body.results;
-    cursor = body.nextPageCursor;
-    if (!cursor) return;
-  }
+  pageCursor?: string;
+  limit?: number;
+}): Promise<{ results: ReaderDocument[]; nextPageCursor: string | null }> {
+  const query = new URLSearchParams();
+  if (params.location) query.set("location", params.location);
+  if (params.category) query.set("category", params.category);
+  if (params.updatedAfter) query.set("updatedAfter", params.updatedAfter);
+  if (params.withHtmlContent) query.set("withHtmlContent", "true");
+  if (params.pageCursor) query.set("pageCursor", params.pageCursor);
+  query.set("limit", String(params.limit ?? 5));
+  const response = await request(`/list/?${query}`);
+  return (await response.json()) as {
+    results: ReaderDocument[];
+    nextPageCursor: string | null;
+  };
 }
 
 /** Creates a highlight on a Reader document. The passage must match its text. */

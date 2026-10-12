@@ -34,6 +34,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ["j  k", "Next and previous paragraph"],
       ["e", "Explain the selection or paragraph"],
       ["s", "Simplify it"],
+      ["d", "Define a word or phrase in context"],
       ["a", "Ask about it"],
       ["h", "Highlight it"],
       ["p", "Pen-mark it"],

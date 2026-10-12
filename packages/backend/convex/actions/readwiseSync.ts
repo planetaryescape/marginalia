@@ -1,4 +1,5 @@
 "use node";
+import type { FunctionArgs } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
@@ -7,10 +8,11 @@ import { ingestArticle } from "../lib/ingest";
 import {
   createHighlight,
   deleteDocument,
-  listDocuments,
+  listDocumentPage,
   moveDocument,
   type ReaderDocument,
   type ReaderLocation,
+  ReadwiseRateLimitError,
   readwiseToken,
 } from "../lib/readwise";
 
@@ -18,11 +20,6 @@ import {
 const LOCATIONS: ReaderLocation[] = ["new", "later", "shortlist"];
 // Text documents Marginalia can annotate; PDFs, EPUBs, tweets and videos are skipped
 const IMPORTABLE = new Set(["article", "email", "rss"]);
-// The first sync takes only the most recently updated documents, so connecting
-// a large library doesn't queue thousands of annotation runs at once
-const FIRST_SYNC_LIMIT = 100;
-// Overlap each incremental sync slightly so nothing updated mid-run is missed
-const OVERLAP_MS = 2 * 60 * 1000;
 // Spread annotation runs out rather than starting them all together
 const ANNOTATION_SPACING_MS = 8_000;
 
@@ -38,44 +35,68 @@ export const sync = internalAction({
   args: {},
   handler: async (ctx): Promise<void> => {
     if (!readwiseToken()) return;
-    const startedAt = Date.now();
-    const { syncedAt }: { syncedAt: number | null } = await ctx.runQuery(
-      internal.readwise.getSyncState,
-      {},
+    await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {});
+    const token = crypto.randomUUID();
+    const state: Doc<"readwiseSyncState"> | null = await ctx.runMutation(
+      internal.readwiseSyncState.claim,
+      { token },
     );
-    const updatedAfter = syncedAt
-      ? new Date(syncedAt - OVERLAP_MS).toISOString()
-      : undefined;
-
+    if (!state) return;
     try {
-      // 1. Documents
-      let candidates: ReaderDocument[] = [];
-      for (const location of LOCATIONS) {
-        for await (const doc of listDocuments({
-          location,
-          updatedAfter,
-          withHtmlContent: true,
-          maxPages: syncedAt ? 10 : 30,
-        })) {
-          if (doc.parent_id || !IMPORTABLE.has(doc.category)) continue;
-          candidates.push(doc);
-          if (!syncedAt && candidates.length > FIRST_SYNC_LIMIT * 2) {
-            // Keep memory bounded on a first sync of a big library
-            candidates.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-            candidates = candidates.slice(0, FIRST_SYNC_LIMIT);
-          }
-        }
-      }
-      if (!syncedAt) {
-        candidates.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-        candidates = candidates.slice(0, FIRST_SYNC_LIMIT);
-      }
-
+      const highlightPhase = state.phase === LOCATIONS.length;
+      const page = await listDocumentPage({
+        location: highlightPhase ? undefined : LOCATIONS[state.phase],
+        category: highlightPhase ? "highlight" : undefined,
+        updatedAfter: state.updatedAfter,
+        pageCursor: state.pageCursor,
+        withHtmlContent: !highlightPhase,
+        limit: highlightPhase ? 20 : 5,
+      });
       let imported = 0;
-      let linked = 0;
-      let failed = 0;
-      for (const doc of candidates) {
-        try {
+      const processed = new Set(state.pageProcessedIds);
+      const record = async (
+        documentId: string,
+        outcome: FunctionArgs<
+          typeof internal.readwiseSyncState.recordDocument
+        >["outcome"],
+      ) => {
+        await ctx.runMutation(internal.readwiseSyncState.recordDocument, {
+          token,
+          documentId,
+          outcome,
+        });
+        processed.add(documentId);
+      };
+      for (const doc of page.results) {
+        if (processed.has(doc.id)) continue;
+        if (highlightPhase) {
+          const text = doc.content?.trim();
+          if (!doc.parent_id || !text) {
+            await record(doc.id, "ignored");
+            continue;
+          }
+          const article: Doc<"articles"> | null = await ctx.runQuery(
+            internal.readwise.findArticle,
+            { readerDocumentId: doc.parent_id },
+          );
+          if (!article) {
+            await record(doc.id, "ignored");
+            continue;
+          }
+          const added: boolean = await ctx.runMutation(
+            internal.readwise.importHighlight,
+            {
+              articleId: article._id,
+              readerHighlightId: doc.id,
+              text,
+            },
+          );
+          await record(doc.id, added ? "highlight" : "ignored");
+        } else {
+          if (doc.parent_id || !IMPORTABLE.has(doc.category)) {
+            await record(doc.id, "skipped");
+            continue;
+          }
           const url = doc.source_url || doc.url;
           const existing: Doc<"articles"> | null = await ctx.runQuery(
             internal.readwise.findArticle,
@@ -87,11 +108,17 @@ export const sync = internalAction({
                 articleId: existing._id,
                 readerDocumentId: doc.id,
               });
-              linked++;
             }
+            await record(
+              doc.id,
+              existing.readerDocumentId ? "existing" : "linked",
+            );
             continue;
           }
-          if (!doc.html_content?.trim()) continue;
+          if (!doc.html_content?.trim()) {
+            await record(doc.id, "skipped");
+            continue;
+          }
           const articleId = await ingestArticle(
             ctx,
             {
@@ -106,51 +133,23 @@ export const sync = internalAction({
             { annotateAfterMs: 500 + imported * ANNOTATION_SPACING_MS },
           );
           if (articleId) imported++;
-          else failed++;
-        } catch (error) {
-          // One bad document shouldn't stop the rest of the sync
-          failed++;
-          console.error(`Readwise: couldn't import "${doc.title}":`, error);
+          await record(doc.id, articleId ? "imported" : "skipped");
         }
       }
-
-      // 2. Highlights made in Reader, on articles Marginalia has
-      let highlights = 0;
-      for await (const doc of listDocuments({
-        category: "highlight",
-        updatedAfter,
-        maxPages: syncedAt ? 10 : 20,
-      })) {
-        const text = doc.content?.trim();
-        if (!doc.parent_id || !text) continue;
-        const article: Doc<"articles"> | null = await ctx.runQuery(
-          internal.readwise.findArticle,
-          { readerDocumentId: doc.parent_id },
-        );
-        if (!article) continue;
-        const added: boolean = await ctx.runMutation(
-          internal.readwise.importHighlight,
-          {
-            articleId: article._id,
-            readerHighlightId: doc.id,
-            text,
-          },
-        );
-        if (added) highlights++;
-      }
-
-      await ctx.runMutation(internal.readwise.recordSync, {
-        syncedAt: startedAt,
+      await ctx.runMutation(internal.readwiseSyncState.completePage, {
+        token,
+        nextPageCursor: page.nextPageCursor,
       });
-      console.log(
-        `Readwise sync: ${imported} imported, ${linked} linked, ${failed} skipped, ${highlights} highlights` +
-          (syncedAt ? "" : " (first sync)"),
-      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("Readwise sync failed:", message);
-      await ctx.runMutation(internal.readwise.recordSync, {
+      await ctx.runMutation(internal.readwiseSyncState.fail, {
+        token,
         error: message.slice(0, 300),
+        retryAfterMs:
+          error instanceof ReadwiseRateLimitError
+            ? error.retryAfterMs
+            : undefined,
       });
     }
   },

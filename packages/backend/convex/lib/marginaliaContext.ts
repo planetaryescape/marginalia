@@ -335,6 +335,7 @@ async function formatThread(
     ask: "Asked about",
     explain: "Asked to explain",
     simplify: "Asked to simplify",
+    define: "Asked to define in context",
     article: "Asked about the article",
   }[row.mode];
   const answer = row.turns.find((t) => t.role === "assistant")?.content ?? "";

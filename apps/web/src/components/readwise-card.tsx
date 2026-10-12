@@ -49,9 +49,11 @@ export function ReadwiseCard() {
               ? "Not connected"
               : status.error
                 ? `Last sync failed ${status.checkedAt ? ago(status.checkedAt) : ""}`
-                : status.syncedAt
-                  ? `Synced ${ago(status.syncedAt)} · Inbox, Later and Shortlist`
-                  : "Connected · first sync pending"}
+                : status.progress?.active
+                  ? `${status.progress.backfilling ? "Importing full library" : "Syncing updates"} · ${status.progress.phase}`
+                  : status.syncedAt
+                    ? `Synced ${ago(status.syncedAt)} · Inbox, Later and Shortlist`
+                    : "Connected · first sync pending"}
           </p>
         </div>
         {status.connected && (
@@ -80,6 +82,23 @@ export function ReadwiseCard() {
           </button>
         )}
       </div>
+      {status.connected && status.progress && (
+        <p
+          className="mt-2 text-xs leading-relaxed text-[var(--reader-muted)]"
+          role="status"
+        >
+          {status.progress.scanned} documents checked ·{" "}
+          {status.progress.imported} newly imported · {status.progress.skipped}{" "}
+          skipped (unsupported, missing text or too large).
+          {status.progress.backfilling &&
+            " Older items are imported in small batches; you can close the app."}
+          {status.progress.active &&
+            status.error &&
+            " Progress is saved; Sync now retries the current page."}
+          {status.pendingAnnotations !== null &&
+            ` ${status.pendingAnnotations} articles awaiting annotation across your library.`}
+        </p>
+      )}
       {status.connected && status.error && (
         <p className="mt-2 text-xs text-annotation-tension break-words">
           {status.error}

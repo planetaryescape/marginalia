@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { updateQueueStats } from "./readingQueue";
 
 export const create = mutation({
   args: { requestedMinutes: v.number() },
@@ -87,6 +88,12 @@ export const recordInteraction = mutation({
     });
     // Finishing an article that came from Readwise Reader archives it there
     if (args.action === "finished") {
+      const before = await ctx.db.get(args.articleId);
+      if (before && before.finishedAt === undefined) {
+        await ctx.db.patch(before._id, { finishedAt: Date.now() });
+        const after = await ctx.db.get(before._id);
+        if (after) await updateQueueStats(ctx, before, after);
+      }
       await ctx.scheduler.runAfter(
         0,
         internal.actions.readwiseSync.archiveArticle,
