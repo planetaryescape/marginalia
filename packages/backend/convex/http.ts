@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { type ActionCtx, httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
+import { isTerminalChatGPTError } from "./lib/chatgptResponses";
 import {
   type ChatMessage,
   completeJson,
@@ -73,6 +74,17 @@ async function aiBudgetExceeded(
       },
     },
   );
+}
+
+function jsonError(status: number, body: { code: string; error: string }) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 /**
@@ -152,6 +164,7 @@ async function streamWithFallback(
   targets: ProviderTarget[],
   web: boolean,
   signal: AbortSignal,
+  onFailure: (error: unknown) => Promise<void>,
 ): Promise<Response> {
   for (const target of targets) {
     const modelId = target.id;
@@ -179,6 +192,14 @@ async function streamWithFallback(
     if (failed !== null || first === null) {
       console.error(`Streamed answer: ${modelId} failed`, failed);
       await events.return(undefined);
+      await onFailure(failed).catch(() => {});
+      // A ChatGPT plan's limit or eligibility is shown to the reader rather
+      // than quietly moving the answer to one of their paid API keys
+      if (isTerminalChatGPTError(failed))
+        return jsonError(failed.responseStatus, {
+          code: `chatgpt_${failed.kind}`,
+          error: failed.readerMessage,
+        });
       continue;
     }
 
@@ -263,9 +284,8 @@ http.route({
       });
     }
 
-    const targets = (await loadReaderAI(ctx, readerId)).chain(
-      parsed.data.depth,
-    );
+    const ai = await loadReaderAI(ctx, readerId);
+    const targets = ai.chain(parsed.data.depth);
     if (!targets.length) return setupNeeded("no_provider");
     const { system, messages } = buildCompanionPrompt(parsed.data);
     const chat: ChatMessage[] = [
@@ -273,7 +293,13 @@ http.route({
       ...messages,
     ];
 
-    return streamWithFallback(chat, targets, parsed.data.web, request.signal);
+    return streamWithFallback(
+      chat,
+      targets,
+      parsed.data.web,
+      request.signal,
+      ai.noteFailure,
+    );
   }),
 });
 
@@ -432,7 +458,13 @@ http.route({
         },
       );
     }
-    return streamWithFallback(chat, targets, false, request.signal);
+    return streamWithFallback(
+      chat,
+      targets,
+      false,
+      request.signal,
+      ai.noteFailure,
+    );
   }),
 });
 
@@ -508,6 +540,15 @@ http.route({
         } catch (error) {
           if (request.signal.aborted) break;
           console.error(`Library search: ${target.id} failed`, error);
+          await ai.noteFailure(error).catch(() => {});
+          if (isTerminalChatGPTError(error))
+            return new Response(
+              JSON.stringify({
+                code: `chatgpt_${error.kind}`,
+                error: error.readerMessage,
+              }),
+              { status: error.responseStatus, headers },
+            );
         }
       }
     } catch (error) {

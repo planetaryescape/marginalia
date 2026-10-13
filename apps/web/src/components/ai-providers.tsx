@@ -3,7 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { KeyRound } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 type Provider = "openrouter" | "openai" | "anthropic";
 
@@ -145,6 +145,168 @@ function ProviderRow({
   );
 }
 
+const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
+
+const CHATGPT_RESULTS: Record<string, string> = {
+  connected: "ChatGPT connected.",
+  plan_disabled:
+    "ChatGPT connected, but plan usage wasn't allowed, so your plan can't answer here yet.",
+  denied: "ChatGPT sign-in was cancelled.",
+  expired: "That ChatGPT sign-in expired. Try again.",
+  failed: "Couldn't connect ChatGPT. Try again.",
+};
+
+/** Shown only when the server offers Sign in with ChatGPT. */
+function ChatGPTPlan() {
+  const state = useQuery(api.chatgpt.connection, {});
+  const start = useAction(api.chatgpt.start);
+  const disconnect = useAction(api.chatgpt.disconnect);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+
+  // The sign-in callback returns here with ?chatgpt=<result>
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const result = url.searchParams.get("chatgpt");
+    if (!result) return;
+    const message = CHATGPT_RESULTS[result];
+    if (message) (result === "connected" ? setStatus : setError)(message);
+    url.searchParams.delete("chatgpt");
+    window.history.replaceState(null, "", url.toString());
+  }, []);
+
+  if (!state) return null;
+  const connection = state.connection;
+
+  async function connect(consent = false) {
+    setBusy(true);
+    setError("");
+    setStatus("");
+    try {
+      const { url } = await start(consent ? { consent: true } : {});
+      window.location.assign(url);
+    } catch (e) {
+      setError(
+        e instanceof ConvexError && typeof e.data === "string"
+          ? e.data
+          : "Couldn't start ChatGPT sign-in. Try again.",
+      );
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="py-4 border-b border-[var(--reader-border)]">
+      {connection ? (
+        <>
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm">
+              <span className="font-medium">ChatGPT plan</span>
+              <span className="text-[var(--reader-muted)]">
+                {" "}
+                ·{" "}
+                {connection.status === "connected"
+                  ? "Connected"
+                  : connection.status === "reconnect"
+                    ? "Reconnect needed"
+                    : "Plan usage not enabled"}
+                {connection.email ? ` as ${connection.email}` : ""}
+              </span>
+            </div>
+            <button
+              className="min-h-11 px-3 text-sm"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  !confirm(
+                    "Disconnect ChatGPT? Features using your plan switch to your API keys, if you have any.",
+                  )
+                )
+                  return;
+                setBusy(true);
+                setError("");
+                setStatus("");
+                disconnect({})
+                  .then(({ revoked }) =>
+                    revoked
+                      ? setStatus("ChatGPT disconnected.")
+                      : setError(
+                          "Disconnected here, but ChatGPT didn't confirm. Also disconnect this reader in ChatGPT Settings.",
+                        ),
+                  )
+                  .catch(() => setError("Couldn't disconnect ChatGPT."))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              Disconnect
+            </button>
+          </div>
+          {connection.message && (
+            <p className="mt-2 text-sm">{connection.message}</p>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+            {connection.status === "reconnect" && (
+              <button
+                className="app-button secondary"
+                disabled={busy}
+                onClick={() => void connect()}
+              >
+                Continue with ChatGPT
+              </button>
+            )}
+            {connection.status === "plan_disabled" && (
+              <button
+                className="app-button secondary"
+                disabled={busy}
+                onClick={() => void connect(true)}
+              >
+                Allow plan usage
+              </button>
+            )}
+            <a
+              href={CHATGPT_USAGE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              ChatGPT usage
+            </a>
+          </div>
+        </>
+      ) : (
+        <div>
+          <p className="text-sm">
+            <span className="font-medium">ChatGPT plan</span>
+            <span className="text-[var(--reader-muted)]">
+              {" "}
+              · Answers, summaries and marginalia from your ChatGPT plan. Search
+              still needs an OpenAI or OpenRouter key.
+            </span>
+          </p>
+          <button
+            className="app-button secondary mt-2"
+            disabled={busy}
+            onClick={() => void connect()}
+          >
+            {busy ? "Opening ChatGPT…" : "Continue with ChatGPT"}
+          </button>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-annotation-tension">
+          {error}
+        </p>
+      )}
+      {status && (
+        <p role="status" className="mt-2 text-sm">
+          {status}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function AiProviders() {
   const saved = useQuery(api.providerCredentials.list, {});
   const capabilities = useQuery(api.providerCredentials.capabilities, {});
@@ -172,6 +334,7 @@ export function AiProviders() {
           saved={saved?.find((row) => row.provider === provider.id)}
         />
       ))}
+      {capabilities?.chatgptAvailable && <ChatGPTPlan />}
     </section>
   );
 }

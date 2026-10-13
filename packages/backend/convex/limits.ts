@@ -25,6 +25,12 @@ export const READER_LIMITS = {
     message:
       "Too many attempts to connect Readwise in the last hour. Try again later.",
   },
+  chatgptConnect: {
+    max: 10,
+    windowMs: 60 * 60_000,
+    message:
+      "Too many attempts to connect ChatGPT in the last hour. Try again later.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -33,6 +39,7 @@ const bucket = v.union(
   v.literal("ai"),
   v.literal("providerKeySave"),
   v.literal("readwiseConnect"),
+  v.literal("chatgptConnect"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */

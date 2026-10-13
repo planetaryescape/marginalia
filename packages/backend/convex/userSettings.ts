@@ -36,21 +36,26 @@ export const getModels = query({
     ),
   }),
   handler: async (ctx) => {
-    const { providers } = await readerProviders(ctx, ctx.readerId);
+    const { providers, chatgptModels } = await readerProviders(
+      ctx,
+      ctx.readerId,
+    );
     const chosen = await savedModelChoices(ctx, ctx.readerId);
     const selected = Object.fromEntries(
       MODEL_ROLES.map((r) => [
         r,
-        selectModel(chosen[r], r, providers)?.id ?? null,
+        selectModel(chosen[r], r, providers, chatgptModels)?.id ?? null,
       ]),
     ) as Record<ModelRole, string | null>;
     return {
       selected,
-      available: availableModels(providers).map(({ id, name, provider }) => ({
-        id,
-        name,
-        provider,
-      })),
+      available: availableModels(providers, chatgptModels).map(
+        ({ id, name, provider }) => ({
+          id,
+          name,
+          provider,
+        }),
+      ),
     };
   },
 });
@@ -59,8 +64,15 @@ export const setModel = mutation({
   args: { role, model: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { providers } = await readerProviders(ctx, ctx.readerId);
-    if (!availableModels(providers).some((m) => m.id === args.model))
+    const { providers, chatgptModels } = await readerProviders(
+      ctx,
+      ctx.readerId,
+    );
+    if (
+      !availableModels(providers, chatgptModels).some(
+        (m) => m.id === args.model,
+      )
+    )
       throw new ConvexError(
         "That model isn't available with your saved keys. Add its provider in Your account.",
       );

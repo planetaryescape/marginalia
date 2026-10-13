@@ -516,6 +516,50 @@ export default defineSchema({
     validatedAt: v.number(),
   }).index("by_userId", ["userId"]),
 
+  // A reader's ChatGPT plan, connected with Sign in with ChatGPT. Off unless
+  // the deployment enables it (lib/providers.ts isChatGPTEnabled). The sealed
+  // JSON holds the access, refresh and ID tokens; nothing returns it.
+  chatgptConnections: defineTable({
+    userId: v.string(),
+    subject: v.string(),
+    email: v.optional(v.string()),
+    clientId: v.string(),
+    // Absent once the tokens are cleared (reconnect needed)
+    ciphertext: v.optional(v.string()),
+    iv: v.optional(v.string()),
+    scopes: v.array(v.string()),
+    planEnabled: v.boolean(),
+    expiresAt: v.number(),
+    status: v.union(
+      v.literal("connected"),
+      v.literal("reconnect"),
+      v.literal("plan_disabled"),
+    ),
+    // Why plan usage stopped, for the account page
+    message: v.optional(v.string()),
+    models: v.optional(v.array(v.object({ id: v.string(), name: v.string() }))),
+    modelsAt: v.optional(v.number()),
+    // Refresh tokens rotate: only the holder of the lease may spend one.
+    // `version` changes with every token write.
+    refreshLease: v.optional(v.object({ id: v.string(), until: v.number() })),
+    version: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"]),
+
+  // Pending Sign in with ChatGPT attempts, consumed once by the callback.
+  chatgptAuthAttempts: defineTable({
+    userId: v.string(),
+    stateHash: v.string(),
+    nonce: v.string(),
+    // The PKCE verifier, sealed to this reader
+    verifierCiphertext: v.string(),
+    verifierIv: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_stateHash", ["stateHash"])
+    .index("by_userId", ["userId"]),
+
   // One row per user. Model IDs are validated against the reader's available
   // models in lib/providers.ts; older rows hold bare OpenRouter IDs.
   userSettings: defineTable({

@@ -36,8 +36,15 @@ async function serverKey(): Promise<CryptoKey> {
   ]);
 }
 
-/** What a sealed secret belongs to: an AI provider, or the reader's Readwise. */
-export type SealedService = Provider | "readwise";
+/**
+ * What a sealed secret belongs to: an AI provider, the reader's Readwise, or
+ * their ChatGPT tokens and pending sign-in.
+ */
+export type SealedService =
+  | Provider
+  | "readwise"
+  | "chatgpt"
+  | "chatgpt-sign-in";
 
 // Binds a ciphertext to its reader and service: a row copied elsewhere fails
 function additionalData(userId: string, provider: SealedService) {

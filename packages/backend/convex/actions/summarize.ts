@@ -113,9 +113,8 @@ export const generate = action({
     );
     if (!article) throw new Error("Article not found");
 
-    const targets = (await loadReaderAI(ctx, ctx.readerId)).chain(
-      "annotations",
-    );
+    const ai = await loadReaderAI(ctx, ctx.readerId);
+    const targets = ai.chain("annotations");
     if (!targets.length) throw new ConvexError(NO_PROVIDER_MESSAGE);
     const { object, modelId } = await generateObjectWithFallback<Summary>({
       schema: summarySchema,
@@ -123,6 +122,7 @@ export const generate = action({
       prompt: `# ${args.title}\n\n${lines.join("\n\n")}`,
       targets,
       maxOutputTokens: 4096,
+      onFailure: ai.noteFailure,
     });
 
     const clamp = (n: number) => Math.min(Math.max(1, Math.round(n)), total);

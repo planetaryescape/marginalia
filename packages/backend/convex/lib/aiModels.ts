@@ -3,14 +3,19 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateObject } from "ai";
 import { ConvexError } from "convex/values";
-import type { ZodType } from "zod";
-import { PROVIDER_NAMES } from "./providers";
+import { toJSONSchema, type ZodType } from "zod";
+import {
+  ChatGPTRequestError,
+  completeResponses,
+  isTerminalChatGPTError,
+} from "./chatgptResponses";
+import { PROVIDER_NAMES, type Provider } from "./providers";
 import type { ProviderTarget } from "./router";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /** An AI SDK model that calls the target's provider with the reader's own key. */
-function languageModel(target: ProviderTarget) {
+function languageModel(target: ProviderTarget & { provider: Provider }) {
   switch (target.provider) {
     case "openrouter":
       return createOpenAI({
@@ -56,15 +61,39 @@ export async function generateObjectWithFallback<T>(options: {
   targets: ProviderTarget[];
   /** Bound output reservation for tasks that need only a short response. */
   maxOutputTokens?: number;
+  /** Told about each failure, so a ChatGPT connection can record its state. */
+  onFailure?: (error: unknown) => Promise<void>;
 }): Promise<{ object: T; modelId: string }> {
   if (!options.targets.length)
     throw new Error("No AI model is available for this library");
   let lastError: unknown;
   for (const [index, target] of options.targets.entries()) {
     const isLast = index === options.targets.length - 1;
+    if (target.provider === "chatgpt") {
+      try {
+        return {
+          object: await generateWithChatGPT(target, options),
+          modelId: target.id,
+        };
+      } catch (error) {
+        lastError = error;
+        await options.onFailure?.(error).catch(() => {});
+        // The plan's own limits are the reader's to see, not a reason to
+        // quietly spend one of their API keys instead
+        if (isTerminalChatGPTError(error))
+          throw new ConvexError(error.readerMessage);
+        if (!isLast) {
+          console.error(`${target.id} failed`, error);
+          continue;
+        }
+        if (error instanceof ChatGPTRequestError)
+          throw new ConvexError(error.readerMessage);
+        throw error;
+      }
+    }
     try {
       const result = await (generateObject as any)({
-        model: languageModel(target),
+        model: languageModel({ ...target, provider: target.provider }),
         schema: options.schema,
         prompt: options.prompt,
         system: options.system,
@@ -86,4 +115,26 @@ export async function generateObjectWithFallback<T>(options: {
     }
   }
   throw lastError;
+}
+
+/**
+ * Plan usage streams through the Responses API with no output cap, so the
+ * schema travels in the instructions and the answer is checked here.
+ */
+async function generateWithChatGPT<T>(
+  target: ProviderTarget,
+  options: { schema: ZodType<T, any, any>; prompt?: string; system?: string },
+): Promise<T> {
+  const content = await completeResponses({
+    accessToken: target.apiKey,
+    model: target.model,
+    messages: [
+      ...(options.system
+        ? [{ role: "system" as const, content: options.system }]
+        : []),
+      { role: "user", content: options.prompt ?? "" },
+    ],
+    jsonSchema: toJSONSchema(options.schema as any),
+  });
+  return options.schema.parse(JSON.parse(content));
 }

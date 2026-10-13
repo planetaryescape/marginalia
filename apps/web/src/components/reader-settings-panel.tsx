@@ -42,6 +42,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
   openai: "OpenAI",
   anthropic: "Anthropic",
+  chatgpt: "ChatGPT plan",
 };
 
 function ModelRow({

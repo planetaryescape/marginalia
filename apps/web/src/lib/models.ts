@@ -11,7 +11,7 @@ const MODEL_NAMES: Record<string, string> = {
 
 /** "openrouter:google/gemini-3.8-flash" or "google/gemini-3.8-flash" → "Gemini 3.8 Flash" */
 export function modelName(id: string): string {
-  const bare = id.replace(/^(openrouter|openai|anthropic):/, "");
+  const bare = id.replace(/^(openrouter|openai|anthropic|chatgpt):/, "");
   return (
     MODEL_NAMES[bare] ??
     (bare.split("/").pop() ?? bare)

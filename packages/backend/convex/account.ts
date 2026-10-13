@@ -201,6 +201,18 @@ const STEPS: Step[] = [
   ),
   rows((ctx, u) =>
     ctx.db
+      .query("chatgptConnections")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("chatgptAuthAttempts")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
       .query("readerLimits")
       .withIndex("by_userId_and_bucket", (q) => q.eq("userId", u))
       .take(BATCH),

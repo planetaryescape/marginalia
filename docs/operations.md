@@ -97,6 +97,33 @@ Home totals are maintained transactionally in `readingQueueStats`, independent o
 
 Before testing, choose a disposable article in a separate Reader account if possible. Do not delete real Reader documents to verify cleanup. Inspect Convex logs and `readwiseSyncState` after a failure; provider rate limits use bounded retries. Removing the token stops new integration calls but does not delete imported content.
 
+## ChatGPT plan (off by default)
+
+Readers can answer with their ChatGPT plan through Sign in with ChatGPT, but only after OpenAI approves this hosted app. Until then, leave it off. With any of the values below missing, the reader shows no ChatGPT option, `/api/chatgpt/callback` completes nothing (signed-in readers get a 404) and AI requests behave exactly as before.
+
+OpenAI's open-source `dynamic_agent_client` flow needs a `127.0.0.1` loopback callback, so it can't serve a hosted reader and isn't used here. Apply through OpenAI's [interest form](https://openai.com/form/sign-in-with-chatgpt-interest/) to get a hosted client.
+
+After approval, set these on the Convex deployment (not in Vercel):
+
+| Variable | Value |
+| --- | --- |
+| `CHATGPT_PLAN_ENABLED` | `true` |
+| `CHATGPT_CLIENT_ID` | The client ID OpenAI issues |
+| `CHATGPT_REDIRECT_URI` | The exact HTTPS callback registered with OpenAI: `https://reader.bhekani.com/api/chatgpt/callback` |
+| `CHATGPT_CLIENT_SECRET` | Optional. Only for a confidential client; it's sent by HTTP Basic auth to the token endpoint, never in a request body |
+
+`PROVIDER_KEYS_ENCRYPTION_KEY` must also be set: ChatGPT tokens are sealed with it, bound to the reader. Rotating it means every reader has to connect ChatGPT again.
+
+What readers get:
+
+- **Continue with ChatGPT** in Your account → AI providers. The callback finishes only for the signed-in reader who started it, within ten minutes.
+- If they don't allow plan usage (`chatgpt.tokens.use.direct`), the connection is kept but never used for answers; the page offers to ask again.
+- Answers, summaries, marginalia and search ranking can use the plan's models. Embeddings, and so Search and Ask your library, still need an OpenAI or OpenRouter key. Web search isn't offered through the plan.
+- When the plan's usage limit is reached, or the account isn't eligible, the reader sees that message with a link to [ChatGPT usage](https://chatgpt.com/settings/usage). The request doesn't silently move to their API keys. Network failures and OpenAI outages before the first word still fall back to their next model.
+- **Disconnect** revokes the refresh token with OpenAI and deletes the tokens. If OpenAI doesn't confirm, the tokens are deleted anyway and the reader is told to disconnect in ChatGPT Settings too.
+
+If Convex logs show `invalid_client`, the client ID or secret is wrong; readers' tokens are kept until it's fixed. To turn the feature off again, unset `CHATGPT_PLAN_ENABLED`; saved connections stay in `chatgptConnections` but are ignored.
+
 ## Troubleshooting
 
 | Symptom | Check / action |

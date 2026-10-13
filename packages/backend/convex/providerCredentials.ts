@@ -12,11 +12,12 @@ import {
   encryptProviderKey,
   validateProviderKey,
 } from "./lib/providerKeys";
-import { embeddingProvider } from "./lib/providers";
+import { embeddingProvider, isChatGPTEnabled } from "./lib/providers";
 import {
   readerProviders,
   savedCredentials,
   savedModelChoices,
+  usableChatGPTModels,
 } from "./lib/readerAI";
 import { requireReaderLimit } from "./limits";
 
@@ -51,8 +52,10 @@ export const capabilities = query({
   returns: v.object({
     text: v.boolean(),
     embeddings: v.boolean(),
-    providers: v.array(provider),
+    providers: v.array(v.union(provider, v.literal("chatgpt"))),
     deploymentFallback: v.boolean(),
+    // Present only when the server offers Sign in with ChatGPT
+    chatgptAvailable: v.optional(v.literal(true)),
   }),
   handler: async (ctx) => {
     const { providers, deploymentFallback } = await readerProviders(
@@ -64,6 +67,7 @@ export const capabilities = query({
       embeddings: embeddingProvider(providers) !== null,
       providers,
       deploymentFallback,
+      ...(isChatGPTEnabled() ? { chatgptAvailable: true as const } : {}),
     };
   },
 });
@@ -155,5 +159,7 @@ export const routing = internalQuery({
       iv: row.iv,
     })),
     models: await savedModelChoices(ctx, args.userId),
+    // The reader's ChatGPT plan models, when ChatGPT is on and connected
+    chatgptModels: await usableChatGPTModels(ctx, args.userId),
   }),
 });

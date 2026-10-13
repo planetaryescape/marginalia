@@ -181,6 +181,7 @@ Generate annotations and a reflection for this article. Remember: quality over q
           system: SYSTEM_PROMPT,
           prompt,
           targets,
+          onFailure: ai.noteFailure,
         });
 
       // Step 4: Quality gate

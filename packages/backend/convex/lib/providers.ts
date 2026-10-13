@@ -2,14 +2,50 @@
 // each one offers. Model IDs are namespaced ("provider:model") so the router
 // knows which API to call; `model` is the provider's own ID.
 
+/** Providers a reader connects with an API key. */
 export const PROVIDERS = ["openrouter", "openai", "anthropic"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
-export const PROVIDER_NAMES: Record<Provider, string> = {
+/**
+ * Every provider a model can come from. "chatgpt" is a reader's ChatGPT plan,
+ * connected with Sign in with ChatGPT; it exists only when the server enables
+ * it (see isChatGPTEnabled) and its models come from the reader's account.
+ */
+export type ModelProvider = Provider | "chatgpt";
+
+export const PROVIDER_NAMES: Record<ModelProvider, string> = {
   openrouter: "OpenRouter",
   openai: "OpenAI",
   anthropic: "Anthropic",
+  chatgpt: "ChatGPT",
 };
+
+/**
+ * ChatGPT plan usage needs OpenAI's approval of this hosted app. Until the
+ * deployment sets all three values it stays off: no models, no routes, no UI.
+ */
+export function isChatGPTEnabled(): boolean {
+  if (process.env.CHATGPT_PLAN_ENABLED?.trim() !== "true") return false;
+  if (!process.env.CHATGPT_CLIENT_ID?.trim()) return false;
+  const redirect = process.env.CHATGPT_REDIRECT_URI?.trim();
+  if (!redirect) return false;
+  try {
+    return new URL(redirect).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export const CHATGPT_MODEL_PREFIX = "chatgpt:";
+
+export function chatgptModel(slug: string, name: string): CatalogModel {
+  return {
+    id: `${CHATGPT_MODEL_PREFIX}${slug}`,
+    provider: "chatgpt",
+    model: slug,
+    name,
+  };
+}
 
 /** Providers that can make 1536-dimension `text-embedding-3-small` vectors, preferred first. */
 export const EMBEDDING_PROVIDERS = ["openai", "openrouter"] as const;
@@ -20,7 +56,7 @@ export type ModelRole = (typeof MODEL_ROLES)[number];
 
 export interface CatalogModel {
   id: string;
-  provider: Provider;
+  provider: ModelProvider;
   model: string;
   name: string;
 }
@@ -48,16 +84,19 @@ const ROLE_DEFAULTS: Record<ModelRole, string[]> = {
     "openrouter:anthropic/claude-haiku-5.5",
     "anthropic:claude-haiku-5-5",
     "openai:gpt-6-luna",
+    "chatgpt:gpt-6-luna",
   ],
   quick: [
     "openrouter:deepseek/deepseek-v4.1-flash",
     "openai:gpt-6-luna",
     "anthropic:claude-haiku-5-5",
+    "chatgpt:gpt-6-luna",
   ],
   deep: [
     "openrouter:openai/gpt-6-luna",
     "openai:gpt-6.1-sol",
     "anthropic:claude-sonnet-5-5",
+    "chatgpt:gpt-6.1-sol",
   ],
 };
 
@@ -85,19 +124,28 @@ export function normalizeModelId(id: string | undefined): string | undefined {
   return id.includes(":") ? id : `openrouter:${id}`;
 }
 
+/**
+ * The models the reader's providers reach. `chatgpt` holds the models their
+ * ChatGPT plan lists, used only while "chatgpt" is among their providers.
+ */
 export function availableModels(
-  providers: readonly Provider[],
+  providers: readonly ModelProvider[],
+  chatgpt: readonly CatalogModel[] = [],
 ): CatalogModel[] {
-  return MODEL_CATALOG.filter((model) => providers.includes(model.provider));
+  return [
+    ...MODEL_CATALOG.filter((model) => providers.includes(model.provider)),
+    ...(providers.includes("chatgpt") ? chatgpt : []),
+  ];
 }
 
 /** The reader's chosen model if their keys still reach it, else a default they can use. */
 export function selectModel(
   chosen: string | undefined,
   role: ModelRole,
-  providers: readonly Provider[],
+  providers: readonly ModelProvider[],
+  chatgpt: readonly CatalogModel[] = [],
 ): CatalogModel | null {
-  const available = availableModels(providers);
+  const available = availableModels(providers, chatgpt);
   const byId = (id: string | undefined) =>
     available.find((model) => model.id === id);
   return (
@@ -112,11 +160,12 @@ export function selectModel(
 export function modelChain(
   chosen: string | undefined,
   role: ModelRole,
-  providers: readonly Provider[],
+  providers: readonly ModelProvider[],
+  chatgpt: readonly CatalogModel[] = [],
 ): CatalogModel[] {
-  const primary = selectModel(chosen, role, providers);
+  const primary = selectModel(chosen, role, providers, chatgpt);
   if (!primary) return [];
-  const available = availableModels(providers);
+  const available = availableModels(providers, chatgpt);
   const fallback = [
     ...FALLBACKS.map((id) => available.find((model) => model.id === id)),
     ...available,
@@ -125,7 +174,7 @@ export function modelChain(
 }
 
 export function embeddingProvider(
-  providers: readonly Provider[],
+  providers: readonly ModelProvider[],
 ): EmbeddingProvider | null {
   return EMBEDDING_PROVIDERS.find((p) => providers.includes(p)) ?? null;
 }

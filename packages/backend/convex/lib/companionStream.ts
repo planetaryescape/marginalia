@@ -2,8 +2,14 @@
 // provider can't send OpenRouter's server-side `openrouter:web_search` tool,
 // so the reading companion talks to each API directly. OpenRouter and OpenAI
 // share the chat-completions stream format; Anthropic has its own.
+import { completeResponses, streamResponses } from "./chatgptResponses";
 import { searchCompletionSchema } from "./librarySearch";
-import { type Provider, providerFailure } from "./providers";
+import {
+  type ModelProvider,
+  type Provider,
+  providerFailure,
+} from "./providers";
+import { dataLines, parseJson as parse, type ResponseBody } from "./sse";
 
 const CHAT_URLS: Record<Exclude<Provider, "anthropic">, string> = {
   openrouter: "https://openrouter.ai/api/v1/chat/completions",
@@ -18,8 +24,6 @@ const WEB_SEARCH_TOOL = {
   parameters: { engine: "exa", mode: "instant", max_results: 5, max_uses: 2 },
 };
 
-type ResponseBody = NonNullable<Response["body"]>;
-
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -27,7 +31,7 @@ export interface ChatMessage {
 
 /** Which provider and model to call, with the reader's own key. */
 export interface ChatTarget {
-  provider: Provider;
+  provider: ModelProvider;
   model: string;
   apiKey: string;
 }
@@ -67,7 +71,7 @@ function anthropicMessages(messages: ChatMessage[]) {
 }
 
 function chatRequest(
-  target: ChatTarget,
+  target: ChatTarget & { provider: Provider },
   messages: ChatMessage[],
   maxTokens: number,
   web: boolean,
@@ -103,36 +107,6 @@ function chatRequest(
       ...extra,
     },
   };
-}
-
-async function* dataLines(body: ResponseBody) {
-  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += value;
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        // Comment lines like ": OPENROUTER PROCESSING" keep the connection alive
-        if (line.startsWith("data: ")) yield line.slice(6).trim();
-      }
-    }
-  } finally {
-    // Returning early on [DONE], provider error or cancellation must release the upstream body.
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-}
-
-function parse<T>(data: string): T | null {
-  try {
-    return JSON.parse(data) as T;
-  } catch {
-    return null;
-  }
 }
 
 async function* chatCompletionEvents(
@@ -204,9 +178,24 @@ export async function* streamChat({
   maxTokens: number;
   signal?: AbortSignal;
 }): AsyncGenerator<StreamEvent> {
-  const { url, headers, body } = chatRequest(target, messages, maxTokens, web, {
-    stream: true,
-  });
+  // A ChatGPT plan answers through the Responses API, without hosted tools
+  // or an output cap
+  if (target.provider === "chatgpt") {
+    yield* streamResponses({
+      accessToken: target.apiKey,
+      model: target.model,
+      messages,
+      signal,
+    });
+    return;
+  }
+  const { url, headers, body } = chatRequest(
+    { ...target, provider: target.provider },
+    messages,
+    maxTokens,
+    web,
+    { stream: true },
+  );
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -242,12 +231,23 @@ export async function completeJson({
   jsonSchema: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<{ content: string; truncated: boolean }> {
+  if (target.provider === "chatgpt")
+    return {
+      content: await completeResponses({
+        accessToken: target.apiKey,
+        model: target.model,
+        messages,
+        jsonSchema: jsonSchema.schema,
+        signal,
+      }),
+      truncated: false,
+    };
   const extra =
     target.provider === "anthropic"
       ? {}
       : { response_format: { type: "json_schema", json_schema: jsonSchema } };
   const { url, headers, body } = chatRequest(
-    target,
+    { ...target, provider: target.provider },
     messages,
     maxTokens,
     false,
