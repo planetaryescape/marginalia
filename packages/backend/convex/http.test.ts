@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ownerTest } from "../test/owner";
+import { ownerWithKey } from "../test/owner";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -14,7 +14,7 @@ afterEach(() => {
 describe("library search HTTP results", () => {
   it("does not expose a model's exclusion explanation as a search result", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only");
-    const t = await ownerTest(modules);
+    const t = await ownerWithKey(modules);
     const embedding = Array.from({ length: 1536 }, () => 1);
     const [rejectedId, matchedId] = await t.run(async (ctx) => {
       const ids = [];
@@ -112,10 +112,13 @@ describe("companion HTTP streaming", () => {
         ]),
       );
     vi.stubGlobal("fetch", provider);
-    const response = await (await ownerTest(modules)).fetch("/api/companion", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    const response = await (await ownerWithKey(modules)).fetch(
+      "/api/companion",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      },
+    );
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("An answer.");
     expect(provider).toHaveBeenCalledTimes(2);
@@ -135,10 +138,13 @@ describe("companion HTTP streaming", () => {
         ]),
       ),
     );
-    const response = await (await ownerTest(modules)).fetch("/api/companion", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    const response = await (await ownerWithKey(modules)).fetch(
+      "/api/companion",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      },
+    );
     await expect(response.text()).rejects.toThrow("interrupted");
   });
   it("rejects unauthenticated vault uploads before considering their data", async () => {

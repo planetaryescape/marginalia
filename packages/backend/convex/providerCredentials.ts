@@ -53,20 +53,15 @@ export const capabilities = query({
     text: v.boolean(),
     embeddings: v.boolean(),
     providers: v.array(v.union(provider, v.literal("chatgpt"))),
-    deploymentFallback: v.boolean(),
     // Present only when the server offers Sign in with ChatGPT
     chatgptAvailable: v.optional(v.literal(true)),
   }),
   handler: async (ctx) => {
-    const { providers, deploymentFallback } = await readerProviders(
-      ctx,
-      ctx.readerId,
-    );
+    const { providers } = await readerProviders(ctx, ctx.readerId);
     return {
       text: providers.length > 0,
       embeddings: embeddingProvider(providers) !== null,
       providers,
-      deploymentFallback,
       ...(isChatGPTEnabled() ? { chatgptAvailable: true as const } : {}),
     };
   },

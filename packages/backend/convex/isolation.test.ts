@@ -9,6 +9,7 @@ const OWNER = "default_user";
 const embedding = Array.from({ length: 1536 }, () => 1);
 const READER_KEY = "sk-or-reader-own-key-fixture-0001";
 const DEPLOYMENT_KEY = "owner-deployment-key-fixture";
+const OWNER_KEY = "owner-openrouter-test-key";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -195,6 +196,12 @@ describe("separate reader libraries", () => {
   it("hides every owner document from a second reader's reads", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
+    await saveTestCredential(
+      fixture.t,
+      "default_user",
+      "openrouter",
+      OWNER_KEY,
+    );
     const { reader } = fixture;
     const owner = await seedOwnerLibrary(fixture);
     const { articleId } = owner;
@@ -496,6 +503,12 @@ describe("separate reader libraries", () => {
     vi.useFakeTimers();
     vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
+    await saveTestCredential(
+      fixture.t,
+      "default_user",
+      "openrouter",
+      OWNER_KEY,
+    );
     const { reader, owner, readerLibraryId, t } = fixture;
     const ownerIds = await seedOwnerLibrary(fixture);
     await saveTestCredential(t, readerLibraryId, "openrouter", READER_KEY);
@@ -654,6 +667,12 @@ describe("separate reader libraries", () => {
   it("retrieves only the reader's own library for Ask and library search", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
+    await saveTestCredential(
+      fixture.t,
+      "default_user",
+      "openrouter",
+      OWNER_KEY,
+    );
     const { reader, readerLibraryId, t } = fixture;
     const ownerIds = await seedOwnerLibrary(fixture);
     await saveTestCredential(t, readerLibraryId, "openrouter", READER_KEY);
@@ -729,6 +748,12 @@ describe("separate reader libraries", () => {
   it("builds marginalia only from the article's own library", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const fixture = await secondReaderTest(modules);
+    await saveTestCredential(
+      fixture.t,
+      "default_user",
+      "openrouter",
+      OWNER_KEY,
+    );
     const { readerLibraryId, t } = fixture;
     await seedOwnerLibrary(fixture);
     await saveTestCredential(t, readerLibraryId, "openrouter", READER_KEY);

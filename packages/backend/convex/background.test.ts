@@ -208,7 +208,9 @@ describe("per-reader Readwise", () => {
     });
     expect(tokens).toEqual([]);
     await t.action(internal.actions.readwiseSync.sync, { userId: OWNER });
-    expect(tokens).toEqual([DEPLOYMENT_TOKEN]);
+    // Request count depends on the sync window; every request must use this token
+    expect(tokens.length).toBeGreaterThan(0);
+    expect(new Set(tokens)).toEqual(new Set([DEPLOYMENT_TOKEN]));
 
     await saveReadwiseToken(t, readerLibraryId, READER_TOKEN);
     await saveReadwiseToken(t, OWNER, OWNER_TOKEN);

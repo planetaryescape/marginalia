@@ -321,12 +321,6 @@ export function AiProviders() {
         the provider, stored encrypted and never shown again. Search and Ask
         your library need an OpenAI or OpenRouter key.
       </p>
-      {capabilities?.deploymentFallback && (
-        <p className="text-sm my-3">
-          You're using the reader's built-in OpenRouter key until you add your
-          own.
-        </p>
-      )}
       {PROVIDERS.map((provider) => (
         <ProviderRow
           key={provider.id}

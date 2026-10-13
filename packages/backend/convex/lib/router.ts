@@ -7,7 +7,6 @@ import type { ActionCtx } from "../_generated/server";
 import { ChatGPTRequestError } from "./chatgptResponses";
 import { chatgptAccessToken } from "./chatgptTokens";
 import { type EmbeddingTarget, embedTexts } from "./embeddings";
-import { ownerDeploymentKey } from "./ownerTransition";
 import { decryptProviderKey } from "./providerKeys";
 import {
   type CatalogModel,
@@ -49,8 +48,6 @@ export async function loadReaderAI(
       console.error(`Couldn't open a saved ${row.provider} key`);
     }
   }
-  const deploymentKey = ownerDeploymentKey(userId, routing.credentials.length);
-  if (deploymentKey) keys.set("openrouter", deploymentKey);
 
   // Embedding-only callers don't need the plan, so they never refresh its token
   const chatgptModels = routing.chatgptModels ?? [];

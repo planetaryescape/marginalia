@@ -302,7 +302,6 @@ describe("models from the reader's own providers", () => {
       text: true,
       embeddings: false,
       providers: ["anthropic"],
-      deploymentFallback: false,
     });
     expect(
       (await t.query(api.userSettings.getModels, {})).selected,
@@ -469,44 +468,35 @@ describe("provider router", () => {
   });
 });
 
-describe("owner transition", () => {
-  it("uses the deployment key for the owner only until they save their own", async () => {
+describe("deployment keys", () => {
+  it("never uses a deployment OpenRouter key, even for the owner", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
+    for (const client of [
+      await ownerTest(modules),
+      (await secondReaderTest(modules)).reader,
+    ]) {
+      const { fetchMock } = mockProviders();
+      expect(
+        await client.query(api.providerCredentials.capabilities, {}),
+      ).toMatchObject({ text: false, providers: [] });
+      const response = await companion(client);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: "no_provider" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it("uses the owner's own saved key", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
     const t = await ownerTest(modules);
-    expect(
-      await t.query(api.providerCredentials.capabilities, {}),
-    ).toMatchObject({ providers: ["openrouter"], deploymentFallback: true });
-    let { calls } = mockProviders(() => chatStream("Answer."));
-    await (await companion(t)).text();
-    expect(calls[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
-    expect(calls[0].headers.get("Authorization")).toBe(
-      `Bearer ${DEPLOYMENT_KEY}`,
-    );
-
     await saveTestCredential(t, OWNER, "openai", OWNER_OPENAI);
-    expect(
-      await t.query(api.providerCredentials.capabilities, {}),
-    ).toMatchObject({ providers: ["openai"], deploymentFallback: false });
-    ({ calls } = mockProviders(() => chatStream("Answer.")));
+    const { calls } = mockProviders(() => chatStream("Answer."));
     await (await companion(t)).text();
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("https://api.openai.com/v1/chat/completions");
     expect(calls[0].headers.get("Authorization")).toBe(
       `Bearer ${OWNER_OPENAI}`,
     );
-  });
-
-  it("never lends the deployment key to another reader", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", DEPLOYMENT_KEY);
-    const { reader } = await secondReaderTest(modules);
-    const { fetchMock } = mockProviders();
-    expect(
-      await reader.query(api.providerCredentials.capabilities, {}),
-    ).toMatchObject({ text: false, deploymentFallback: false });
-    const response = await companion(reader);
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: "no_provider" });
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

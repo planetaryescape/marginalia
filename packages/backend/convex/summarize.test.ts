@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ownerTest } from "../test/owner";
+import { ownerWithKey } from "../test/owner";
 import { api } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -64,7 +64,7 @@ describe("article summaries", () => {
       },
     );
     vi.stubGlobal("fetch", provider);
-    const t = await ownerTest(modules);
+    const t = await ownerWithKey(modules);
     const articleId = await t.run((ctx) =>
       ctx.db.insert("articles", {
         userId: "default_user",

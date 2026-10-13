@@ -293,7 +293,6 @@ describe("ChatGPT off by default", () => {
       text: true,
       embeddings: true,
       providers: ["openai"],
-      deploymentFallback: false,
     });
     expect(await t.query(api.chatgpt.connection, {})).toBeNull();
     const models = await t.query(api.userSettings.getModels, {});
@@ -595,7 +594,6 @@ describe("the sign-in callback", () => {
       text: true,
       embeddings: false,
       providers: ["chatgpt"],
-      deploymentFallback: false,
       chatgptAvailable: true,
     });
     expect(await t.query(api.userSettings.getModels, {})).toEqual({

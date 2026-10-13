@@ -20,7 +20,6 @@ const capabilities = {
   text: true,
   embeddings: true,
   providers: ["openai"],
-  deploymentFallback: false,
 };
 
 describe("ChatGPT plan in AI providers", () => {

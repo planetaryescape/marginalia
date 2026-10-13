@@ -2,7 +2,6 @@
 // models they chose. Never touches key material.
 import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { ownerDeploymentKey } from "./ownerTransition";
 import {
   type CatalogModel,
   CHATGPT_MODEL_PREFIX,
@@ -47,14 +46,9 @@ export async function usableChatGPTModels(
 export async function keyProviders(
   ctx: Db,
   userId: string,
-): Promise<{ providers: Provider[]; deploymentFallback: boolean }> {
+): Promise<{ providers: Provider[] }> {
   const rows = await savedCredentials(ctx, userId);
-  if (ownerDeploymentKey(userId, rows.length))
-    return { providers: ["openrouter"], deploymentFallback: true };
-  return {
-    providers: [...new Set(rows.map((row) => row.provider))],
-    deploymentFallback: false,
-  };
+  return { providers: [...new Set(rows.map((row) => row.provider))] };
 }
 
 /** Every provider the reader can use, with their ChatGPT plan's models. */
@@ -63,14 +57,12 @@ export async function readerProviders(
   userId: string,
 ): Promise<{
   providers: ModelProvider[];
-  deploymentFallback: boolean;
   chatgptModels: CatalogModel[];
 }> {
-  const { providers, deploymentFallback } = await keyProviders(ctx, userId);
+  const { providers } = await keyProviders(ctx, userId);
   const chatgpt = await usableChatGPTModels(ctx, userId);
   return {
     providers: chatgpt ? [...providers, "chatgpt"] : providers,
-    deploymentFallback,
     chatgptModels: chatgpt ?? [],
   };
 }

@@ -153,3 +153,13 @@ export async function saveTestCredential(
     }),
   );
 }
+
+/** The owner with a saved OpenRouter key: AI runs only on readers' own keys. */
+export async function ownerWithKey(
+  modules: Record<string, () => Promise<unknown>>,
+  apiKey = "owner-openrouter-test-key",
+) {
+  const t = await ownerTest(modules);
+  await saveTestCredential(t, "default_user", "openrouter", apiKey);
+  return t;
+}

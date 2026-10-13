@@ -10,7 +10,7 @@ Get the app running with [the README](../README.md#run-locally) first. Use your 
 | `NEXT_PUBLIC_CONVEX_SITE_URL` | Same web environment | HTTP AI routes; `.convex.site`, derived from the cloud URL if omitted |
 | `CONVEX_DEPLOYMENT` | `packages/backend/.env.local`, created by Convex CLI | Selecting the CLI's development deployment |
 | `PROVIDER_KEYS_ENCRYPTION_KEY` | Convex deployment environment only | Encrypting readers' own AI provider keys; base64 of 32 random bytes (`openssl rand -base64 32`) |
-| `OPENROUTER_API_KEY` | Convex deployment environment (transition only); also local indexer environment if used | The owner's AI until they save their own key; the indexer's embeddings |
+| `OPENROUTER_API_KEY` | Local vault indexer environment only | The indexer's embeddings. The backend never reads it; every reader, including the owner, uses their own saved key |
 | `READWISE_TOKEN` | Convex deployment environment (transition only) | The owner's Readwise sync until they connect their own token on the Sources page; never used for other readers |
 | `SITE_URL` | Convex deployment environment | Canonical HTTPS web origin for auth; defaults to `https://reader.bhekani.com` |
 | `BETTER_AUTH_SECRET` | Convex deployment environment only | Credential/session protection; random secret of at least 32 characters |
@@ -36,7 +36,7 @@ Then open **Your account → AI providers** and save an OpenRouter, OpenAI or An
 
 The curated models per provider, role defaults and fallback order are in `convex/lib/providers.ts`; smoke-test availability before changing them. A reader without a key can still read, note and highlight; AI features say to add a key.
 
-Transition: while the owner has no saved key, the deployment's `OPENROUTER_API_KEY` serves the owner's library only (`convex/lib/ownerTransition.ts`). Once the owner saves a key, theirs is used. Remove the variable and that function after the switch.
+The backend has no shared AI key. Every reader, including the owner, adds their own key in Your account.
 
 Verify by adding one article in your own deployment, waiting for extraction and opening its annotations. Ask Explain for one passage, then use Home search.
 
