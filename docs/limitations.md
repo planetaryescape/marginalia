@@ -5,7 +5,8 @@ These remain after the polish pass. They are not reasons to replace settled UI d
 ## Resolve before a confidential or multi-user release
 
 - **Credential verification pending:** owner-only authentication is deployed, anonymous access is denied, and the owner confirmed library access and passkey enrollment. Passkey sign-in after sign-out, authenticator enrollment, token refresh and phone/PWA sign-in still need testing. Follow the [account verification steps](operations.md#roll-out-owner-authentication).
-- **AI quotas:** authentication blocks anonymous requests, but there is no owner spending quota. Authorized reading, re-annotation, sync and companion requests can still incur provider spend.
+- **AI quotas:** authentication blocks anonymous requests, but there is no owner spending quota. Authorized reading, re-annotation, sync and companion requests can still incur provider spend. Saving a key also starts a paced [catch-up](operations.md#catching-up-after-a-key-is-saved) of work skipped without one, which spends on that reader's key.
+- **Older skipped articles:** articles skipped for lack of a key before skip reasons were recorded aren't caught up automatically; use **Re-annotate** on each.
 - **Shared dev/live backend:** the existing production web app uses a Convex development deployment also used locally. Separate it with an explicit backup/migration plan.
 - **External providers:** articles, selections, stored context and indexed notes may be sent to OpenRouter/model providers. Readwise receives linked reading/highlight changes. Consent/retention policy has not been formalized.
 

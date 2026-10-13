@@ -18,8 +18,15 @@ interface NoteFixture {
   createdAt: number;
 }
 
-const state: { notes: NoteFixture[] | undefined; pathname: string } =
-  vi.hoisted(() => ({ notes: undefined, pathname: "/notes" }));
+const state: {
+  notes: NoteFixture[] | undefined;
+  pathname: string;
+  isOwner: boolean;
+} = vi.hoisted(() => ({
+  notes: undefined,
+  pathname: "/notes",
+  isOwner: false,
+}));
 const applyTheme = vi.hoisted(() => vi.fn());
 
 vi.mock("next/link", () => ({ default: "a" }));
@@ -41,6 +48,8 @@ vi.mock("convex/react", () => ({
         return 1;
       case "articles:getById":
         return { title: "An article I read", author: "An author" };
+      case "auth:currentReader":
+        return { isOwner: state.isOwner, email: "r@example.com", name: "R" };
       default:
         return undefined;
     }
@@ -53,6 +62,7 @@ describe("Reading desk navigation", () => {
   beforeEach(() => {
     state.notes = undefined;
     state.pathname = "/notes";
+    state.isOwner = false;
     applyTheme.mockClear();
   });
 
@@ -114,5 +124,25 @@ describe("Reading desk navigation", () => {
     expect(html).toContain("h-dvh flex flex-col overflow-hidden");
     expect(html).not.toContain("← Back");
     expect(applyTheme).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [false, 6],
+    [true, 7],
+  ])("gives the owner (%s) Readers in the bottom navigation", (isOwner, count) => {
+    state.isOwner = isOwner;
+    const html = renderToStaticMarkup(
+      <DeskLayout>
+        <NotesPage />
+      </DeskLayout>,
+    );
+    const mobile =
+      html.match(/<nav[^>]*mobile-app-nav[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(mobile.match(/<a /g)).toHaveLength(count);
+    expect(mobile).toContain(`repeat(${count}, minmax(0, 1fr))`);
+    expect(mobile.includes('href="/readers"')).toBe(isOwner);
+    // On the narrowest phones the seven labels stay as accessible names
+    expect(mobile.includes("max-[359px]:sr-only")).toBe(isOwner);
+    if (isOwner) expect(mobile).toMatch(/<span[^>]*>Readers<\/span>/);
   });
 });

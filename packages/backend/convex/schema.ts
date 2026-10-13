@@ -114,6 +114,10 @@ export default defineSchema({
       v.literal("failed"),
       v.literal("skipped"),
     ),
+    // Why a "skipped" article was skipped. "no_provider" articles are
+    // re-annotated once the library saves a key (catchUp.ts); older skipped
+    // rows have no reason and are re-annotated only by hand.
+    skipReason: v.optional(v.literal("no_provider")),
     embedding: v.optional(v.array(v.float64())),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
@@ -128,6 +132,11 @@ export default defineSchema({
     .index("by_user_guid", ["userId", "guid"])
     .index("by_extraction_status", ["userId", "extractionStatus"])
     .index("by_annotation_status", ["userId", "annotationStatus"])
+    .index("by_userId_and_annotationStatus_and_skipReason", [
+      "userId",
+      "annotationStatus",
+      "skipReason",
+    ])
     .index("by_user_annotationStatus_finishedAt", [
       "userId",
       "annotationStatus",
@@ -404,6 +413,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_article", ["articleId"])
+    .index("by_userId", ["userId"])
     .index("by_reader_highlight", ["readerHighlightId"])
     .index("by_userId_and_readerHighlightId", ["userId", "readerHighlightId"])
     .vectorIndex("by_embedding", {
@@ -480,6 +490,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_article", ["articleId"])
+    .index("by_userId", ["userId"])
     .index("by_user_updated", ["userId", "updatedAt"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
@@ -542,6 +553,8 @@ export default defineSchema({
     // Refresh tokens rotate: only the holder of the lease may spend one.
     // `version` changes with every token write.
     refreshLease: v.optional(v.object({ id: v.string(), until: v.number() })),
+    // Set by the account purge while it revokes the refresh token with OpenAI
+    revokeRequestedAt: v.optional(v.number()),
     version: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -559,6 +572,24 @@ export default defineSchema({
   })
     .index("by_stateHash", ["stateHash"])
     .index("by_userId", ["userId"]),
+
+  // One row per library: the paced catch-up that re-runs work skipped for
+  // lack of a key (catchUp.ts). Only the step carrying `runId` may advance it.
+  catchUpState: defineTable({
+    userId: v.string(),
+    running: v.boolean(),
+    runId: v.number(),
+    // Whether this run could embed when it started; a new embedding key restarts the scan
+    embed: v.boolean(),
+    phase: v.number(),
+    // _creationTime of the last row checked in the current phase
+    cursor: v.optional(v.number()),
+    articlesQueued: v.number(),
+    itemsQueued: v.number(),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
 
   // One row per user. Model IDs are validated against the reader's available
   // models in lib/providers.ts; older rows hold bare OpenRouter IDs.

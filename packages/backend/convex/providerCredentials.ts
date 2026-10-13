@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { startCatchUp } from "./catchUp";
 import {
   action,
   internalMutation,
@@ -121,6 +122,8 @@ export const store = internalMutation({
         createdAt: now,
         ...fields,
       });
+    // Re-run marginalia and embeddings skipped while there was no usable key
+    await startCatchUp(ctx, args.userId);
     return null;
   },
 });

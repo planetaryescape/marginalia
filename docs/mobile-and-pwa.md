@@ -14,7 +14,7 @@ Launch the new home-screen icon. A supporting browser opens Marginalia in a stan
 
 ## Read and write with touch
 
-Use the icon-labelled bottom navigation for Home, Library, Notes, Activity, Saved and Sources. Activity opens the reading report; desktop navigation calls it **This week**. Open **Your account** in the header to manage credentials and interaction feedback.
+Use the icon-labelled bottom navigation for Home, Library, Notes, Activity, Saved and Sources. The owner also gets Readers; with seven items, phones narrower than 360px show icons only, and the labels remain for screen readers. Activity opens the reading report; desktop navigation calls it **This week**. Open **Your account** in the header to manage credentials and interaction feedback.
 
 While reading:
 

@@ -1,8 +1,14 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { ownedArticle } from "./access";
-import { action, internalMutation, internalQuery, query } from "./functions";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  query,
+} from "./functions";
 import { updateQueueStats } from "./readingQueue";
 
 export const getById = query({
@@ -261,11 +267,38 @@ export const updateAnnotationStatus = internalMutation({
       v.literal("failed"),
       v.literal("skipped"),
     ),
+    skipReason: v.optional(v.literal("no_provider")),
   },
+  handler: (ctx, args) =>
+    setAnnotationStatus(ctx, args.articleId, args.status, args.skipReason),
+});
+
+/** Changes an article's annotation status and keeps the queue counters in step. */
+export async function setAnnotationStatus(
+  ctx: MutationCtx,
+  articleId: Id<"articles">,
+  status: Doc<"articles">["annotationStatus"],
+  skipReason?: "no_provider",
+) {
+  const before = await ctx.db.get("articles", articleId);
+  if (!before) return;
+  await ctx.db.patch("articles", articleId, {
+    annotationStatus: status,
+    skipReason: status === "skipped" ? skipReason : undefined,
+  });
+  const after = await ctx.db.get("articles", articleId);
+  if (after) await updateQueueStats(ctx, before, after);
+}
+
+export const setEmbedding = internalMutation({
+  args: { articleId: v.id("articles"), embedding: v.array(v.float64()) },
+  returns: v.null(),
   handler: async (ctx, args) => {
-    const before = await ctx.db.get(args.articleId);
-    await ctx.db.patch(args.articleId, { annotationStatus: args.status });
-    const after = await ctx.db.get(args.articleId);
-    if (after) await updateQueueStats(ctx, before, after);
+    const row = await ctx.db.get("articles", args.articleId);
+    if (row && !row.embedding)
+      await ctx.db.patch("articles", args.articleId, {
+        embedding: args.embedding,
+      });
+    return null;
   },
 });

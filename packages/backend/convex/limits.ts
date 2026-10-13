@@ -31,6 +31,12 @@ export const READER_LIMITS = {
     message:
       "Too many attempts to connect ChatGPT in the last hour. Try again later.",
   },
+  // Background catch-up batches (catchUp.ts), at most ten jobs each
+  catchUp: {
+    max: 30,
+    windowMs: 60 * 60_000,
+    message: "Catching up is paused for an hour to limit spend.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -40,6 +46,7 @@ const bucket = v.union(
   v.literal("providerKeySave"),
   v.literal("readwiseConnect"),
   v.literal("chatgptConnect"),
+  v.literal("catchUp"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */

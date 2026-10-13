@@ -329,6 +329,31 @@ export function AiProviders() {
         />
       ))}
       {capabilities?.chatgptAvailable && <ChatGPTPlan />}
+      <CatchUpStatus />
     </section>
+  );
+}
+
+function plural(count: number, one: string, many: string) {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** While work skipped for lack of a key is being redone in the background. */
+function CatchUpStatus() {
+  const progress = useQuery(api.catchUp.status, {});
+  if (!progress) return null;
+  const done = [
+    progress.itemsQueued
+      ? `${plural(progress.itemsQueued, "item", "items")} indexed for search`
+      : "",
+    progress.articlesQueued
+      ? `${plural(progress.articlesQueued, "article", "articles")} sent for marginalia`
+      : "",
+  ].filter(Boolean);
+  return (
+    <p role="status" className="mt-4 text-sm text-[var(--reader-muted)]">
+      Catching up on what was saved without a key
+      {done.length ? `: ${done.join(" and ")} so far.` : "…"}
+    </p>
   );
 }

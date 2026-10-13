@@ -1,7 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { MobileNav, SiteHeader, useSiteNav } from "@/components/site-header";
+import { MobileNav, SiteHeader, useMainNav } from "@/components/site-header";
 import { useReaderSettings } from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 
@@ -9,7 +9,7 @@ import { useReaderTheme } from "@/lib/use-reader-theme";
 export default function DeskLayout({ children }: { children: ReactNode }) {
   const { settings } = useReaderSettings();
   useReaderTheme(settings);
-  const nav = useSiteNav();
+  const nav = useMainNav();
   const pathname = usePathname();
 
   return (

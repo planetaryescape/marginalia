@@ -24,7 +24,7 @@ Schedule a short maintenance window with the owner present. Backend-first deploy
    ```
 
    This is an internal mutation, not a public signup endpoint. Reissuing a token clears an uncompleted reservation; it refuses once an owner exists. The command contains only a hash, never the plaintext token.
-5. Open `https://reader.bhekani.com/#setup=<token>` privately. The UI immediately removes the fragment and sends the token in `x-reader-setup`. Choose the owner's email and a password of at least 12 characters. Claiming consumes the token transactionally; signup without it remains closed.
+5. Open `https://reader.bhekani.com/#setup=<token>` privately. The UI immediately removes the fragment and sends the token in `x-reader-setup`. `#setup=` and `#invite=` fragments are removed on every load, signed in or not; a signed-in reader who opens an invite link is told to sign out first, and the token is never sent. Choose the owner's email and a password of at least 12 characters. Claiming consumes the token transactionally; signup without it remains closed.
 6. In **Your account**, add a passkey. Verify sign-out and passkey sign-in before relying on it. Keep the fallback password in a password manager. Sessions persist for up to 30 days and refresh during use. Password attempts have a shared eight-per-minute budget; passkeys remain available if that budget is flooded.
 7. Optionally set up authenticator codes. Save the displayed recovery codes **before** verifying: verification may refresh the session and close the panel. Password sign-in then asks for an authenticator or recovery code; passkeys instead require device verification. There is no email provider, magic-link or email password-reset flow. Losing all credentials requires administrator recovery; automatic owner reassignment is not implemented.
 8. Verify anonymous backend queries are denied, anonymous companion requests return 401 without provider activity, the owner sees the existing library, and sign-out denies session replay. Then check phone/PWA sign-in and installation on the reader domain.
@@ -97,6 +97,16 @@ Home totals are maintained transactionally in `readingQueueStats`, independent o
 
 Before testing, choose a disposable article in a separate Reader account if possible. Do not delete real Reader documents to verify cleanup. Inspect Convex logs and `readwiseSyncState` after a failure; provider rate limits use bounded retries. Removing the token stops new integration calls but does not delete imported content.
 
+## Catching up after a key is saved
+
+Without a usable key, marginalia are skipped (`annotationStatus: "skipped"`, `skipReason: "no_provider"`) and articles, notes, highlights, Ask threads and impressions are saved without embeddings. Saving a provider key starts a catch-up for that reader's library only (`convex/catchUp.ts`): first embeddings, when the key can embed (OpenAI or OpenRouter), then marginalia for the articles skipped for lack of a key.
+
+- It queues at most 10 jobs per batch, 3 seconds apart, and waits 45 seconds between batches. Each reader may run at most 30 batches an hour (`catchUp` in `limits.ts`); after that it waits ten minutes and tries again.
+- One run per library: saving keys again while it runs doesn't start another. Adding an embedding key to a text-only one restarts the scan so the embeddings are included.
+- Each item is tried once per run. It stops when nothing is left, or when the reader is disabled or being deleted. Your account → AI providers shows a status line while it runs.
+- Articles skipped before skip reasons were recorded aren't included. Open them and use **Re-annotate**.
+- `actions/embedReaderActivity:backfill` takes a `userId` and embeds only that library's highlights and threads, for running by hand.
+
 ## ChatGPT plan (off by default)
 
 Readers can answer with their ChatGPT plan through Sign in with ChatGPT, but only after OpenAI approves this hosted app. Until then, leave it off. With any of the values below missing, the reader shows no ChatGPT option, `/api/chatgpt/callback` completes nothing (signed-in readers get a 404) and AI requests behave exactly as before.
@@ -121,6 +131,7 @@ What readers get:
 - Answers, summaries, marginalia and search ranking can use the plan's models. Embeddings, and so Search and Ask your library, still need an OpenAI or OpenRouter key. Web search isn't offered through the plan.
 - When the plan's usage limit is reached, or the account isn't eligible, the reader sees that message with a link to [ChatGPT usage](https://chatgpt.com/settings/usage). The request doesn't silently move to their API keys. Network failures and OpenAI outages before the first word still fall back to their next model.
 - **Disconnect** revokes the refresh token with OpenAI and deletes the tokens. If OpenAI doesn't confirm, the tokens are deleted anyway and the reader is told to disconnect in ChatGPT Settings too.
+- **Deleting an account** revokes that reader's refresh token too, best effort, before the purge removes the connection. It uses the client ID the token was issued to, so it still runs if ChatGPT has since been turned off. A failed revocation never blocks the deletion; after two minutes the purge removes the tokens regardless.
 
 If Convex logs show `invalid_client`, the client ID or secret is wrong; readers' tokens are kept until it's fixed. To turn the feature off again, unset `CHATGPT_PLAN_ENABLED`; saved connections stay in `chatgptConnections` but are ignored.
 

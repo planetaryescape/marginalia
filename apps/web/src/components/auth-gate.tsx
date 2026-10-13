@@ -3,11 +3,40 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { Fingerprint, LockKeyhole } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { SourceLink } from "@/components/source-link";
 import { authClient } from "@/lib/auth-client";
 import { useReaderSettings } from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
+
+export const ALREADY_SIGNED_IN =
+  "You're already signed in. Sign out to use an invite link.";
+
+export interface FragmentTokens {
+  invite: string;
+  setup: string;
+}
+
+/**
+ * Takes the one-time #invite= and #setup= tokens from the URL and removes
+ * the fragment, keeping the path and query, so they never linger in history.
+ */
+export function takeFragmentTokens(
+  win: Pick<Window, "location" | "history">,
+): FragmentTokens {
+  const params = new URLSearchParams(win.location.hash.slice(1));
+  if (params.has("invite") || params.has("setup"))
+    win.history.replaceState(
+      null,
+      "",
+      win.location.pathname + win.location.search,
+    );
+  return {
+    invite: params.get("invite") ?? "",
+    setup: params.get("setup") ?? "",
+  };
+}
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { settings } = useReaderSettings();
@@ -17,6 +46,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
     api.auth.currentReader,
     isAuthenticated ? {} : "skip",
   );
+  // Stripped on every load, signed in or not; only sign-up uses them
+  const [fragment, setFragment] = useState<FragmentTokens | null>(null);
+  useEffect(() => setFragment(takeFragmentTokens(window)), []);
+  const checked = useRef(false);
+  useEffect(() => {
+    if (!fragment || isLoading) return;
+    // An invite opened while signed in is never sent anywhere
+    if (!checked.current && isAuthenticated && fragment.invite)
+      toast(ALREADY_SIGNED_IN);
+    checked.current = true;
+    if (isAuthenticated) setFragment(null);
+  }, [fragment, isLoading, isAuthenticated]);
   if (isLoading || (isAuthenticated && reader === undefined))
     return (
       <div className="auth-screen" role="status">
@@ -43,22 +84,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </div>
       </main>
     );
-  return <SignIn />;
+  return <SignIn fragment={fragment} />;
 }
 
-/** Takes a one-time token from the URL fragment and removes it immediately. */
-function takeFragmentToken(name: "setup" | "invite") {
-  const token = new URLSearchParams(window.location.hash.slice(1)).get(name);
-  if (token)
-    history.replaceState(
-      null,
-      "",
-      window.location.pathname + window.location.search,
-    );
-  return token ?? "";
-}
-
-function SignIn() {
+function SignIn({ fragment }: { fragment: FragmentTokens | null }) {
   const [setup, setSetup] = useState("");
   const [invite, setInvite] = useState("");
   const [requesting, setRequesting] = useState(false);
@@ -68,12 +97,13 @@ function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    const invited = takeFragmentToken("invite");
-    const owner = invited ? "" : takeFragmentToken("setup");
+    if (!fragment) return;
+    const invited = fragment.invite;
+    const owner = invited ? "" : fragment.setup;
     if (invited) setInvite(invited);
     if (owner) setSetup(owner);
     if (invited || owner) setPasswordForm(true);
-  }, []);
+  }, [fragment]);
   const signingUp = Boolean(setup || invite);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

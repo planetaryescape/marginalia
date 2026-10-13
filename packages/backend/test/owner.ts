@@ -163,3 +163,29 @@ export async function ownerWithKey(
   await saveTestCredential(t, "default_user", "openrouter", apiKey);
   return t;
 }
+
+/**
+ * Runs scheduled functions in order of time, a second of fake time at a
+ * step, letting each finish first. Unlike finishAllScheduledFunctions, time
+ * doesn't race ahead while an action is still in flight. Needs fake timers.
+ */
+export async function runScheduled(
+  t: Pick<ReaderTest, "run" | "finishInProgressScheduledFunctions">,
+  { stepMs = 1_000, maxSteps = 2_000 } = {},
+) {
+  for (let i = 0; i < maxSteps; i++) {
+    const jobs = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(1000),
+    );
+    if (
+      !jobs.some(
+        (job) =>
+          job.state.kind === "pending" || job.state.kind === "inProgress",
+      )
+    )
+      return;
+    vi.advanceTimersByTime(stepMs);
+    await t.finishInProgressScheduledFunctions();
+  }
+  throw new Error("Scheduled functions were still running");
+}

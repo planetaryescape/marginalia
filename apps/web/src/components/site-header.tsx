@@ -12,6 +12,7 @@ import {
   Link2,
   NotebookPen,
   UserRound,
+  UsersRound,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -105,14 +106,19 @@ export function PasteLink({ large = false }: { large?: boolean }) {
   );
 }
 
-/** Wordmark, page links and the paste-a-link field, shared by home and library. */
-export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
+/** The main destinations, plus Readers for the owner. */
+export function useMainNav(): NavItem[] {
   const reader = useQuery(api.auth.currentReader, {});
   const siteNav = useSiteNav();
   // Access management is the owner's alone; the backend refuses everyone else
-  const nav = reader?.isOwner
+  return reader?.isOwner
     ? [...siteNav, { href: "/readers", label: "Readers" }]
     : siteNav;
+}
+
+/** Wordmark, page links and the paste-a-link field, shared by home and library. */
+export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
+  const nav = useMainNav();
   const pathname = usePathname();
   return (
     <header className="shrink-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 h-14 md:h-16 flex items-center gap-4 md:gap-6">
@@ -180,11 +186,18 @@ export function MobileNav({ items }: { items: NavItem[] }) {
     "/reading": ChartNoAxesColumn,
     "/saved": Bookmark,
     "/feeds": BookOpen,
+    "/readers": UsersRound,
   };
+  // Seven columns are too narrow for every label on the smallest phones;
+  // there the icons stand alone and the labels remain for screen readers
+  const crowded = mobile.length > 6;
   return (
     <nav
       aria-label="Main navigation"
-      className="mobile-app-nav md:hidden shrink-0 px-1 pb-[env(safe-area-inset-bottom)] grid grid-cols-6 border-t border-[var(--reader-border)] bg-[var(--reader-surface)] text-[10px] min-[390px]:text-[11px] text-[var(--reader-muted)]"
+      style={{
+        gridTemplateColumns: `repeat(${mobile.length}, minmax(0, 1fr))`,
+      }}
+      className="mobile-app-nav md:hidden shrink-0 px-1 pb-[env(safe-area-inset-bottom)] grid border-t border-[var(--reader-border)] bg-[var(--reader-surface)] text-[10px] min-[390px]:text-[11px] text-[var(--reader-muted)]"
     >
       {mobile.map((item) => {
         const Icon = icons[item.href as keyof typeof icons];
@@ -203,7 +216,7 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                 aria-hidden
               />
             )}
-            <span>
+            <span className={crowded ? "max-[359px]:sr-only" : undefined}>
               {item.href === "/reading"
                 ? "Activity"
                 : item.href === "/saved"

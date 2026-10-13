@@ -102,17 +102,24 @@ export const embedImpression = internalAction({
   },
 });
 
-/** One-off: embeds highlights and threads saved before embeddings existed. */
+/**
+ * One-off for one library: embeds its highlights and threads saved before
+ * embeddings existed. Saving a key runs the paced catch-up (catchUp.ts)
+ * instead; this is for running by hand.
+ */
 export const backfill = internalAction({
-  args: {},
-  handler: async (ctx): Promise<{ highlights: number; threads: number }> => {
+  args: { userId: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ highlights: number; threads: number }> => {
     const highlights: Id<"highlights">[] = await ctx.runQuery(
       internal.highlights.listUnembedded,
-      {},
+      { userId: args.userId },
     );
     const threads: Id<"companionThreads">[] = await ctx.runQuery(
       internal.companionThreads.listUnembedded,
-      {},
+      { userId: args.userId },
     );
     for (const highlightId of highlights) {
       await ctx.runAction(internal.actions.embedReaderActivity.embedHighlight, {

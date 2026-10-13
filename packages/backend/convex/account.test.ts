@@ -1,9 +1,15 @@
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { saveTestCredential, secondReaderTest } from "../test/owner";
+import {
+  runScheduled,
+  saveTestCredential,
+  secondReaderTest,
+  TEST_ENCRYPTION_KEY,
+} from "../test/owner";
 import { api, components, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
+import { sealTokens } from "./lib/chatgptTokens";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -195,6 +201,17 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     startedAt: now,
     count: 1,
   });
+  await ctx.db.insert("catchUpState", {
+    userId,
+    running: false,
+    runId: 1,
+    embed: true,
+    phase: 6,
+    articlesQueued: 0,
+    itemsQueued: 0,
+    startedAt: now,
+    updatedAt: now,
+  });
 }
 
 /** Every app and auth row that still mentions this ID anywhere. */
@@ -366,5 +383,96 @@ describe("account deletion", () => {
     expect(await owner.query(api.auth.currentReader, {})).toMatchObject({
       isOwner: true,
     });
+  });
+});
+
+describe("account deletion and ChatGPT", () => {
+  const REVOKE_URL = "https://auth.openai.com/api/accounts/oauth/revoke";
+  const CLIENT_ID = "app_chatgpt_client_fixture";
+  const REFRESH = "chatgpt-refresh-token-fixture-0009";
+
+  async function connectReader(t: Fixture["t"], userId: string) {
+    vi.stubEnv("PROVIDER_KEYS_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
+    const sealed = await sealTokens(
+      {
+        access_token: "chatgpt-access-token-fixture-0009",
+        refresh_token: REFRESH,
+        id_token: "id-token-fixture",
+      },
+      userId,
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("chatgptConnections", {
+        userId,
+        subject: "chatgpt-subject",
+        clientId: CLIENT_ID,
+        ...sealed,
+        scopes: [],
+        planEnabled: true,
+        expiresAt: Date.now() + 3_600_000,
+        status: "connected",
+        version: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+  }
+
+  function mockRevoke(respond: () => Response | Promise<Response>) {
+    const calls: { url: string; body: Record<string, string> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          body: Object.fromEntries(new URLSearchParams(String(init?.body))),
+        });
+        return respond();
+      },
+    );
+    return calls;
+  }
+
+  it("revokes the refresh token once, even with ChatGPT since turned off", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("CHATGPT_PLAN_ENABLED", "");
+    vi.stubEnv("CHATGPT_CLIENT_ID", "");
+    const { t, reader, readerLibraryId } = await secondReaderTest(modules);
+    await connectReader(t, readerLibraryId);
+    const calls = mockRevoke(() => new Response(null, { status: 200 }));
+
+    await reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
+    await runScheduled(t);
+
+    expect(calls).toEqual([
+      {
+        url: REVOKE_URL,
+        body: {
+          token: REFRESH,
+          token_type_hint: "refresh_token",
+          client_id: CLIENT_ID,
+        },
+      },
+    ]);
+    expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
+  });
+
+  it("finishes deleting when revocation fails", async () => {
+    vi.useFakeTimers();
+    const { t, reader, readerLibraryId } = await secondReaderTest(modules);
+    await connectReader(t, readerLibraryId);
+    const calls = mockRevoke(() => {
+      throw new Error("network down");
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
+    await runScheduled(t);
+
+    expect(calls).toHaveLength(1);
+    expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
+    // Nothing logged carries the token
+    expect(JSON.stringify(errors.mock.calls)).not.toContain(REFRESH);
+    errors.mockRestore();
   });
 });

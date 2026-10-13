@@ -4,7 +4,13 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
-import { action, internalMutation, internalQuery, query } from "./functions";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+} from "./functions";
 import {
   ATTEMPT_TTL_MS,
   authorizeUrl,
@@ -490,6 +496,64 @@ export const markPlanUnavailable = internalMutation({
       message: CHATGPT_NOT_ELIGIBLE,
       updatedAt: Date.now(),
     });
+    return null;
+  },
+});
+
+/** For the account purge: the sealed tokens and the client they were issued to. */
+export const revocationTarget = internalQuery({
+  args: { userId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      clientId: v.string(),
+      sealed: v.object({ ciphertext: v.string(), iv: v.string() }),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await connectionRow(ctx, args.userId);
+    if (!row?.ciphertext || !row.iv) return null;
+    return {
+      clientId: row.clientId,
+      sealed: { ciphertext: row.ciphertext, iv: row.iv },
+    };
+  },
+});
+
+/**
+ * Scheduled by the account purge: revokes the deleted reader's refresh token
+ * with OpenAI, best effort, then deletes the connection. Works even when the
+ * server has since turned ChatGPT off, using the client the token was issued to.
+ */
+export const revokeForDeletion = internalAction({
+  args: { userId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      const target: {
+        clientId: string;
+        sealed: { ciphertext: string; iv: string };
+      } | null = await ctx.runQuery(internal.chatgpt.revocationTarget, args);
+      if (target) {
+        const configured = process.env.CHATGPT_CLIENT_ID?.trim();
+        const clientSecret =
+          configured === target.clientId
+            ? process.env.CHATGPT_CLIENT_SECRET?.trim() || undefined
+            : undefined;
+        const tokens = await openTokens(args.userId, target.sealed);
+        const revoked = await revokeRefreshToken(
+          { clientId: target.clientId, redirectUri: "", clientSecret },
+          tokens.refresh_token,
+        );
+        if (!revoked)
+          console.warn(
+            "OpenAI didn't confirm revoking a deleted reader's ChatGPT token",
+          );
+      }
+    } catch {
+      console.error("Couldn't revoke a deleted reader's ChatGPT token");
+    }
+    await ctx.runMutation(internal.chatgpt.removeConnection, args);
     return null;
   },
 });

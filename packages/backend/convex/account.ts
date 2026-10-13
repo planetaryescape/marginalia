@@ -45,8 +45,13 @@ interface Target {
   email?: string;
 }
 type Rows = { _id: Id<TableNames> }[];
-// Each step deletes one bounded batch and reports how many rows it removed
+// Each step deletes one bounded batch and reports how many rows it removed,
+// or WAIT to check again after WAIT_MS
 type Step = (ctx: MutationCtx, target: Target) => Promise<number>;
+const WAIT = -1;
+const WAIT_MS = 5_000;
+// How long the purge leaves a ChatGPT connection for its revocation action
+const REVOKE_GRACE_MS = 2 * 60_000;
 
 const BATCH = 64;
 // Articles carry full text and an embedding, so smaller batches stay within limits
@@ -199,9 +204,32 @@ const STEPS: Step[] = [
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  // Revoke the ChatGPT refresh token with OpenAI first, best effort: the
+  // action deletes the row, and after REVOKE_GRACE_MS the purge does anyway
+  async (ctx, { userId }) => {
+    const row = await ctx.db
+      .query("chatgptConnections")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first();
+    if (!row) return 0;
+    const now = Date.now();
+    if (row.ciphertext && !row.revokeRequestedAt) {
+      await ctx.db.patch("chatgptConnections", row._id, {
+        revokeRequestedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.chatgpt.revokeForDeletion, {
+        userId,
+      });
+      return WAIT;
+    }
+    if (row.revokeRequestedAt && now - row.revokeRequestedAt < REVOKE_GRACE_MS)
+      return WAIT;
+    await ctx.db.delete("chatgptConnections", row._id);
+    return 1;
+  },
   rows((ctx, u) =>
     ctx.db
-      .query("chatgptConnections")
+      .query("catchUpState")
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
@@ -293,16 +321,21 @@ export const purge = internalMutation({
       )
         throw new Error("This account isn't being deleted");
     let step = args.step;
+    let removed = 0;
     while (step < STEPS.length) {
-      const removed = await STEPS[step](ctx, args);
-      if (removed > 0) break;
+      removed = await STEPS[step](ctx, args);
+      if (removed !== 0) break;
       step++;
     }
     if (step < STEPS.length)
-      await ctx.scheduler.runAfter(0, internal.account.purge, {
-        ...args,
-        step,
-      });
+      await ctx.scheduler.runAfter(
+        removed === WAIT ? WAIT_MS : 0,
+        internal.account.purge,
+        {
+          ...args,
+          step,
+        },
+      );
     return null;
   },
 });

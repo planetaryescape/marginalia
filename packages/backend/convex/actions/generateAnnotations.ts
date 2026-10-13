@@ -148,9 +148,11 @@ export const generateForArticle = internalAction({
       console.warn(
         `Skipped marginalia for ${args.articleId}: no AI provider key`,
       );
+      // Re-annotated by the catch-up once the library saves a key
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "skipped",
+        skipReason: "no_provider",
       });
       return;
     }

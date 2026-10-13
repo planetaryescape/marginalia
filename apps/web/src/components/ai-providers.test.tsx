@@ -74,3 +74,18 @@ describe("ChatGPT plan in AI providers", () => {
     expect(html).toContain("Disconnect");
   });
 });
+
+describe("catch-up status", () => {
+  it("shows progress only while a catch-up is running", () => {
+    fixture.results = {
+      "providerCredentials:list": [],
+      "providerCredentials:capabilities": capabilities,
+      "catchUp:status": null,
+    };
+    expect(renderToStaticMarkup(<AiProviders />)).not.toContain("Catching up");
+    fixture.results["catchUp:status"] = { articlesQueued: 1, itemsQueued: 30 };
+    expect(renderToStaticMarkup(<AiProviders />)).toContain(
+      "Catching up on what was saved without a key: 30 items indexed for search and 1 article sent for marginalia so far.",
+    );
+  });
+});

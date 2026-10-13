@@ -11,6 +11,7 @@
 import type * as access from "../access.js";
 import type * as account from "../account.js";
 import type * as actions_addArticleByUrl from "../actions/addArticleByUrl.js";
+import type * as actions_embedArticle from "../actions/embedArticle.js";
 import type * as actions_embedReaderActivity from "../actions/embedReaderActivity.js";
 import type * as actions_embedUserNote from "../actions/embedUserNote.js";
 import type * as actions_extractArticle from "../actions/extractArticle.js";
@@ -23,6 +24,7 @@ import type * as annotations from "../annotations.js";
 import type * as articles from "../articles.js";
 import type * as auth from "../auth.js";
 import type * as background from "../background.js";
+import type * as catchUp from "../catchUp.js";
 import type * as chatgpt from "../chatgpt.js";
 import type * as companionThreads from "../companionThreads.js";
 import type * as crons from "../crons.js";
@@ -85,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   access: typeof access;
   account: typeof account;
   "actions/addArticleByUrl": typeof actions_addArticleByUrl;
+  "actions/embedArticle": typeof actions_embedArticle;
   "actions/embedReaderActivity": typeof actions_embedReaderActivity;
   "actions/embedUserNote": typeof actions_embedUserNote;
   "actions/extractArticle": typeof actions_extractArticle;
@@ -97,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   articles: typeof articles;
   auth: typeof auth;
   background: typeof background;
+  catchUp: typeof catchUp;
   chatgpt: typeof chatgpt;
   companionThreads: typeof companionThreads;
   crons: typeof crons;

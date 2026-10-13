@@ -113,10 +113,14 @@ export const setEmbedding = internalMutation({
   },
 });
 
+/** One library's rows still without an embedding, from its 500 oldest. */
 export const listUnembedded = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const rows = await ctx.db.query("companionThreads").take(500);
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("companionThreads")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .take(500);
     return rows.filter((r) => !r.embedding).map((r) => r._id);
   },
 });
