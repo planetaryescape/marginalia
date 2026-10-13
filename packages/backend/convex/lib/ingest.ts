@@ -28,14 +28,16 @@ export function htmlToPlainText(html: string): string {
 }
 
 /**
- * Stores an article that already has its HTML (pasted URL or Readwise Reader),
- * embeds it, and queues its marginalia.
+ * Stores an article that already has its HTML (pasted URL, Readwise Reader or
+ * another app through the API), embeds it, and queues its marginalia. The
+ * GUID defaults to the URL.
  */
 export async function ingestArticle(
   ctx: ActionCtx,
   userId: string,
   article: {
     url: string;
+    guid?: string;
     title: string;
     html: string;
     author?: string;
@@ -69,7 +71,7 @@ export async function ingestArticle(
     internal.articles.insertExtracted,
     {
       userId,
-      guid: article.url,
+      guid: article.guid ?? article.url,
       url: article.url,
       title: article.title || article.url,
       author: article.author,

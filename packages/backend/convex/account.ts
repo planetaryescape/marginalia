@@ -204,6 +204,12 @@ const STEPS: Step[] = [
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("apiTokens")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
   // Revoke the ChatGPT refresh token with OpenAI first, best effort: the
   // action deletes the row, and after REVOKE_GRACE_MS the purge does anyway
   async (ctx, { userId }) => {

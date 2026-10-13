@@ -37,6 +37,17 @@ export const READER_LIMITS = {
     windowMs: 60 * 60_000,
     message: "Catching up is paused for an hour to limit spend.",
   },
+  // Requests made with a personal API token (apiTokens.ts)
+  api: {
+    max: 60,
+    windowMs: 60_000,
+    message: "Too many API requests in the last minute. Try again shortly.",
+  },
+  apiTokenCreate: {
+    max: 10,
+    windowMs: 60 * 60_000,
+    message: "Too many API tokens created in the last hour. Try again later.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -47,6 +58,8 @@ const bucket = v.union(
   v.literal("readwiseConnect"),
   v.literal("chatgptConnect"),
   v.literal("catchUp"),
+  v.literal("api"),
+  v.literal("apiTokenCreate"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */

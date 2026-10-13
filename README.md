@@ -41,6 +41,7 @@ bun run build
 ## Documentation
 
 - [Set up integrations and development](docs/development.md)
+- [Send articles in from other apps](docs/api.md)
 - [Use the reader and keyboard shortcuts](docs/reader-guide.md)
 - [Use your phone and install the PWA](docs/mobile-and-pwa.md)
 - [Understand the architecture](ARCHITECTURE.md)

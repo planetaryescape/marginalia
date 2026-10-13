@@ -604,4 +604,17 @@ export default defineSchema({
     readwiseError: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
+
+  // Personal API tokens other apps use to send articles in and read highlights
+  // back. Only the SHA-256 of a token is stored; the reader sees it once.
+  apiTokens: defineTable({
+    userId: v.string(),
+    name: v.string(),
+    hash: v.string(),
+    last4: v.string(),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index("by_hash", ["hash"])
+    .index("by_userId", ["userId"]),
 });

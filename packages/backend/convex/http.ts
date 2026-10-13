@@ -1,6 +1,8 @@
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { type ActionCtx, httpAction } from "./_generated/server";
+import type { IngestExternalResult } from "./actions/ingestExternal";
+import { type ResolvedToken, TOKEN_PREFIX } from "./apiTokens";
 import { authComponent, createAuth } from "./auth";
 import { isTerminalChatGPTError } from "./lib/chatgptResponses";
 import {
@@ -10,6 +12,12 @@ import {
   streamChat,
 } from "./lib/companionStream";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import {
+  bearerToken,
+  externalArticleSchema,
+  highlightsPathArticleId,
+  MAX_ARTICLE_REQUEST_BYTES,
+} from "./lib/externalApi";
 import {
   buildLibraryContext,
   LIBRARY_SYSTEM,
@@ -29,6 +37,7 @@ import {
   companionRequestSchema,
 } from "./lib/readingCompanion";
 import { loadReaderAI, type ProviderTarget } from "./lib/router";
+import { sha256Hex, siteUrl } from "./lib/tokens";
 import { vaultUploadSchema } from "./lib/vaultUpload";
 import { READER_LIMITS } from "./limits";
 
@@ -558,6 +567,118 @@ http.route({
       JSON.stringify({ error: "Couldn't search your library. Try again." }),
       { status: 502, headers },
     );
+  }),
+});
+
+// Public API for other apps, authenticated with a reader's personal API token.
+// Server-to-server only, so it sends no CORS headers.
+
+function apiJson(status: number, body: unknown, extra: HeadersInit = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      ...extra,
+    },
+  });
+}
+
+/** The token's library ID, or the error response to send instead. */
+async function apiCaller(
+  ctx: ActionCtx,
+  request: Request,
+): Promise<{ userId: string } | { response: Response }> {
+  const token = bearerToken(request.headers.get("Authorization"));
+  if (!token?.startsWith(TOKEN_PREFIX))
+    return {
+      response: apiJson(401, {
+        code: "unauthorized",
+        error: "Send a personal API token as a Bearer token.",
+      }),
+    };
+  const resolved: ResolvedToken = await ctx.runMutation(
+    internal.apiTokens.resolve,
+    { hash: await sha256Hex(token) },
+  );
+  if (resolved.ok) return { userId: resolved.userId };
+  if (resolved.reason === "rate_limited")
+    return {
+      response: apiJson(
+        429,
+        { code: "rate_limited", error: READER_LIMITS.api.message },
+        { "Retry-After": "60" },
+      ),
+    };
+  return {
+    response: apiJson(401, {
+      code: "unauthorized",
+      error: "This token isn't valid. Create a new one in your account.",
+    }),
+  };
+}
+
+http.route({
+  path: "/api/v1/articles",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const caller = await apiCaller(ctx, request);
+    if ("response" in caller) return caller.response;
+    if (
+      Number(request.headers.get("content-length")) > MAX_ARTICLE_REQUEST_BYTES
+    )
+      return apiJson(413, {
+        code: "too_large",
+        error: "This article is too large to send.",
+      });
+    const parsed = externalArticleSchema.safeParse(
+      await request.json().catch(() => null),
+    );
+    if (!parsed.success)
+      return apiJson(400, {
+        code: "invalid_request",
+        error:
+          "Send externalId, title and html, with optional url, author and publishedAt.",
+      });
+    const result: IngestExternalResult = await ctx.runAction(
+      internal.actions.ingestExternal.ingest,
+      { userId: caller.userId, ...parsed.data },
+    );
+    if (!result.ok)
+      return apiJson(413, {
+        code: "too_large",
+        error: "This article is too large to store, even after cleaning.",
+      });
+    return apiJson(result.created ? 201 : 200, {
+      articleId: result.articleId,
+      readUrl: `${siteUrl()}/read/${result.articleId}`,
+      created: result.created,
+    });
+  }),
+});
+
+http.route({
+  pathPrefix: "/api/v1/articles/",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const articleId = highlightsPathArticleId(new URL(request.url).pathname);
+    if (!articleId)
+      return apiJson(404, { code: "not_found", error: "Not found." });
+    const caller = await apiCaller(ctx, request);
+    if ("response" in caller) return caller.response;
+    const found = await ctx.runQuery(
+      internal.externalApi.highlightsForArticle,
+      {
+        userId: caller.userId,
+        articleId,
+      },
+    );
+    if (!found)
+      return apiJson(404, {
+        code: "not_found",
+        error: "No article with this ID in your library.",
+      });
+    return apiJson(200, found);
   }),
 });
 

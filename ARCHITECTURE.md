@@ -13,14 +13,14 @@ Inspect these entry points rather than treating generated Convex bindings as han
 ## Reading and ingestion
 
 ```text
-RSS polling / pasted URL / Readwise document
+RSS polling / pasted URL / Readwise document / API (another app)
   → article extraction or supplied HTML
   → article storage + optional embedding
   → scheduled annotations
   → live Convex query → article reader
 ```
 
-RSS polls every 30 minutes; Reader sync runs every 15 minutes when configured. Pasted URLs and Reader HTML share `convex/lib/ingest.ts`; RSS extraction has its own scheduled path. Content storage is constrained by Convex's document limit. Failed embeddings do not prevent an article from being stored.
+RSS polls every 30 minutes; Reader sync runs every 15 minutes when configured. Pasted URLs, Reader HTML and articles sent through the [API](docs/api.md) share `convex/lib/ingest.ts`; RSS extraction has its own scheduled path. Content storage is constrained by Convex's document limit. Failed embeddings do not prevent an article from being stored.
 
 The reader sanitizes imported HTML before rendering it. Saved highlights and companion passages are re-anchored against article text; paragraph navigation uses the rendered article body. Check `article-renderer.tsx`, `paragraphs.ts` and `text-range.ts` before changing article markup.
 

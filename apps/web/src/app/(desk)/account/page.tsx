@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import QRCode from "react-qr-code";
 import { AiProviders } from "@/components/ai-providers";
+import { ApiTokens } from "@/components/api-tokens";
 import { DeskPage } from "@/components/desk-page";
 import { FeedbackPreferences } from "@/components/interaction-feedback";
 import { SourceLink } from "@/components/source-link";
@@ -291,6 +292,7 @@ export default function AccountPage() {
         </p>
       )}
       <AiProviders />
+      <ApiTokens />
       <FeedbackPreferences />
       <button
         className="app-button secondary mb-8"
@@ -316,8 +318,8 @@ function DeleteAccount() {
     <section className="account-section mb-8">
       <h2 className="font-serif text-2xl mb-3">Delete my account</h2>
       <p className="text-sm text-[var(--reader-muted)] mb-4">
-        Removes your library, notes, highlights, saved keys and Readwise
-        connection, then your sign-in. This can't be undone.
+        Removes your library, notes, highlights, saved keys, app tokens and
+        Readwise connection, then your sign-in. This can't be undone.
       </p>
       <label className="block text-sm">
         Type {CONFIRM} to confirm

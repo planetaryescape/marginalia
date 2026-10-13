@@ -201,6 +201,13 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     startedAt: now,
     count: 1,
   });
+  await ctx.db.insert("apiTokens", {
+    userId,
+    name: "Fixture app",
+    hash: `fixture-hash-${userId}`,
+    last4: "abcd",
+    createdAt: now,
+  });
   await ctx.db.insert("catchUpState", {
     userId,
     running: false,
