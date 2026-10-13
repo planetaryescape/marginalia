@@ -29,6 +29,7 @@ import { ReaderMap } from "@/components/reader-map";
 import { ReaderSettingsPanel } from "@/components/reader-settings-panel";
 import { ReflectionBox } from "@/components/reflection-box";
 import { SelectionToolbar } from "@/components/selection-toolbar";
+import { SourceLink } from "@/components/source-link";
 import { SummaryPanel } from "@/components/summary-panel";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
@@ -572,6 +573,7 @@ export default function ReadPage() {
               </svg>
             </button>
 
+            <SourceLink className="hidden sm:flex sm:rounded-full" />
             <ReaderSettingsPanel
               settings={settings}
               update={updateSettings}
@@ -631,6 +633,7 @@ export default function ReadPage() {
                   <Link className="mobile-menu-action" href="/account">
                     Your account
                   </Link>
+                  <SourceLink variant="menu" />
                 </Popover.Content>
               </Popover.Portal>
             </Popover.Root>

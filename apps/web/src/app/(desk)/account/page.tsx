@@ -9,6 +9,7 @@ import QRCode from "react-qr-code";
 import { AiProviders } from "@/components/ai-providers";
 import { DeskPage } from "@/components/desk-page";
 import { FeedbackPreferences } from "@/components/interaction-feedback";
+import { SourceLink } from "@/components/source-link";
 import { authClient } from "@/lib/auth-client";
 
 export default function AccountPage() {
@@ -299,6 +300,7 @@ export default function AccountPage() {
         Sign out
       </button>
       {reader && !reader.isOwner && <DeleteAccount />}
+      <SourceLink variant="text" className="mb-8" />
     </DeskPage>
   );
 }

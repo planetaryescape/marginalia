@@ -4,6 +4,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { Fingerprint, LockKeyhole } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
+import { SourceLink } from "@/components/source-link";
 import { authClient } from "@/lib/auth-client";
 import { useReaderSettings } from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
@@ -279,6 +280,7 @@ function SignIn() {
           </p>
         )}
       </div>
+      <SourceLink variant="text" className="mt-10" />
     </main>
   );
 }
@@ -375,6 +377,7 @@ export function RequestAccess({ onBack }: { onBack: () => void }) {
           </p>
         )}
       </div>
+      <SourceLink variant="text" className="mt-10" />
     </main>
   );
 }
