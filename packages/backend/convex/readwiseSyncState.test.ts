@@ -135,11 +135,11 @@ describe("resumable Reader sync", () => {
     });
   });
 
-  it("only completes after all document locations and highlights, then uses an overlapping incremental watermark", async () => {
+  it("only completes after all document locations, highlights and the archive, then uses an overlapping incremental watermark", async () => {
     vi.useFakeTimers();
     const t = await ownerTest(modules);
     const startedAt = Date.now();
-    for (let phase = 0; phase < 4; phase++) {
+    for (let phase = 0; phase < 5; phase++) {
       const token = `phase-${phase}`;
       await t.mutation(internal.readwiseSyncState.claim, {
         userId: OWNER,

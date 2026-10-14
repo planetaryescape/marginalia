@@ -52,7 +52,8 @@ describe("Reader backfill action", () => {
         updatedAt: 12345,
       }),
     );
-    for (let step = 0; step < 28; step++) {
+    // 28 pages, then the archive phase, which a first import skips without a request
+    for (let step = 0; step < 29; step++) {
       await t.action(internal.actions.readwiseSync.sync, {
         userId: "default_user",
       });

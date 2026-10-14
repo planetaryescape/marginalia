@@ -30,23 +30,10 @@ export const select = action({
       throw new Error("Choose a reading window between 1 and 180 minutes.");
     }
 
-    // Get all annotated articles
-    const articles: Doc<"articles">[] = await ctx.runQuery(
-      api.articles.listAnnotated,
+    // Started-but-unfinished articles stay eligible, like Home's Up next
+    const unread: Doc<"articles">[] = await ctx.runQuery(
+      api.articles.listUnread,
     );
-
-    // Get user's interactions to exclude already-read articles
-    const interactions: Doc<"articleInteractions">[] = await ctx.runQuery(
-      api.sessions.listRecentInteractions,
-    );
-    const openedIds = new Set(
-      interactions
-        .filter((i) => i.action === "opened" || i.action === "finished")
-        .map((i) => i.articleId),
-    );
-
-    // Filter out already-read articles
-    const unread = articles.filter((a) => !openedIds.has(a._id));
 
     if (unread.length === 0) return [];
 

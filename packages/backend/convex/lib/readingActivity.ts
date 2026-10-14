@@ -29,3 +29,19 @@ export const readingCheckpointSchema = z
   );
 
 export type ReadingCheckpoint = z.infer<typeof readingCheckpointSchema>;
+
+// The last paragraph is in view; footers and rounding keep exact 100 unreliable
+const END_PERCENT = 95;
+// Enough reading time that a skim to the bottom doesn't archive the article
+const READ_TIME_SHARE = 0.4;
+
+/** Whether this much reading, across every visit, counts as having read the article. */
+export function hasReadArticle(
+  reading: { maxScrollPercent: number; activeTimeMs: number },
+  estimatedReadMinutes: number,
+) {
+  return (
+    reading.maxScrollPercent >= END_PERCENT &&
+    reading.activeTimeMs >= estimatedReadMinutes * 60_000 * READ_TIME_SHARE
+  );
+}

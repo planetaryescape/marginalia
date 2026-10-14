@@ -3,9 +3,11 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
+import { Archive } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useRef } from "react";
+import { toast } from "sonner";
 import { ArticleFinder } from "@/components/article-finder";
 import { FitChildren } from "@/components/fit-children";
 import { RATINGS } from "@/components/impression-panel";
@@ -98,6 +100,26 @@ export default function HomePage() {
   const createSession = useMutation(api.sessions.create);
   const advanceReview = useMutation(api.lovedArticles.advanceReview);
   const snoozeReview = useMutation(api.lovedArticles.snooze);
+  const archiveArticle = useMutation(api.articles.archive);
+  const restoreArticle = useMutation(api.articles.restore);
+
+  const archive = async (articleId: Id<"articles">, title: string) => {
+    try {
+      await archiveArticle({ articleId });
+    } catch {
+      toast.error("Couldn't archive that article. Try again.");
+      return;
+    }
+    toast(`Archived “${title}”`, {
+      action: {
+        label: "Undo",
+        onClick: () =>
+          void restoreArticle({ articleId }).catch(() =>
+            toast.error("Couldn't restore it. Find it in search instead."),
+          ),
+      },
+    });
+  };
 
   const startSession = async (minutes: number) => {
     const sessionId = await createSession({ requestedMinutes: minutes });
@@ -512,33 +534,48 @@ export default function HomePage() {
                     className="flex-1 mt-2 border-t border-[var(--reader-border)]"
                   >
                     {overview.upNext.map((article) => (
-                      <Link
+                      <div
                         key={article._id}
-                        href={`/read/${article._id}`}
-                        data-upnext-link
-                        className="group flex items-baseline gap-6 py-3 px-2 -mx-2 rounded-md border-b border-[var(--reader-border)] outline-none focus-visible:bg-[var(--reader-chip)]"
+                        className="group/row flex items-center border-b border-[var(--reader-border)]"
                       >
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-serif text-[17px] sm:text-[18px] leading-snug truncate transition-colors group-hover:text-[var(--pen)]">
-                            {article.title}
+                        <Link
+                          href={`/read/${article._id}`}
+                          data-upnext-link
+                          className="group min-w-0 flex-1 flex items-baseline gap-6 py-3 px-2 -mx-2 rounded-md outline-none focus-visible:bg-[var(--reader-chip)]"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-serif text-[17px] sm:text-[18px] leading-snug truncate transition-colors group-hover:text-[var(--pen)]">
+                              {article.title}
+                            </span>
+                            <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)] truncate">
+                              {[
+                                article.author,
+                                article.source?.toLowerCase() ===
+                                article.author?.toLowerCase()
+                                  ? null
+                                  : article.source,
+                                article.fromReader ? "from Reader" : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
                           </span>
-                          <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)] truncate">
-                            {[
-                              article.author,
-                              article.source?.toLowerCase() ===
-                              article.author?.toLowerCase()
-                                ? null
-                                : article.source,
-                              article.fromReader ? "from Reader" : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
+                          <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-[var(--reader-muted)]">
+                            {article.minutes ? `${article.minutes} min` : ""}
                           </span>
-                        </span>
-                        <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-[var(--reader-muted)]">
-                          {article.minutes ? `${article.minutes} min` : ""}
-                        </span>
-                      </Link>
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void archive(article._id, article.title)
+                          }
+                          aria-label={`Archive ${article.title}`}
+                          title="Archive"
+                          className="shrink-0 ml-2 w-11 h-11 flex items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--pen)] focus-visible:text-[var(--pen)] sm:opacity-0 sm:group-hover/row:opacity-100 sm:focus-visible:opacity-100"
+                        >
+                          <Archive size={16} />
+                        </button>
+                      </div>
                     ))}
                   </FitChildren>
                 </div>

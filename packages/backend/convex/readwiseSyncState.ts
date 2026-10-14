@@ -5,6 +5,8 @@ import { internalMutation } from "./_generated/server";
 export const STEP_DELAY_MS = 60_000;
 const LEASE_MS = 15 * 60_000;
 const OVERLAP_MS = 2 * 60_000;
+// Inbox, Later, Shortlist, Highlights, then Archive
+const DONE_PHASE = 5;
 
 /** A transaction owns the lease: cron, continuation and manual sync cannot overlap. */
 export const claim = internalMutation({
@@ -115,7 +117,7 @@ export const completePage = internalMutation({
     if (!state || state.token !== args.token) return;
     const now = Date.now();
     const phase = args.nextPageCursor ? state.phase : state.phase + 1;
-    const done = phase === 4;
+    const done = phase === DONE_PHASE;
     await ctx.db.patch(state._id, {
       phase,
       pageCursor: args.nextPageCursor ?? undefined,

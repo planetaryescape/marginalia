@@ -8,6 +8,7 @@ import {
   MessagesSquare,
   MoreHorizontal,
   NotebookPen,
+  RotateCcw,
   Star,
 } from "lucide-react";
 import Link from "next/link";
@@ -331,6 +332,16 @@ export default function ReadPage() {
       setFinishing(false);
     }
   }, [finish, finishing, router]);
+
+  const restoreArticle = useMutation(api.articles.restore);
+  const handleRestore = useCallback(async () => {
+    try {
+      await restoreArticle({ articleId: articleId as any });
+      toast.success("Back in Up next");
+    } catch {
+      toast.error("Couldn't mark this unread. Try again.");
+    }
+  }, [articleId, restoreArticle]);
 
   const handleAnnotationSelect = useCallback(
     (annotationId: string | null) => {
@@ -668,10 +679,17 @@ export default function ReadPage() {
           <Headphones size={19} />
           {listen.active ? "Stop" : "Listen"}
         </button>
-        <button disabled={finishing} onClick={handleDone}>
-          <Check size={19} />
-          {finishing ? "Saving…" : "Finish"}
-        </button>
+        {article?.finishedAt === undefined ? (
+          <button disabled={finishing} onClick={handleDone}>
+            <Check size={19} />
+            {finishing ? "Saving…" : "Finish"}
+          </button>
+        ) : (
+          <button onClick={handleRestore}>
+            <RotateCcw size={19} />
+            Mark unread
+          </button>
+        )}
       </nav>
       {saveError && (
         <div

@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
+import { WORDS_PER_MINUTE } from "./lib/constants";
 import {
+  hasReadArticle,
   type ReadingCheckpoint,
   readingCheckpointSchema,
 } from "./lib/readingActivity";
@@ -82,7 +85,17 @@ async function saveCheckpoint(
   const annotationsOpened = [
     ...new Set([...(old?.annotationsOpened ?? []), ...s.annotationsOpened]),
   ].slice(0, 128);
-  const finishing = Boolean(s.finished && !old?.finishedAt);
+  const maxScrollPercent = Math.max(
+    old?.maxScrollPercent ?? 0,
+    s.maxScrollPercent,
+  );
+  const finishing =
+    !old?.finishedAt &&
+    (Boolean(s.finished) ||
+      (await readToTheEnd(ctx, article, old, {
+        maxScrollPercent,
+        activeTimeMs,
+      })));
   const data = {
     userId: userId,
     articleId: article._id,
@@ -94,7 +107,7 @@ async function saveCheckpoint(
     activeTimeMs,
     visibleTimeMs,
     timeSpentMs: Math.max(old?.timeSpentMs ?? 0, s.timeSpentMs),
-    maxScrollPercent: Math.max(old?.maxScrollPercent ?? 0, s.maxScrollPercent),
+    maxScrollPercent,
     annotationsOpened,
     finishedAt: old?.finishedAt ?? (finishing ? s.updatedAt : undefined),
   };
@@ -135,6 +148,48 @@ async function saveCheckpoint(
     }
   }
   return null;
+}
+
+/**
+ * Auto-finish fires once, on the checkpoint where the reading first crosses
+ * the line. Marking an article unread mid-visit then sticks.
+ */
+async function readToTheEnd(
+  ctx: MutationCtx,
+  article: Doc<"articles">,
+  old: Doc<"readingActivity"> | null,
+  next: { maxScrollPercent: number; activeTimeMs: number },
+) {
+  if (article.finishedAt !== undefined) return false;
+  const minutes =
+    article.estimatedReadMinutes ??
+    (Math.ceil((article.wordCount ?? 0) / WORDS_PER_MINUTE) || 1);
+  const visits = await ctx.db
+    .query("readingActivity")
+    .withIndex("by_user_article", (q) =>
+      q.eq("userId", article.userId).eq("articleId", article._id),
+    )
+    .take(200);
+  const elsewhere = visits
+    .filter((v) => v._id !== old?._id)
+    .reduce((total, v) => total + v.activeTimeMs, 0);
+  const before = old
+    ? hasReadArticle(
+        {
+          maxScrollPercent: old.maxScrollPercent,
+          activeTimeMs: elsewhere + old.activeTimeMs,
+        },
+        minutes,
+      )
+    : false;
+  const now = hasReadArticle(
+    {
+      maxScrollPercent: next.maxScrollPercent,
+      activeTimeMs: elsewhere + next.activeTimeMs,
+    },
+    minutes,
+  );
+  return now && !before;
 }
 
 export const checkpoint = mutation({

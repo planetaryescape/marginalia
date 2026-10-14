@@ -47,13 +47,28 @@ export const sync = internalAction({
     if (!state) return;
     try {
       const highlightPhase = state.phase === LOCATIONS.length;
+      const archivePhase = state.phase === LOCATIONS.length + 1;
+      // A first import has nothing archived to catch up on: archived documents
+      // are never imported, and walking a whole Reader archive takes hours.
+      if (archivePhase && !state.updatedAfter) {
+        await ctx.runMutation(internal.readwiseSyncState.completePage, {
+          userId,
+          token,
+          nextPageCursor: null,
+        });
+        return;
+      }
       const page = await listDocumentPage(readwise, {
-        location: highlightPhase ? undefined : LOCATIONS[state.phase],
+        location: archivePhase
+          ? "archive"
+          : highlightPhase
+            ? undefined
+            : LOCATIONS[state.phase],
         category: highlightPhase ? "highlight" : undefined,
         updatedAfter: state.updatedAfter,
         pageCursor: state.pageCursor,
-        withHtmlContent: !highlightPhase,
-        limit: highlightPhase ? 20 : 5,
+        withHtmlContent: !highlightPhase && !archivePhase,
+        limit: highlightPhase || archivePhase ? 20 : 5,
       });
       let imported = 0;
       const processed = new Set(state.pageProcessedIds);
@@ -73,6 +88,23 @@ export const sync = internalAction({
       };
       for (const doc of page.results) {
         if (processed.has(doc.id)) continue;
+        if (archivePhase) {
+          const article: Doc<"articles"> | null = doc.parent_id
+            ? null
+            : await ctx.runQuery(internal.readwise.findArticle, {
+                userId,
+                readerDocumentId: doc.id,
+                url: doc.source_url || doc.url,
+              });
+          const archived: boolean = article
+            ? await ctx.runMutation(internal.readwise.markArchived, {
+                userId,
+                articleId: article._id,
+              })
+            : false;
+          await record(doc.id, archived ? "existing" : "ignored");
+          continue;
+        }
         if (highlightPhase) {
           const text = doc.content?.trim();
           if (!doc.parent_id || !text) {
@@ -233,6 +265,25 @@ export const archiveArticle = internalAction({
       await moveDocument(readwise, readerId, "archive");
     } catch (error) {
       console.error(`Couldn't archive ${args.articleId} in Reader:`, error);
+    }
+  },
+});
+
+/** Moves a restored article back to Reader's Later list. */
+export const unarchiveArticle = internalAction({
+  args: { userId: v.string(), articleId: v.id("articles") },
+  handler: async (ctx, args): Promise<void> => {
+    const readwise = await readwiseTokenFor(ctx, args.userId);
+    if (!readwise) return;
+    const readerId: string | null = await ctx.runQuery(
+      internal.readwise.getArticleReaderId,
+      args,
+    );
+    if (!readerId) return;
+    try {
+      await moveDocument(readwise, readerId, "later");
+    } catch (error) {
+      console.error(`Couldn't restore ${args.articleId} in Reader:`, error);
     }
   },
 });

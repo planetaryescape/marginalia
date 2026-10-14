@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { ownedArticle } from "./access";
+import { ownedArticle, requireArticle } from "./access";
 import {
   action,
   internalMutation,
   internalQuery,
   type MutationCtx,
+  mutation,
   query,
 } from "./functions";
 import { updateQueueStats } from "./readingQueue";
@@ -41,6 +42,57 @@ export const listAnnotated = query({
       )
       .order("desc")
       .take(50);
+  },
+});
+
+// Finished or archived articles stay out of every suggestion
+export const listUnread = query({
+  args: {},
+  handler: async (ctx) => {
+    return ctx.db
+      .query("articles")
+      .withIndex("by_user_annotationStatus_finishedAt", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .eq("annotationStatus", "annotated")
+          .eq("finishedAt", undefined),
+      )
+      .order("desc")
+      .take(100);
+  },
+});
+
+/** Takes an article out of the queue without counting it as read. */
+export const archive = mutation({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    const before = await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (before.finishedAt !== undefined) return;
+    await ctx.db.patch(before._id, { finishedAt: Date.now() });
+    const after = await ctx.db.get(before._id);
+    if (after) await updateQueueStats(ctx, before, after);
+    await ctx.scheduler.runAfter(
+      0,
+      internal.actions.readwiseSync.archiveArticle,
+      { userId: ctx.readerId, articleId: before._id },
+    );
+  },
+});
+
+/** Puts a finished or archived article back in the queue. Reading history stays. */
+export const restore = mutation({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    const before = await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (before.finishedAt === undefined) return;
+    await ctx.db.patch(before._id, { finishedAt: undefined });
+    const after = await ctx.db.get(before._id);
+    if (after) await updateQueueStats(ctx, before, after);
+    await ctx.scheduler.runAfter(
+      0,
+      internal.actions.readwiseSync.unarchiveArticle,
+      { userId: ctx.readerId, articleId: before._id },
+    );
   },
 });
 

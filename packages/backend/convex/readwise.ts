@@ -19,6 +19,7 @@ import {
   validateReadwiseToken,
 } from "./lib/readwise";
 import { requireReaderLimit } from "./limits";
+import { updateQueueStats } from "./readingQueue";
 
 const NOT_CONNECTED = "Readwise isn't connected";
 
@@ -89,8 +90,9 @@ export const status = query({
             active: sync.active,
             backfilling: !sync.backfilledAt,
             phase:
-              ["Inbox", "Later", "Shortlist", "Highlights"][sync.phase] ??
-              "Complete",
+              ["Inbox", "Later", "Shortlist", "Highlights", "Archive"][
+                sync.phase
+              ] ?? "Complete",
             scanned: sync.scanned,
             imported: sync.imported,
             linked: sync.linked,
@@ -262,6 +264,19 @@ export const linkArticle = internalMutation({
     await ctx.db.patch("articles", args.articleId, {
       readerDocumentId: args.readerDocumentId,
     });
+  },
+});
+
+/** Archiving in Reader takes the article out of Marginalia's queue too. */
+export const markArchived = internalMutation({
+  args: { userId: v.string(), articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    const before = await requireArticle(ctx, args.articleId, args.userId);
+    if (before.finishedAt !== undefined) return false;
+    await ctx.db.patch("articles", before._id, { finishedAt: Date.now() });
+    const after = await ctx.db.get("articles", before._id);
+    if (after) await updateQueueStats(ctx, before, after);
+    return true;
   },
 });
 
