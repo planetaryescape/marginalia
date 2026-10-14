@@ -148,7 +148,7 @@ html {
 .article-ask { bottom: calc(max(var(--app-keyboard-inset), var(--reader-bottom-clearance)) + 1rem); }
 @media (max-width: 639px) {
   :root { --reader-bottom-clearance: calc(51px + max(6px, env(safe-area-inset-bottom))); }
-  .reader-article { padding-bottom: calc(var(--reader-bottom-clearance) + 7rem); }
+  .article-column { padding-bottom: calc(var(--reader-bottom-clearance) + 7rem); }
 }
 
 /* Keep native selection/drag handles, but let the passage menu own touch actions. */
@@ -466,23 +466,6 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   box-shadow: 0 0 0 6px color-mix(in srgb, var(--highlighter) 60%, transparent);
   border-radius: 3px;
   transition: background-color 0.3s ease;
-}
-
-@keyframes para-flash {
-  0%,
-  35% {
-    background-color: var(--highlighter);
-    box-shadow: 0 0 0 6px var(--highlighter);
-  }
-  100% {
-    background-color: transparent;
-    box-shadow: 0 0 0 6px transparent;
-  }
-}
-
-.para-flash {
-  border-radius: 3px;
-  animation: para-flash 1.8s ease-out;
 }
 
 /* ───────────────────────── Reader: companion ───────────────────────── */

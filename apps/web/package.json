@@ -14,6 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@planetaryescape/reader": "github:planetaryescape/reader#v0.1.1",
     "@better-auth/passkey": "~1.6.15",
     "@convex-dev/better-auth": "0.12.5",
     "@marginalia/backend": "workspace:*",

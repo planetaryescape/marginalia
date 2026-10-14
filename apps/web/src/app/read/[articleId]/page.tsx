@@ -719,7 +719,7 @@ export default function ReadPage() {
       <article
         ref={articleRef}
         className={cn(
-          "reader-article mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
+          "article-column mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
           settings.numbers && "reader-numbers",
           settings.focus && "reader-focus",
           settings.align === "justify" && "reader-justify",

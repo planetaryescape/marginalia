@@ -16,6 +16,7 @@ import { PageTransitions } from "@/components/page-transitions";
 import { PwaRuntime } from "@/components/pwa-runtime";
 import { ConvexClientProvider } from "@/lib/convex";
 import "./globals.css";
+import "@planetaryescape/reader/reader.css";
 
 // Self-hosted by next/font: Turbopack drops remote CSS @imports, so Google
 // Fonts must not be loaded from globals.css.
