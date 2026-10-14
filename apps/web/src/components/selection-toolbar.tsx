@@ -333,6 +333,10 @@ export function SelectionToolbar({
         >
           <motion.div
             layout={!reducedMotion}
+            // Measure only when the Ask editor opens or closes. Measuring on
+            // every render (each keystroke) restarted the animation from the
+            // parent's translateY(-100%) offset and made the menu jump.
+            layoutDependency={asking}
             transition={
               reducedMotion
                 ? { duration: 0 }
