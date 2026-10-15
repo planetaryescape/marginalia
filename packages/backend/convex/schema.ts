@@ -142,6 +142,13 @@ export default defineSchema({
       "annotationStatus",
       "finishedAt",
     ])
+    // Time-window suggestions read only the articles nearest the window's length
+    .index("by_user_annotationStatus_finishedAt_minutes", [
+      "userId",
+      "annotationStatus",
+      "finishedAt",
+      "estimatedReadMinutes",
+    ])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,

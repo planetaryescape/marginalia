@@ -1,12 +1,12 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { formatDate, formatReadTime } from "@/lib/utils";
 
 export default function SessionPage() {
@@ -17,44 +17,33 @@ export default function SessionPage() {
   const session = useQuery(api.sessions.getById, {
     sessionId,
   });
-  const selectArticle = useAction(api.actions.selectArticle.select);
   const recordInteraction = useMutation(api.sessions.recordInteraction);
   const saveArticle = useMutation(api.savedArticles.save);
   const updateSession = useMutation(api.sessions.updateStatus);
 
-  const [candidates, setCandidates] = useState<
-    FunctionReturnType<typeof api.actions.selectArticle.select>
-  >([]);
-  const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [direction, setDirection] = useState(0);
 
-  const requestedMinutes = session?.requestedMinutes;
-  // Load candidates once the requested window is known.
-  const loadCandidates = useCallback(async () => {
-    if (requestedMinutes === undefined) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const results = await selectArticle({
-        requestedMinutes,
-      });
-      setCandidates(results);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Couldn't find articles. Try again.",
-      );
-    }
-    setLoading(false);
-  }, [requestedMinutes, selectArticle]);
-
-  // Load candidates when session becomes available
+  // Home passes the window in the URL so suggestions load alongside the session
+  const fromUrl = Number(useSearchParams().get("m"));
+  const requestedMinutes =
+    Number.isFinite(fromUrl) && fromUrl > 0 && fromUrl <= 180
+      ? fromUrl
+      : session?.requestedMinutes;
+  const live = useQuery(
+    api.suggestions.forWindow,
+    requestedMinutes === undefined ? "skip" : { requestedMinutes },
+  );
+  // Keep the first answer: a live update mustn't reshuffle cards mid-browse
+  const [candidates, setCandidates] = useState<
+    FunctionReturnType<typeof api.suggestions.forWindow> | undefined
+  >();
   useEffect(() => {
-    void loadCandidates();
-  }, [loadCandidates]);
+    if (live && !candidates) setCandidates(live);
+  }, [live, candidates]);
+  const loading = candidates === undefined;
 
-  const current = candidates[currentIndex];
+  const current = candidates?.[currentIndex];
 
   const handleRead = async () => {
     if (!current) return;
@@ -79,7 +68,7 @@ export default function SessionPage() {
       action: "skipped",
     });
     setDirection(1);
-    if (currentIndex < candidates.length - 1) {
+    if (candidates && currentIndex < candidates.length - 1) {
       setCurrentIndex((i) => i + 1);
     }
   };
@@ -94,7 +83,7 @@ export default function SessionPage() {
     });
     // Move to next
     setDirection(1);
-    if (currentIndex < candidates.length - 1) {
+    if (candidates && currentIndex < candidates.length - 1) {
       setCurrentIndex((i) => i + 1);
     }
   };
@@ -107,20 +96,14 @@ export default function SessionPage() {
       </div>
     );
   }
-  if (session === undefined) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-ink-400 font-sans">Loading session...</p>
-      </div>
-    );
-  }
-
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6">
         <div className="animate-pulse text-center">
           <p className="text-ink-500 font-sans text-sm mb-2">
-            Finding something for your {session.requestedMinutes} minutes...
+            Finding something
+            {requestedMinutes ? ` for your ${requestedMinutes} minutes` : ""}
+            ...
           </p>
           <div className="w-8 h-0.5 bg-annotation-crossref mx-auto" />
         </div>
@@ -128,22 +111,12 @@ export default function SessionPage() {
     );
   }
 
-  if (candidates.length === 0) {
+  if (!current) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center">
         <p className="text-ink-600 dark:text-ink-400 text-lg mb-4">
-          {error ||
-            `No articles match your ${session.requestedMinutes}-minute window right now.`}
+          No articles match your {requestedMinutes}-minute window right now.
         </p>
-        {error && (
-          <button
-            type="button"
-            onClick={() => loadCandidates()}
-            className="mb-4 text-sm underline"
-          >
-            Try again
-          </button>
-        )}
         <Link
           href="/"
           className="text-annotation-crossref hover:underline font-sans text-sm"

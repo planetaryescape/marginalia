@@ -18,6 +18,10 @@ interface ArticleCandidate {
   reason: string;
 }
 
+/**
+ * Superseded by suggestions.forWindow. Kept for one release so pages already
+ * cached by the PWA keep working; remove once they've refreshed.
+ */
 export const select = action({
   args: { requestedMinutes: v.number() },
   handler: async (ctx, args): Promise<ArticleCandidate[]> => {

@@ -123,7 +123,7 @@ export default function HomePage() {
 
   const startSession = async (minutes: number) => {
     const sessionId = await createSession({ requestedMinutes: minutes });
-    router.push(`/session/${sessionId}`);
+    router.push(`/session/${sessionId}?m=${minutes}`);
   };
 
   const loading = overview === undefined;

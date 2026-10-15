@@ -7,6 +7,9 @@ import { authClient } from "./auth-client";
 
 const convex = new ConvexReactClient(
   process.env.NEXT_PUBLIC_CONVEX_URL as string,
+  // Once the server accepts the first token, schedule its refresh instead of
+  // fetching a second one straight away
+  { initialAuthTokenReuse: true },
 );
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {

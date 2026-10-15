@@ -103,6 +103,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
       window: 60,
       max: 100,
       customRules: {
+        // Every page load calls these, and each limit check is a database read
+        // and write. They only answer for a valid session cookie, so the
+        // limits that matter stay on sign-in and sign-up.
+        "/get-session": false,
+        "/convex/token": false,
         "/sign-in/email": { window: 60, max: 8 },
         "/sign-up/email": { window: 60, max: 3 },
       },
