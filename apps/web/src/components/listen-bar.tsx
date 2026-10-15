@@ -18,7 +18,7 @@ export function ListenBar({
   onStop: () => void;
 }) {
   const button =
-    "w-8 h-8 flex items-center justify-center rounded-full opacity-75 hover:opacity-100 hover:bg-white/10 dark:hover:bg-ink-950/[0.07] transition";
+    "w-8 h-8 flex items-center justify-center rounded-full opacity-75 hover:opacity-100 hover:bg-white/10 transition";
   return (
     <AnimatePresence>
       {index !== null && (
@@ -27,7 +27,7 @@ export function ListenBar({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 12 }}
           style={{ x: "-50%" }}
-          className="fixed bottom-6 left-1/2 z-40 flex items-center gap-1 pl-4 pr-1.5 py-1.5 rounded-full font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.5)]"
+          className="fixed bottom-6 left-1/2 z-40 flex items-center gap-1 pl-4 pr-1.5 py-1.5 rounded-full font-sans reader-float shadow-[0_10px_30px_-8px_rgba(0,0,0,0.5)]"
           role="region"
           aria-label="Listening"
         >

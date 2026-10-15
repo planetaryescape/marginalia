@@ -296,9 +296,9 @@ export function SelectionToolbar({
   const text = range?.toString().trim() ?? "";
 
   const actionClass =
-    "flex items-center justify-start gap-2 h-11 md:h-8 px-3 md:px-2.5 rounded-lg md:rounded-full text-[14px] md:text-[13px] font-medium transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10 dark:md:hover:bg-ink-950/[0.07]";
+    "flex items-center justify-start gap-2 h-11 md:h-8 px-3 md:px-2.5 rounded-lg md:rounded-full text-[14px] md:text-[13px] font-medium transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10";
   const iconClass =
-    "h-11 md:w-8 md:h-8 px-3 md:px-0 flex gap-2 items-center justify-start md:justify-center rounded-lg md:rounded-full text-[14px] transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10 dark:md:hover:bg-ink-950/[0.07]";
+    "h-11 md:w-8 md:h-8 px-3 md:px-0 flex gap-2 items-center justify-start md:justify-center rounded-lg md:rounded-full text-[14px] transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10";
 
   return (
     <AnimatePresence>
@@ -343,7 +343,7 @@ export function SelectionToolbar({
                 : { type: "spring", damping: 30, stiffness: 420 }
             }
             className={cn(
-              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-2xl md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:bg-ink-950 md:text-parchment-50 dark:md:bg-parchment-50 dark:md:text-ink-950 shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
+              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-2xl md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
               asking && "block",
             )}
           >
@@ -381,7 +381,7 @@ export function SelectionToolbar({
                   <Globe size={12} />
                   Web
                 </button>
-                <div className="flex items-center rounded-full bg-white/10 dark:bg-ink-950/[0.06] p-0.5 text-[12px]">
+                <div className="flex items-center rounded-full bg-white/10 p-0.5 text-[12px]">
                   {(["quick", "deep"] as const).map((d) => (
                     <button
                       key={d}
@@ -390,7 +390,7 @@ export function SelectionToolbar({
                       className={cn(
                         "px-2.5 h-11 md:h-6 rounded-full capitalize transition-colors",
                         depth === d
-                          ? "bg-parchment-50 text-ink-950 dark:bg-ink-950 dark:text-parchment-50"
+                          ? "bg-parchment-50 text-ink-950"
                           : "opacity-60 hover:opacity-100",
                       )}
                     >
@@ -459,7 +459,7 @@ export function SelectionToolbar({
                       className={cn(
                         iconClass,
                         "relative",
-                        active && "opacity-100 bg-white/15 dark:bg-ink-950/10",
+                        active && "opacity-100 bg-white/15",
                       )}
                       title={`${active ? "Remove" : label} (${key})`}
                       aria-label={

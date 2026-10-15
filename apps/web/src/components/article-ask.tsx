@@ -103,7 +103,7 @@ export function ArticleAsk({
               layout
               transition={{ type: "spring", damping: 30, stiffness: 380 }}
               className={cn(
-                "flex items-center p-1 font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5",
+                "flex items-center p-1 font-sans reader-float shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5",
                 open
                   ? "flex-1 min-w-0 rounded-2xl md:rounded-full"
                   : "rounded-full",
@@ -149,7 +149,7 @@ export function ArticleAsk({
                     <Globe size={12} />
                     Web
                   </button>
-                  <div className="flex items-center rounded-full bg-white/10 dark:bg-ink-950/[0.06] p-0.5 text-[12px]">
+                  <div className="flex items-center rounded-full bg-white/10 p-0.5 text-[12px]">
                     {(["quick", "deep"] as const).map((d) => (
                       <button
                         key={d}
@@ -159,7 +159,7 @@ export function ArticleAsk({
                         className={cn(
                           "px-2.5 h-11 md:h-6 rounded-full capitalize transition-colors",
                           depth === d
-                            ? "bg-parchment-50 text-ink-950 dark:bg-ink-950 dark:text-parchment-50"
+                            ? "bg-parchment-50 text-ink-950"
                             : "opacity-60 hover:opacity-100",
                         )}
                       >
@@ -206,7 +206,7 @@ export function ArticleAsk({
                     type="button"
                     title="Earlier questions about this article"
                     aria-label="Earlier questions about this article"
-                    className="relative shrink-0 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center rounded-full font-sans bg-ink-950 text-parchment-50 dark:bg-parchment-50 dark:text-ink-950 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
+                    className="relative shrink-0 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center rounded-full font-sans reader-float shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
                   >
                     <History size={15} />
                     <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[var(--pen)] text-white text-[9px] font-bold flex items-center justify-center">

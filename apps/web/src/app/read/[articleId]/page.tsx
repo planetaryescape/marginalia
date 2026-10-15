@@ -811,7 +811,7 @@ export default function ReadPage() {
           <div className="mt-10 text-center">
             <button
               onClick={handleDone}
-              className="px-8 py-3 bg-ink-950 dark:bg-parchment-100 text-parchment-50 dark:text-ink-950 rounded-xl font-sans text-sm font-medium hover:opacity-90 transition-opacity"
+              className="px-8 py-3 reader-float rounded-xl font-sans text-sm font-medium hover:opacity-90 transition-opacity"
             >
               Done
             </button>

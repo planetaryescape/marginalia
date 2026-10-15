@@ -578,6 +578,19 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 }
 
 @layer components {
+  /* Floating controls over the page: an ink pill on light themes. On dark
+     themes a near-white pill was the brightest thing on screen, so it becomes
+     a raised surface a step above the reader's panels instead. */
+  .reader-float {
+    @apply bg-ink-950 text-parchment-50;
+  }
+  .dark .reader-float {
+    background-color: color-mix(in srgb, var(--reader-surface) 82%, white);
+    color: var(--reader-fg);
+    outline: 1px solid var(--reader-border-strong);
+    outline-offset: -1px;
+  }
+
   .reader-kbd {
     display: inline-block;
     min-width: 1.4em;
