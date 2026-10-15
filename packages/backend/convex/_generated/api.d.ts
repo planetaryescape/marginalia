@@ -19,6 +19,7 @@ import type * as actions_generateAnnotations from "../actions/generateAnnotation
 import type * as actions_ingestExternal from "../actions/ingestExternal.js";
 import type * as actions_pollFeeds from "../actions/pollFeeds.js";
 import type * as actions_readwiseSync from "../actions/readwiseSync.js";
+import type * as actions_selectArticle from "../actions/selectArticle.js";
 import type * as actions_summarize from "../actions/summarize.js";
 import type * as annotations from "../annotations.js";
 import type * as apiTokens from "../apiTokens.js";
@@ -99,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   "actions/ingestExternal": typeof actions_ingestExternal;
   "actions/pollFeeds": typeof actions_pollFeeds;
   "actions/readwiseSync": typeof actions_readwiseSync;
+  "actions/selectArticle": typeof actions_selectArticle;
   "actions/summarize": typeof actions_summarize;
   annotations: typeof annotations;
   apiTokens: typeof apiTokens;
