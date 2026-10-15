@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
-import { WORDS_PER_MINUTE } from "../lib/constants";
+import { EXTRACT_PAGE, WORDS_PER_MINUTE } from "../lib/constants";
 import { embedForLibrary } from "../lib/router";
 
 export const extractPending = internalAction({
@@ -14,6 +14,11 @@ export const extractPending = internalAction({
     );
 
     for (const article of pending) {
+      // A run started by a later poll may have reached it first
+      const current = await ctx.runQuery(internal.articles.getByIdInternal, {
+        articleId: article._id,
+      });
+      if (current?.extractionStatus !== "pending") continue;
       try {
         await extractSingle(ctx, article);
       } catch (error) {
@@ -23,6 +28,14 @@ export const extractPending = internalAction({
           status: "failed",
         });
       }
+    }
+    // The query returns a page at a time; keep going until the backlog is empty
+    if (pending.length === EXTRACT_PAGE) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.actions.extractArticle.extractPending,
+        args,
+      );
     }
   },
 });

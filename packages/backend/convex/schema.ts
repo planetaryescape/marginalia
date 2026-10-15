@@ -83,6 +83,8 @@ export default defineSchema({
     iconUrl: v.optional(v.string()),
     lastFetchedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
+    // Posts published before this are skipped; set by the feed's first poll
+    importAfter: v.optional(v.number()),
     isActive: v.boolean(),
     createdAt: v.number(),
   })

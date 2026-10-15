@@ -10,6 +10,7 @@ import {
   mutation,
   query,
 } from "./functions";
+import { EXTRACT_PAGE } from "./lib/constants";
 import { updateQueueStats } from "./readingQueue";
 
 export const getById = query({
@@ -175,7 +176,7 @@ export const listPendingExtractionInternal = internalQuery({
       .withIndex("by_extraction_status", (q) =>
         q.eq("userId", args.userId).eq("extractionStatus", "pending"),
       )
-      .take(10);
+      .take(EXTRACT_PAGE);
   },
 });
 

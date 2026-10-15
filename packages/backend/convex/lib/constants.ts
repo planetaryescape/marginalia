@@ -11,3 +11,5 @@ export const MAX_ANNOTATIONS_PER_ARTICLE = 10;
 
 // Feed polling
 export const FEED_POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+// Articles extracted per run; a full page schedules the next run
+export const EXTRACT_PAGE = 10;

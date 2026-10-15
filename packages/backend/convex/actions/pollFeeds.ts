@@ -12,9 +12,10 @@ export const pollAllFeeds = internalAction({
       userId: args.userId,
     });
 
+    let added = 0;
     for (const feed of feeds) {
       try {
-        await pollSingleFeed(ctx, feed);
+        added += await pollSingleFeed(ctx, feed);
       } catch (error) {
         console.error(`Failed to poll feed ${feed.url}:`, error);
         await ctx.runMutation(internal.feeds.updateError, {
@@ -23,31 +24,78 @@ export const pollAllFeeds = internalAction({
         });
       }
     }
+    // One extraction run for the whole poll; one per feed would work the same
+    // pending articles side by side and annotate them twice
+    if (added > 0) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.actions.extractArticle.extractPending,
+        { userId: args.userId },
+      );
+    }
   },
 });
 
-async function pollSingleFeed(ctx: any, feed: any) {
+// A newly added feed brings only its latest posts, not its whole archive:
+// importing a few dozen feeds would otherwise fill the queue with hundreds of
+// old posts and annotate every one
+export const FIRST_POLL_POSTS = 3;
+
+async function pollSingleFeed(ctx: any, feed: any): Promise<number> {
   // Dynamic import for Node.js action
   const Parser = (await import("rss-parser")).default;
-  const parser = new Parser({
-    timeout: 10000,
-    headers: {
-      "User-Agent": "Marginalia/1.0",
-    },
+  const response = await fetch(feed.url, {
+    headers: { "User-Agent": "Marginalia/1.0" },
+    signal: AbortSignal.timeout(10000),
   });
+  if (!response.ok) throw new Error(`Feed returned ${response.status}`);
+  const parsed = await new Parser().parseString(await response.text());
 
-  const parsed = await parser.parseURL(feed.url);
+  const items = (parsed.items ?? []).map((item) => ({
+    item,
+    publishedAt: item.pubDate ? new Date(item.pubDate).getTime() : undefined,
+  }));
+  let candidates = items;
+  let importAfter: number | undefined = feed.importAfter;
+  if (!feed.lastFetchedAt) {
+    // Feeds list newest first; dated posts are sorted in case one doesn't
+    const dated = items.filter((i): i is typeof i & { publishedAt: number } =>
+      Number.isFinite(i.publishedAt),
+    );
+    candidates = (
+      dated.length ? dated.sort((a, b) => b.publishedAt - a.publishedAt) : items
+    ).slice(0, FIRST_POLL_POSTS);
+    importAfter = dated.length
+      ? Math.min(...candidates.map((i) => i.publishedAt as number))
+      : undefined;
+  } else if (importAfter !== undefined) {
+    // Keeps the older posts left out on the first poll out for good. Undated
+    // posts can't be placed, so they're treated as new.
+    candidates = items.filter(
+      (i) =>
+        !Number.isFinite(i.publishedAt) ||
+        (i.publishedAt as number) >= importAfter!,
+    );
+  }
+
   let newCount = 0;
-
-  for (const item of parsed.items ?? []) {
+  for (const { item, publishedAt } of candidates) {
     const guid = item.guid || item.link || item.title || "";
     if (!guid) continue;
 
-    // Dedup by guid
-    const existing = await ctx.runQuery(internal.articles.getByGuid, {
-      userId: feed.userId,
-      guid,
-    });
+    // Dedup by guid, and by link for the same post imported from Readwise
+    // Reader or pasted, which use the URL as their guid
+    const existing =
+      (await ctx.runQuery(internal.articles.getByGuid, {
+        userId: feed.userId,
+        guid,
+      })) ??
+      (item.link && item.link !== guid
+        ? await ctx.runQuery(internal.articles.getByGuid, {
+            userId: feed.userId,
+            guid: item.link,
+          })
+        : null);
     if (existing) continue;
 
     await ctx.runMutation(internal.articles.insert, {
@@ -57,7 +105,7 @@ async function pollSingleFeed(ctx: any, feed: any) {
       url: item.link || "",
       title: item.title || "Untitled",
       author: item.creator || item.author,
-      publishedAt: item.pubDate ? new Date(item.pubDate).getTime() : undefined,
+      publishedAt: Number.isFinite(publishedAt) ? publishedAt : undefined,
       excerpt: item.contentSnippet?.slice(0, 500),
       imageUrl: item.enclosure?.url,
       extractionStatus: "pending" as const,
@@ -67,18 +115,13 @@ async function pollSingleFeed(ctx: any, feed: any) {
     newCount++;
   }
 
-  // Update feed last fetched
   await ctx.runMutation(internal.feeds.updateLastFetched, {
     feedId: feed._id,
+    importAfter,
   });
 
   if (newCount > 0) {
     console.log(`Feed ${feed.title}: ${newCount} new articles`);
-    // Schedule extraction for pending articles
-    await ctx.scheduler.runAfter(
-      0,
-      internal.actions.extractArticle.extractPending,
-      { userId: feed.userId },
-    );
   }
+  return newCount;
 }

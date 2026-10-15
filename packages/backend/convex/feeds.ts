@@ -82,11 +82,12 @@ export const listActive = internalQuery({
 });
 
 export const updateLastFetched = internalMutation({
-  args: { feedId: v.id("feeds") },
+  args: { feedId: v.id("feeds"), importAfter: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.feedId, {
       lastFetchedAt: Date.now(),
       lastError: undefined,
+      importAfter: args.importAfter,
     });
   },
 });
