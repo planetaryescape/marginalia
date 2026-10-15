@@ -1,10 +1,11 @@
 # Architecture
 
-Follow a reading action through the web client, Convex data and external services. The system has three workspace packages:
+Follow a reading action through the web client, Convex data and external services. The system has three workspace packages and one shared dependency:
 
 | Package | Owns | Entry points |
 | --- | --- | --- |
 | `apps/web` | Next.js App Router UI, reading interactions, browser preferences | `src/app`, `src/components`, `src/lib` |
+| `@planetaryescape/reader` (dependency, not a workspace package) | Article rendering, paragraph numbering, quote highlights, the reader settings model and theme CSS | Pinned as a git tag in `apps/web/package.json` |
 | `packages/backend` | Convex schema, queries/mutations/actions, AI, ingestion and sync | `convex/schema.ts`, `convex/http.ts`, `convex/crons.ts` |
 | `packages/vault-indexer` | Optional local Markdown chunking, embedding and index upload | `src/index.ts` |
 
@@ -22,7 +23,7 @@ RSS polling / pasted URL / Readwise document / API (another app)
 
 RSS polls every 30 minutes; Reader sync runs every 15 minutes when configured. Pasted URLs, Reader HTML and articles sent through the [API](docs/api.md) share `convex/lib/ingest.ts`; RSS extraction has its own scheduled path. Content storage is constrained by Convex's document limit. Failed embeddings do not prevent an article from being stored.
 
-The reader sanitizes imported HTML before rendering it. Saved highlights and companion passages are re-anchored against article text; paragraph navigation uses the rendered article body. Check `article-renderer.tsx`, `paragraphs.ts` and `text-range.ts` before changing article markup.
+Articles render through `@planetaryescape/reader`. The package inserts whatever HTML its `sanitize` callback returns, so Marginalia's trust policy lives in `components/article-renderer.tsx` (DOMPurify via `lib/sanitize.ts`). Saved highlights and companion passages are re-anchored against article text; paragraph navigation uses the rendered article body. `lib/paragraphs.ts`, `lib/text-range.ts`, `lib/highlights.ts` and `lib/reader-settings.ts` re-export the package so app imports stay stable. Change article markup or anchoring in the package, then bump its tag in `apps/web/package.json`.
 
 ## Data and background work
 
@@ -57,8 +58,8 @@ To verify a change here, navigate between desk routes and then open an article. 
 
 The CLI reads Markdown, strips frontmatter for chunk content, hashes the complete source file and uploads embeddings. A dry run compares local files with remote hashes without embedding or mutating the index. Whole-file replacement commits atomically in Convex; incomplete embeddings leave the previous file's index intact.
 
-The vault HTTP endpoints require a bearer key. They are separate from the currently unauthenticated app API. Preview an index run using [the development guide](docs/development.md#optional-vault-index).
+The vault HTTP endpoints require a bearer key, separate from reader sessions and personal API tokens. Preview an index run using [the development guide](docs/development.md#optional-vault-index).
 
 ## Access boundary
 
-`DEFAULT_USER_ID` is one shared identity. A Vercel domain is not authentication for Convex's public queries, mutations, actions or AI HTTP endpoints. The app does not currently enforce per-user ownership or model-call rate limits. Do not describe this architecture as secure multi-tenancy; use the [operations warnings](docs/operations.md#access-control) before deploying personal data.
+Every public Convex function runs for one signed-in reader: `convex/functions.ts` derives `ctx.readerId` from the session, never from client arguments. The owner keeps the original `default_user` library ID; other readers get their own. Document lookups check ownership through `access.ts` (`ownedArticle`, `requireArticle`). Per-reader request budgets in `limits.ts` cap AI calls, key changes and API use. Requests from other apps carry a personal API token instead of a session and reach only that token's library. Read [operations](docs/operations.md#access-control) before deploying personal data.

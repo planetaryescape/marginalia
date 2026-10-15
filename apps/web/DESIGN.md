@@ -24,7 +24,7 @@ The source of truth is `src/app/globals.css`:
 | `--reader-focus` | Neutral visible keyboard focus |
 | `--pen`, `--highlighter` | User-chosen marks and emphasis |
 
-Keep new reader surfaces on these tokens rather than mixing legacy `ink`/`parchment` classes with the selected theme. Annotation category colours retain their semantic distinctions. Check contrast on both the page and raised surfaces; small text still needs 4.5:1.
+`@planetaryescape/reader/reader.css` ships the same theme tokens and the article typography. `globals.css` sets the tokens on `html[data-reader-theme=…]`, which outranks the package's attribute-only selectors, so Marginalia's values win. Keep new reader surfaces on these tokens rather than mixing legacy `ink`/`parchment` classes with the selected theme. Controls floating over the page use `.reader-float`: an ink pill on light themes, a raised surface on dark ones, never a near-white pill. Annotation category colours retain their semantic distinctions. Check contrast on both the page and raised surfaces; small text still needs 4.5:1.
 
 ## Interaction
 

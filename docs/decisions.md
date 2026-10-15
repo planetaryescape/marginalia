@@ -42,14 +42,15 @@ Replay these paths with [the reader guide](reader-guide.md) before changing them
 | Transactional whole-library Home counts | Separate accurate totals from bounded suggestions; initialize old articles/finishes in small idempotent pages | `readingQueue.ts`, queue count regression tests |
 | Loved-article revisit intervals | Current schedule grows through 3, 5, 8, 13, 21, 34 and 55 days, with jitter | `spacedRepetition.ts`; implementation choice, not a recovered user request |
 | Installable, online-first PWA | Cache only the offline screen, not personal content or versioned Next pages; installation does not promise offline reading | `manifest.ts`, `public/sw.js`, `pwa-runtime.tsx` and worker regression tests |
+| Render articles through the shared `@planetaryescape/reader` package | One reading surface maintained once for more than one app; Marginalia keeps its own sanitizer, settings storage key and prose classes, and upgrades by bumping a git tag | `article-renderer.tsx`, `lib/reader-settings.ts`, `apps/web/package.json` |
 | Mobile question inputs and bottom passage tools | Give typing space without fighting native selection handles; VisualViewport positions panels above the keyboard | `article-ask.tsx`, `selection-toolbar.tsx`, `pwa-runtime.tsx` |
 
 ## Decisions still needed
 
-1. **Access control:** choose an authentication boundary for both the frontend and direct Convex APIs. A hidden domain or frontend-only password is insufficient.
-2. **Deployment separation:** migrate the live reader off its currently shared Convex development deployment without losing the library.
-3. **Cost controls:** set model-call quotas/rate limits and decide whether vault content may be sent to external models.
-4. **Large-library behaviour:** decide pagination/retention before replacing bounded recent collections or unbounded analytics scans.
-5. **Distribution:** no multi-user release has been chosen. The code is dual-licensed MIT or Apache-2.0, the same as mxr.
+1. **Deployment separation:** migrate the live reader off its currently shared Convex development deployment without losing the library.
+2. **Cost controls:** per-reader request budgets exist (`limits.ts`), but there is no spending quota. Decide one, and whether vault content may be sent to external models.
+3. **Large-library behaviour:** decide pagination/retention before replacing bounded recent collections or unbounded analytics scans.
+
+Access control is settled: readers sign in, each library is isolated by session, and signup goes through the owner-approved waitlist in the [multi-user plan](multi-user-plan.md). The code is dual-licensed MIT or Apache-2.0.
 
 These are not silently resolved by a polish pass. Follow [operations](operations.md) and [limitations](limitations.md) when planning the next change.

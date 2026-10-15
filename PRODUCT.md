@@ -6,7 +6,7 @@ Marginalia is a personal reading app: find something worth reading, read it with
 
 Use Home as a reading desk rather than a scrolling feed. Choose a time window, resume a piece, revisit a loved article, or search the library in natural language. Open an article to read, not to manage a queue.
 
-The implemented inputs are RSS/Atom feeds, OPML subscriptions, pasted article URLs and optional Readwise Reader sync. The optional vault indexer adds Markdown notes to the contextual retrieval corpus; it does not edit the original vault.
+The implemented inputs are RSS/Atom feeds, OPML subscriptions, pasted article URLs, optional Readwise Reader sync and articles other apps send through the [API](docs/api.md). The optional vault indexer adds Markdown notes to the contextual retrieval corpus; it does not edit the original vault.
 
 Try the core path: **Home → search or time window → article → highlight or note → Notes/Library**.
 
@@ -35,6 +35,6 @@ Use `?` in the app to discover the current keyboard map. AI output is assistance
 
 ## Boundaries, not silent commitments
 
-The current implementation uses one `default_user`; that is an implementation limitation, not evidence that the user approved unauthenticated access forever. Authentication, rate limiting and a production/development data split need explicit follow-up decisions.
+Readers sign in and each has their own library; the owner's keeps the original `default_user` ID. Access is invite-only through the owner-approved waitlist. Separating production from development data still needs an explicit decision.
 
 Do not turn a polish pass into a multi-user rewrite, replace the reading-first design, discard older saved content, or bulk-import a personal vault. See [decisions](docs/decisions.md) before making those changes.

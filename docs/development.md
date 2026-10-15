@@ -99,4 +99,4 @@ Backend mutation tests use `convex-test` and the edge runtime. Its version is cu
 4. Exercise the affected UI with keyboard, desktop/mobile widths and an empty/error state.
 5. Review the diff, including generated bindings and env examples. Follow [deployment](operations.md#deploy) only after checks pass.
 
-Do not run `convex dev` against the existing personal deployment merely to generate bindings: it uploads backend changes. There is no configured Git remote in the current checkout; cloning and PR workflows need one to be chosen first.
+Do not run `convex dev` against the existing personal deployment merely to generate bindings: it uploads backend changes.

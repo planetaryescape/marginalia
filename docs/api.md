@@ -47,9 +47,9 @@ Content-Type: application/json
 | `externalId` | yes | Your ID for the item, up to 200 characters. Sending the same ID again returns the article created the first time and changes nothing. |
 | `title` | yes | Up to 500 characters. |
 | `html` | yes | The article's HTML, already extracted. Scripts, styles, SVG and inline images are removed before storing, and the reader sanitizes it again when rendering. The request may be up to 2 MB. |
-| `url` | no | An `http` or `https` address for the original. |
+| `url` | no | An `http` or `https` address for the original, up to 2,048 characters. |
 | `author` | no | Up to 200 characters. |
-| `publishedAt` | no | Milliseconds since the Unix epoch. |
+| `publishedAt` | no | Milliseconds since the Unix epoch, as a positive integer. |
 
 A new article answers `201`; one sent before answers `200`:
 
@@ -90,5 +90,7 @@ GET /api/v1/articles/{articleId}/highlights
 ```
 
 `kind` is `highlight` or `underline`. `paragraphIndex` is the 0-based
-paragraph the mark starts in, or `null`. An article outside the token's
-library answers `404`, the same as one that doesn't exist.
+paragraph the mark starts in, or `null`. The response holds at most 500
+marks. An article outside the token's library answers `404 not_found`, the
+same as one that doesn't exist; a bad token or too many requests answer
+`401` and `429` as above.

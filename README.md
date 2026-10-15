@@ -2,9 +2,9 @@
 
 A personal reading desk with contextual AI marginalia, notes and a searchable library.
 
-Choose a reading window, continue an article, or find something by asking for it. While reading, explain a passage, follow connections to your notes, save highlights, or record what stayed with you. RSS, pasted links and optional Readwise Reader sync feed the same library.
+Choose a reading window, continue an article, or find something by asking for it. While reading, explain a passage, follow connections to your notes, save highlights, or record what stayed with you. RSS, pasted links, optional Readwise Reader sync and articles sent from other apps feed the same library.
 
-**This is currently a single-user app without login or per-user authorization.** Its public Convex functions operate on one shared library. Do not deploy it with sensitive notes or expose it as a multi-user service without addressing [the access-control limitation](docs/operations.md#access-control).
+Readers sign in with a passkey or password, and each sees only their own library. Signup is closed: people request access and the owner approves them under **Readers**, which issues a one-time invite. Read [access control](docs/operations.md#access-control) before deploying your own copy.
 
 ## Run locally
 

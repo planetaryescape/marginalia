@@ -28,10 +28,9 @@ Verify changes with [development](development.md#make-a-safe-change); do not use
 
 ## Tooling and verification
 
-- The checkout currently has no Git remote. Clone/PR verification and CI setup are not complete.
+- There is no CI: checks run locally before a push.
 - React Doctor reports legacy patterns elsewhere in the reader, plus non-blocking warnings in changed files. The pass removes reported changed-file errors and adds regression coverage rather than rewriting every hook; see [verification](verification.md).
 - Next/Turbopack may emit parser warnings for valid `::highlight(...)` CSS. Keep browser verification of saved marks; do not replace the selectors with invalid pseudo-classes to silence a warning.
 - There is no browser end-to-end suite in CI. Component/static markup tests and pure/mutation tests do not prove focus/layout across every device.
-- No repository license has been selected.
 
 Use [the decisions record](decisions.md#decisions-still-needed) to turn these into deliberate follow-up work.
