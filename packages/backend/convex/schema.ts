@@ -468,6 +468,23 @@ export default defineSchema({
       filterFields: ["articleId"],
     }),
 
+  // About 300-token runs of an ordinary article's paragraphs, embedded the
+  // first time the reader asks about the article (D-DES-054). The text isn't
+  // stored: the paragraph range says where it is, and `contentHash` says the
+  // article hasn't changed since. Ranked in the action, never by vector index,
+  // so a just-written row can't be missed.
+  articlePassages: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    contentHash: v.string(),
+    model: v.string(),
+    startParagraph: v.number(),
+    endParagraph: v.number(),
+    embedding: v.array(v.float64()),
+  })
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId", ["userId"]),
+
   // The reader's topic vocabulary (blueprint 02, Tags). A candidate stays
   // hidden until it recurs on enough articles.
   tags: defineTable({

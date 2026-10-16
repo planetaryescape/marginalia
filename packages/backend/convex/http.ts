@@ -4,6 +4,7 @@ import { type ActionCtx, httpAction } from "./_generated/server";
 import type { IngestExternalResult } from "./actions/ingestExternal";
 import { type ResolvedToken, TOKEN_PREFIX } from "./apiTokens";
 import { authComponent, createAuth } from "./auth";
+import { retrieveArticleContext } from "./lib/articleAsk";
 import { retrievalQuery, retrieveBookContext } from "./lib/bookAsk";
 import { isTerminalChatGPTError } from "./lib/chatgptResponses";
 import {
@@ -339,10 +340,28 @@ http.route({
             embedder: ai.embedder(),
           })
         : null;
+    // So is a question about a long article (the summary is sent either way)
+    const article =
+      parsed.data.mode === "article" && !book
+        ? await retrieveArticleContext(ctx, {
+            userId: readerId,
+            articleId: parsed.data.articleId,
+            paragraphs: parsed.data.paragraphs,
+            paragraphIndex: parsed.data.paragraphIndex,
+            question: parsed.data.question ?? "",
+            history: parsed.data.history,
+            embedder: ai.embedder(),
+          })
+        : null;
+    if (article)
+      console.log(
+        `ask article context: ${article.mode}, ${article.charsBefore} chars before, ${article.charsAfter} after`,
+      );
     const { system, messages } = buildCompanionPrompt(
       parsed.data,
       summary,
       book,
+      article?.selection,
     );
     const chat: ChatMessage[] = [
       { role: "system", content: system },

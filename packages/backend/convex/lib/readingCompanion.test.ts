@@ -60,12 +60,12 @@ describe("readingCompanion", () => {
       expect(selectContext(request({ mode: "define" })).indices).toEqual([4]);
     });
 
-    it("gives Explain, Simplify and Ask the passage and a paragraph either side", () => {
+    it("gives Explain and Simplify the passage and a paragraph either side, and Ask two", () => {
       for (const mode of ["explain", "simplify"])
         expect(selectContext(request({ mode })).indices).toEqual([3, 4, 5]);
       expect(
         selectContext(request({ mode: "ask", question: "Why?" })).indices,
-      ).toEqual([3, 4, 5]);
+      ).toEqual([2, 3, 4, 5, 6]);
     });
 
     it("includes every paragraph a passage runs across", () => {

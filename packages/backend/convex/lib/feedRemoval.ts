@@ -122,6 +122,11 @@ export async function deleteArticle(
     userId: article.userId,
     articleId: article._id,
   });
+  // Cached passage vectors are large; they go in batches of their own
+  await ctx.scheduler.runAfter(0, internal.articlePassages.discard, {
+    userId: article.userId,
+    articleId: article._id,
+  });
   await unlinkArticleTags(ctx, article._id);
   await removeFromQueueStats(ctx, article);
   await ctx.db.delete("articles", article._id);

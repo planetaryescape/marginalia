@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ASK_BUDGET_CHARS, type BudgetedSelection } from "./articleAsk";
 import { type BookAskContext, formatBookContext } from "./bookAsk";
 
 // Gemini Flash takes far more than this, but a long article plus every
@@ -145,8 +146,10 @@ export interface ArticleSummary {
   gist: string;
 }
 
-/** Paragraphs either side of the passage that Explain, Simplify and Ask see. */
+/** Paragraphs either side of the passage that Explain and Simplify see. */
 const NEIGHBOURS = 1;
+/** Asking about a passage reads a little wider, and nothing more (D-DES-054). */
+const ASK_NEIGHBOURS = 2;
 /** How far past its first paragraph a passage is searched for its last one. */
 const MAX_PASSAGE_SPAN = 20;
 
@@ -210,9 +213,10 @@ function passageEnd(request: CompanionRequest, start: number): number {
 
 /**
  * The paragraphs each tool gets: only what its question needs (D-DES-054).
- * Define sees the sentence's paragraph; Explain, Simplify and Ask about a
- * passage see the passage and a paragraph either side. Asking about the whole
- * article keeps today's window until book-scale retrieval (rung 3b).
+ * Define sees the sentence's paragraph; Explain and Simplify see the passage
+ * and a paragraph either side; Ask about a passage sees two either side.
+ * Asking about the whole article is retrieved in lib/articleAsk.ts; only a
+ * short article, or an older client, comes here for its whole text.
  */
 export interface ParagraphContext {
   indices: number[];
@@ -224,9 +228,14 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
   const start = mode === "article" ? null : passageStart(request);
   if (start === null) {
     // No passage to centre on: either the whole-article tool or a selection
-    // that could not be placed. Both keep the legacy window from ¶1.
+    // that could not be placed. Both keep the legacy window from ¶1, except
+    // that a passage Ask never sends more than the retrieval budget.
     return {
-      indices: selectParagraphWindow(paragraphs, request.paragraphIndex),
+      indices: selectParagraphWindow(
+        paragraphs,
+        request.paragraphIndex,
+        mode === "ask" ? ASK_BUDGET_CHARS : MAX_CONTEXT_CHARS,
+      ),
       marked: new Set(),
     };
   }
@@ -240,9 +249,8 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
             start + MAX_PASSAGE_SPAN,
             paragraphs.length - 1,
           );
-  // Seam for rung 3b: "ask" will add the passages found by searching the
-  // document for the question; until then it sees the same window as Explain.
-  const reach = mode === "define" ? 0 : NEIGHBOURS;
+  const reach =
+    mode === "define" ? 0 : mode === "ask" ? ASK_NEIGHBOURS : NEIGHBOURS;
   const indices: number[] = [];
   for (
     let i = Math.max(0, start - reach);
@@ -299,6 +307,8 @@ export function buildCompanionPrompt(
   request: CompanionRequest,
   summary?: ArticleSummary | null,
   book?: BookAskContext | null,
+  /** The retrieved paragraphs of a long article; absent sends the whole text. */
+  retrieved?: BudgetedSelection | null,
 ): {
   system: string;
   messages: { role: "user" | "assistant"; content: string }[];
@@ -337,7 +347,7 @@ export function buildCompanionPrompt(
       book
         ? `${request.title} (part ${book.partNumber} of ${book.partCount}, on screen)`
         : request.title,
-      request.paragraphs,
+      retrieved?.paragraphs ?? request.paragraphs,
       request.paragraphIndex,
       book
         ? {
@@ -348,7 +358,9 @@ export function buildCompanionPrompt(
             ),
             marked: new Set(),
           }
-        : selectContext(request),
+        : retrieved
+          ? { indices: retrieved.indices, marked: new Set() }
+          : selectContext(request),
     ),
     "</article>",
     "",

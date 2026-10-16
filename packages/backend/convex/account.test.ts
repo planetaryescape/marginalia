@@ -174,6 +174,15 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
         embedding,
       });
     }
+    await ctx.db.insert("articlePassages", {
+      userId,
+      articleId,
+      contentHash: "fixture",
+      model: "fixture",
+      startParagraph: 0,
+      endParagraph: 0,
+      embedding,
+    });
     await ctx.db.insert("noteChunks", {
       userId,
       filePath: `notes/${i}.md`,
