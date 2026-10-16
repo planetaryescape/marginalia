@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { type EmbeddingTarget, embedText } from "./embeddings";
 import type { LibraryFindMatch } from "./librarySearch";
+import { cachedQueryEmbedding } from "./queryEmbeddingCache";
 import type { Timings } from "./serverTiming";
 
 export const libraryRequestSchema = z.object({
@@ -265,8 +266,13 @@ export async function findLibraryArticles(
   embedder: EmbeddingTarget,
   timings: Timings,
 ): Promise<{ matches: LibraryFindMatch[]; more: boolean }> {
-  const vector = await embedText(embedder, question.slice(0, 4000));
-  timings.mark("embed");
+  const { vector, cached } = await cachedQueryEmbedding(
+    ctx,
+    userId,
+    question,
+    embedder,
+  );
+  timings.mark(cached ? "embed-cached" : "embed");
   const hits = await ctx.vectorSearch("articles", "by_embedding", {
     vector,
     limit: FIND_LIMIT,

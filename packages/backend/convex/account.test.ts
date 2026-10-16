@@ -380,6 +380,17 @@ describe("account deletion", () => {
     await t.run(async (ctx) => {
       await seedLibrary(ctx, readerLibraryId, 40);
       await seedLibrary(ctx, OWNER, 2);
+      // Cached query vectors are per reader and go with the account
+      for (const userId of [readerLibraryId, OWNER]) {
+        await ctx.db.insert("queryEmbeddings", {
+          userId,
+          key: "rust async",
+          embedding: Array.from({ length: 1536 }, () => 0),
+          model: "openai/text-embedding-3-small",
+          createdAt: Date.now(),
+        });
+        await ctx.db.insert("queryEmbeddingCounts", { userId, count: 1 });
+      }
       await ctx.db.patch((await ctx.db.query("readers").first())!._id, {
         email: "reader@example.com",
       });

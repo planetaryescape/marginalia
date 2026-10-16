@@ -20,6 +20,11 @@ const ENDPOINTS: Record<EmbeddingProvider, { url: string; model: string }> = {
   },
 };
 
+/** Stored with cached vectors, so a model change can't serve the old model's vectors. */
+export function embeddingModel(provider: EmbeddingProvider): string {
+  return ENDPOINTS[provider].model;
+}
+
 const responseSchema = z.object({
   data: z.array(
     z.object({

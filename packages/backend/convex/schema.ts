@@ -990,6 +990,26 @@ export default defineSchema({
     .index("by_hash", ["hash"])
     .index("by_userId", ["userId"]),
 
+  // Embeddings of topic-search queries, so a repeated search skips the
+  // embedding call. Keyed by the normalised query; a row for another model,
+  // or older than 30 days, is a miss (lib/queryEmbeddingCache.ts).
+  queryEmbeddings: defineTable({
+    userId: v.string(),
+    key: v.string(),
+    embedding: v.array(v.float64()),
+    model: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_userId_and_key", ["userId", "key"])
+    .index("by_userId_and_createdAt", ["userId", "createdAt"]),
+
+  // How many queryEmbeddings rows a reader holds. Convex can't count rows
+  // without reading them, and the cap is checked on every insert.
+  queryEmbeddingCounts: defineTable({
+    userId: v.string(),
+    count: v.number(),
+  }).index("by_userId", ["userId"]),
+
   // What a reader tends to read (rung 5c, D-DES-057): one small row of
   // explainable affinities, each in -1..1, capped per list. Recomputed daily
   // and after a finish (taste.ts). Keys are feed IDs, normalised author names

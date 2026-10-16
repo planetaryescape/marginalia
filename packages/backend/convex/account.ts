@@ -228,6 +228,19 @@ const STEPS: Step[] = [
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  // Cached query vectors are 1536 floats each
+  rows((ctx, u) =>
+    ctx.db
+      .query("queryEmbeddings")
+      .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", u))
+      .take(ARTICLE_BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("queryEmbeddingCounts")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
   // A book's units carry its text, like articles do
   rows((ctx, u) =>
     ctx.db

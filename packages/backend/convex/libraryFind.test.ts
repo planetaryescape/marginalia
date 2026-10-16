@@ -94,6 +94,40 @@ describe("search-only library path", () => {
     expect(calls.every((url) => url.endsWith("/embeddings"))).toBe(true);
   });
 
+  it("answers a repeated query from the cache and says so in Server-Timing", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-only");
+    const t = await ownerWithKey(modules);
+    const calls = embeddingsOnly();
+    await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "cached",
+        url: "https://www.example.com/cached",
+        title: "Cached piece",
+        excerpt: "Cached piece",
+        embedding,
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      }),
+    );
+    const find = () =>
+      t.fetch("/api/library/find", {
+        method: "POST",
+        body: JSON.stringify({ question: "  Cached   Piece " }),
+      });
+
+    const first = await find();
+    const second = await find();
+
+    expect(first.headers.get("Server-Timing")).toMatch(/(^|, )embed;dur=/);
+    expect(second.headers.get("Server-Timing")).toMatch(
+      /(^|, )embed-cached;dur=\d+/,
+    );
+    expect(await second.json()).toEqual(await first.json());
+    expect(calls).toHaveLength(1);
+  });
+
   it("keeps another reader's articles out of the result", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only");
     const { t, reader, readerLibraryId } = await secondReaderTest(modules);

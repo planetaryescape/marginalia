@@ -106,6 +106,7 @@ import type * as lovedArticles from "../lovedArticles.js";
 import type * as noteChunks from "../noteChunks.js";
 import type * as preAnnotate from "../preAnnotate.js";
 import type * as providerCredentials from "../providerCredentials.js";
+import type * as queryEmbeddings from "../queryEmbeddings.js";
 import type * as readers from "../readers.js";
 import type * as readingActivity from "../readingActivity.js";
 import type * as readingQueue from "../readingQueue.js";
@@ -231,6 +232,7 @@ declare const fullApi: ApiFromModules<{
   noteChunks: typeof noteChunks;
   preAnnotate: typeof preAnnotate;
   providerCredentials: typeof providerCredentials;
+  queryEmbeddings: typeof queryEmbeddings;
   readers: typeof readers;
   readingActivity: typeof readingActivity;
   readingQueue: typeof readingQueue;
