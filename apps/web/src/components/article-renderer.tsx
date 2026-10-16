@@ -40,7 +40,7 @@ export function ArticleRenderer(
           prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-4
           prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-3
           prose-p:leading-[1.8] prose-p:mb-6
-          prose-a:text-annotation-crossref prose-a:underline prose-a:underline-offset-2
+          prose-a:text-[var(--ink)] prose-a:underline prose-a:decoration-[var(--pencil-rule)] prose-a:underline-offset-[3px] hover:prose-a:decoration-[var(--ink)]
           prose-strong:text-ink-950 dark:prose-strong:text-parchment-100
           prose-blockquote:border-l-[3px] prose-blockquote:border-ink-300 dark:prose-blockquote:border-ink-600
           prose-blockquote:italic prose-blockquote:pl-4

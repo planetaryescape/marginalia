@@ -148,7 +148,7 @@ export function CompanionCard({
           <button
             type="button"
             onClick={onRegenerate}
-            className="font-medium text-[var(--pen)] hover:underline"
+            className="font-medium quiet-link"
           >
             Retry
           </button>
@@ -222,7 +222,7 @@ export function CompanionCard({
           type="submit"
           disabled={streaming || !draft.trim()}
           aria-label="Send follow-up"
-          className="w-7 h-7 flex items-center justify-center rounded-lg bg-[var(--pen)] text-white transition-opacity disabled:opacity-30"
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-[var(--ink)] text-[var(--reader-bg)] transition-opacity disabled:opacity-30"
         >
           <ArrowUp size={14} strokeWidth={2.5} />
         </button>

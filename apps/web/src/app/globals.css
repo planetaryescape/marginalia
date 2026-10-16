@@ -124,11 +124,8 @@
 /* Reading progress bar */
 .reading-progress {
   @apply fixed top-0 left-0 h-0.5 z-50 transition-all duration-150;
-  background: linear-gradient(
-    90deg,
-    theme("colors.annotation.crossref"),
-    theme("colors.annotation.question")
-  );
+  background: var(--ink-muted);
+  opacity: 0.7;
 }
 
 /* Smooth scroll for reading */
@@ -286,6 +283,7 @@ html[data-reader-theme="paper"] {
   --reader-border: rgba(32, 29, 27, 0.1);
   --reader-border-strong: rgba(32, 29, 27, 0.2);
   --reader-chip: rgba(32, 29, 27, 0.05);
+  --pencil: #5e5751;
 }
 
 .dark,
@@ -298,6 +296,7 @@ html[data-reader-theme="night"] {
   --reader-border: rgba(255, 255, 255, 0.08);
   --reader-border-strong: rgba(255, 255, 255, 0.17);
   --reader-chip: rgba(255, 255, 255, 0.06);
+  --pencil: #bdb3aa;
 }
 
 html[data-reader-theme="sepia"] {
@@ -309,6 +308,7 @@ html[data-reader-theme="sepia"] {
   --reader-border: rgba(74, 59, 42, 0.14);
   --reader-border-strong: rgba(74, 59, 42, 0.26);
   --reader-chip: rgba(74, 59, 42, 0.07);
+  --pencil: #5f4f3e;
 }
 
 html[data-reader-theme="snow"] {
@@ -320,6 +320,7 @@ html[data-reader-theme="snow"] {
   --reader-border: rgba(0, 0, 0, 0.09);
   --reader-border-strong: rgba(0, 0, 0, 0.18);
   --reader-chip: rgba(0, 0, 0, 0.045);
+  --pencil: #55555c;
 }
 
 /* A softer dark: warm charcoal rather than near-black */
@@ -332,6 +333,7 @@ html[data-reader-theme="dusk"] {
   --reader-border: rgba(255, 255, 255, 0.09);
   --reader-border-strong: rgba(255, 255, 255, 0.18);
   --reader-chip: rgba(255, 255, 255, 0.07);
+  --pencil: #c8bfb5;
 }
 
 html[data-reader-theme="ink"] {
@@ -343,6 +345,37 @@ html[data-reader-theme="ink"] {
   --reader-border: rgba(255, 255, 255, 0.08);
   --reader-border-strong: rgba(255, 255, 255, 0.16);
   --reader-chip: rgba(255, 255, 255, 0.06);
+  --pencil: #aab1bd;
+}
+
+/* Print, pencil and pen (blueprint 02). Ink is the author and the chrome, pencil
+   is Marginalia, and --pen is the reader's own colour: their marks only. */
+:root {
+  --ink: var(--reader-fg);
+  --ink-soft: var(--reader-fg-soft);
+  --ink-muted: var(--reader-muted);
+  --pencil-rule: color-mix(in srgb, var(--reader-fg) 18%, transparent);
+  --danger: #b0503a;
+  --kind-connection: #5b7f95;
+  --kind-context: #7a8f6f;
+  --kind-tension: #b07050;
+  --kind-question: #8b7bb0;
+  --motion-press: 90ms ease-out;
+  --motion-quick: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-move: 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-page: 320ms cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-sweep: 180ms linear;
+}
+html.dark,
+html[data-reader-theme="night"],
+html[data-reader-theme="dusk"],
+html[data-reader-theme="ink"] {
+  --pencil-rule: color-mix(in srgb, var(--reader-fg) 22%, transparent);
+  --danger: #e07a5f;
+  --kind-connection: #7a9bb0;
+  --kind-context: #93a688;
+  --kind-tension: #c68a6c;
+  --kind-question: #a396c4;
 }
 
 :root {
@@ -384,7 +417,7 @@ html[data-reader-theme] .reader-prose {
   --tw-prose-headings: var(--reader-fg);
   --tw-prose-bold: var(--reader-fg);
   --tw-prose-quotes: var(--reader-fg-soft);
-  --tw-prose-links: var(--pen);
+  --tw-prose-links: var(--ink);
   --tw-prose-bullets: var(--reader-muted);
   --tw-prose-counters: var(--reader-muted);
   --tw-prose-hr: var(--reader-border);
@@ -402,8 +435,15 @@ html[data-reader-theme] .reader-prose :is(p, li) {
   line-height: var(--reader-leading);
 }
 
+/* Links are print, not the reader's mark: ink with a pencil rule that darkens on hover */
 html[data-reader-theme] .reader-prose a {
-  color: var(--pen);
+  color: var(--ink);
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+
+html[data-reader-theme] .reader-prose a:hover {
+  text-decoration-color: var(--ink);
 }
 
 html[data-reader-theme] .reader-prose :not(pre) > code {
@@ -453,7 +493,7 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 }
 
 .reader-numbers [data-current]::before {
-  color: var(--pen);
+  color: var(--ink);
   opacity: 1;
 }
 
@@ -537,7 +577,7 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   margin-left: 3px;
   vertical-align: -0.14em;
   border-radius: 1px;
-  background: var(--pen);
+  background: var(--pencil);
   animation: caret-blink 1s steps(2, start) infinite;
 }
 
@@ -575,8 +615,49 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   transform-origin: var(--radix-popover-content-transform-origin);
 }
 
+/* The reader toolbar fades while reading. Focus inside it, the pointer near the
+   top, an open menu or the notes pane keep it shown (use-toolbar-fade.ts). */
+.reader-toolbar {
+  transition: opacity var(--motion-quick);
+}
+
+.reader-toolbar[data-hidden="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Menus raised above the page: surface with a hairline, and a shadow only on light themes */
+.reader-menu {
+  background: var(--reader-surface);
+  color: var(--reader-fg);
+  border: 1px solid var(--reader-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.25);
+}
+
+html.dark .reader-menu {
+  border-color: var(--reader-border-strong);
+  box-shadow: none;
+}
+
+.reader-menu[data-state="open"] {
+  animation: popover-in var(--motion-quick);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+}
+
+.quiet-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+
+.quiet-link:hover {
+  text-decoration-color: var(--ink);
+}
+
 .reader-range {
-  accent-color: var(--pen);
+  accent-color: var(--ink);
   height: 4px;
   min-width: 0;
   cursor: pointer;
@@ -626,7 +707,9 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   .para-flash {
     animation: none;
   }
-  .reader-popover { animation: none !important; }
+  .reader-popover,
+  .reader-menu { animation: none !important; }
+  .reader-toolbar { transition: none; }
   ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
 }
 
@@ -669,7 +752,7 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   font-family: var(--dropcap-font);
   font-weight: 500;
   font-style: normal;
-  color: var(--pen);
+  color: var(--ink);
   -webkit-initial-letter: var(--dropcap-lines);
   initial-letter: var(--dropcap-lines);
   margin-right: 0.12em;

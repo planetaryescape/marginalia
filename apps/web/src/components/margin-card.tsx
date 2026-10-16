@@ -76,7 +76,7 @@ export function MarginCard({
   layoutVersion,
   anchorKey,
   getAnchorRect,
-  accent = "var(--pen)",
+  accent = "var(--pencil)",
   title,
   label,
   paragraphIndex,

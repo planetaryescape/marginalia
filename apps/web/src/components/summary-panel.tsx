@@ -40,7 +40,7 @@ function ParagraphChip({
     <button
       type="button"
       onClick={() => onJump(n - 1)}
-      className="inline-flex items-center align-[0.08em] mx-px px-1.5 h-[1.35em] rounded-md font-mono text-[0.72em] tabular-nums bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--pen)] hover:bg-[var(--pen-soft)] transition-colors"
+      className="inline-flex items-center align-[0.08em] mx-px px-1.5 h-[1.35em] rounded-md font-mono text-[0.72em] tabular-nums bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--ink)] transition-colors"
     >
       ¶{n}
     </button>
@@ -121,8 +121,9 @@ export function SummaryPanel({
       transition={{ layout: { duration: 0.45, ease: EASE } }}
       aria-label="Summary"
       className={cn(
-        "mb-10 overflow-hidden rounded-xl font-sans ring-1 ring-[var(--reader-border)]",
-        state === "idle" ? "bg-transparent" : "bg-[var(--reader-surface)]",
+        "mb-10 overflow-hidden font-sans",
+        state !== "idle" &&
+          "rounded-xl ring-1 ring-[var(--reader-border)] bg-[var(--reader-surface)]",
       )}
     >
       <AnimatePresence mode="popLayout" initial={false}>
@@ -134,21 +135,17 @@ export function SummaryPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.15 } }}
-            className="group w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-[var(--reader-chip)] transition-colors"
+            className="group w-full py-1 text-left text-[14px] leading-[1.55] text-[var(--pencil)] hover:text-[var(--ink)] transition-colors"
           >
-            <span className="flex-1">
-              <span className="flex items-center gap-1.5 text-[14px] font-medium text-[var(--reader-fg)]">
-                Summarize this article
-                <ArrowRight
-                  size={14}
-                  className="text-[var(--pen)] transition-transform group-hover:translate-x-0.5"
-                />
-              </span>
-              <span className="block mt-0.5 text-[12.5px] text-[var(--reader-muted)]">
-                {error ??
-                  "The gist, the key claims and a map, before you start"}
-              </span>
-            </span>
+            {error ?? "Summary, key claims and a map, before you start"}
+            {!error && (
+              <ArrowRight
+                size={14}
+                aria-hidden
+                className="ml-1.5 inline align-[-2px] transition-transform group-hover:translate-x-0.5"
+              />
+            )}
+            <span className="sr-only">Summarize this article</span>
           </motion.button>
         )}
 
@@ -162,7 +159,7 @@ export function SummaryPanel({
             role="status"
           >
             <div className="flex items-start justify-between">
-              <p className="summary-reading text-[12.5px] font-medium text-[var(--pen)]">
+              <p className="summary-reading text-[12.5px] font-medium text-[var(--pencil)]">
                 Reading all {words.toLocaleString()} words
               </p>
               <ReadingGlyph />
@@ -242,7 +239,7 @@ export function SummaryPanel({
                     {summary.thesis && (
                       <motion.div
                         variants={item}
-                        className="mt-5 border-l-2 border-[var(--pen)] pl-3"
+                        className="mt-5 border-l-2 border-[var(--pencil-rule)] pl-3"
                       >
                         <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
                           The point

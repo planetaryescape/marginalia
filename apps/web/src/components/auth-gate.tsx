@@ -310,7 +310,7 @@ function SignIn({ fragment }: { fragment: FragmentTokens | null }) {
           </p>
         )}
       </div>
-      <SourceLink variant="text" className="mt-10" />
+      <SourceLink className="mt-10" />
     </main>
   );
 }
@@ -407,7 +407,7 @@ export function RequestAccess({ onBack }: { onBack: () => void }) {
           </p>
         )}
       </div>
-      <SourceLink variant="text" className="mt-10" />
+      <SourceLink className="mt-10" />
     </main>
   );
 }

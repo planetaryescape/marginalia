@@ -128,7 +128,7 @@ export function ImpressionPanel({
                 "relative flex min-w-0 cursor-pointer flex-col items-center gap-1 rounded-lg px-1 py-2 ring-1 transition-colors focus-within:ring-[var(--reader-focus)]",
                 rating === value
                   ? "bg-[var(--pen-soft)] text-[var(--pen)] ring-[var(--pen)]"
-                  : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] ring-[var(--reader-border)] hover:ring-[var(--pen)]",
+                  : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] ring-[var(--reader-border)] hover:ring-[var(--reader-border-strong)]",
               )}
             >
               <input
@@ -186,7 +186,7 @@ export function ImpressionPanel({
               className={cn(
                 "h-7 px-2.5 rounded-full text-[12px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
                 active
-                  ? "bg-[var(--pen-soft)] text-[var(--pen)] ring-1 ring-[var(--pen)]"
+                  ? "bg-[var(--reader-chip)] text-[var(--ink)] ring-1 ring-[var(--ink-muted)]"
                   : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] hover:text-[var(--reader-fg)]",
               )}
             >

@@ -73,7 +73,7 @@ export function ReadwiseCard() {
               }
               setSyncing(false);
             }}
-            className="shrink-0 flex items-center gap-1.5 text-sm text-[var(--pen)] hover:underline disabled:opacity-40"
+            className="shrink-0 flex items-center gap-1.5 text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:underline disabled:opacity-40"
           >
             <RefreshCw
               size={13}

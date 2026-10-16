@@ -67,7 +67,7 @@ export function FeedbackPreferences() {
               setSettings(next);
               writeFeedback(next);
             }}
-            className="w-5 h-5 accent-[var(--pen)]"
+            className="w-5 h-5 accent-[var(--ink)]"
           />
         </label>
       ))}

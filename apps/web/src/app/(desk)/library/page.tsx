@@ -91,7 +91,7 @@ function Impressions() {
                 >
                   <Link
                     href={`/read/${item.articleId}`}
-                    className="font-serif text-[15.5px] leading-snug hover:text-[var(--pen)] transition-colors"
+                    className="font-serif text-[15.5px] leading-snug hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4 transition-colors"
                   >
                     {item.title}
                   </Link>
@@ -232,7 +232,7 @@ function Librarian() {
             ) : turn.content ? (
               <div
                 key={i}
-                className="pl-4 border-l-2 border-[var(--pen)] max-w-2xl"
+                className="pl-4 border-l-2 border-[var(--pencil-rule)] max-w-2xl"
               >
                 <CompanionAnswer
                   text={turn.content}
@@ -244,7 +244,7 @@ function Librarian() {
             ) : (
               <div
                 key={i}
-                className="pl-4 border-l-2 border-[var(--pen)] max-w-2xl space-y-2 py-1"
+                className="pl-4 border-l-2 border-[var(--pencil-rule)] max-w-2xl space-y-2 py-1"
                 role="status"
                 aria-label="Looking through your library"
               >
@@ -302,7 +302,7 @@ function Librarian() {
           type="submit"
           disabled={!draft.trim() || streaming}
           aria-label="Ask"
-          className="w-11 h-11 md:w-9 md:h-9 shrink-0 flex items-center justify-center rounded-full bg-[var(--pen)] text-white disabled:opacity-30 transition-opacity"
+          className="w-11 h-11 md:w-9 md:h-9 shrink-0 flex items-center justify-center rounded-full bg-[var(--ink)] text-[var(--reader-bg)] disabled:opacity-30 transition-opacity"
         >
           <ArrowUp size={16} strokeWidth={2.5} />
         </button>
@@ -315,7 +315,7 @@ function Librarian() {
               key={suggestion}
               type="button"
               onClick={() => ask(suggestion)}
-              className="min-h-11 md:min-h-8 px-3.5 py-1 rounded-full text-left text-[13px] text-[var(--reader-fg-soft)] ring-1 ring-[var(--reader-border)] hover:ring-[var(--pen)] hover:text-[var(--reader-fg)] transition-colors"
+              className="min-h-11 md:min-h-8 px-3.5 py-1 rounded-full text-left text-[13px] text-[var(--reader-fg-soft)] ring-1 ring-[var(--reader-border)] hover:ring-[var(--reader-border-strong)] hover:text-[var(--reader-fg)] transition-colors"
             >
               {suggestion}
             </button>

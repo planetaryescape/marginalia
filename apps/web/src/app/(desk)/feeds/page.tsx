@@ -67,7 +67,7 @@ export default function FeedsPage() {
             setPolling(false);
           }}
           disabled={polling || !feeds?.length}
-          className="shrink-0 text-[var(--pen)] hover:underline text-sm disabled:opacity-40"
+          className="shrink-0 text-[var(--ink-soft)] hover:text-[var(--ink)] hover:underline text-sm disabled:opacity-40"
         >
           {polling ? "Polling..." : "Poll now"}
         </button>
@@ -98,7 +98,7 @@ export default function FeedsPage() {
 
       {/* OPML Import */}
       <div className="mb-10">
-        <label className="relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[var(--reader-border-strong)] cursor-pointer hover:border-[var(--pen)] focus-within:outline focus-within:outline-1 focus-within:outline-[var(--reader-focus)] focus-within:outline-offset-2 transition-colors">
+        <label className="relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[var(--reader-border-strong)] cursor-pointer hover:border-[var(--ink-muted)] focus-within:outline focus-within:outline-1 focus-within:outline-[var(--reader-focus)] focus-within:outline-offset-2 transition-colors">
           <span className="text-xs text-[var(--reader-muted)]">
             {importing ? "Importing feeds…" : "Import OPML file"}
           </span>

@@ -1,17 +1,13 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import * as Popover from "@radix-ui/react-popover";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Check,
   Headphones,
   MessagesSquare,
-  MoreHorizontal,
   NotebookPen,
   RotateCcw,
-  Star,
 } from "lucide-react";
-import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -22,15 +18,13 @@ import { CompanionCard } from "@/components/companion-card";
 import {
   ImpressionPanel,
   ImpressionSummary,
-  RATINGS,
 } from "@/components/impression-panel";
 import { ListenBar } from "@/components/listen-bar";
 import { NotesPanel } from "@/components/notes-panel";
 import { ReaderMap } from "@/components/reader-map";
-import { ReaderSettingsPanel } from "@/components/reader-settings-panel";
+import { ReaderToolbar } from "@/components/reader-toolbar";
 import { ReflectionBox } from "@/components/reflection-box";
 import { SelectionToolbar } from "@/components/selection-toolbar";
-import { SourceLink } from "@/components/source-link";
 import { SummaryPanel } from "@/components/summary-panel";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
@@ -53,6 +47,7 @@ import { useListen, useReadingPosition } from "@/lib/reading-modes";
 import { useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
+import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import { cn, formatReadTime } from "@/lib/utils";
 
@@ -98,6 +93,8 @@ export default function ReadPage() {
     endOffset?: number;
   } | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
+  const [backMatter, setBackMatter] = useState<HTMLElement | null>(null);
+  const backMatterInView = useIsIntersecting(backMatter);
 
   const createNote = useMutation(api.userNotes.create);
   const { settings, update: updateSettings, resetText } = useReaderSettings();
@@ -430,227 +427,47 @@ export default function ReadPage() {
         style={{ width: `${scrollPercent}%` }}
       />
 
-      {/* Top nav */}
-      <div className="fixed top-0 left-0 right-[var(--notes-inset)] transition-[right] duration-200 pt-[env(safe-area-inset-top)] z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm">
-        <div
-          className="mx-auto px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between"
-          style={{ maxWidth: `max(${MAX_WIDTHS[settings.width]}, 42rem)` }}
-        >
-          <Link
-            href={sessionId ? `/session/${sessionId}` : "/"}
-            className="flex min-h-11 sm:min-h-0 items-center text-[var(--reader-muted)] hover:text-[var(--reader-fg)] font-sans text-sm transition-colors"
-          >
-            &larr; Back
-          </Link>
-
-          <span className="sm:hidden flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--reader-fg-soft)]">
-            {article.title}
-          </span>
-
-          <div className="flex items-center gap-0 sm:gap-3">
-            <span className="hidden sm:inline text-[var(--reader-muted)] font-sans text-xs">
-              {estimatedMinRemaining
-                ? `~${estimatedMinRemaining} min left`
-                : formatReadTime(article.estimatedReadMinutes)}
-            </span>
-
-            {/* Notes button */}
-            <button
-              onClick={() => setNotesPanelOpen((o) => !o)}
-              className={`relative w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full transition-colors ${
-                notesPanelOpen
-                  ? "bg-annotation-crossref/20 text-annotation-crossref"
-                  : "hover:bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
-              }`}
-              title="Notes"
-              aria-label="Notes"
-              aria-keyshortcuts="n"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-              {noteCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-annotation-crossref text-white text-[9px] font-sans font-bold rounded-full flex items-center justify-center">
-                  {noteCount}
-                </span>
-              )}
-            </button>
-
-            {/* Re-annotate button */}
-            <button
-              onClick={async () => {
-                try {
-                  await reannotate({ articleId: articleId as any });
-                  toast.success("Re-annotating with latest vault...");
-                } catch {
-                  toast.error("Failed to re-annotate");
-                }
-              }}
-              className="w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] transition-colors"
-              title="Re-annotate with latest vault"
-              aria-label="Re-annotate with latest vault"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M23 4v6h-6" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-              </svg>
-            </button>
-
-            {/* Impression: rating, tags and what stayed with you */}
-            <Popover.Root open={ratingOpen} onOpenChange={setRatingOpen}>
-              <Popover.Trigger asChild>
-                <button
-                  className={`w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full transition-colors ${
-                    impression?.rating
-                      ? "text-[var(--pen)]"
-                      : "text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]"
-                  }`}
-                  title={
-                    impression?.rating
-                      ? `You rated this ${RATINGS[impression.rating - 1]}`
-                      : "Rate this article"
-                  }
-                  aria-label="Rate this article"
-                  aria-keyshortcuts="r"
-                >
-                  <Star
-                    size={15}
-                    fill={impression?.rating ? "currentColor" : "none"}
-                  />
-                </button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content
-                  align="end"
-                  sideOffset={10}
-                  collisionPadding={12}
-                  className="reader-popover z-50 w-[340px] max-w-[calc(100vw-24px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-2xl p-4 bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
-                >
-                  <ImpressionPanel
-                    articleId={articleId as any}
-                    heading="Your impression"
-                  />
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
-
-            {/* Love button */}
-            <button
-              onClick={async () => {
-                if (isLoved) {
-                  await unloveArticle({ articleId: articleId as any });
-                } else {
-                  await loveArticle({ articleId: articleId as any });
-                }
-              }}
-              className={`w-11 h-11 sm:w-8 sm:h-8 hidden sm:flex items-center justify-center rounded-full transition-colors ${
-                isLoved
-                  ? "text-red-500"
-                  : "text-[var(--reader-muted)] hover:text-red-400 hover:bg-[var(--reader-chip)]"
-              }`}
-              title={isLoved ? "Remove from loved" : "Love this article"}
-              aria-label={isLoved ? "Remove from loved" : "Love this article"}
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill={isLoved ? "currentColor" : "none"}
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-              </svg>
-            </button>
-
-            <SourceLink className="hidden sm:flex sm:rounded-full" />
-            <ReaderSettingsPanel
-              settings={settings}
-              update={updateSettings}
-              resetText={resetText}
-              listening={listen.active}
-              onToggleListen={toggleListen}
-            />
-            <Popover.Root>
-              <Popover.Trigger asChild>
-                <button
-                  className="sm:hidden w-11 h-11 flex items-center justify-center"
-                  aria-label="More reading actions"
-                >
-                  <MoreHorizontal size={22} />
-                </button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content
-                  align="end"
-                  sideOffset={8}
-                  collisionPadding={12}
-                  className="reader-popover z-50 p-2 w-60 rounded-2xl bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-lg"
-                >
-                  <button
-                    className="mobile-menu-action"
-                    onClick={() => setRatingOpen(true)}
-                  >
-                    Rate this article
-                  </button>
-                  <button
-                    className="mobile-menu-action"
-                    onClick={async () => {
-                      try {
-                        if (isLoved)
-                          await unloveArticle({ articleId: articleId as any });
-                        else await loveArticle({ articleId: articleId as any });
-                      } catch {
-                        toast.error("Couldn't update loved articles");
-                      }
-                    }}
-                  >
-                    {isLoved ? "Remove from loved" : "Love this article"}
-                  </button>
-                  <button
-                    className="mobile-menu-action"
-                    onClick={async () => {
-                      try {
-                        await reannotate({ articleId: articleId as any });
-                        toast.success("Re-annotating with latest vault…");
-                      } catch {
-                        toast.error("Couldn't re-annotate");
-                      }
-                    }}
-                  >
-                    Re-annotate
-                  </button>
-                  <Link className="mobile-menu-action" href="/account">
-                    Your account
-                  </Link>
-                  <SourceLink variant="menu" />
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
-          </div>
-        </div>
-      </div>
+      <ReaderToolbar
+        articleId={articleId as any}
+        title={article.title}
+        originalUrl={article.url}
+        backHref={sessionId ? `/session/${sessionId}` : "/"}
+        maxWidth={`max(${MAX_WIDTHS[settings.width]}, 42rem)`}
+        noteCount={noteCount}
+        notesOpen={notesPanelOpen}
+        onToggleNotes={() => setNotesPanelOpen((o) => !o)}
+        rating={impression?.rating ?? undefined}
+        ratingOpen={ratingOpen}
+        onRatingOpenChange={setRatingOpen}
+        loved={Boolean(isLoved)}
+        onToggleLove={async () => {
+          try {
+            if (isLoved) await unloveArticle({ articleId: articleId as any });
+            else await loveArticle({ articleId: articleId as any });
+          } catch {
+            toast.error("Couldn't update loved articles");
+          }
+        }}
+        listening={listen.active}
+        onToggleListen={toggleListen}
+        onToggleSummary={() => emitCommand("toggle-summary")}
+        onMarkUnread={article.finishedAt === undefined ? null : handleRestore}
+        onReannotate={async () => {
+          try {
+            await reannotate({ articleId: articleId as any });
+            toast.success("Re-annotating with latest vault…");
+          } catch {
+            toast.error("Couldn't re-annotate");
+          }
+        }}
+        settings={{
+          settings,
+          update: updateSettings,
+          resetText,
+          listening: listen.active,
+          onToggleListen: toggleListen,
+        }}
+      />
 
       <nav
         aria-label="Reading controls"
@@ -730,6 +547,7 @@ export default function ReadPage() {
           marked={companionParagraph}
           saved={savedPassages.map((p) => p.doc.paragraphIndex ?? -1)}
           onJump={jumpToParagraph}
+          minutesLeft={estimatedMinRemaining}
         />
       )}
 
@@ -802,29 +620,32 @@ export default function ReadPage() {
             onAnnotationSelect={handleAnnotationSelect}
           />
 
-          <section
-            aria-label="Your impression"
-            className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
-          >
-            <ImpressionPanel articleId={articleId as any} />
-          </section>
+          {/* Back matter: the Ask pill steps aside while it is in view */}
+          <div ref={setBackMatter}>
+            <section
+              aria-label="Your impression"
+              className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
+            >
+              <ImpressionPanel articleId={articleId as any} />
+            </section>
 
-          {reflection && (
-            <div className="mt-10">
-              <ReflectionBox reflection={reflection} onDone={handleDone} />
-            </div>
-          )}
+            {reflection && (
+              <div className="mt-10">
+                <ReflectionBox reflection={reflection} onDone={handleDone} />
+              </div>
+            )}
 
-          {!reflection && (
-            <div className="mt-10 text-center">
-              <button
-                onClick={handleDone}
-                className="px-8 py-3 reader-float rounded-xl font-sans text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                Done
-              </button>
-            </div>
-          )}
+            {!reflection && (
+              <div className="mt-10 text-center">
+                <button
+                  onClick={handleDone}
+                  className="px-8 py-3 rounded-md bg-[var(--ink)] text-[var(--reader-bg)] font-sans text-sm font-medium hover:opacity-90 transition-opacity"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+          </div>
         </article>
       </div>
 
@@ -867,6 +688,7 @@ export default function ReadPage() {
           companion.thread ||
             activeAnnotation ||
             notesPanelOpen ||
+            backMatterInView ||
             listen.active ||
             saveError,
         )}

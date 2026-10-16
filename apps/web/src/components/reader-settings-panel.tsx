@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   DROP_CAP_FAMILIES,
@@ -237,7 +237,7 @@ function ToggleTile({
       className={cn(
         "flex items-center justify-center gap-2 h-10 rounded-xl text-[13px] font-medium transition-colors border",
         active
-          ? "bg-[var(--pen-soft)] text-[var(--pen)] border-transparent"
+          ? "bg-[var(--reader-chip)] text-[var(--ink)] border-[var(--reader-border-strong)]"
           : "border-[var(--reader-border)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]",
       )}
     >
@@ -247,21 +247,30 @@ function ToggleTile({
   );
 }
 
+export interface ReaderSettingsPanelProps {
+  settings: ReaderSettings;
+  update: (patch: Partial<ReaderSettings>) => void;
+  resetText: () => void;
+  listening: boolean;
+  onToggleListen: () => void;
+  /** Lets the toolbar keep itself shown while the panel is open. */
+  onOpenChange?: (open: boolean) => void;
+}
+
 export function ReaderSettingsPanel({
   settings,
   update,
   resetText,
   listening,
   onToggleListen,
-}: {
-  settings: ReaderSettings;
-  update: (patch: Partial<ReaderSettings>) => void;
-  resetText: () => void;
-  listening: boolean;
-  onToggleListen: () => void;
-}) {
+  onOpenChange,
+}: ReaderSettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("look");
   const [open, setOpen] = useState(false);
+  // The `,` shortcut opens the panel without going through Radix's callback
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
   useCommand("open-settings", () => setOpen(true));
   const models = useQuery(api.userSettings.getModels, {});
   const setModelMutation = useMutation(api.userSettings.setModel);
@@ -285,7 +294,7 @@ export function ReaderSettingsPanel({
       <Popover.Trigger asChild>
         <button
           aria-keyshortcuts=","
-          className="h-11 min-w-11 sm:h-8 sm:min-w-0 px-2.5 flex items-center justify-center rounded-full font-serif text-[15px] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] data-[state=open]:bg-[var(--reader-chip)] transition-colors"
+          className="h-11 min-w-11 sm:h-9 sm:min-w-9 px-2.5 flex items-center justify-center rounded-md font-serif text-[15px] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--reader-chip)] data-[state=open]:bg-[var(--reader-chip)] data-[state=open]:text-[var(--ink)] transition-colors"
           title="Reading settings"
           aria-label="Reading settings"
         >
@@ -581,7 +590,7 @@ export function ReaderSettingsPanel({
                           className={cn(
                             "text-[24px] leading-none",
                             option.family
-                              ? "text-[var(--pen)]"
+                              ? "text-[var(--ink)]"
                               : "text-[var(--reader-muted)]",
                           )}
                           style={{

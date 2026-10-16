@@ -72,7 +72,7 @@ function ArticleNotesGroup({
       <div className="mb-4">
         <Link
           href={`/read/${articleId}`}
-          className="text-xl font-serif text-[var(--reader-fg)] hover:text-[var(--pen)] transition-colors"
+          className="text-xl font-serif text-[var(--reader-fg)] hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4 transition-colors"
         >
           {article?.title || "Loading..."}
         </Link>

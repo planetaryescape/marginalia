@@ -21,25 +21,21 @@ const PROMPTS = [
   {
     key: "strongestPoint" as const,
     label: "Strongest point",
-    icon: "^",
     description: "The most defensible claim in this article",
   },
   {
     key: "weakestAssumption" as const,
     label: "Weakest assumption",
-    icon: "~",
     description: "What must be true for this to hold",
   },
   {
     key: "credibleCounterview" as const,
     label: "A credible counterview",
-    icon: "!",
     description: "What a thoughtful critic would say",
   },
   {
     key: "questionForYou" as const,
     label: "A question for you",
-    icon: "?",
     description: "Something to sit with",
   },
 ];
@@ -82,19 +78,13 @@ export function ReflectionBox({ reflection, onDone }: ReflectionBoxProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 * i, duration: 0.3 }}
           >
-            <div className="flex items-start gap-4">
-              {/* Icon */}
-              <span className="w-8 h-8 rounded-full border border-ink-200 dark:border-ink-700 flex items-center justify-center text-sm font-mono text-ink-400 dark:text-ink-500 flex-shrink-0 mt-0.5">
-                {prompt.icon}
-              </span>
-              <div>
-                <h3 className="text-sm font-sans font-medium text-ink-600 dark:text-ink-400 mb-1">
-                  {prompt.label}
-                </h3>
-                <p className="text-base font-serif text-ink-800 dark:text-parchment-300 leading-relaxed">
-                  {reflection[prompt.key]}
-                </p>
-              </div>
+            <div>
+              <h3 className="text-sm font-sans font-medium text-[var(--ink-muted)] mb-1">
+                {prompt.label}
+              </h3>
+              <p className="text-base font-sans text-[var(--pencil)] leading-relaxed">
+                {reflection[prompt.key]}
+              </p>
             </div>
           </motion.div>
         ))}
@@ -107,7 +97,7 @@ export function ReflectionBox({ reflection, onDone }: ReflectionBoxProps) {
           value={response}
           onChange={(e) => setResponse(e.target.value)}
           placeholder="Your thoughts (optional)"
-          className="w-full p-4 rounded-xl border border-[var(--reader-border-strong)] bg-[var(--reader-surface)] text-ink-800 dark:text-parchment-300 font-sans text-sm placeholder:text-ink-300 dark:placeholder:text-ink-600 focus:outline-none focus:border-annotation-crossref resize-none"
+          className="w-full p-4 rounded-xl border border-[var(--reader-border-strong)] bg-[var(--reader-surface)] text-ink-800 dark:text-parchment-300 font-sans text-sm placeholder:text-ink-300 dark:placeholder:text-ink-600 focus:outline-none focus:border-[var(--ink-muted)] resize-none"
           rows={3}
         />
       </div>
@@ -116,7 +106,7 @@ export function ReflectionBox({ reflection, onDone }: ReflectionBoxProps) {
       <div className="mt-6 text-center">
         <button
           onClick={handleDone}
-          className="px-8 py-3 reader-float rounded-xl font-sans text-sm font-medium hover:opacity-90 transition-opacity"
+          className="px-8 py-3 rounded-md bg-[var(--ink)] text-[var(--reader-bg)] font-sans text-sm font-medium hover:opacity-90 transition-opacity"
         >
           Done
         </button>

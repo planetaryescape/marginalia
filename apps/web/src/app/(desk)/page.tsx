@@ -25,7 +25,7 @@ const TIME_OPTIONS = [
 // The margin notes use the reader's annotation colours: each kind of note
 // keeps the same colour it has in the margins of an article
 const ACCENTS = {
-  continue: "var(--pen)",
+  continue: "var(--ink-muted)",
   revisit: "#b07050",
   note: "#8b7bb0",
   sources: "#7a8f6f",
@@ -222,7 +222,7 @@ export default function HomePage() {
             <li key={item._id}>
               <Link
                 href={`/read/${item.articleId}`}
-                className="block font-serif text-[15.5px] leading-snug line-clamp-1 hover:text-[var(--pen)]"
+                className="block font-serif text-[15.5px] leading-snug line-clamp-1 hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4"
               >
                 {item.title}
               </Link>
@@ -325,10 +325,10 @@ export default function HomePage() {
               variants={rise}
               className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-[13.5px]"
             >
-              <Link href="/feeds" className="text-[var(--pen)] hover:underline">
+              <Link href="/feeds" className="quiet-link">
                 Connect Readwise Reader
               </Link>
-              <Link href="/feeds" className="text-[var(--pen)] hover:underline">
+              <Link href="/feeds" className="quiet-link">
                 Add RSS feeds
               </Link>
             </motion.div>
@@ -386,7 +386,7 @@ export default function HomePage() {
                     type="button"
                     onClick={() => startSession(option.minutes)}
                     aria-keyshortcuts={String(i + 1)}
-                    className="group relative flex flex-col items-start min-w-0 rounded-xl sm:rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] px-3 sm:px-5 py-[clamp(0.55rem,1.6vh,0.95rem)] text-left transition-all duration-200 hover:-translate-y-0.5 hover:ring-[var(--pen)] hover:shadow-[0_14px_40px_-22px_rgba(0,0,0,0.45)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]"
+                    className="group relative flex flex-col items-start min-w-0 rounded-xl sm:rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] px-3 sm:px-5 py-[clamp(0.55rem,1.6vh,0.95rem)] text-left transition-all duration-200 hover:-translate-y-0.5 hover:ring-[var(--reader-border-strong)] hover:shadow-[0_14px_40px_-22px_rgba(0,0,0,0.45)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]"
                   >
                     <kbd
                       aria-hidden
@@ -395,7 +395,7 @@ export default function HomePage() {
                       {i + 1}
                     </kbd>
                     <span className="flex items-baseline gap-0.5 sm:gap-1">
-                      <span className="font-serif font-light leading-none tracking-tight text-[clamp(1.8rem,min(4vw,5.4vh),3.1rem)] transition-colors group-hover:text-[var(--pen)]">
+                      <span className="font-serif font-light leading-none tracking-tight text-[clamp(1.8rem,min(4vw,5.4vh),3.1rem)] transition-colors">
                         {option.minutes}
                       </span>
                       <span className="font-serif text-[13px] sm:text-[17px] text-[var(--reader-muted)]">
@@ -451,13 +451,13 @@ export default function HomePage() {
                     >
                       Continue reading
                     </span>
-                    <span className="mt-0.5 block font-serif text-[16px] leading-snug truncate group-hover:text-[var(--pen)]">
+                    <span className="mt-0.5 block font-serif text-[16px] leading-snug truncate group-hover:underline group-hover:decoration-[var(--pencil-rule)] underline-offset-4">
                       {inProgress.article.title}
                     </span>
                     <span className="mt-1.5 flex items-center gap-2 text-[11.5px] text-[var(--reader-muted)]">
                       <span className="h-[3px] w-16 rounded-full bg-[var(--reader-border)] overflow-hidden">
                         <span
-                          className="block h-full rounded-full bg-[var(--pen)]"
+                          className="block h-full rounded-full bg-[var(--ink-muted)]"
                           style={{
                             width: `${Math.max(4, inProgress.scrollPercent)}%`,
                           }}
@@ -489,7 +489,7 @@ export default function HomePage() {
                             articleId: revisit.articleId as Id<"articles">,
                           })
                         }
-                        className="min-w-0 flex-1 font-serif text-[16px] leading-snug truncate hover:text-[var(--pen)]"
+                        className="min-w-0 flex-1 font-serif text-[16px] leading-snug truncate hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4"
                       >
                         {revisit.article.title}
                       </Link>
@@ -544,7 +544,7 @@ export default function HomePage() {
                           className="group min-w-0 flex-1 flex items-baseline gap-6 py-3 px-2 -mx-2 rounded-md outline-none focus-visible:bg-[var(--reader-chip)]"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block font-serif text-[17px] sm:text-[18px] leading-snug truncate transition-colors group-hover:text-[var(--pen)]">
+                            <span className="block font-serif text-[17px] sm:text-[18px] leading-snug truncate transition-colors group-hover:underline group-hover:decoration-[var(--pencil-rule)] underline-offset-4">
                               {article.title}
                             </span>
                             <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)] truncate">
@@ -571,7 +571,7 @@ export default function HomePage() {
                           }
                           aria-label={`Archive ${article.title}`}
                           title="Archive"
-                          className="shrink-0 ml-2 w-11 h-11 flex items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--pen)] focus-visible:text-[var(--pen)] sm:opacity-0 sm:group-hover/row:opacity-100 sm:focus-visible:opacity-100"
+                          className="shrink-0 ml-2 w-11 h-11 flex items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--ink)] focus-visible:text-[var(--ink)] sm:opacity-0 sm:group-hover/row:opacity-100 sm:focus-visible:opacity-100"
                         >
                           <Archive size={16} />
                         </button>

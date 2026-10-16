@@ -171,7 +171,7 @@ export function NoteEditor({
           <button
             type="button"
             onClick={() => flush()}
-            className="text-xs text-[var(--pen)] hover:underline"
+            className="text-xs quiet-link"
           >
             Retry
           </button>

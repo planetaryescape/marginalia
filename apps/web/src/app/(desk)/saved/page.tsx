@@ -34,7 +34,7 @@ export default function SavedPage() {
                   href={`/read/${item.article._id}`}
                   className="flex-1 min-w-0 group"
                 >
-                  <p className="font-serif text-xl text-[var(--reader-fg)] group-hover:text-[var(--pen)] transition-colors line-clamp-2">
+                  <p className="font-serif text-xl text-[var(--reader-fg)] group-hover:underline group-hover:decoration-[var(--pencil-rule)] underline-offset-4 transition-colors line-clamp-2">
                     {item.article.title}
                   </p>
                   <div className="flex flex-wrap gap-3 mt-1 text-xs text-[var(--reader-muted)]">

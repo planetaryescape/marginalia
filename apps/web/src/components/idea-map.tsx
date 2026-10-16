@@ -38,8 +38,8 @@ const ROLE_STYLES: Record<Role, { box: string; caption: string }> = {
     caption: "text-annotation-tension",
   },
   conclusion: {
-    box: "bg-[var(--pen-soft)] border-[var(--pen)] border-[1.5px]",
-    caption: "text-[var(--pen)]",
+    box: "bg-[var(--reader-chip)] border-[var(--pencil)] border-[1.5px]",
+    caption: "text-[var(--pencil)]",
   },
 };
 
@@ -400,7 +400,7 @@ export function IdeaMap({
                   key={n}
                   type="button"
                   onClick={() => onJump(n - 1)}
-                  className="inline-flex items-center align-[0.08em] mx-px px-1.5 h-[1.35em] rounded-md font-mono text-[0.72em] tabular-nums bg-[var(--reader-surface)] text-[var(--reader-muted)] hover:text-[var(--pen)] transition-colors"
+                  className="inline-flex items-center align-[0.08em] mx-px px-1.5 h-[1.35em] rounded-md font-mono text-[0.72em] tabular-nums bg-[var(--reader-surface)] text-[var(--reader-muted)] hover:text-[var(--ink)] transition-colors"
                 >
                   ¶{n}
                 </button>

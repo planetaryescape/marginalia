@@ -37,7 +37,7 @@ function renderInline(
           type="button"
           onClick={() => onJump(first - 1)}
           title={`Jump to ${ref.replace(/\s/g, "")}`}
-          className="inline-flex items-center align-[0.08em] mx-px px-1.5 h-[1.35em] rounded-md font-mono text-[0.72em] tabular-nums bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--pen)] hover:bg-[var(--pen-soft)] transition-colors"
+          className="inline-flex items-center align-[0.08em] mx-px px-1.5 h-[1.35em] rounded-md font-mono text-[0.72em] tabular-nums bg-[var(--reader-chip)] text-[var(--reader-muted)] hover:text-[var(--ink)] transition-colors"
         >
           {ref.replace(/\s/g, "")}
         </button>,
@@ -48,7 +48,7 @@ function renderInline(
         <Link
           key={index}
           href={linkUrl}
-          className="font-medium text-[var(--reader-fg)] underline decoration-[var(--pen)] decoration-[1.5px] underline-offset-[3px] hover:text-[var(--pen)]"
+          className="font-medium text-[var(--reader-fg)] underline decoration-[var(--pencil-rule)] decoration-[1.5px] underline-offset-[3px] hover:decoration-[var(--ink)]"
         >
           {linkText}
         </Link>,
@@ -61,7 +61,7 @@ function renderInline(
           target="_blank"
           rel="noopener noreferrer"
           title={linkUrl}
-          className="text-[var(--pen)] underline decoration-[color-mix(in_srgb,var(--pen)_40%,transparent)] underline-offset-2 hover:decoration-[var(--pen)]"
+          className="text-[var(--ink)] underline decoration-[var(--pencil-rule)] underline-offset-2 hover:decoration-[var(--ink)]"
         >
           {linkText}
         </a>,

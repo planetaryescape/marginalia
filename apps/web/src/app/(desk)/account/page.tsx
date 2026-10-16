@@ -302,7 +302,7 @@ export default function AccountPage() {
         Sign out
       </button>
       {reader && !reader.isOwner && <DeleteAccount />}
-      <SourceLink variant="text" className="mb-8" />
+      <SourceLink className="mb-8" />
     </DeskPage>
   );
 }

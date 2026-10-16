@@ -33,7 +33,7 @@ export function ListenBar({
         >
           <span className="flex items-center gap-2 mr-2 text-[12.5px]">
             <span
-              className="listen-pulse w-1.5 h-1.5 rounded-full bg-[var(--pen)]"
+              className="listen-pulse w-1.5 h-1.5 rounded-full bg-[var(--ink)]"
               data-paused={paused || undefined}
             />
             Listening

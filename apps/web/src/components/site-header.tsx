@@ -19,7 +19,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { InstallApp } from "@/components/install-app";
-import { SourceLink } from "@/components/source-link";
 import { emitCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -159,7 +158,6 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
         >
           <UserRound size={19} />
         </Link>
-        <SourceLink className="hidden md:flex" />
         <InstallApp />
         <button
           type="button"

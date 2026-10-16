@@ -144,7 +144,7 @@ export function ArticleDetailList({ articles }: ArticleDetailListProps) {
                     <div className="pb-3 pl-4">
                       <Link
                         href={`/read/${a.articleId}`}
-                        className="text-xs font-sans text-[var(--pen)] hover:underline"
+                        className="text-xs font-sans quiet-link"
                       >
                         Re-read &rarr;
                       </Link>

@@ -71,7 +71,7 @@ export function KnowledgeSummary({
                   href={`/read/${n.articleId}`}
                   className="block group"
                 >
-                  <blockquote className="text-[12px] font-serif italic text-[var(--reader-muted)] border-l border-[var(--reader-border-strong)] pl-2 line-clamp-1 group-hover:text-[var(--pen)] transition-colors">
+                  <blockquote className="text-[12px] font-serif italic text-[var(--reader-muted)] border-l border-[var(--reader-border-strong)] pl-2 line-clamp-1 group-hover:text-[var(--reader-fg)] transition-colors">
                     {n.selectedText}
                   </blockquote>
                   <p className="text-xs font-sans text-[var(--reader-fg-soft)] mt-0.5 line-clamp-1">

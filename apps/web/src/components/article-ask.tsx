@@ -142,7 +142,7 @@ export function ArticleAsk({
                     className={cn(
                       "flex items-center gap-1 px-2 h-11 md:h-7 rounded-full text-[12px] transition-colors",
                       web
-                        ? "bg-[var(--pen)] text-white"
+                        ? "bg-parchment-50 text-ink-950"
                         : "opacity-60 hover:opacity-100",
                     )}
                   >
@@ -171,7 +171,7 @@ export function ArticleAsk({
                     type="submit"
                     disabled={!question.trim()}
                     aria-label="Send question"
-                    className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 shrink-0 flex items-center justify-center rounded-full bg-[var(--pen)] text-white transition-opacity disabled:opacity-40"
+                    className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 shrink-0 flex items-center justify-center rounded-full bg-parchment-50 text-ink-950 transition-opacity disabled:opacity-40"
                   >
                     <ArrowUp size={16} strokeWidth={2.5} />
                   </button>
@@ -209,7 +209,7 @@ export function ArticleAsk({
                     className="relative shrink-0 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center rounded-full font-sans reader-float shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
                   >
                     <History size={15} />
-                    <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[var(--pen)] text-white text-[9px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-parchment-50 text-ink-950 text-[9px] font-bold flex items-center justify-center">
                       {history.length}
                     </span>
                   </button>

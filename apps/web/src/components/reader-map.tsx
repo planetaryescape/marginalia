@@ -19,6 +19,7 @@ export function ReaderMap({
   marked,
   saved,
   onJump,
+  minutesLeft,
 }: {
   containerRef: React.RefObject<HTMLElement | null>;
   version: number;
@@ -28,6 +29,8 @@ export function ReaderMap({
   /** Paragraphs with saved Ask / Explain / Simplify threads. */
   saved: number[];
   onJump: (index: number) => void;
+  /** Rough reading time still to go; shown in the map's tooltip, not the toolbar. */
+  minutesLeft?: number | null;
 }) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [viewportHeight, setViewportHeight] = useState(800);
@@ -86,7 +89,7 @@ export function ReaderMap({
         aria-valuemin={1}
         aria-valuemax={blocks.length}
         aria-valuenow={(hover ?? position.current ?? 0) + 1}
-        aria-valuetext={blocks[hover ?? position.current ?? 0]?.snippet}
+        aria-valuetext={`${blocks[hover ?? position.current ?? 0]?.snippet ?? ""}${minutesLeft ? `. About ${minutesLeft} min left` : ""}`}
         onKeyDown={(e) => {
           const current = hover ?? position.current ?? 0;
           const next =
@@ -144,7 +147,7 @@ export function ReaderMap({
             const isCurrent = i === position.current;
             const fill =
               i === marked
-                ? "var(--pen)"
+                ? "var(--ink)"
                 : block.annotated
                   ? "var(--reader-annotated)"
                   : isCurrent || i === hover
@@ -177,7 +180,7 @@ export function ReaderMap({
                 cx={WIDTH + 6}
                 cy={i * pitch + pitch / 2}
                 r={2}
-                fill="var(--pen)"
+                fill="var(--pencil)"
               />
             ))}
           {/* Invisible hit area so gaps between bars stay clickable */}
@@ -198,6 +201,7 @@ export function ReaderMap({
         >
           <span className="font-mono text-[10px] text-[var(--reader-muted)]">
             ¶{hover + 1}
+            {minutesLeft ? ` · about ${minutesLeft} min left` : ""}
           </span>
           <p className="mt-0.5 text-[12px] leading-snug text-[var(--reader-fg-soft)] line-clamp-3">
             {blocks[hover].snippet}

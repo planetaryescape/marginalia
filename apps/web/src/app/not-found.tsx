@@ -7,10 +7,7 @@ export default function NotFound() {
       <p className="font-sans text-sm text-[var(--reader-muted)]">
         Return to your reading desk to find something to read.
       </p>
-      <Link
-        href="/"
-        className="font-sans text-sm text-[var(--pen)] hover:underline"
-      >
+      <Link href="/" className="font-sans text-sm quiet-link">
         Back to Home
       </Link>
     </main>
