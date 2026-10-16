@@ -191,7 +191,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_article", ["articleId"])
-    .index("by_user", ["userId"]),
+    .index("by_user", ["userId"])
+    // Which annotations point at a vault note, for the idea graph
+    .index("by_note_chunk", ["noteChunkId"]),
 
   // The reader's topic vocabulary (blueprint 02, Tags). A candidate stays
   // hidden until it recurs on enough articles.
@@ -225,6 +227,32 @@ export default defineSchema({
     .index("by_tag", ["tagId"])
     .index("by_article_tag", ["articleId", "tagId"])
     .index("by_user", ["userId"]),
+
+  // Links the reader made between two ideas (rung 5d). `from` and `to` are
+  // node keys, "<kind>:<id>" with kind note, highlight, answer or vault.
+  // Direction records which idea was written from which; a link reads the
+  // same either way, so a pair has at most one row.
+  ideaLinks: defineTable({
+    userId: v.string(),
+    from: v.string(),
+    to: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_user_from_to", ["userId", "from", "to"])
+    .index("by_user_to", ["userId", "to"]),
+
+  // Generated one-sentence reasons for edges that only embeddings found. Kept
+  // apart from ideaLinks because those edges have no link row. `fingerprint`
+  // hashes both ideas' text, so editing either one regenerates the reason.
+  edgeReasons: defineTable({
+    userId: v.string(),
+    // The two node keys, sorted and joined (lib/ideaGraph.ts#pairKey)
+    pair: v.string(),
+    fingerprint: v.string(),
+    reason: v.string(),
+    model: v.string(),
+    createdAt: v.number(),
+  }).index("by_user_pair", ["userId", "pair"]),
 
   // Progress of the one-off re-annotation (reannotateBackfill.ts)
   reannotateState: defineTable({
@@ -413,6 +441,10 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_file", ["userId", "filePath"])
     .index("by_file_hash", ["userId", "fileHash"])
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["userId"],
+    })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
@@ -453,6 +485,10 @@ export default defineSchema({
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
     .index("by_user_recent", ["userId", "updatedAt"])
+    .searchIndex("search_content", {
+      searchField: "contentPlain",
+      filterFields: ["userId"],
+    })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
@@ -507,6 +543,10 @@ export default defineSchema({
     .index("by_article", ["articleId"])
     .index("by_user", ["userId"])
     .index("by_user_kept", ["userId", "keptAt"])
+    .searchIndex("search_selection", {
+      searchField: "selection",
+      filterFields: ["userId"],
+    })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
@@ -556,6 +596,10 @@ export default defineSchema({
     .index("by_userId", ["userId"])
     .index("by_reader_highlight", ["readerHighlightId"])
     .index("by_userId_and_readerHighlightId", ["userId", "readerHighlightId"])
+    .searchIndex("search_text", {
+      searchField: "text",
+      filterFields: ["userId"],
+    })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
