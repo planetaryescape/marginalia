@@ -39,6 +39,7 @@ import type * as bookIndex from "../bookIndex.js";
 import type * as books from "../books.js";
 import type * as catchUp from "../catchUp.js";
 import type * as chatgpt from "../chatgpt.js";
+import type * as citedArticles from "../citedArticles.js";
 import type * as companionThreads from "../companionThreads.js";
 import type * as crons from "../crons.js";
 import type * as dictionary from "../dictionary.js";
@@ -178,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   books: typeof books;
   catchUp: typeof catchUp;
   chatgpt: typeof chatgpt;
+  citedArticles: typeof citedArticles;
   companionThreads: typeof companionThreads;
   crons: typeof crons;
   dictionary: typeof dictionary;

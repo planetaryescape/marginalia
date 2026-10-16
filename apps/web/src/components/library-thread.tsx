@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { CompanionAnswer } from "@/components/companion-answer";
+import { CitedRows } from "@/components/library-cited";
 
 export interface LibraryTurn {
   role: "user" | "assistant";
@@ -45,6 +46,7 @@ function Answer({ text, streaming }: { text: string; streaming: boolean }) {
         streaming={streaming}
         onJump={() => {}}
       />
+      {!streaming && <CitedRows answer={text} />}
     </div>
   );
 }
