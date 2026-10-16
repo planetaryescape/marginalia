@@ -42,7 +42,14 @@ Your own notes and marks show in the margin too, in your pen. A note you wrote a
 
 ### Collisions
 
-When notes would overlap, the later note moves down until it clears the one above, with an 8 px gap. Its connector bends with one elbow to keep pointing at its line. If a note would be pushed more than 240 px below its line, it collapses to a single line ("• question · ¶22") until its neighbour is closed. S2 tests this on the most heavily annotated article in the library at 1280 px and 1440 px.
+When notes would overlap, the later note moves down until it clears the one above, with an 8 px gap. Its connector bends with one elbow to keep pointing at its line. If a note would be pushed more than 240 px below its line, it collapses to a single line ("• question · ¶22") until its neighbour is closed.
+
+S2 measured these rules (result in [09](09-open-questions.md#s2-result-2026-10-16)) and added three:
+
+- **The three-line clamp is load-bearing.** A collapsed note is always about 70 px tall. Unclamped notes drift thousands of pixels at high density; clamped ones stay within one screen.
+- **Notes whose lines sit within 40 px share one stacked note** with one connector. Several notes on one passage is the likely real pattern, and merging cut displaced notes from 51 to 12 in the clustered test.
+- **Nothing hangs below the article.** If the last note would end more than one note-height below the article's last line, every remaining displaced note collapses to one line.
+- **Layout is one measure-then-place pass**, rerun on resize and on type or theme changes, debounced to a frame. 531 notes relayout in about 5 ms, so there's no virtualisation. Anchor each note to the first client rect of its mark, not its paragraph.
 
 ### Arrival
 
