@@ -1,14 +1,35 @@
 "use client";
-import { useEffect, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 
 export const ALT_HOLD_MS = 400;
 
+const AltHintContext = createContext(false);
+
 /**
- * True while Alt (Option) has been held on its own for 400 ms. Listeners are
- * passive and never prevent default, so Alt-based browser and OS shortcuts
- * keep working; any other key pressed with Alt cancels the hint.
+ * Listens for Alt (Option) held on its own once for the whole app, so every
+ * keycap hint reveals on the same timing. Listeners are passive and never
+ * prevent default, so Alt-based browser and OS shortcuts keep working; any
+ * other key pressed with Alt cancels the hint.
  */
+export function AltHintProvider({ children }: { children: ReactNode }) {
+  const shown = useAltHintListener();
+  return (
+    <AltHintContext.Provider value={shown}>{children}</AltHintContext.Provider>
+  );
+}
+
+/** True while the app-wide Alt hint is showing. */
 export function useAltHint(): boolean {
+  return useContext(AltHintContext);
+}
+
+function useAltHintListener(): boolean {
   const [shown, setShown] = useState(false);
   useEffect(() => {
     let timer: number | undefined;

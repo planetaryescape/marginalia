@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SETTLE_MS, SKELETON_DELAY_MS } from "@/components/desk/desk-pick";
 import { rememberedTitle } from "@/lib/title-handoff";
-import { ALT_HOLD_MS } from "@/lib/use-alt-hint";
+import { ALT_HOLD_MS, AltHintProvider } from "@/lib/use-alt-hint";
 import { SAVED_MS } from "@/lib/use-timed-flag";
 import DeskRoute, { DOUBLE_CHOICE_MS } from "./page";
 
@@ -178,7 +178,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const render = () => act(async () => root.render(<DeskRoute />));
+const render = () =>
+  act(async () =>
+    root.render(
+      <AltHintProvider>
+        <DeskRoute />
+      </AltHintProvider>,
+    ),
+  );
 const text = () => document.body.textContent ?? "";
 const button = (label: string | RegExp) =>
   [...document.querySelectorAll("button")].find((b) =>
