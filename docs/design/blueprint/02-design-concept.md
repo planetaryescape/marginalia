@@ -6,7 +6,9 @@ BK didn't state a concept. The one below is the blueprint's proposal, built on w
 
 ## What this is to the person
 
-Marginalia is where BK reads things worth reading, with a second voice beside the text. That voice is a well-read friend who knows his notes, has read the article and leaves pencil notes in the margin: "this connects to what you wrote in March", "this claim is contested", "here's the question this raises". He reaches for it when he has a slot of time, five minutes or half an hour, and wants to spend it on something good rather than on a feed.
+Marginalia is the cure for the read-later pile. In Readwise Reader BK landed on "a tonne of articles I need to read and i dn't know where to start" (D-DES-033). Marginalia asks how much time he has and hands him one thing he can finish in it, because "sometimes I just have 5 mins to read and I don't want to start soemthing and then be stopped midway". In his words, it's "a better way to get something to read and read it". The pile exists, but he never has to look at it.
+
+Once he's reading, Marginalia is where he reads things worth reading, with a second voice beside the text. That voice is a well-read friend who knows his notes, has read the article and leaves pencil notes in the margin: "this connects to what you wrote in March", "this claim is contested", "here's the question this raises". He reaches for it when he has a slot of time, five minutes or half an hour, and wants to spend it on something good rather than on a feed.
 
 He doesn't come to manage a queue, configure sources or look at statistics. Those exist so that reading can happen. He leaves wanting to feel two things: *I read that well*, and *I kept something from it*. A highlight, a note or a rating is how the second one happens.
 
@@ -139,8 +141,8 @@ The reader always knows, without asking:
 
 | Moment | What the reader should feel | The interaction that makes it land |
 |---|---|---|
-| First open of the day | "There's something good waiting." | The question in large Newsreader, the date and one quiet line ("130 articles waiting"). Below it, the Continue or best pick, already chosen. Nothing animates except the pick fading up 8 px over 240 ms. |
-| Choosing time | "It understood me." | The chosen time stays lit and the others dim. The main slot cross-fades to the pick with its reason in pencil ("Short, and it answers the question you asked on Tuesday"). The pick was prefetched on hover or focus (S3), so it lands under 150 ms. |
+| First open of the day | "There's something good waiting, and I don't have to choose from a pile." | The question in large Newsreader and the date. No backlog count anywhere on the desk (D-DES-034). Below it, the Continue or best pick, already chosen. Nothing animates except the pick fading up 8 px over 240 ms. |
+| Choosing time | "It understood me, and I'll finish this." | The chosen time stays lit and the others dim. The main slot cross-fades to the pick with its reason in pencil ("Short, and it answers the question you asked on Tuesday"). The pick was prefetched on hover or focus (S3), so it lands under 150 ms. |
 | Opening an article | "I'm in." | The title morphs from the desk row into the reader heading (View Transitions, S1). The header chrome dissolves, and the page settles. Fallback: a 200 ms fade. |
 | A margin note arriving | "Someone read this with me." | As the line scrolls into view, the note's connector draws from the line's end into the margin (240 ms), then the text fades in. Each note arrives once. It doesn't redraw on scroll back. |
 | Marking a passage | "That's mine now." | The highlighter sweeps left to right across the selection (180 ms) in the reader's colour. A small pen tick appears in the margin at that line. |
@@ -250,7 +252,7 @@ Behaviour is in the domain documents. This section says how each main screen sho
  Marginalia                         Desk   Library   Notes                          (◯)
 ─────────────────────────────────────────────────────────────────────────────────────────
 
-  Friday 16 October · 130 articles waiting
+  Friday 16 October
 
   How much time
   do you have?

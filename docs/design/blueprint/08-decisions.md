@@ -132,3 +132,13 @@ Change a decision only by adding a new entry that replaces the old one.
 ### D-DES-032: Loving an article is the reader's mark, so the filled heart is in the pen colour. (Claude, delegated by BK)
 - **Why:** under D-DES-020 the pen colour belongs to the reader's own marks. A rating and a love are both the reader's judgement, so both use it.
 
+### D-DES-033: Marginalia exists so BK never faces the pile: say how much time you have, get one thing you can finish, and read it. (BK)
+- **BK, 2026-10-16:** "when i was using readwise reader when i land I am overwhelmed with a tonne of articles I need to read and i dn't know where to start. picking a time is great because sometimes I just have 5 mins to read and I don't want to start soemthing and then be stopped midway, etc. It's a better way to get something to read and read it."
+- **Why it's recorded:** this is the product's reason to exist, and the first version of this blueprint didn't state it. It named the reader page the hero and treated the desk as one screen among many. The desk is the half of the product that replaces the pile; the reader is the half where the time is spent. Every desk decision is judged against this entry.
+
+### D-DES-034: The desk never shows the backlog's size and offers only what fits the time chosen. (Claude, delegated by BK; follows from D-DES-033)
+- **Never the pile:** no "130 articles waiting" on the desk. Counts live in Library, where BK goes on purpose.
+- **Only what fits:** a time choice offers only articles no longer than the window. When nothing fits, the desk says so and offers the shortest article as a labelled choice. Today `suggestions.forWindow` returns articles up to 1.3× the window and labels longer ones "longer than requested"; D-DES-031's fix changes that.
+- **Continue shows minutes left**, so it answers the same question as the time choices.
+- **Option rejected:** keeping the count as "one quiet line". Any number there is the pile in miniature.
+

@@ -1,5 +1,11 @@
 # 00: Overview
 
+## Why Marginalia exists
+
+BK, 2026-10-16: "when i was using readwise reader when i land I am overwhelmed with a tonne of articles I need to read and i dn't know where to start. picking a time is great because sometimes I just have 5 mins to read and I don't want to start soemthing and then be stopped midway, etc. It's a better way to get something to read and read it." (D-DES-033)
+
+A read-later pile turns reading into triage: you land, see everything you haven't read, and don't know where to start. Marginalia answers one question instead: *how much time do you have?* It then hands over one thing you can finish in that time. The pile stays out of sight. Everything else (the margin notes, your marks, the library) serves reading that one thing well.
+
 ## What this blueprint is
 
 Marginalia works. It imports articles from feeds, Readwise Reader, pasted links and an API. It writes AI margin notes against the reader's own notes, picks articles for a time window, and keeps highlights, notes, ratings and reading activity. What it lacks is design: a single idea of what the product is, a hierarchy on each screen, and one way of doing each thing. BK, 2026-10-16: "focus on the design aspect. The functions but i don't think the design was considered" (D-DES-001).
@@ -16,6 +22,7 @@ Reading a good book that a well-read friend has already been through with a penc
 
 ## Principles
 
+0. **Never show the pile; offer what fits.** The desk shows one thing you can finish in the time you have, never the size of the backlog. An article longer than the window is offered only when nothing fits, and labelled as longer (D-DES-033, D-DES-034).
 1. **The page is the hero.** Nothing covers the text except a menu the reader asked for. The reader spends hours on this screen.
 2. **Colour belongs to a hand.** Ink for print and chrome, pencil for Marginalia, pen for the reader (D-DES-020). If everything is coloured, the reader's marks can't stand out.
 3. **Beside the line, or at the ends.** Notes about a passage sit in the margin next to it; notes about the whole article sit before or after it (D-DES-019). That's where a reader looks for them.

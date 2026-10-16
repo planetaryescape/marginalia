@@ -1,6 +1,6 @@
 # 04: Desk
 
-The desk is the home screen, `apps/web/src/app/(desk)/page.tsx`. It asks one question and has one answer ready. It stays one screen with no scrolling at the tested desktop and phone sizes (D-DES-002). It offers only unread articles (D-DES-010), and it must feel instant (D-DES-009).
+The desk is the home screen, `apps/web/src/app/(desk)/page.tsx`. It asks one question and has one answer ready. It stays one screen with no scrolling at the tested desktop and phone sizes (D-DES-002). It offers only unread articles (D-DES-010), only ones that fit the time chosen (D-DES-034), and it must feel instant (D-DES-009). The desk exists so BK never faces the pile (D-DES-033): it answers "how much time do you have?" with one thing he can finish.
 
 ## Hierarchy
 
@@ -10,8 +10,8 @@ Above the fold there are at most seven things, in this order of weight:
 2. The main slot: Continue, or the pick for the chosen time, or the best pick for no particular time.
 3. The time choices.
 4. The search field ("Ask, or paste a link").
-5. Up next: three rows.
-6. The date line, with "130 articles waiting" in `--type-meta`.
+5. Up next: three rows (Q13 asks whether these leave the desk).
+6. The date line in `--type-meta`. No backlog count: showing the size of the pile is the overwhelm the desk exists to remove (D-DES-034).
 7. The header.
 
 Off the desk (D-DES-021, D-DES-024):
@@ -42,7 +42,7 @@ Choosing a time keeps you on the desk (D-DES-028, Q12):
    Read now        Another        Save for later
    ```
 
-3. **Read now** is the slot's primary (solid ink). **Another** moves to the next candidate with a short horizontal slide (today's `direction` animation, re-timed to `--motion-move`). **Save for later** is quiet.
+3. **Only what fits.** Every pick is no longer than the window. When nothing fits, the slot says "Nothing fits in N minutes" and offers the shortest unread article as a labelled choice ("The shortest is 14 min"), or another time (D-DES-034). **Read now** is the slot's primary (solid ink). **Another** moves to the next article that fits, and keeps going until every fitting article has been offered (D-DES-031). It moves with a short horizontal slide (today's `direction` animation, re-timed to `--motion-move`). **Save for later** is quiet.
 4. Esc, or choosing the same time again, returns the slot to its resting state.
 5. `/session/[id]?m=` stays as a deep link and renders the desk in this state.
 
@@ -58,7 +58,7 @@ A field guide to slow software                                   8 min left
 ▬▬▬▬▬▬───────────────────────────────
 ```
 
-The progress bar is in `--ink-muted` with an ink fill. It's progress, not the reader's mark, so it isn't pen-coloured (D-DES-020). `c` opens the article. Choosing a time replaces Continue in the slot, and Esc brings it back.
+The progress bar is in `--ink-muted` with an ink fill. It's progress, not the reader's mark, so it isn't pen-coloured (D-DES-020). The minutes shown are what is *left*, so Continue answers the same question as the time choices. `c` opens the article. Choosing a time replaces Continue in the slot, and Esc brings it back.
 
 ## Up next
 
