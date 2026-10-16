@@ -27,12 +27,17 @@ const ARROWS: Record<string, Direction> = {
 
 /** Each kind in its own hand: pen, highlighter, pencil, print and the vault's green. */
 function Shape({ node, r }: { node: GraphNode; r: number }) {
-  const centre = node.hop === 0;
   switch (node.kind) {
     case "note":
-      return <circle r={r} fill="var(--pen)" opacity={centre ? 1 : 0.85} />;
+      return <circle r={r} fill="var(--pen)" />;
     case "highlight":
-      return <circle r={r} fill="var(--highlighter)" />;
+      // The highlighter is translucent: lay it on paper so nothing shows through
+      return (
+        <>
+          <circle r={r} fill="var(--reader-bg)" />
+          <circle r={r} fill="var(--highlighter)" />
+        </>
+      );
     case "vault":
       return <circle r={r} fill="var(--vault)" />;
     case "article":
@@ -193,6 +198,9 @@ export function IdeaGraphView({
           if (!a || !b) return null;
           const faint = a.hop === 2 || b.hop === 2;
           const selected = edge.id === edgeId;
+          // Lines stop short of each mark (and the centre's ring) instead of
+          // running into its middle
+          const [x1, y1, x2, y2] = trimToRims(a, b);
           // On a phone the lines would crowd each other; the panel says why instead
           const spot = labelSpots.get(edge.id);
           const label = spot ? edgeLabel(edge) : "";
@@ -207,10 +215,10 @@ export function IdeaGraphView({
               onClick={() => onEdge(edge)}
             >
               <line
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
                 stroke={
                   selected ? "var(--reader-fg)" : "var(--reader-border-strong)"
                 }
@@ -221,10 +229,10 @@ export function IdeaGraphView({
               />
               {/* A wider invisible stroke so a thin line is easy to hit */}
               <line
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
                 stroke="transparent"
                 strokeWidth={16}
               />
@@ -294,6 +302,8 @@ function NodeMark({
       ref={register}
       data-node={node.key}
       className="idea-enter group cursor-pointer outline-none"
+      // The ring below shows focus; the browser's own box would square it off
+      style={{ outline: "none" }}
       transform={`translate(${placed.x} ${placed.y})`}
       role="button"
       tabIndex={0}
@@ -333,5 +343,49 @@ function NodeMark({
         </text>
       ))}
     </g>
+  );
+}
+
+/** The space a mark keeps clear: its rim plus a gap, and the centre's ring. */
+const RIM_GAP = 4;
+const rimOf = (p: Placed) => p.r + (p.hop === 0 ? 7 : 0) + RIM_GAP;
+
+/** A line between two marks, cut back to each one's rim. */
+export function trimToRims(
+  a: Placed,
+  b: Placed,
+): [number, number, number, number] {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const ux = dx / length;
+  const uy = dy / length;
+  const ra = Math.min(rimOf(a), length / 2);
+  const rb = Math.min(rimOf(b), length / 2);
+  return [a.x + ux * ra, a.y + uy * ra, b.x - ux * rb, b.y - uy * rb];
+}
+
+/** What each mark on the map means, for the kinds on screen. */
+export function IdeaGraphLegend({
+  kinds,
+}: {
+  kinds: readonly GraphNode["kind"][];
+}) {
+  const swatch = (kind: GraphNode["kind"]) => (
+    <svg width={18} height={18} viewBox="-9 -9 18 18" aria-hidden="true">
+      <Shape node={{ kind, hop: 1 } as GraphNode} r={7} />
+    </svg>
+  );
+  return (
+    <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[12.5px] text-[var(--reader-muted)]">
+      {kinds.map((kind) => (
+        <li key={kind} className="flex items-center gap-1.5">
+          {swatch(kind)}
+          {KIND_LABELS[kind]}
+        </li>
+      ))}
+      <li>Larger: the idea you&rsquo;re on</li>
+      <li>Faint: two steps away</li>
+    </ul>
   );
 }

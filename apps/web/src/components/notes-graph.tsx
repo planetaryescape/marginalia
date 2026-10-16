@@ -5,7 +5,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { GraphEdge, NodeKind } from "@/lib/idea-kinds";
 import { KIND_LABELS } from "@/lib/idea-kinds";
 import { useShortcuts } from "@/lib/shortcuts";
-import { IdeaGraphView } from "./idea-graph-view";
+import { IdeaGraphLegend, IdeaGraphView } from "./idea-graph-view";
 import { Composer, EdgePanel, NodePanel } from "./idea-panel";
 
 type Panel =
@@ -191,6 +191,9 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
               onOpen={open}
               onEdge={(e) => setPanel({ kind: "edge", edgeId: e.id })}
               onEscape={() => undefined}
+            />
+            <IdeaGraphLegend
+              kinds={[...new Set(graph.nodes.map((n) => n.kind))]}
             />
             <p
               id="idea-graph-hint"
