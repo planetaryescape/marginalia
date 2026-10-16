@@ -163,6 +163,9 @@ export const getInProgress = query({
 
       const article = await ownedArticle(ctx, articleId, ctx.readerId);
       if (!article) continue;
+      // Reopening a finished article logs a newer "opened" than its
+      // "finished", so the article's own state decides, not the log order
+      if (article.finishedAt !== undefined) continue;
 
       const remainingMin = article.estimatedReadMinutes
         ? Math.max(
