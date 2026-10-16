@@ -56,6 +56,8 @@ const REVOKE_GRACE_MS = 2 * 60_000;
 const BATCH = 64;
 // Articles carry full text and an embedding, so smaller batches stay within limits
 const ARTICLE_BATCH = 16;
+/** Rows per step where each holds a vector, about 14 KB */
+const PASSAGE_BATCH = 64;
 
 function rows(
   batch: (ctx: MutationCtx, userId: string) => Promise<Rows>,
@@ -251,6 +253,25 @@ const STEPS: Step[] = [
   rows((ctx, u) =>
     ctx.db
       .query("books")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  // Passages carry 1536-number vectors, so they go a few rows at a time
+  rows((ctx, u) =>
+    ctx.db
+      .query("bookPassages")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(PASSAGE_BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("bookIndexUnits")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("bookIndexState")
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(BATCH),
   ),

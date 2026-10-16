@@ -90,8 +90,15 @@ export default function ReadPage() {
   const router = useRouter();
 
   // A book is read a part at a time: `article` carries the part on screen
-  const { article, isBook, unitIndex, unitKey, outline, missingUnit } =
-    useReadable(articleId as Id<"articles">, searchParams.get("unit"));
+  const {
+    article,
+    isBook,
+    unitIndex,
+    unitKey,
+    outline,
+    summaries,
+    missingUnit,
+  } = useReadable(articleId as Id<"articles">, searchParams.get("unit"));
   // What a book's marks, notes and kept answers are filed under; absent for an article
   const unit = unitIndex ?? undefined;
   // SAFETY: the route segment is an article id, as the queries below assume
@@ -767,23 +774,21 @@ export default function ReadPage() {
         aria-label="Reading controls"
         className="mobile-reader-bar sm:hidden"
       >
-        {!isBook && (
-          <button
-            aria-label="Ask about this article"
-            aria-expanded={articleAskOpen}
-            aria-controls={articleAskOpen ? "article-question" : undefined}
-            disabled={listen.active || Boolean(saveError)}
-            onClick={() => {
-              setNotesPanelOpen(false);
-              setActiveAnnotation(null);
-              companion.collapse();
-              setArticleAskOpen((open) => !open);
-            }}
-          >
-            <MessagesSquare size={19} />
-            Ask
-          </button>
-        )}
+        <button
+          aria-label={isBook ? "Ask about this book" : "Ask about this article"}
+          aria-expanded={articleAskOpen}
+          aria-controls={articleAskOpen ? "article-question" : undefined}
+          disabled={listen.active || Boolean(saveError)}
+          onClick={() => {
+            setNotesPanelOpen(false);
+            setActiveAnnotation(null);
+            companion.collapse();
+            setArticleAskOpen((open) => !open);
+          }}
+        >
+          <MessagesSquare size={19} />
+          Ask
+        </button>
         <button onClick={() => setNotesPanelOpen(true)}>
           <NotebookPen size={19} />
           Notes{noteCount ? ` · ${noteCount}` : ""}
@@ -943,6 +948,7 @@ export default function ReadPage() {
                 articleId={articleId}
                 unitIndex={unitIndex}
                 outline={outline}
+                summaries={summaries}
               />
             )}
             {!isBook && (
@@ -1085,34 +1091,33 @@ export default function ReadPage() {
           />
         )}
 
-      {/* Questions about the whole piece need the whole book indexed; passage tools work on the part on screen */}
-      {!isBook && (
-        <ArticleAsk
-          open={articleAskOpen}
-          onOpenChange={setArticleAskOpen}
-          hidden={Boolean(
-            companion.thread ||
-              activeAnnotation ||
-              notesPanelOpen ||
-              backMatterInView ||
-              frontMatterInView ||
-              listen.active ||
-              saveError,
-          )}
-          onAsk={(question) => {
-            setActiveAnnotation(null);
-            companion.startArticle(question);
-          }}
-          depth={settings.answerDepth}
-          onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
-          web={webSearchEnabled(settings)}
-          onWebChange={(on) =>
-            updateSettings({ webSearch: on ? "always" : "off" })
-          }
-          history={articleHistory(companion.answers, savedThreads)}
-          onOpen={openAnswer}
-        />
-      )}
+      {/* A book is asked about through its outline and matching passages, with the part on screen as the ¶ numbers' home */}
+      <ArticleAsk
+        noun={isBook ? "book" : "article"}
+        open={articleAskOpen}
+        onOpenChange={setArticleAskOpen}
+        hidden={Boolean(
+          companion.thread ||
+            activeAnnotation ||
+            notesPanelOpen ||
+            backMatterInView ||
+            frontMatterInView ||
+            listen.active ||
+            saveError,
+        )}
+        onAsk={(question) => {
+          setActiveAnnotation(null);
+          companion.startArticle(question);
+        }}
+        depth={settings.answerDepth}
+        onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
+        web={webSearchEnabled(settings)}
+        onWebChange={(on) =>
+          updateSettings({ webSearch: on ? "always" : "off" })
+        }
+        history={articleHistory(companion.answers, savedThreads)}
+        onOpen={openAnswer}
+      />
 
       <ReaderReturnChip entry={returnTo} onBack={backToParagraph} />
       {leavingLink ? (

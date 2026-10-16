@@ -180,6 +180,17 @@ describe("importing a book", () => {
       );
     expect(units[0].annotationStatus).toBe("pending");
     expect(units[1].annotationStatus).toBe("deferred");
+    // Once readable, its summaries and passages are queued for the same reader
+    const queued = await f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").take(100)).filter(
+        (job) => job.name.includes("bookIndex:start"),
+      ),
+    );
+    expect(queued).toHaveLength(1);
+    expect(queued[0].args[0]).toMatchObject({
+      userId: "default_user",
+      articleId: row?.articleId,
+    });
     expect(await f.t.run((ctx) => ctx.db.query("books").first())).toMatchObject(
       {
         finishedThrough: -1,

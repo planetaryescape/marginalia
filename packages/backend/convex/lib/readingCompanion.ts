@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type BookAskContext, formatBookContext } from "./bookAsk";
 
 // Gemini Flash takes far more than this, but a long article plus every
 // follow-up adds up quickly; beyond this budget only the paragraphs nearest
@@ -12,6 +13,8 @@ export const companionRequestSchema = z
     // Lets the server add the article's summary as background. Optional so an
     // older client keeps working, without the summary.
     articleId: z.string().max(100).optional(),
+    // For a book, the part on screen; the paragraphs sent are that part's
+    unitIndex: z.number().int().min(0).max(100_000).optional(),
     title: z.string().max(500),
     paragraphs: z.array(z.string().max(20_000)).max(4000),
     selection: z.string().trim().max(4000).default(""),
@@ -84,10 +87,17 @@ const WEB_GUIDANCE = `
 You can search the web. Search only when it would genuinely improve the answer: the passage depends on recent events or facts after your training, the reader asks you to verify a claim or go deeper, or the article references something you don't know well. Don't search for things the article itself or general knowledge already answers.
 When you use search results, cite them inline as markdown links named by domain, like [nature.com](https://…), and keep citing the article as ¶N.`;
 
+const BOOK_GUIDANCE = `
+The reader is asking about a whole book, which is too long to be given in full. You are given the book's outline with a summary of each part, passages from the book that match the question, and the one part now on screen with numbered paragraphs.
+- Cite paragraphs as ¶N only for the part on screen; those numbers exist nowhere else.
+- For anything from another part, whether from a passage or the outline, say "Part N" (for example "Part 12") and never ¶.
+- Ground the answer in the passages and the on-screen part. Use the outline only to place things. If neither supports an answer, say so instead of guessing.`;
+
 export function buildSystemPrompt(
   request: Pick<CompanionRequest, "length" | "level"> & { web?: boolean },
+  book?: BookAskContext | null,
 ) {
-  const base = `${SYSTEM_PROMPT}\n- ${LEVELS[request.level]}\n- ${LENGTHS[request.length]}`;
+  const base = `${SYSTEM_PROMPT}\n- ${LEVELS[request.level]}\n- ${LENGTHS[request.length]}${book ? `\n${BOOK_GUIDANCE}` : ""}`;
   return request.web ? `${base}\n${WEB_GUIDANCE}` : base;
 }
 
@@ -282,9 +292,13 @@ function formatSummary(summary: ArticleSummary | null | undefined): string[] {
     : [];
 }
 
+/** The part on screen is capped well under the legacy window: the rest of the book arrives as passages. */
+export const BOOK_PART_CHARS = 30_000;
+
 export function buildCompanionPrompt(
   request: CompanionRequest,
   summary?: ArticleSummary | null,
+  book?: BookAskContext | null,
 ): {
   system: string;
   messages: { role: "user" | "assistant"; content: string }[];
@@ -315,12 +329,26 @@ export function buildCompanionPrompt(
       : [];
   const opening = [
     ...formatSummary(summary),
-    "<article>",
+    ...(book ? formatBookContext(book) : []),
+    book
+      ? `<article part="${book.partNumber} of ${book.partCount}">`
+      : "<article>",
     formatArticle(
-      request.title,
+      book
+        ? `${request.title} (part ${book.partNumber} of ${book.partCount}, on screen)`
+        : request.title,
       request.paragraphs,
       request.paragraphIndex,
-      selectContext(request),
+      book
+        ? {
+            indices: selectParagraphWindow(
+              request.paragraphs,
+              null,
+              BOOK_PART_CHARS,
+            ),
+            marked: new Set(),
+          }
+        : selectContext(request),
     ),
     "</article>",
     "",
@@ -331,7 +359,7 @@ export function buildCompanionPrompt(
   ].join("\n");
 
   return {
-    system: buildSystemPrompt(request),
+    system: buildSystemPrompt(request, book),
     messages: [{ role: "user" as const, content: opening }, ...request.history],
   };
 }

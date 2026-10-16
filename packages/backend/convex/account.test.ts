@@ -120,6 +120,60 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       userId: `${userId}`,
       ready: i === 0,
     });
+    // A book's rows: its text, and what indexing wrote about it
+    if (i === 0) {
+      await ctx.db.insert("books", {
+        userId,
+        articleId,
+        unitCount: 1,
+        finishedThrough: -1,
+        furthestUnit: -1,
+        furthestScroll: 0,
+        createdAt: now,
+      });
+      await ctx.db.insert("bookUnits", {
+        userId,
+        articleId,
+        index: 0,
+        title: "Part one",
+        content: "Text",
+        contentHtml: "<p>Text</p>",
+        wordCount: 1,
+        estimatedReadMinutes: 1,
+        annotationStatus: "deferred",
+      });
+      await ctx.db.insert("bookIndexState", {
+        userId,
+        articleId,
+        running: false,
+        runId: 1,
+        phase: "done",
+        cursor: 1,
+        pointAttempts: 1,
+        queued: 2,
+        startedAt: now,
+        updatedAt: now,
+      });
+      for (const stage of ["summary", "passages"] as const)
+        await ctx.db.insert("bookIndexUnits", {
+          userId,
+          articleId,
+          stage,
+          unitIndex: 0,
+          status: "done",
+          claimedAt: now,
+          attempts: 1,
+        });
+      await ctx.db.insert("bookPassages", {
+        userId,
+        articleId,
+        unitIndex: 0,
+        passageIndex: 0,
+        heading: "Part one",
+        text: "Text",
+        embedding,
+      });
+    }
     await ctx.db.insert("noteChunks", {
       userId,
       filePath: `notes/${i}.md`,

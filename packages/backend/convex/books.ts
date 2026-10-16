@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ownedArticle } from "./access";
+import { unitSummaries } from "./bookIndex";
 import { liveImport, markImportReady } from "./documentImports";
 import {
   internalMutation,
@@ -138,6 +139,8 @@ export const get = query({
     if (!book) return null;
     return {
       outline: article.bookOutline,
+      // Each part's one-line summary once it exists, by part; null until then
+      summaries: await unitSummaries(ctx, ctx.readerId, article._id),
       finishedThrough: book.finishedThrough,
       furthestUnit: book.furthestUnit,
       nextUnit: Math.min(
@@ -340,6 +343,11 @@ export const finishBook = internalMutation({
     await ctx.scheduler.runAfter(500, internal.actions.annotateUnit.generate, {
       articleId: article._id,
       unitIndex: 0,
+    });
+    // The summaries, the book's one point and the passages follow, paced
+    await ctx.scheduler.runAfter(1_000, internal.bookIndex.start, {
+      userId: args.userId,
+      articleId: article._id,
     });
     return true;
   },

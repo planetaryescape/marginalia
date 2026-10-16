@@ -33,10 +33,15 @@ const outline = [
   { title: "Why systems surprise us", minutes: 9 },
   { title: "Leverage", minutes: 7 },
 ];
-const render = (unitIndex: number) =>
+const render = (unitIndex: number, summaries?: (string | null)[]) =>
   act(() =>
     root.render(
-      <BookUnitNav articleId="b1" unitIndex={unitIndex} outline={outline} />,
+      <BookUnitNav
+        articleId="b1"
+        unitIndex={unitIndex}
+        outline={outline}
+        summaries={summaries}
+      />,
     ),
   );
 const link = (label: string) =>
@@ -65,5 +70,24 @@ describe("the foot of a part", () => {
     render(2);
     expect(document.body.textContent).toContain("That's the end of the book.");
     expect(link("Next part")).toBeUndefined();
+  });
+});
+
+describe("the list of parts", () => {
+  it("shows each part's one-line summary once it exists", () => {
+    render(0, ["Why the zoo matters.", null]);
+    const items = [...document.querySelectorAll("ol li")];
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toContain("Why the zoo matters.");
+    // A part whose summary isn't written yet, or is past the end of the list so far, shows its title alone
+    expect(items[1].textContent).toBe("2. Why systems surprise us9 min");
+    expect(items[2].textContent).toBe("3. Leverage7 min");
+  });
+
+  it("is only titles while no summary has landed", () => {
+    render(0);
+    expect(document.querySelector("ol li")?.textContent).toBe(
+      "1. The zoo6 min",
+    );
   });
 });

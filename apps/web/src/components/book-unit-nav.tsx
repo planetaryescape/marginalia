@@ -19,10 +19,13 @@ export function BookUnitNav({
   articleId,
   unitIndex,
   outline,
+  summaries,
 }: {
   articleId: string;
   unitIndex: number;
   outline: readonly OutlineUnit[];
+  /** Each part's one-line summary by part; shorter than the outline while they are still being written */
+  summaries?: readonly (string | null)[];
 }) {
   const href = (index: number) => `/read/${articleId}?unit=${index}`;
   const next = outline[unitIndex + 1];
@@ -75,6 +78,11 @@ export function BookUnitNav({
                       {index + 1}.{" "}
                     </span>
                     {unit.title}
+                    {summaries?.[index] && (
+                      <span className="mt-0.5 block text-[13px] font-normal leading-snug text-[var(--ink-muted)]">
+                        {summaries[index]}
+                      </span>
+                    )}
                   </span>
                   <span className="shrink-0 text-[12.5px] tabular-nums text-[var(--ink-muted)]">
                     {unit.minutes} min

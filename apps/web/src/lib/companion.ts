@@ -320,6 +320,9 @@ export function useCompanion({
           {
             mode: base.mode,
             articleId,
+            // A book is answered from its outline and matching passages, with this part on screen
+            unitIndex:
+              base.mode === "article" ? (unitIndex ?? undefined) : undefined,
             title,
             paragraphs,
             selection: base.selection,
@@ -398,7 +401,16 @@ export function useCompanion({
           sense: senseOf(answer),
         }).catch((error) => console.error("Couldn't log the lookup", error));
     },
-    [articleId, containerRef, patch, recordLookup, set, setOpenId, updateTurns],
+    [
+      articleId,
+      containerRef,
+      patch,
+      recordLookup,
+      set,
+      setOpenId,
+      unitIndex,
+      updateTurns,
+    ],
   );
 
   const start = useCallback(

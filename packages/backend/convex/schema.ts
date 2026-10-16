@@ -361,6 +361,87 @@ export default defineSchema({
     "index",
   ]),
 
+  // Where a book's indexing has got (bookIndex.ts): a short summary per unit,
+  // then the book's one point from them, then passages embedded for search.
+  // One row per book; the step that owns `runId` is the only one that advances.
+  bookIndexState: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    running: v.boolean(),
+    runId: v.number(),
+    phase: v.union(
+      v.literal("summaries"),
+      v.literal("point"),
+      v.literal("passages"),
+      v.literal("done"),
+    ),
+    // Next unit index to look at within the phase
+    cursor: v.number(),
+    // Calls made for the book's one point, capped
+    pointAttempts: v.number(),
+    queued: v.number(),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  })
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId", ["userId"]),
+
+  // One row per unit and stage. The row is the claim: a unit's job is
+  // scheduled only by writing it "pending" in a mutation, so a restart or a
+  // second run never schedules it twice. Small on purpose: a bookUnits row
+  // can be about 400 KB, and the outline reads every unit's summary.
+  bookIndexUnits: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    stage: v.union(v.literal("summary"), v.literal("passages")),
+    unitIndex: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("done"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    // When the job was scheduled; a pending row older than the TTL has lost its job
+    claimedAt: v.number(),
+    attempts: v.number(),
+    // The unit's one-to-two-sentence summary (stage "summary")
+    summary: v.optional(v.string()),
+    // How many passages were written (stage "passages")
+    passageCount: v.optional(v.number()),
+    model: v.optional(v.string()),
+  })
+    .index("by_userId_and_articleId_and_stage_and_unitIndex", [
+      "userId",
+      "articleId",
+      "stage",
+      "unitIndex",
+    ])
+    .index("by_userId", ["userId"]),
+
+  // About 300-token passages of a book, each under its heading, embedded for
+  // Ask about this book. Searched by book; every read also checks the reader.
+  bookPassages: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    unitIndex: v.number(),
+    passageIndex: v.number(),
+    heading: v.string(),
+    text: v.string(),
+    embedding: v.array(v.float64()),
+  })
+    .index("by_userId_and_articleId_and_unitIndex", [
+      "userId",
+      "articleId",
+      "unitIndex",
+    ])
+    .index("by_userId", ["userId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["articleId"],
+    }),
+
   // The reader's topic vocabulary (blueprint 02, Tags). A candidate stays
   // hidden until it recurs on enough articles.
   tags: defineTable({

@@ -111,6 +111,47 @@ export const saveOverview = internalMutation({
 });
 
 /**
+ * A book's one point and short summary written from its section summaries.
+ * Unlike saveOverview it replaces the thesis and gist that came from annotating
+ * the first part, because these draw on the whole book.
+ */
+export const saveBookOverview = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    thesis: v.string(),
+    gist: v.string(),
+    model: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const article = await requireArticle(ctx, args.articleId, args.userId);
+    if (!article.bookOutline) throw new Error("Book not found");
+    const thesis = args.thesis.trim();
+    const gist = args.gist.trim();
+    if (!thesis || !gist) return null;
+    const existing = await ctx.db
+      .query("summaries")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .first();
+    if (!existing)
+      return ctx.db.insert("summaries", {
+        userId: args.userId,
+        articleId: args.articleId,
+        thesis,
+        gist,
+        model: args.model,
+        createdAt: Date.now(),
+      });
+    await ctx.db.patch("summaries", existing._id, {
+      thesis,
+      gist,
+      model: args.model,
+    });
+    return existing._id;
+  },
+});
+
+/**
  * The background the reading companion sends with every answer. The article ID
  * arrives as text from the browser, so it is checked here against the reader.
  */

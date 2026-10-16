@@ -60,6 +60,8 @@ export function useReadable(
     /** Identity of the part whose text is on screen */
     unitKey: unit && article ? unit._id : undefined,
     outline: book?.outline,
+    /** Each part's one-line summary by part, null until written */
+    summaries: book?.summaries,
     /** A part that doesn't exist (a stale link): the reader falls back to the first. */
     missingUnit: isBook && unitIndex !== null && unit === null,
   };

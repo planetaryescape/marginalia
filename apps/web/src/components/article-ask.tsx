@@ -35,7 +35,10 @@ export function ArticleAsk({
   onWebChange,
   history,
   onOpen,
+  noun = "article",
 }: {
+  /** What is being asked about: a book is answered from its outline and matching passages. */
+  noun?: "article" | "book";
   hidden: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -129,8 +132,8 @@ export function ArticleAsk({
                     onKeyDown={(e) => {
                       if (e.key === "Escape") setOpen(false);
                     }}
-                    placeholder="Ask about the whole article…"
-                    aria-label="Ask about the whole article"
+                    placeholder={`Ask about the whole ${noun}…`}
+                    aria-label={`Ask about the whole ${noun}`}
                     className="w-full md:w-auto md:flex-1 md:min-w-0 h-11 md:h-auto bg-transparent text-[16px] md:text-[14px] outline-none placeholder:opacity-50"
                   />
                   <button
@@ -191,7 +194,7 @@ export function ArticleAsk({
                   className="flex items-center gap-2 h-11 md:h-8 pl-3 pr-2 rounded-full text-[13px] font-medium"
                 >
                   <MessagesSquare size={14} />
-                  Ask about this article
+                  Ask about this {noun}
                   <kbd className="hidden md:inline-block ml-1 px-1.5 rounded border border-current/20 font-mono text-[10px] opacity-50">
                     /
                   </kbd>
@@ -204,8 +207,8 @@ export function ArticleAsk({
                 <Popover.Trigger asChild>
                   <button
                     type="button"
-                    title="Earlier questions about this article"
-                    aria-label="Earlier questions about this article"
+                    title={`Earlier questions about this ${noun}`}
+                    aria-label={`Earlier questions about this ${noun}`}
                     className="relative shrink-0 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center rounded-full font-sans reader-float shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
                   >
                     <History size={15} />

@@ -4,6 +4,7 @@ import { type ActionCtx, httpAction } from "./_generated/server";
 import type { IngestExternalResult } from "./actions/ingestExternal";
 import { type ResolvedToken, TOKEN_PREFIX } from "./apiTokens";
 import { authComponent, createAuth } from "./auth";
+import { retrieveBookContext } from "./lib/bookAsk";
 import { isTerminalChatGPTError } from "./lib/chatgptResponses";
 import {
   type ChatMessage,
@@ -305,7 +306,25 @@ http.route({
           userId: readerId,
         })
       : null;
-    const { system, messages } = buildCompanionPrompt(parsed.data, summary);
+    // A question about a whole book carries its outline and the passages that
+    // match it, not the book (D-DES-054)
+    const book =
+      parsed.data.mode === "article" &&
+      parsed.data.articleId &&
+      parsed.data.unitIndex !== undefined
+        ? await retrieveBookContext(ctx, {
+            userId: readerId,
+            articleId: parsed.data.articleId,
+            unitIndex: parsed.data.unitIndex,
+            question: parsed.data.question ?? "",
+            embedder: ai.embedder(),
+          })
+        : null;
+    const { system, messages } = buildCompanionPrompt(
+      parsed.data,
+      summary,
+      book,
+    );
     const chat: ChatMessage[] = [
       { role: "system", content: system },
       ...messages,

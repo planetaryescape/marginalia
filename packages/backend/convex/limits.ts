@@ -74,6 +74,13 @@ export const READER_LIMITS = {
     windowMs: 24 * 60 * 60_000,
     message: "Reading alongside is resting until tomorrow.",
   },
+  // Batches of a book's indexing jobs (bookIndex.ts), at most five each. A
+  // 100-part book takes about forty; a longer one pauses and carries on.
+  bookIndex: {
+    max: 60,
+    windowMs: 60 * 60_000,
+    message: "Indexing books is paused for an hour to limit spend.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -90,6 +97,7 @@ const bucket = v.union(
   v.literal("pdfImport"),
   v.literal("alongsideDaily"),
   v.literal("alongsideRetrieval"),
+  v.literal("bookIndex"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */
