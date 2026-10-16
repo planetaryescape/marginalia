@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { ownerTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
-import { capDwell } from "./lib/readingActivity";
+import { capDwell, furthestParagraph } from "./lib/readingActivity";
 
 const modules = import.meta.glob("./**/*.ts");
 async function fixture() {
@@ -231,18 +231,18 @@ describe("reading checkpoints", () => {
   describe("furthest place", () => {
     it("is the furthest any visit reached, and null for another reader's article", async () => {
       const { t, articleId, checkpoint } = await fixture();
-      expect(await t.query(api.readingActivity.furthest, { articleId })).toBe(
-        0,
-      );
+      expect(
+        await t.query(api.readingActivity.furthest, { articleId }),
+      ).toEqual({ percent: 0 });
       await t.mutation(api.readingActivity.checkpoint, checkpoint);
       await t.mutation(api.readingActivity.checkpoint, {
         ...checkpoint,
         visitId: "270d1ba0-28c2-44b1-9d97-c9f9bc9e944e",
         maxScrollPercent: 65,
       });
-      expect(await t.query(api.readingActivity.furthest, { articleId })).toBe(
-        65,
-      );
+      expect(
+        await t.query(api.readingActivity.furthest, { articleId }),
+      ).toEqual({ percent: 65 });
       const other = await t.run((ctx) =>
         ctx.db.insert("articles", {
           userId: "someone_else",
@@ -258,5 +258,60 @@ describe("reading checkpoints", () => {
         await t.query(api.readingActivity.furthest, { articleId: other }),
       ).toBeNull();
     });
+
+    it("returns the paragraph recorded at the furthest scroll, and none for old rows", async () => {
+      const { t, articleId, checkpoint } = await fixture();
+      await t.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint,
+        paragraphIndex: 14,
+      });
+      expect(
+        await t.query(api.readingActivity.furthest, { articleId }),
+      ).toEqual({ percent: 40, paragraphIndex: 14 });
+      // Another visit goes further but predates paragraphs: the stale one is not offered
+      await t.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint,
+        visitId: "270d1ba0-28c2-44b1-9d97-c9f9bc9e944e",
+        maxScrollPercent: 70,
+      });
+      expect(
+        await t.query(api.readingActivity.furthest, { articleId }),
+      ).toEqual({ percent: 70 });
+    });
+
+    it("keeps a visit's paragraph with its furthest scroll", async () => {
+      const { t, articleId, checkpoint } = await fixture();
+      await t.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint,
+        maxScrollPercent: 60,
+        paragraphIndex: 30,
+      });
+      // A late, shallower checkpoint cannot move the place back
+      await t.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint,
+        maxScrollPercent: 20,
+        paragraphIndex: 5,
+      });
+      expect(
+        await t.query(api.readingActivity.furthest, { articleId }),
+      ).toEqual({ percent: 60, paragraphIndex: 30 });
+    });
+  });
+});
+
+describe("furthestParagraph", () => {
+  it("takes the new paragraph when the scroll goes further, even without one", () => {
+    const old = { maxScrollPercent: 40, paragraphIndex: 9 };
+    expect(
+      furthestParagraph(old, { maxScrollPercent: 50, paragraphIndex: 12 }),
+    ).toBe(12);
+    expect(furthestParagraph(old, { maxScrollPercent: 50 })).toBeUndefined();
+  });
+  it("keeps the old paragraph for a repeat or shallower scroll", () => {
+    const old = { maxScrollPercent: 40, paragraphIndex: 9 };
+    expect(furthestParagraph(old, { maxScrollPercent: 40 })).toBe(9);
+    expect(
+      furthestParagraph(old, { maxScrollPercent: 10, paragraphIndex: 2 }),
+    ).toBe(9);
   });
 });

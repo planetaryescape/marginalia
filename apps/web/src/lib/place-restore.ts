@@ -35,3 +35,31 @@ export function shouldRestorePlace(input: {
   if (input.percent == null || input.finished || input.hasTarget) return false;
   return input.percent >= RESTORE_MIN_PERCENT;
 }
+
+/** Clearance under the fixed header when a paragraph is placed at the top of the view. */
+const PARAGRAPH_HEADER = 64;
+
+/**
+ * Index of the paragraph at the top of the reader's view: the first whose
+ * bottom edge is below the header. Null when there are none.
+ */
+export function paragraphAtViewTop(
+  bottoms: readonly number[],
+  header = PARAGRAPH_HEADER,
+): number | null {
+  if (!bottoms.length) return null;
+  const i = bottoms.findIndex((bottom) => bottom > header);
+  // Past the last paragraph (footer in view): the reader is at the end
+  return i < 0 ? bottoms.length - 1 : i;
+}
+
+/**
+ * Where to scroll so the paragraph whose top is `paragraphTop` (document
+ * coordinates) sits at the top of the view, the inverse of `paragraphAtViewTop`.
+ */
+export function scrollTopForParagraph(
+  paragraphTop: number,
+  header = PARAGRAPH_HEADER,
+): number {
+  return Math.max(0, Math.round(paragraphTop - header));
+}

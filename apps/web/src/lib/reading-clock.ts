@@ -9,6 +9,8 @@ export interface ReadingSample {
   visibleTimeMs: number;
   timeSpentMs: number;
   maxScrollPercent: number;
+  /** Paragraph at the top of the view at maxScrollPercent */
+  paragraphIndex?: number;
   annotationsOpened: string[];
   /** Active milliseconds per displayed paragraph number */
   dwell: Record<string, number>;
@@ -137,12 +139,13 @@ export class ReadingClock {
     this.heartbeat(at, tick);
     this.inView = [...inView];
   }
-  progress(percent: number) {
+  progress(percent: number, paragraphIndex?: number) {
     const s = this.sample(this.lastAt);
-    s.maxScrollPercent = Math.max(
-      s.maxScrollPercent,
-      Math.min(100, Math.max(0, percent)),
-    );
+    const clamped = Math.min(100, Math.max(0, percent));
+    // The paragraph is the one at the furthest point, so scrolling back up
+    // leaves it where it was
+    if (clamped >= s.maxScrollPercent) s.paragraphIndex = paragraphIndex;
+    s.maxScrollPercent = Math.max(s.maxScrollPercent, clamped);
   }
   annotation(id: string) {
     const s = this.sample(this.lastAt);

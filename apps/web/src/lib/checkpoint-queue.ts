@@ -1,4 +1,5 @@
 import {
+  furthestParagraph,
   mergeDwell,
   type ReadingCheckpoint,
   readingCheckpointSchema,
@@ -32,6 +33,7 @@ export function mergeCheckpoint(
           old.maxScrollPercent,
           snapshot.maxScrollPercent,
         ),
+        paragraphIndex: furthestParagraph(old, snapshot),
         annotationsOpened: [
           ...new Set([...old.annotationsOpened, ...snapshot.annotationsOpened]),
         ].slice(0, 128),

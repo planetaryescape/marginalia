@@ -116,6 +116,31 @@ describe("a book in picks", () => {
     expect((await picks(f.owner, 12))[0].book).toMatchObject({ unitIndex: 1 });
   });
 
+  it("keeps the paragraph at the furthest place within the part", async () => {
+    const f = await secondReaderTest(modules);
+    const id = await seedBook(f, "default_user", [4, 6, 9]);
+    const at = (scrollPercent: number, paragraphIndex?: number) =>
+      f.owner.mutation(api.books.recordProgress, {
+        articleId: id,
+        unitIndex: 1,
+        scrollPercent,
+        paragraphIndex,
+      });
+    await at(30, 11);
+    await at(50, 19);
+    // Back up the part: the furthest place stands
+    await at(10, 3);
+    expect(await f.owner.query(api.books.get, { articleId: id })).toMatchObject(
+      { furthestUnit: 1, furthestScroll: 50, furthestParagraph: 19 },
+    );
+    // A row from before paragraphs: going further clears the stale one
+    await at(60);
+    expect(
+      (await f.owner.query(api.books.get, { articleId: id }))
+        ?.furthestParagraph,
+    ).toBeUndefined();
+  });
+
   it("keeps offering the unit the reader is partway through", async () => {
     const f = await secondReaderTest(modules);
     const id = await seedBook(f, "default_user", [4, 6, 9]);

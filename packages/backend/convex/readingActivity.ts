@@ -12,6 +12,8 @@ import {
 import { WORDS_PER_MINUTE } from "./lib/constants";
 import {
   capDwell,
+  furthestParagraph,
+  furthestPlace,
   hasReadArticle,
   mergeDwell,
   type ReadingCheckpoint,
@@ -31,6 +33,7 @@ const args = {
   visibleTimeMs: v.number(),
   timeSpentMs: v.number(),
   maxScrollPercent: v.number(),
+  paragraphIndex: v.optional(v.number()),
   annotationsOpened: v.array(v.string()),
   finished: v.optional(v.boolean()),
   // Cumulative milliseconds per displayed paragraph number
@@ -109,6 +112,10 @@ async function saveCheckpoint(
     old?.maxScrollPercent ?? 0,
     s.maxScrollPercent,
   );
+  const paragraphIndex = furthestParagraph(old, {
+    maxScrollPercent: s.maxScrollPercent,
+    paragraphIndex: s.paragraphIndex,
+  });
   // A book is finished by reading its last unit (books.recordProgress), not by
   // the time spent on any one visit
   const finishing =
@@ -131,6 +138,7 @@ async function saveCheckpoint(
     visibleTimeMs,
     timeSpentMs: Math.max(old?.timeSpentMs ?? 0, s.timeSpentMs),
     maxScrollPercent,
+    paragraphIndex,
     annotationsOpened,
     finishedAt: old?.finishedAt ?? (finishing ? s.updatedAt : undefined),
     estimatedReadMinutes: article.estimatedReadMinutes,
@@ -283,9 +291,9 @@ export const record = internalMutation({
 
 /**
  * How far the reader has got into an article across every visit, as a percent
- * of its body, or null when it is not theirs. The reader scrolls back to it on
- * reopening. Only the percent is recorded, not a paragraph, so the place is a
- * proportion of the text.
+ * of its body and the paragraph at the top of the view there (absent on visits
+ * recorded before paragraphs were kept), or null when it is not theirs. The
+ * reader scrolls back to it on reopening.
  */
 export const furthest = query({
   args: { articleId: v.id("articles") },
@@ -298,6 +306,6 @@ export const furthest = query({
         q.eq("userId", ctx.readerId).eq("articleId", article._id),
       )
       .take(200);
-    return visits.reduce((max, v) => Math.max(max, v.maxScrollPercent), 0);
+    return furthestPlace(visits);
   },
 });

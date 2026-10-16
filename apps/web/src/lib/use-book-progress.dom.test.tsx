@@ -15,9 +15,13 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
 
 let root: Root;
 let scrolled = 0;
+let paragraph: number | undefined;
 
 function Probe({ unit, key2 }: { unit: number; key2?: string }) {
-  useBookProgress("b1" as never, unit, key2, () => scrolled);
+  useBookProgress("b1" as never, unit, key2, () => ({
+    percent: scrolled,
+    paragraphIndex: paragraph,
+  }));
   return null;
 }
 const show = (unit: number, key?: string) =>
@@ -31,6 +35,7 @@ beforeEach(() => {
   record.mockReset();
   record.mockResolvedValue(undefined);
   scrolled = 0;
+  paragraph = undefined;
   root = createRoot(document.body.appendChild(document.createElement("div")));
 });
 afterEach(() => {
@@ -57,6 +62,19 @@ describe("recording progress through a book", () => {
     scrolled = 13;
     await act(async () => window.dispatchEvent(new Event("scroll")));
     expect(record).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the paragraph at the top of the view with the position", async () => {
+    scrolled = 42;
+    paragraph = 17;
+    await show(0, "u0");
+    await frame();
+    expect(record).toHaveBeenLastCalledWith({
+      articleId: "b1",
+      unitIndex: 0,
+      scrollPercent: 40,
+      paragraphIndex: 17,
+    });
   });
 
   it("never records the old part's position against the next part", async () => {

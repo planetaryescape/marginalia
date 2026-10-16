@@ -58,6 +58,15 @@ export const readingCheckpointSchema = z
     visibleTimeMs: duration,
     timeSpentMs: duration,
     maxScrollPercent: z.number().finite().min(0).max(100),
+    // Index of the paragraph at the top of the view at the furthest point.
+    // A malformed value costs only the paragraph; the percent still restores.
+    paragraphIndex: z
+      .number()
+      .int()
+      .min(0)
+      .max(100_000)
+      .optional()
+      .catch(undefined),
     annotationsOpened: z.array(z.string().min(1).max(100)).max(128),
     finished: z.boolean().optional(),
     // A malformed map costs only the dwell; the rest of the checkpoint is kept.
@@ -87,4 +96,48 @@ export function hasReadArticle(
     reading.maxScrollPercent >= END_PERCENT &&
     reading.activeTimeMs >= estimatedReadMinutes * 60_000 * READ_TIME_SHARE
   );
+}
+
+/**
+ * The paragraph to keep with a visit's furthest scroll. It belongs to the
+ * percent it was measured at, so a checkpoint that goes further without one
+ * clears the old paragraph rather than leaving it pointing short of the place.
+ */
+export function furthestParagraph(
+  old: { maxScrollPercent: number; paragraphIndex?: number } | null,
+  next: { maxScrollPercent: number; paragraphIndex?: number },
+): number | undefined {
+  if (!old || next.maxScrollPercent > old.maxScrollPercent)
+    return next.paragraphIndex;
+  if (next.maxScrollPercent === old.maxScrollPercent)
+    return next.paragraphIndex ?? old.paragraphIndex;
+  return old.paragraphIndex;
+}
+
+/** The visit that got furthest; its paragraph travels with it. Later visits win ties that carry a paragraph. */
+export function furthestPlace(
+  visits: readonly {
+    maxScrollPercent: number;
+    paragraphIndex?: number;
+    updatedAt: number;
+  }[],
+): { percent: number; paragraphIndex?: number } {
+  let best: (typeof visits)[number] | undefined;
+  for (const v of visits) {
+    if (!best || v.maxScrollPercent > best.maxScrollPercent) best = v;
+    else if (
+      v.maxScrollPercent === best.maxScrollPercent &&
+      v.paragraphIndex !== undefined &&
+      (best.paragraphIndex === undefined || v.updatedAt > best.updatedAt)
+    )
+      best = v;
+  }
+  return best
+    ? {
+        percent: best.maxScrollPercent,
+        ...(best.paragraphIndex !== undefined
+          ? { paragraphIndex: best.paragraphIndex }
+          : {}),
+      }
+    : { percent: 0 };
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { scrollTopForProgress, shouldRestorePlace } from "./place-restore";
+import {
+  paragraphAtViewTop,
+  scrollTopForParagraph,
+  scrollTopForProgress,
+  shouldRestorePlace,
+} from "./place-restore";
 import { articleProgress } from "./reading-clock";
 
 describe("scrollTopForProgress", () => {
@@ -40,5 +45,33 @@ describe("shouldRestorePlace", () => {
   it("waits for the percent and ignores a barely started article", () => {
     expect(shouldRestorePlace({ ...base, percent: undefined })).toBe(false);
     expect(shouldRestorePlace({ ...base, percent: 1 })).toBe(false);
+  });
+});
+
+describe("paragraph places", () => {
+  it("scrolling to a paragraph reads back as the same paragraph", () => {
+    // Paragraph tops in document coordinates, 300 px apart
+    const tops = [200, 500, 800, 1100, 1400];
+    for (const target of [0, 2, 4]) {
+      const y = scrollTopForParagraph(tops[target]);
+      const bottoms = tops.map((t) => t + 250 - y);
+      expect(paragraphAtViewTop(bottoms)).toBe(target);
+    }
+  });
+
+  it("names the first paragraph still below the header", () => {
+    expect(paragraphAtViewTop([-40, 20, 300, 600])).toBe(2);
+  });
+
+  it("names the last paragraph once all have scrolled past", () => {
+    expect(paragraphAtViewTop([-300, -100, 10])).toBe(2);
+  });
+
+  it("has no paragraph when there are none", () => {
+    expect(paragraphAtViewTop([])).toBeNull();
+  });
+
+  it("never scrolls above the page", () => {
+    expect(scrollTopForParagraph(20)).toBe(0);
   });
 });

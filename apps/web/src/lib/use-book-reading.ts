@@ -62,7 +62,11 @@ export function useReadable(
     outline: book?.outline,
     /** The part and percent the reader got furthest to, for resuming within it */
     furthest: book
-      ? { unit: book.furthestUnit, scroll: book.furthestScroll }
+      ? {
+          unit: book.furthestUnit,
+          scroll: book.furthestScroll,
+          paragraph: book.furthestParagraph,
+        }
       : undefined,
     /** Each part's one-line summary by part, null until written */
     summaries: book?.summaries,
@@ -85,7 +89,7 @@ export function useBookProgress(
   articleId: Id<"articles">,
   unitIndex: number | null,
   unitKey: string | undefined,
-  measure: () => number | null,
+  measure: () => { percent: number; paragraphIndex?: number } | null,
 ) {
   const record = useMutation(api.books.recordProgress);
   const measureRef = useRef(measure);
@@ -96,14 +100,20 @@ export function useBookProgress(
     let cancelled = false;
     const send = () => {
       if (cancelled) return;
-      const percent = measureRef.current();
+      const at = measureRef.current();
       // Nothing is recorded until the part's text has been measured
-      if (percent === null) return;
+      if (at === null) return;
+      const { percent, paragraphIndex } = at;
       const step = Math.min(100, Math.floor(percent / 5) * 5);
       if (step === last) return;
       const sent = last;
       last = step;
-      record({ articleId, unitIndex, scrollPercent: step }).catch(() => {
+      record({
+        articleId,
+        unitIndex,
+        scrollPercent: step,
+        paragraphIndex,
+      }).catch(() => {
         // Reading goes on; the next step tries again
         if (last === step) last = sent;
       });

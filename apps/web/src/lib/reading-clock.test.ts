@@ -143,3 +143,21 @@ describe("paragraph dwell", () => {
     expect(dwell(clock, 3000)).toEqual({ 1: 3000, 2: 3000 });
   });
 });
+
+describe("furthest paragraph", () => {
+  const first = (clock: ReadingClock) =>
+    clock.snapshots(start, 0)[0].paragraphIndex;
+  it("follows the furthest scroll and stays put when the reader scrolls back up", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.progress(30, 12);
+    clock.progress(60, 31);
+    clock.progress(20, 7);
+    expect(first(clock)).toBe(31);
+  });
+  it("clears a stale paragraph when going further without one", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.progress(30, 12);
+    clock.progress(60);
+    expect(first(clock)).toBeUndefined();
+  });
+});

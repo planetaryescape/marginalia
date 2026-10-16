@@ -65,3 +65,10 @@ it("still parses and merges checkpoints from before dwell existed", () => {
   expect(mergeCheckpoint(queue, snapshot)[0].dwell).toBeUndefined();
   expect(acknowledgeCheckpoint(queue, snapshot)).toEqual([]);
 });
+it("keeps the paragraph of the furthest queued scroll", () => {
+  const ahead = { ...snapshot, maxScrollPercent: 80, paragraphIndex: 31 };
+  const behind = { ...snapshot, updatedAt: 12000, paragraphIndex: 12 };
+  expect(mergeCheckpoint([ahead], behind)[0].paragraphIndex).toBe(31);
+  const further = { ...snapshot, maxScrollPercent: 90, paragraphIndex: 40 };
+  expect(mergeCheckpoint([ahead], further)[0].paragraphIndex).toBe(40);
+});

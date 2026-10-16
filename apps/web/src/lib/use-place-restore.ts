@@ -1,17 +1,23 @@
 "use client";
 import { type RefObject, useEffect, useRef } from "react";
-import { getArticleBody } from "@/lib/paragraphs";
-import { scrollTopForProgress } from "@/lib/place-restore";
+import { getArticleBody, getParagraphs } from "@/lib/paragraphs";
+import {
+  scrollTopForParagraph,
+  scrollTopForProgress,
+} from "@/lib/place-restore";
 
 /**
  * Scrolls to the saved place once per article, after its text is laid out.
  * `percent` is null while there is nothing to restore (finished, a targeted
  * link, nothing recorded) and `version` bumps when the text is re-tagged.
+ * The paragraph, when one was recorded and still exists, is the exact place;
+ * rows saved before paragraphs were kept restore by `percent`.
  */
 export function usePlaceRestore(
   containerRef: RefObject<HTMLElement | null>,
   key: string,
   percent: number | null,
+  paragraphIndex: number | undefined,
   version: number,
 ) {
   const restored = useRef<string | null>(null);
@@ -28,6 +34,20 @@ export function usePlaceRestore(
     const rect = body.getBoundingClientRect();
     // Data loads after first paint; an unlaid-out body would clamp the scroll
     if (rect.height < window.innerHeight) return;
+    const paragraph =
+      paragraphIndex === undefined
+        ? undefined
+        : getParagraphs(containerRef.current)[paragraphIndex];
+    if (paragraph) {
+      restored.current = key;
+      window.scrollTo({
+        top: scrollTopForParagraph(
+          paragraph.getBoundingClientRect().top + window.scrollY,
+        ),
+        behavior: "instant",
+      });
+      return;
+    }
     const y = scrollTopForProgress(
       rect.top + window.scrollY,
       rect.height,
@@ -36,5 +56,5 @@ export function usePlaceRestore(
     );
     restored.current = key;
     if (y !== null) window.scrollTo({ top: y, behavior: "instant" });
-  }, [containerRef, key, percent, version]);
+  }, [containerRef, key, percent, paragraphIndex, version]);
 }

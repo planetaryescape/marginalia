@@ -144,6 +144,7 @@ export const get = query({
       finishedThrough: book.finishedThrough,
       furthestUnit: book.furthestUnit,
       furthestScroll: book.furthestScroll,
+      furthestParagraph: book.furthestParagraph,
       nextUnit: Math.min(
         nextUnitIndex(book),
         Math.max(0, article.bookOutline.length - 1),
@@ -171,6 +172,8 @@ export const recordProgress = mutation({
     articleId: v.id("articles"),
     unitIndex: v.number(),
     scrollPercent: v.number(),
+    // The paragraph at the top of the view, kept with the furthest place
+    paragraphIndex: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const article = await ownedArticle(ctx, args.articleId, ctx.readerId);
@@ -189,13 +192,23 @@ export const recordProgress = mutation({
       unitIndex: args.unitIndex,
       scrollPercent,
     });
-    const changed =
-      next.finishedThrough !== book.finishedThrough ||
+    const moved =
       next.furthestUnit !== book.furthestUnit ||
       next.furthestScroll !== book.furthestScroll;
+    const changed = moved || next.finishedThrough !== book.finishedThrough;
     if (changed)
       await ctx.db.patch("books", book._id, {
         ...next,
+        // The paragraph belongs to the place it was measured at
+        ...(moved
+          ? {
+              furthestParagraph:
+                Number.isInteger(args.paragraphIndex) &&
+                (args.paragraphIndex ?? -1) >= 0
+                  ? args.paragraphIndex
+                  : undefined,
+            }
+          : {}),
         lastReadAt: Date.now(),
       });
 

@@ -334,6 +334,8 @@ export default defineSchema({
     // The furthest unit the reader has got into, and how far, or -1
     furthestUnit: v.number(),
     furthestScroll: v.number(),
+    // The paragraph at the top of the view there, within furthestUnit
+    furthestParagraph: v.optional(v.number()),
     // Read to the end, or archived: kept here so unfinished books can be found
     // without reading their articles. The article's finishedAt is the truth;
     // every change to it moves this too (books.syncFinished).
@@ -646,6 +648,9 @@ export default defineSchema({
     visibleTimeMs: v.number(),
     timeSpentMs: v.number(),
     maxScrollPercent: v.number(),
+    // The paragraph at the top of the view at maxScrollPercent, so Continue
+    // returns to it rather than to a proportion of the text
+    paragraphIndex: v.optional(v.number()),
     annotationsOpened: v.array(v.string()),
     finishedAt: v.optional(v.number()),
     // Copied from the article when the visit is recorded, so statistics can

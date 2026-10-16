@@ -50,7 +50,7 @@ import {
   paragraphIndexOf,
   useParagraphs,
 } from "@/lib/paragraphs";
-import { shouldRestorePlace } from "@/lib/place-restore";
+import { paragraphAtViewTop, shouldRestorePlace } from "@/lib/place-restore";
 import { escapeGoesBack } from "@/lib/reader-escape";
 import { revealImpression } from "@/lib/reader-impression";
 import { attachLeavingLinks, type LeavingLink } from "@/lib/reader-links";
@@ -187,11 +187,12 @@ export default function ReadPage() {
     api.readingActivity.furthest,
     isBook ? "skip" : { articleId: articleId as any },
   );
-  const savedPercent = isBook
+  const saved = isBook
     ? furthest && furthest.unit === unitIndex
-      ? furthest.scroll
+      ? { percent: furthest.scroll, paragraphIndex: furthest.paragraph }
       : null
     : articleProgressSaved;
+  const savedPercent = saved?.percent;
   usePlaceRestore(
     articleRef,
     `${articleId}:${unitIndex ?? ""}`,
@@ -204,6 +205,7 @@ export default function ReadPage() {
       })
       ? (savedPercent ?? null)
       : null,
+    saved?.paragraphIndex,
     paragraphs.version,
   );
   const position = useReadingPosition(articleRef, paragraphs.version);
@@ -244,7 +246,13 @@ export default function ReadPage() {
       const body = getArticleBody(articleRef.current);
       if (!body) return null;
       const rect = body.getBoundingClientRect();
-      return articleProgress(rect.top, rect.height, window.innerHeight);
+      return {
+        percent: articleProgress(rect.top, rect.height, window.innerHeight),
+        paragraphIndex:
+          paragraphAtViewTop(
+            getParagraphs(body).map((el) => el.getBoundingClientRect().bottom),
+          ) ?? undefined,
+      };
     }, []),
   );
   // The margin fills in ahead of the reader (rung 2f); a book's parts are written by the part

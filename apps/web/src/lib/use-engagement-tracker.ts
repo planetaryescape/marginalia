@@ -7,7 +7,8 @@ import {
   parseCheckpoints,
 } from "./checkpoint-queue";
 import { observeParagraphsInView } from "./paragraph-dwell";
-import { getArticleBody } from "./paragraphs";
+import { getArticleBody, getParagraphs } from "./paragraphs";
+import { paragraphAtViewTop } from "./place-restore";
 import { articleProgress, ReadingClock } from "./reading-clock";
 
 const QUEUE_KEY = "marginalia-reading-checkpoints-v1";
@@ -104,7 +105,12 @@ export function useEngagementTracker({
       if (!body) return;
       const rect = body.getBoundingClientRect();
       const p = articleProgress(rect.top, rect.height, window.innerHeight);
-      clock.progress(p);
+      clock.progress(
+        p,
+        paragraphAtViewTop(
+          getParagraphs(body).map((el) => el.getBoundingClientRect().bottom),
+        ) ?? undefined,
+      );
       setProgress(p);
     };
     const scroll = () => {
