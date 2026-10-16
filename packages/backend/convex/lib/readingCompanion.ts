@@ -225,6 +225,8 @@ function passageEnd(request: CompanionRequest, start: number): number {
 export interface ParagraphContext {
   indices: number[];
   marked: Set<number>;
+  /** Marked paragraphs too long to send whole, with the excerpt sent instead */
+  excerpts?: Map<number, string>;
 }
 
 export function selectContext(request: CompanionRequest): ParagraphContext {
@@ -264,13 +266,46 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
     indices.push(i);
   const marked = new Set<number>();
   for (let i = start; i <= end; i++) marked.add(i);
+  if (mode !== "ask") return { indices, marked };
   return {
-    indices:
-      mode === "ask"
-        ? trimWindow(paragraphs, indices, marked, ASK_BUDGET_CHARS)
-        : indices,
+    indices: trimWindow(paragraphs, indices, marked, ASK_BUDGET_CHARS),
     marked,
+    excerpts: clipPassage(paragraphs, marked, start, request.selection),
   };
+}
+
+/**
+ * When the passage's own paragraphs are longer than the budget, each is cut to
+ * an equal share of it. The first keeps the text around where the selection
+ * starts; a selection that crosses into later paragraphs begins them, so those
+ * keep their opening.
+ */
+function clipPassage(
+  paragraphs: readonly string[],
+  marked: ReadonlySet<number>,
+  start: number,
+  selection: string,
+): Map<number, string> | undefined {
+  const total = [...marked].reduce((sum, i) => sum + paragraphs[i].length, 0);
+  if (total <= ASK_BUDGET_CHARS) return undefined;
+  const share = Math.floor(ASK_BUDGET_CHARS / marked.size);
+  const excerpts = new Map<number, string>();
+  for (const i of marked) {
+    const text = paragraphs[i];
+    if (text.length <= share) continue;
+    const found = i === start ? text.indexOf(selection.trim().slice(0, 40)) : 0;
+    // Some text before the selection, so the model sees what it follows
+    const from = Math.min(
+      Math.max(0, (found < 0 ? 0 : found) - Math.floor(share / 4)),
+      text.length - share,
+    );
+    const to = from + share;
+    excerpts.set(
+      i,
+      `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`,
+    );
+  }
+  return excerpts;
 }
 
 /**
@@ -312,7 +347,9 @@ export function formatArticle(
   for (const i of indices) {
     if (i !== previous + 1) lines.push("[…]");
     const marker = marked.has(i) ? " ← contains the highlighted passage" : "";
-    lines.push(`¶${i + 1}${marker}\n${paragraphs[i]}`);
+    lines.push(
+      `¶${i + 1}${marker}\n${context?.excerpts?.get(i) ?? paragraphs[i]}`,
+    );
     previous = i;
   }
   if (previous !== paragraphs.length - 1 && paragraphs.length > 0)

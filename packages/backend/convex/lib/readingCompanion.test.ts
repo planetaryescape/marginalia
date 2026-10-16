@@ -44,6 +44,52 @@ describe("readingCompanion", () => {
     });
   });
 
+  describe("passage Ask with long highlighted paragraphs", () => {
+    const ask = (paragraphs: string[], selection: string, end?: number) =>
+      companionRequestSchema.parse({
+        mode: "ask",
+        question: "Why?",
+        title: "T",
+        paragraphs,
+        selection,
+        paragraphIndex: 1,
+        ...(end === undefined ? {} : { paragraphEnd: end }),
+      });
+    const articleChars = (request: ReturnType<typeof ask>) =>
+      formatArticle(
+        "T",
+        request.paragraphs,
+        request.paragraphIndex,
+        selectContext(request),
+      ).length;
+
+    it("cuts one oversized paragraph to the budget and keeps the selection", () => {
+      const long = `${"a".repeat(12_000)}THE SELECTED LINE${"b".repeat(7_983)}`;
+      const request = ask(["before", long, "after"], "THE SELECTED LINE");
+      const text = formatArticle(
+        "T",
+        request.paragraphs,
+        1,
+        selectContext(request),
+      );
+      expect(articleChars(request)).toBeLessThan(16_200);
+      expect(text).toContain("THE SELECTED LINE");
+      expect(text).toContain("¶2 ← contains the highlighted passage\n…");
+    });
+
+    it("shares the budget between two long highlighted paragraphs", () => {
+      const request = ask(
+        ["before", "c".repeat(9_000), "d".repeat(9_000), "after"],
+        "ccc",
+        2,
+      );
+      expect(articleChars(request)).toBeLessThan(16_200);
+      expect(
+        formatArticle("T", request.paragraphs, 1, selectContext(request)),
+      ).toContain("¶3");
+    });
+  });
+
   describe("per-tool context", () => {
     const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
     const request = (over: Record<string, string | number | null>) =>
