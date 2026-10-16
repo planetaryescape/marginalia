@@ -48,14 +48,13 @@ export function ArticleRenderer({
           prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-3
           prose-p:leading-[1.8] prose-p:mb-6
           prose-a:text-[var(--ink)] prose-a:underline prose-a:decoration-[var(--pencil-rule)] prose-a:underline-offset-[3px] hover:prose-a:decoration-[var(--ink)]
-          prose-strong:text-ink-950 dark:prose-strong:text-parchment-100
-          prose-blockquote:border-l-[3px] prose-blockquote:border-ink-300 dark:prose-blockquote:border-ink-600
+          prose-blockquote:border-l-[3px] prose-blockquote:border-[var(--reader-border-strong)]
           prose-blockquote:italic prose-blockquote:pl-4
-          prose-code:text-sm prose-code:bg-ink-100 dark:prose-code:bg-ink-800
+          prose-code:text-sm prose-code:bg-[var(--reader-chip)]
           prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded
           prose-code:before:content-none prose-code:after:content-none
-          prose-pre:bg-ink-900 dark:prose-pre:bg-ink-950 prose-pre:rounded-xl prose-pre:overflow-x-auto
-          prose-pre:border prose-pre:border-ink-800
+          prose-pre:rounded-xl prose-pre:overflow-x-auto
+          prose-pre:border prose-pre:border-[var(--reader-border)]
           prose-img:rounded-lg prose-img:my-8
           prose-li:leading-[1.7]"
     />

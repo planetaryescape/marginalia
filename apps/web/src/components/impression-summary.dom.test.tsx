@@ -24,9 +24,13 @@ describe("ImpressionSummary", () => {
       '[data-testid="summary-stars"] svg',
     );
     expect(stars).toHaveLength(5);
-    expect(
-      [...stars].map((s) => s.getAttribute("fill")),
-    ).toEqual(["currentColor", "currentColor", "currentColor", "none", "none"]);
+    expect([...stars].map((s) => s.getAttribute("fill"))).toEqual([
+      "currentColor",
+      "currentColor",
+      "currentColor",
+      "none",
+      "none",
+    ]);
     expect(document.body.innerHTML).not.toContain("--pen");
     expect(document.body.innerHTML).not.toContain("rounded-[2px]");
     expect(document.body.textContent).toContain("You rated this Fine");

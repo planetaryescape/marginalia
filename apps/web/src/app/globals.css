@@ -833,6 +833,8 @@ html[data-reader-theme] .reader-prose {
   --tw-prose-counters: var(--reader-muted);
   --tw-prose-hr: var(--reader-border);
   --tw-prose-quote-borders: var(--reader-border-strong);
+  --tw-prose-pre-bg: var(--reader-chip);
+  --tw-prose-pre-code: var(--reader-fg);
   font-family: var(--reader-font);
   font-size: var(--reader-size);
 }

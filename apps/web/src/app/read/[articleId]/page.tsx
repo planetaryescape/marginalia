@@ -18,10 +18,8 @@ import { ArticleRenderer } from "@/components/article-renderer";
 import { ArticleTags } from "@/components/article-tags";
 import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
-import {
-  ImpressionPanel,
-  ImpressionSummary,
-} from "@/components/impression-panel";
+import { ArticleBackMatter } from "@/components/article-back-matter";
+import { ImpressionSummary } from "@/components/impression-panel";
 import { InlineError } from "@/components/in-place";
 import { ListenBar } from "@/components/listen-bar";
 import {
@@ -36,7 +34,6 @@ import { ReaderMap } from "@/components/reader-map";
 import { ReaderOpening, ReaderTitle } from "@/components/reader-opening";
 import { ReaderReturnChip } from "@/components/reader-return-chip";
 import { ReaderToolbar } from "@/components/reader-toolbar";
-import { ReflectionBox } from "@/components/reflection-box";
 import { SelectionToolbar } from "@/components/selection-toolbar";
 import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
@@ -611,12 +608,15 @@ export default function ReadPage() {
     return () => window.removeEventListener("keydown", onEscape);
   }, [readerPanelOpen, back.href, router]);
 
+  const reflectionFlush = useRef<(() => Promise<boolean>) | null>(null);
   const [doneFailed, setDoneFailed] = useState(false);
   const handleDone = useCallback(async () => {
     if (finishing) return;
     setFinishing(true);
     setDoneFailed(false);
     try {
+      // Unsaved reflection text goes first; a failed save shows in place and doesn't stop Done
+      await reflectionFlush.current?.();
       await finish();
       markFinished();
       router.push("/", { transitionTypes: [FINISH_ARTICLE] });
@@ -946,7 +946,7 @@ export default function ReadPage() {
         >
           <header className="mb-10">
             <ReaderTitle articleId={articleId} title={article.title} />
-            <div className="flex flex-wrap gap-3 text-sm font-sans text-ink-400 dark:text-ink-500">
+            <div className="flex flex-wrap gap-3 text-sm font-sans text-[var(--ink-muted)]">
               {isBook && outline && unitIndex !== null && (
                 <span>
                   Part {unitIndex + 1} of {outline.length}
@@ -997,31 +997,14 @@ export default function ReadPage() {
               />
             )}
             {!isBook && (
-              <section
-                ref={impressionRef}
-                aria-label="Your impression"
-                className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
-              >
-                <ImpressionPanel articleId={articleId as any} />
-              </section>
-            )}
-
-            {!isBook && reflection && (
-              <div className="mt-10">
-                <ReflectionBox reflection={reflection} onDone={handleDone} />
-              </div>
-            )}
-
-            {!isBook && !reflection && (
-              <div className="mt-10 text-center">
-                <button
-                  onClick={handleDone}
-                  className="px-8 py-3 rounded-md bg-[var(--ink)] text-[var(--reader-bg)] font-sans text-sm font-medium hover:opacity-90 transition-opacity"
-                >
-                  Done
-                </button>
-                {doneError && <div className="mt-4">{doneError}</div>}
-              </div>
+              <ArticleBackMatter
+                articleId={articleId}
+                reflection={reflection}
+                impressionRef={impressionRef}
+                reflectionFlush={reflectionFlush}
+                onDone={handleDone}
+                doneError={doneError}
+              />
             )}
 
             {!isBook && (

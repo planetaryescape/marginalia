@@ -212,7 +212,7 @@ export function ImpressionPanel({
         onBlur={() => flushRef.current()}
         placeholder="What stayed with you?"
         aria-label="What stayed with you?"
-        className="mt-3 w-full resize-none rounded-lg bg-[var(--reader-chip)] px-3 py-2 font-serif text-[15px] leading-snug text-[var(--reader-fg)] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)] focus:ring-1 focus:ring-[var(--reader-focus)]"
+        className="mt-3 w-full resize-none rounded-none border-0 border-b border-[var(--reader-border-strong)] bg-transparent px-0 py-2 font-serif text-[15px] leading-snug text-[var(--reader-fg)] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)] focus:border-[var(--ink-muted)]"
       />
     </div>
   );
