@@ -160,7 +160,7 @@ export function ReaderLinkMenu({
       aria-label="Link"
       tabIndex={-1}
       data-testid="reader-link-menu"
-      className="reader-menu fixed z-50 w-60 p-1.5 outline-none"
+      className="reader-menu fixed z-50 w-72 p-1.5 outline-none"
       style={{
         top: position?.top ?? 0,
         left: position?.left ?? 0,
@@ -171,7 +171,7 @@ export function ReaderLinkMenu({
         <p className="font-serif text-[15px] leading-snug line-clamp-2">
           {title}
         </p>
-        <p className="mt-0.5 text-xs font-sans text-ink-400 dark:text-ink-500">
+        <p className="mt-0.5 text-xs font-sans text-[var(--reader-muted)]">
           {host}
           {minutes ? ` · ${minutes} min read` : null}
         </p>
@@ -180,7 +180,7 @@ export function ReaderLinkMenu({
         type="button"
         onClick={() => void saveForLater()}
         disabled={found === undefined || state === "saving" || isSaved}
-        className="flex w-full items-baseline justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm hover:bg-ink-100 dark:hover:bg-ink-800 disabled:opacity-60"
+        className="flex w-full items-baseline justify-between gap-3 whitespace-nowrap rounded-md px-2.5 py-2 text-left text-sm hover:bg-[var(--reader-chip)] disabled:opacity-60"
       >
         <span>
           {isSaved
@@ -190,7 +190,7 @@ export function ReaderLinkMenu({
               : "Save for later"}
         </span>
         {!isSaved && state !== "saving" ? (
-          <span className="text-xs text-ink-400 dark:text-ink-500">
+          <span className="text-xs text-[var(--reader-muted)]">
             back to you as a pick
           </span>
         ) : null}
@@ -198,7 +198,7 @@ export function ReaderLinkMenu({
       {error ? (
         <p
           role="alert"
-          className="px-2.5 pb-1 text-xs text-red-700 dark:text-red-400"
+          className="px-2.5 pb-1 text-xs text-[var(--danger)]"
         >
           {error}
         </p>
@@ -207,10 +207,10 @@ export function ReaderLinkMenu({
       <button
         type="button"
         onClick={openInBackground}
-        className="flex w-full items-baseline justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm hover:bg-ink-100 dark:hover:bg-ink-800"
+        className="flex w-full items-baseline justify-between gap-3 whitespace-nowrap rounded-md px-2.5 py-2 text-left text-sm hover:bg-[var(--reader-chip)]"
       >
         <span>Open in background</span>
-        <span className="text-xs text-ink-400 dark:text-ink-500">new tab</span>
+        <span className="text-xs text-[var(--reader-muted)]">new tab</span>
       </button>
     </div>
   );
