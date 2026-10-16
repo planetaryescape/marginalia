@@ -237,3 +237,64 @@ I estimate stage 5 is most of the 6.7–8.8 s, because it is the only stage that
 **Conclusion**
 
 The current search takes 6.7–8.8 s from the last keystroke, and the model call is the likely cause. Adding `Server-Timing` first is cheap and would confirm the split before any redesign. Then build the search-only path behind a flag and compare its first-result time to the target above.
+
+## S9 and S6 spikes (aggregate only, no titles, notes, tag names or URLs)
+
+Code read at `origin/main` d1d580f (`marginalia-deploy` worktree). Data read with `convex data ... --format jsonl` into the session scratchpad, not the repo. No mutations, no commits.
+
+### S9 result (2026-10-16)
+
+**Blocker: no embedding key.** The 1Password item "OpenAI API" exists, but its `OPENAI_API_KEY` and `credential` fields are empty (read with `op read` and `op item get --reveal`; length 0). No `OPENAI_API_KEY` or OpenRouter variable is set in the environment. I made no embedding calls and spent $0. The only embeddings available are the stored 1536-dimension `noteChunks.embedding` vectors, which embed note content, not tag names. So the precision/recall of *name* embeddings at 0.70 to 0.95 is **not measured**. Ollama has only chat models, and a different embedding space would not transfer a threshold.
+
+**What the data shows (1,772 chunks, 1,496 with tags):**
+- 120 distinct tags. 82 contain `/` (hierarchical paths) and 26 start with `#`. 62 of 120 appear on exactly one note.
+- Per-note frequency is steeply skewed: top tags cover 160, 140, 138, 79, 66, 62, 58, 55 notes, then it falls under 20 by rank 17.
+- Most of these are not a topic vocabulary. They are vault structure (archive/area/project/resource folders, daily/meeting markers) plus a smaller set of real topics. The seed list needs a filter before it becomes a topic vocabulary, for example "leaf of the path, minus structural roots".
+- String near-duplicates after lowercasing, stripping `#` and punctuation, and singularising:
+  - Full path equal: 6 groups covering 13 tags (`#x` vs `x`, `knowledge-management` vs `knowledgemanagement`, `resource` vs `resources`).
+  - Same last path segment: 21 groups covering 55 of 120 tags, collapsing to 86 distinct leaves. The same leaf appears under different roots (for example `areas/x`, `resources/x`, `#x`).
+- That is a different problem from "llm"/"llms". The seed's duplicates are mostly hierarchy and prefix variants, and plain string normalisation resolves them without any embedding.
+
+**Proxy test (weak, reported only for completeness).** I built 23 same and 25 different tag pairs from real tags, 4 further pairs dropped because a tag is absent. The first score was the cosine of the tags' content-centroids, which says nothing about name similarity. Precision/recall: at 0.70 P=0.50, R=0.26; at 0.75 P=0.33, R=0.13; at 0.80 P=0.38, R=0.13; at 0.90 P=0.25, R=0.04. Same-median cosine was 0.63 against 0.39 for different. Notes that share one tag set give 1.0 for unrelated tags. So centroids cannot stand in for names, and I ignore these numbers for the threshold.
+
+String normalisation alone (lowercase, strip `#` and punctuation, singularise, compare last path segment) matched 21 of 23 same pairs and falsely merged 1 of 25 different pairs. The false merge was the same leaf under two parents (a work-area prefix on one and none on the other), which is arguably the owner's call.
+
+**Conclusion.** Normalise first: it is cheap, deterministic, and catches most of the seed's duplicates. Run the embedding check only for what survives normalisation.
+
+**Recommendation**
+1. Pipeline: normalise (lowercase, strip `#`, split on `/` and keep the leaf, strip punctuation and hyphens, singularise) → exact match against tags and aliases → embedding check.
+2. Embed `name + one-line description` for each tag, not the bare name. Short single tokens (`llm`, `ai`) sit in a crowded neighbourhood in text-embedding-3-small, and hiring/interviewing-type pairs are the case where a description helps separate them. Bare names are unverified. Test both once a key exists.
+3. Threshold (unmeasured prior, not a result): auto-merge at >= 0.90, queue for owner confirmation between 0.80 and 0.90, treat as new below 0.80. Rung 2c should ship the thresholds as config, plus the queue, rather than a hard-coded merge.
+4. To close S9: a key in 1Password, then embed about 120 tags plus descriptions (under 5k tokens, under $0.001), score the labelled pairs, and fill in P/R from 0.70 to 0.95. I can rerun this with the same pairs.
+
+### S6 result (2026-10-16)
+
+**What the context builder reads** (`packages/backend/convex/lib/marginaliaContext.ts` at d1d580f):
+- Article text capped at 120,000 chars (`MAX_ARTICLE_CHARS`), split into up to 12 sections (min 3,000 chars each). Each section is embedded and vector-searched in `noteChunks` (8 per section, floor 0.5, max 12 chunks, max 2 per note) and in `userNotes`, `highlights` and `companionThreads` (5 per section, floor 0.45, max 5 of each, other articles only).
+- Plus the reader's own highlights, notes and threads on this article (10/10/8 caps), and today's date, publish date and source.
+- The vault search is per library (`userId` filter), and nothing in the context depends on the article's annotation status.
+
+**Which signals change what the model sees**
+- Change the output: new or edited `userNotes` (has `updatedAt`), `companionThreads` (`updatedAt`; a kept thread has `keptAt`), new highlights on this article, and newly indexed vault chunks (`noteChunks.indexedAt`).
+- Change often but rarely matter: library article count (an import adds an article but only matters if it is related; its notes and highlights are not yet there); `userNotes`/threads on unrelated topics.
+- Gaps: `highlights` has `createdAt` only, no `updatedAt`, so edits and deletions are invisible to a max-timestamp; pair it with a count. `noteChunks` deletions have the same problem.
+
+**Recommendation: two layers.**
+1. Cheap gate (decides whether to run retrieval at all), stored on `articles`: `marginaliaFingerprint { notesMax, threadsMax, highlightsMax, highlightsCount, vaultIndexedMax, passAt }`, a handful of numbers read from existing indexes (`by_user_recent` on notes). Skip if equal. Not a library article count.
+2. Precise gate (runs after retrieval, still before the model call): hash the *ids retrieved* for the upcoming section (sorted vault chunk ids, note ids, highlight ids, thread ids plus their `updatedAt`), compare with `articles.marginaliaContextHash`. This catches the case where the fingerprint moved but the retrieval for this section did not. Retrieval costs embeddings only (about $0.02 per 1M tokens, negligible).
+- Store both on `articles` (or a small `marginaliaPasses` table if per-section state is wanted, which I recommend for per-section triggers: key by `articleId + sectionIndex`).
+
+**Cost of today's import call** (default annotations chain is `openrouter:anthropic/claude-haiku-5.5`, then `anthropic:claude-haiku-5-5`, then `openai:gpt-6-luna`; `lib/providers.ts`, `ROLE_DEFAULTS`). Prices are not in the code. From the claude-api skill model table (cached 2026-10-06): Haiku 5.5 $0.10 in / $0.50 out per 1M tokens up to a 100K-token prompt ($0.50/$2.50 beyond), Sonnet 5.5 $2 / $10. OpenRouter adds its own fee, which I did not model.
+- Article length (2,188 articles with content; 2,032 with 100+ words, the annotation floor): median 1,358 words, 75th percentile 2,338, 90th 3,910, 99th 11,230; about 6.0 chars/word in the stored text; 8 articles exceed the 120k-char cap.
+- Token estimates: chars/4. System prompt 3,366 chars (about 840 tokens). Context 1.8k tokens typical (4 vault chunks of about 1,260 chars mean plus 3 short items) to 5.2k tokens full. Output assumed 1.5k visible plus 2k adaptive-thinking tokens (an assumption: I did not measure real output usage).
+- Input tokens per article: mean 5.7k (typical context) to 9.2k (full), p90 8.8k to 12.2k, max 33k to 36k.
+- Cost per article on Haiku 5.5: about $0.0023 mean to $0.0027 (full context), max $0.005. Backlog of 2,032 articles: about $4.70 to $5.40. Sonnet 5.5 for comparison: about $0.047 to $0.053 per article (about $95 to $108 for the backlog). Output tokens are about 45% of the Haiku cost, so the output assumption matters.
+- Reading-time pass: next section about 2.5k words (about 3.75k tokens) + outline (about 500) + system + context re-retrieved for that section only (1.8k to 5.2k) + about 400 instructions = about 7.3k to 10.7k input tokens; output 0.7k visible + 1k thinking. Haiku 5.5: about $0.0016 to $0.0019 per pass. Sonnet 5.5: about $0.032 to $0.038. A full read of a median article in section passes (about 1 to 2 passes) is therefore about the same cost as today's one-shot call, since the saving on input is offset by repeating the system prompt and context each time. On Haiku, 10 passes a day is about $0.02.
+- Prompt caching would help the reading pass: system prompt plus outline is a stable prefix (Haiku 5.5 cache-read price not in the skill table; Sonnet 5.5 is $0.20/M). I did not model it.
+
+**Recommended trigger and budget**
+- Trigger per section, not on open: when the reader's scroll reaches about 40% of the current section, queue the next section's pass; do it only if the cheap fingerprint changed or this section has no pass yet. On open alone wastes the call on readers who bounce; a fixed 40% of the whole article repeats the import pass.
+- Budget rule: cap at N passes per article (suggest 8) and a daily spend cap (suggest $0.25 on Haiku, which allows about 130 passes), counted in the table above. When the budget is hit, stop quietly and show nothing rather than an error. Pass results go to the existing annotation quality gate unchanged.
+- Rung 2f should keep the model on Haiku 5.5: Sonnet is about 20x the cost per pass.
+
+**Not verified:** real output token counts (needs a usage log from the import action); OpenRouter pricing for `anthropic/claude-haiku-5.5`; Haiku cache-read price; whether import runs have the vault context populated for most articles (annotated: 134 of 2,202 rows; 1,855 skipped, 213 failed in the snapshot).
