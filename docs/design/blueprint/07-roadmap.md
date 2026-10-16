@@ -24,13 +24,13 @@
 | 2d | Links wait for me, and saved things come back | Done: live; link menu verified |
 | 2e | The summary reads in layers | Done: live at `4c46980` |
 | 2c | A critical friend in the margin | Done: live at `a2d16bc`; 111 short unread articles re-annotated. Failed first annotations now retry (`800263e`) |
-| 2f | It reads alongside me, and doesn't repeat itself | Planned (S6 first) |
-| 3b | I bring my own (PDF) | Built; in review |
+| 2f | It reads alongside me, and doesn't repeat itself | S6 done; backend in progress; comp awaiting approval |
+| 3b | I bring my own (PDF) | Done: live at `28e29c3`, book parts regrouped at `574a233`. Book per-part summaries and passage embeddings (S8) not built |
 | 4 | Four rooms | Done: live at `27cce50` |
 | 5 | Notes is my commonplace book | Done: live at `6730c0b` |
 | 5b | Your reading: stats and dictionary | Done: live at `efea4a4` |
-| 5c | It learns what I'd read | Planned |
-| 5d | My ideas, connected | Built; in review |
+| 5c | It learns what I'd read | Comp awaiting approval |
+| 5d | My ideas, connected | Done: live at `09a1e2c`, edge polish `0f4c280` |
 | 6 | Settings are quiet | Done: live at `e1c0e30` |
 | 7 | It flies | S1 done; comp awaiting approval |
 
