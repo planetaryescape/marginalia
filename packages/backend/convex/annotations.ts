@@ -215,10 +215,10 @@ export const replaceForArticle = internalMutation({
       });
     }
 
+    // The backfill's claim is released by the run that holds it
+    // (releaseClaim), never here: this run may be older than a newer claim
     await ctx.db.patch("articles", args.articleId, {
       annotationVersion: CURRENT_ANNOTATION_VERSION,
-      // Done: the backfill's claim on this article ends with the new margin
-      reannotateClaimedAt: undefined,
     });
     await setAnnotationStatus(ctx, args.articleId, "annotated");
   },

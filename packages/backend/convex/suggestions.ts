@@ -26,7 +26,11 @@ type Offered = (typeof OFFERED)[number];
 
 // Deferred articles are long and each read is a whole document with its body,
 // so fewer of them are read per side.
-const DEFERRED_NEIGHBOURS = 6;
+const DEFERRED_NEIGHBOURS = 4;
+// Failed articles are few and also long-bodied. With 12 annotated, 4 deferred
+// and 2 failed per side, the query reads 36 whole articles, as it did with two
+// statuses, which keeps it under the 16 MiB read limit.
+const FAILED_NEIGHBOURS = 2;
 
 type Reader = { db: DatabaseReader; readerId: string };
 
@@ -74,7 +78,12 @@ export const forWindow = query({
     assertWindow(targetMinutes);
     const reads = await Promise.all(
       OFFERED.flatMap((status) => {
-        const limit = status === "annotated" ? NEIGHBOURS : DEFERRED_NEIGHBOURS;
+        const limit =
+          status === "annotated"
+            ? NEIGHBOURS
+            : status === "deferred"
+              ? DEFERRED_NEIGHBOURS
+              : FAILED_NEIGHBOURS;
         return [
           shorterOrEqual(ctx, status, targetMinutes, limit),
           longer(ctx, status, targetMinutes, limit),
