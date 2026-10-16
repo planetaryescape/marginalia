@@ -702,13 +702,16 @@ export function Sidenotes({
                       {kind && (
                         <i className="sidenote-dot" aria-hidden="true" />
                       )}
-                      {label}
-                      {detail?.family && (
-                        <span className="sidenote-family">
-                          {" · "}
-                          {detail.family}
-                        </span>
-                      )}
+                      {/* One run of text, so a long label wraps with its family instead of beside it */}
+                      <span className="min-w-0">
+                        {label}
+                        {detail?.family && (
+                          <span className="sidenote-family">
+                            {" · "}
+                            {detail.family}
+                          </span>
+                        )}
+                      </span>
                     </span>
                     <span className="sidenote-text" id={textId(entry.key)}>
                       {entry.text}
