@@ -34,3 +34,9 @@ The picker now posts `library/find` and `library/search` straight to `${NEXT_PUB
 - Auth is unchanged: `signedInReader` resolves `ctx.auth` from the Bearer JWT.
 - The proxy still serves companion, engagement and every other path, and remains the fallback for these two.
 - Local development (`localhost`) is not in the default origins, so it falls back to the proxy. Add the origin to `READER_ORIGINS` on a dev deployment to test the direct path.
+
+## Measured after the direct call, 2026-10-16 (`221f633`)
+
+The topic picker now calls `stoic-hare-718.eu-west-1.convex.site/api/library/find` directly (Resource Timing shows that host). Typing queries in the live desk, a run of `find` calls measured 1,421, 510, 798, 265, 137, 148, 142, 106 and 997 ms, read from Resource Timing. The cached calls took about 106 to 148 ms, against about 505 ms through the proxy. A query never seen before still pays for its embedding, about 0.8 to 1.4 s. Server-Timing isn't visible cross-origin without `Timing-Allow-Origin`, so these are browser-side durations only.
+
+What remains is the embedding call for a new query. Closing it needs a faster embedding provider or prediction, not transport.
