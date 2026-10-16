@@ -85,10 +85,11 @@ function Column({
   if (!guide) return <div />;
   return (
     <div>
-      <h2 className="mb-3 flex justify-between border-b border-[var(--reader-border-strong)] pb-1 font-serif text-[13px] font-semibold uppercase tracking-[0.2em] text-[var(--reader-muted)]">
-        <span>{guide[0].slice(0, 2)}</span>
-        <span>
-          {guide[0]} — {guide[1]}
+      <h2 className="mb-3 flex items-baseline justify-between gap-4 border-b border-[var(--reader-border-strong)] pb-1 font-serif text-[13px] font-semibold uppercase tracking-[0.2em] text-[var(--reader-muted)]">
+        <span className="shrink-0">{guide[0].slice(0, 2)}</span>
+        {/* A column of one headword has one guide word, as in print */}
+        <span className="min-w-0 truncate">
+          {guide[0] === guide[1] ? guide[0] : `${guide[0]} — ${guide[1]}`}
         </span>
       </h2>
       {entries.map((entry) => (
