@@ -180,6 +180,25 @@ async function stampPage(
     });
 }
 
+/**
+ * Repair: clears a stored colour so the mark follows the reader's default
+ * again. Used once on 2026-10-16 to undo marks stamped from a test browser
+ * whose default was not the reader's own.
+ */
+export const clearStoredColour = internalMutation({
+  args: { userId: v.string(), ids: v.array(v.id("highlights")) },
+  handler: async (ctx, args) => {
+    let cleared = 0;
+    for (const id of args.ids.slice(0, 200)) {
+      const row = await ctx.db.get("highlights", id);
+      if (row?.userId !== args.userId || row.color === undefined) continue;
+      await ctx.db.patch("highlights", id, { color: undefined });
+      cleared++;
+    }
+    return cleared;
+  },
+});
+
 export const remove = mutation({
   args: { highlightId: v.id("highlights") },
   handler: async (ctx, args) => {
