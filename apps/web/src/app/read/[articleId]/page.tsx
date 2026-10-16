@@ -151,6 +151,10 @@ export default function ReadPage() {
   const closeLeavingLink = useCallback(() => setLeavingLink(null), []);
   const [backMatter, setBackMatter] = useState<HTMLElement | null>(null);
   const backMatterInView = useIsIntersecting(backMatter);
+  // Front matter: the Summary's body covers the text, so the Ask pill steps aside only while it is open
+  const [frontMatter, setFrontMatter] = useState<HTMLElement | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const frontMatterInView = useIsIntersecting(summaryOpen ? frontMatter : null);
 
   const createNote = useMutation(api.userNotes.create);
   const { settings, update: updateSettings, resetText } = useReaderSettings();
@@ -911,15 +915,18 @@ export default function ReadPage() {
           </header>
 
           {(!isBook || summary) && (
-            <SummaryPanel
-              articleId={articleId as any}
-              title={article.title}
-              wordCount={article.wordCount}
-              summary={summary}
-              containerRef={articleRef}
-              onJump={jumpToParagraph}
-              canGenerate={!isBook}
-            />
+            <div ref={setFrontMatter}>
+              <SummaryPanel
+                articleId={articleId as any}
+                title={article.title}
+                wordCount={article.wordCount}
+                summary={summary}
+                containerRef={articleRef}
+                onJump={jumpToParagraph}
+                canGenerate={!isBook}
+                onExpandedChange={setSummaryOpen}
+              />
+            </div>
           )}
           <ArticleRenderer
             content={article.content ?? ""}
@@ -1088,6 +1095,7 @@ export default function ReadPage() {
               activeAnnotation ||
               notesPanelOpen ||
               backMatterInView ||
+              frontMatterInView ||
               listen.active ||
               saveError,
           )}

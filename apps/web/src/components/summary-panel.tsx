@@ -4,7 +4,7 @@ import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { ArrowRight, ChevronDown, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { modelName } from "@/lib/models";
 import { getArticleBody, getParagraphs, paragraphText } from "@/lib/paragraphs";
 import { useCommand } from "@/lib/shortcuts";
@@ -129,6 +129,7 @@ export function SummaryPanel({
   containerRef,
   onJump,
   canGenerate = true,
+  onExpandedChange,
 }: {
   articleId: Id<"articles">;
   title: string;
@@ -138,12 +139,18 @@ export function SummaryPanel({
   onJump: (index: number) => void;
   /** False for a book: its one point is written once, and a map of the part on screen would replace it. */
   canGenerate?: boolean;
+  /** Tells the reader when the body is unfolded, so the Ask pill can step aside for it. */
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const generate = useAction(api.actions.summarize.generate);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // A stored summary starts folded on later visits; a fresh one opens
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    onExpandedChange?.(expanded);
+    return () => onExpandedChange?.(false);
+  }, [expanded, onExpandedChange]);
   const [layers, setLayers] = useState<Layers>(
     () => openLayers.get(articleId) ?? NO_LAYERS,
   );

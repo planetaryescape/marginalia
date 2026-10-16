@@ -172,6 +172,33 @@ describe("SummaryPanel layers", () => {
   });
 });
 
+describe("SummaryPanel open state", () => {
+  it("reports when the body unfolds and folds, so the reader can hide the Ask pill", async () => {
+    const onExpandedChange = vi.fn();
+    const openId = "article-expanded-report" as Id<"articles">;
+    await act(async () =>
+      root.render(
+        <SummaryPanel
+          articleId={openId}
+          title="A saved article"
+          wordCount={120}
+          summary={summaryWithMap}
+          containerRef={{ current: container } as RefObject<HTMLElement>}
+          onJump={vi.fn()}
+          onExpandedChange={onExpandedChange}
+        />,
+      ),
+    );
+    expect(onExpandedChange).toHaveBeenLastCalledWith(false);
+
+    await click(button("Summary"));
+    expect(onExpandedChange).toHaveBeenLastCalledWith(true);
+
+    await click(button("Summary"));
+    expect(onExpandedChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
 describe("IdeaMap", () => {
   it("jumps to a paragraph from an idea's detail", async () => {
     const onJump = vi.fn();
