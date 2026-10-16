@@ -187,7 +187,7 @@ export default function ReadPage() {
         _id: a.id,
         selection: a.selection,
         paragraphIndex: a.paragraphIndex ?? undefined,
-        marked: Boolean(a.savedId) || marginMode !== "sidenotes",
+        marked: Boolean(a.savedId || a.legacyId) || marginMode !== "sidenotes",
       })),
       ...(savedThreads ?? [])
         .filter(
@@ -972,6 +972,7 @@ export default function ReadPage() {
         pendingSelection={pendingSelection}
         onClearSelection={() => setPendingSelection(null)}
         onJump={jumpToParagraph}
+        onAnswerDeleted={companion.forget}
       />
     </>
   );

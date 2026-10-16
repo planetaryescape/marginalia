@@ -33,21 +33,33 @@ describe("answerNotes", () => {
     });
   });
   it("marks a kept answer and lists kept answers from earlier visits", () => {
-    const notes = answerNotes([live({ savedId: "t9" as never })], [saved({})]);
+    const notes = answerNotes(
+      [live({ savedId: "t9" as never })],
+      [saved({ keptAt: 5 })],
+    );
     expect(notes.map((n) => [n.id, n.label])).toEqual([
       ["u1", "Define · kept"],
       ["t1", "Define · kept"],
     ]);
   });
-  it("never shows one answer twice", () => {
+  it("never shows one answer twice: identity is the answer's id", () => {
     expect(
       answerNotes([live({ savedId: "t1" as never })], [saved({})]),
     ).toHaveLength(1);
-    // Kept as the page refreshed: the temporary copy and the record are one answer
-    expect(answerNotes([live({})], [saved({})])).toHaveLength(1);
-    expect(
-      answerNotes([live({})], [saved({ selection: "other" })]),
-    ).toHaveLength(2);
+    expect(answerNotes([live({ id: "t1" })], [saved({})])).toHaveLength(1);
+  });
+  it("shows a fresh answer to a passage and question that a kept answer already covers", () => {
+    const notes = answerNotes(
+      [live({ status: "streaming" })],
+      [saved({ keptAt: 5 })],
+    );
+    expect(notes.map((n) => [n.id, n.label])).toEqual([
+      ["u1", "Define"],
+      ["t1", "Define · kept"],
+    ]);
+  });
+  it("does not call a thread saved before Keep existed kept", () => {
+    expect(answerNotes([], [saved({})])[0].label).toBe("Define");
   });
   it("labels a question about the whole article", () => {
     const [note] = answerNotes(

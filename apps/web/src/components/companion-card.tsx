@@ -59,6 +59,8 @@ export function CompanionCard({
   const { label, Icon } = MODES[thread.mode];
   const streaming = thread.status === "streaming";
   const kept = Boolean(thread.savedId);
+  // Kept now, or saved automatically before answers became temporary
+  const saved = kept || Boolean(thread.legacyId);
   const transcript = thread.turns
     .filter((t) => t.role === "assistant")
     .map((t) => t.content.trim())
@@ -179,9 +181,10 @@ export function CompanionCard({
           <button
             type="button"
             onClick={onDelete}
+            disabled={thread.keeping}
             className={cardIconButton}
-            title={kept ? "Delete the kept answer" : "Dismiss"}
-            aria-label={kept ? "Delete the kept answer" : "Dismiss"}
+            title={saved ? "Delete the saved answer" : "Dismiss"}
+            aria-label={saved ? "Delete the saved answer" : "Dismiss"}
           >
             <Trash2 size={14} />
           </button>

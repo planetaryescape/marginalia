@@ -80,7 +80,7 @@ afterEach(async () => {
   mocks.removeNote.mockReset();
 });
 
-async function render() {
+async function render(onAnswerDeleted?: (id: string) => void) {
   await act(async () =>
     root.render(
       <NotesPanel
@@ -89,6 +89,7 @@ async function render() {
         onClose={() => {}}
         pendingSelection={null}
         onClearSelection={() => {}}
+        onAnswerDeleted={onAnswerDeleted}
       />,
     ),
   );
@@ -132,35 +133,35 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     expect(answerLines()).toHaveLength(0);
   });
 
-  it("folds the old Add-to-notes copy by its shape", async () => {
+  it("folds the old Add-to-notes copy when a saved thread on that passage confirms it", async () => {
     mocks.notes = [
       note({
         _id: "n2",
-        selectedText: "a tarn",
+        selectedText: "tarn",
         content: "<h3>Define</h3><p>A small mountain lake.</p>",
         contentPlain: "Define\n\nA small mountain lake.",
       }),
     ];
+    mocks.threads = [thread({})];
     await render();
     expect(host.querySelector('[data-hand="pen"]')).toBeNull();
     expect(answerLines()[0].textContent).toContain("Define");
   });
 
-  it("recognises a question heading only when a saved thread asked it", async () => {
-    const copy = note({
-      _id: "n3",
-      selectedText: "a tarn",
-      content: "<h3>What is a tarn?</h3><p>A lake.</p>",
-      contentPlain: "What is a tarn?\n\nA lake.",
-    });
-    mocks.notes = [copy];
+  it("keeps a reader's note under a mode-name heading as the reader's own when nothing confirms it", async () => {
+    mocks.notes = [
+      note({
+        _id: "n2",
+        selectedText: "tarn",
+        content: "<h3>Explain</h3><p>My own reading of it.</p>",
+        contentPlain: "Explain\n\nMy own reading of it.",
+      }),
+    ];
+    // A Define thread on the same words does not vouch for an Explain heading
+    mocks.threads = [thread({})];
     await render();
     expect(answerLines()).toHaveLength(0);
-    mocks.threads = [
-      thread({ mode: "ask", question: "What is a tarn?", selection: "a tarn" }),
-    ];
-    await render();
-    expect(answerLines()[0].textContent).toContain("Ask");
+    expect(host.querySelector('[data-hand="pen"]')).not.toBeNull();
   });
 
   it("keeps your own note that opens with a heading as yours", async () => {
@@ -175,14 +176,16 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     expect(host.querySelector('[data-hand="pen"]')).not.toBeNull();
   });
 
-  it("deletes a kept answer by removing its thread", async () => {
+  it("deletes a kept answer by removing its thread and tells the margin", async () => {
     mocks.threads = [thread({ keptAt: 5000 })];
-    await render();
+    const deleted = vi.fn();
+    await render(deleted);
     await act(async () => answerLines()[0].click());
     const del = Array.from(host.querySelectorAll("button")).find(
       (b) => b.textContent === "Delete",
     ) as HTMLElement;
     await act(async () => del.click());
     expect(mocks.removeThread).toHaveBeenCalledWith({ threadId: "t1" });
+    expect(deleted).toHaveBeenCalledWith("t1");
   });
 });

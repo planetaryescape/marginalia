@@ -596,3 +596,144 @@ describe("Define leaves a lookup", () => {
     expect(latest.thread?.status).toBe("done");
   });
 });
+
+describe("older automatically saved threads", () => {
+  const legacy = {
+    _id: "old-thread",
+    mode: "explain" as const,
+    selection: "tarn",
+    paragraphIndex: 1,
+    turns: [{ role: "assistant" as const, content: "A lake." }],
+    model: "test/model",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  it("loads as a temporary copy: follow-ups never reach the server without Keep", async () => {
+    await mount();
+    await act(async () => latest.open(legacy as never));
+    expect(latest.thread?.savedId).toBeUndefined();
+    await act(async () => latest.followUp("Is it deep?"));
+    await finish("Not very.");
+    expect(latest.thread?.turns).toHaveLength(3);
+    expect(mocks.updateTurns).not.toHaveBeenCalled();
+    expect(mocks.keepThread).not.toHaveBeenCalled();
+    expect(mocks.createThread).not.toHaveBeenCalled();
+  });
+
+  it("is upgraded by Keep, which then owns its follow-ups", async () => {
+    await mount();
+    await act(async () => latest.open(legacy as never));
+    let kept = false;
+    await act(async () => {
+      kept = await latest.keep(latest.answers[0].id);
+    });
+    expect(kept).toBe(true);
+    expect(mocks.keepThread).toHaveBeenCalledTimes(1);
+    expect(latest.answers[0]).toMatchObject({
+      savedId: "thread-1",
+      legacyId: undefined,
+    });
+  });
+
+  it("deleting it deletes the row, or it would come straight back", async () => {
+    await mount();
+    await act(async () => latest.open(legacy as never));
+    await act(async () => latest.remove("old-thread"));
+    expect(mocks.removeThread).toHaveBeenCalledWith({ threadId: "old-thread" });
+  });
+});
+
+describe("the back/forward cache", () => {
+  const pageshow = (persisted: boolean) =>
+    act(async () => {
+      const event = new Event("pageshow");
+      Object.defineProperty(event, "persisted", { value: persisted });
+      window.dispatchEvent(event);
+    });
+
+  it("drops unkept answers, in memory and stored, when the page is restored from it", async () => {
+    await mount();
+    await ask();
+    await finish("One.");
+    await ask();
+    await finish("Two.", 1);
+    await act(async () => {
+      await latest.keep(latest.answers[1].id);
+    });
+    await pageshow(true);
+    expect(latest.answers.map((a) => a.savedId)).toEqual(["thread-1"]);
+    expect(stored()).toEqual([]);
+  });
+
+  it("leaves answers alone on an ordinary page show, and a reload still restores them", async () => {
+    await mount();
+    await ask();
+    await finish("One.");
+    await pageshow(false);
+    expect(latest.answers).toHaveLength(1);
+    navigation("reload", "/read/a1");
+    await refresh();
+    await mount();
+    expect(latest.answers).toHaveLength(1);
+  });
+});
+
+describe("Dismiss while Keep is writing", () => {
+  it("does nothing, so no kept row is orphaned", async () => {
+    let finishKeep: (id: string) => void = () => {};
+    mocks.keepThread.mockReturnValue(
+      new Promise<string>((resolve) => {
+        finishKeep = resolve;
+      }),
+    );
+    await mount();
+    await ask();
+    await finish("One.");
+    const id = latest.answers[0].id;
+    await act(async () => {
+      void latest.keep(id);
+    });
+    await act(async () => latest.remove(id));
+    expect(latest.answers).toHaveLength(1);
+    await act(async () => finishKeep("thread-1"));
+    expect(latest.answers[0].savedId).toBe("thread-1");
+    // Once it has landed, deleting removes the record it made
+    await act(async () => latest.remove(id));
+    expect(mocks.removeThread).toHaveBeenCalledWith({ threadId: "thread-1" });
+  });
+});
+
+describe("forgetting a deleted record", () => {
+  it("drops a kept answer deleted elsewhere from the margin", async () => {
+    await mount();
+    await ask();
+    await finish("One.");
+    await act(async () => {
+      await latest.keep(latest.answers[0].id);
+    });
+    await act(async () => latest.forget("thread-1"));
+    expect(latest.answers).toEqual([]);
+    expect(latest.openId).toBeNull();
+  });
+});
+
+describe("the sentence of the occurrence that was selected", () => {
+  it("records the second 'bass', not the first", async () => {
+    article.innerHTML =
+      '<div data-article-body><p data-para="1">He caught a bass. She played the bass. Nobody cared.</p></div>';
+    const text = article.querySelector("p")?.firstChild as Text;
+    const second = text.data.lastIndexOf("bass");
+    const picked = document.createRange();
+    picked.setStart(text, second);
+    picked.setEnd(text, second + 4);
+    await mount();
+    await act(async () => latest.start({ mode: "define", range: picked }));
+    await settle();
+    await finish("bass: a low sound.");
+    expect(mocks.recordLookup.mock.calls[0][0]).toMatchObject({
+      word: "bass",
+      sentence: "She played the bass.",
+    });
+  });
+});

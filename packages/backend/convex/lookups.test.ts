@@ -78,6 +78,20 @@ describe("lookups", () => {
     ).toHaveLength(2);
   });
 
+  it('keeps C++ and C# apart but treats "elastic," and "elastic" as one word', async () => {
+    const { owner, articleId, t } = await fixture();
+    for (const word of ["C++", "C#", "elastic,", "(elastic)", "elastic"])
+      await owner.mutation(api.lookups.record, {
+        ...lookup(articleId),
+        word,
+        sentence: `About ${word}.`,
+      });
+    const keys = (await t.run((ctx) => ctx.db.query("lookups").collect())).map(
+      (row) => row.wordKey,
+    );
+    expect(keys).toEqual(["c++", "c#", "elastic", "elastic", "elastic"]);
+  });
+
   it("keeps the sense to a line", async () => {
     const { owner, articleId, t } = await fixture();
     await owner.mutation(api.lookups.record, {

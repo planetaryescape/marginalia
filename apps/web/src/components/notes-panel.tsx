@@ -40,6 +40,8 @@ interface NotesPanelProps {
   onClearSelection: () => void;
   /** Jumps to a ¶ cited in a kept answer. */
   onJump?: (index: number) => void;
+  /** A kept answer's record was deleted here; the margin must drop it too. */
+  onAnswerDeleted?: (recordId: string) => void;
 }
 
 /** What a kept answer shows once it is expanded. */
@@ -94,6 +96,7 @@ export function NotesPanel({
   pendingSelection,
   onClearSelection,
   onJump = () => {},
+  onAnswerDeleted,
 }: NotesPanelProps) {
   const notes = useQuery(api.userNotes.listByArticle, {
     // SAFETY: the caller passes an article route ID; Convex's v.id validator enforces the table at the boundary.
@@ -241,9 +244,10 @@ export function NotesPanel({
 
   const handleDeleteAnswer = async (answer: KeptAnswer) => {
     try {
-      if (answer.kind === "thread")
+      if (answer.kind === "thread") {
         await removeThread({ threadId: answer.thread._id });
-      else await removeNote({ noteId: answer.note._id });
+        onAnswerDeleted?.(answer.thread._id);
+      } else await removeNote({ noteId: answer.note._id });
     } catch {
       toast.error("Couldn't delete the answer. Try again.");
     }

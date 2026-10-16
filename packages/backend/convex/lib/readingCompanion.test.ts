@@ -79,6 +79,34 @@ describe("readingCompanion", () => {
       expect([...context.marked]).toEqual([2, 3, 4]);
     });
 
+    it("includes the next paragraph when the selection ends only a few characters into it", () => {
+      const long = [
+        "First paragraph that is comfortably long enough to matter here.",
+        "Second paragraph that is also comfortably long enough to matter.",
+        "Third paragraph, which the selection barely enters, and then goes on.",
+        "Fourth paragraph, untouched by the selection.",
+        "Fifth paragraph, well away.",
+      ];
+      const context = selectContext(
+        companionRequestSchema.parse({
+          mode: "explain",
+          title: "T",
+          paragraphs: long,
+          paragraphIndex: 1,
+          selection: "also comfortably long enough to matter. Thi",
+        }),
+      );
+      expect([...context.marked]).toEqual([1, 2]);
+      expect(context.indices).toEqual([0, 1, 2, 3]);
+    });
+
+    it("does not extend when the selection ends exactly at the paragraph's end", () => {
+      const context = selectContext(
+        request({ paragraphIndex: 4, selection: "Paragraph 4." }),
+      );
+      expect([...context.marked]).toEqual([4]);
+    });
+
     it("stops at the edges of the article", () => {
       expect(
         selectContext(request({ paragraphIndex: 0, selection: "Paragraph 0." }))

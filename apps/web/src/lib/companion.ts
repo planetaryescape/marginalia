@@ -5,13 +5,14 @@ import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  clearAnswers,
   leaveArticle,
   restoreAnswers,
   type StoredAnswer,
   stayOnArticle,
   writeAnswers,
 } from "./companion-session";
-import { senseOf, sentenceAround } from "./lookups";
+import { occurrencesBefore, senseOf, sentenceAround } from "./lookups";
 import {
   getArticleBody,
   getParagraphs,
@@ -48,6 +49,10 @@ export interface CompanionThread {
   model?: string | null;
   /** Keep has been pressed and the record is being written. */
   keeping?: boolean;
+  /** Which match of the selected words in its paragraph was selected. */
+  occurrence?: number;
+  /** A thread saved before answers became temporary: shown as a temporary copy until kept. */
+  legacyId?: Id<"companionThreads">;
 }
 
 /** A request the backend refused with a reason the reader can act on. */
@@ -104,6 +109,20 @@ export async function streamFromConvex(
   }
 }
 
+/** Which match of the selected words in its paragraph the range is. */
+function occurrenceOf(range: Range): number {
+  const paragraph = (
+    range.startContainer instanceof Element
+      ? range.startContainer
+      : range.startContainer.parentElement
+  )?.closest("[data-para]");
+  if (!paragraph) return 0;
+  const before = document.createRange();
+  before.selectNodeContents(paragraph);
+  before.setEnd(range.startContainer, range.startOffset);
+  return occurrencesBefore(before.toString(), range.toString());
+}
+
 /** Only a finished, unkept answer is held for a refresh. */
 const holdsForRefresh = (a: CompanionThread) =>
   a.status === "done" && !a.savedId && a.turns.length > 0;
@@ -116,16 +135,24 @@ const toStored = (a: CompanionThread): StoredAnswer => ({
   paragraphIndex: a.paragraphIndex,
   turns: a.turns,
   model: a.model ?? null,
+  occurrence: a.occurrence,
+  legacyId: a.legacyId,
 });
 
 const fromStored = (a: StoredAnswer): CompanionThread => ({
   ...a,
+  // SAFETY: only fromDoc sets legacyId, from a companionThreads document's own _id.
+  legacyId: a.legacyId as Id<"companionThreads"> | undefined,
   status: "done",
 });
 
 const fromDoc = (doc: Doc<"companionThreads">): CompanionThread => ({
   id: doc._id,
-  savedId: doc._id,
+  // Only an answer the reader chose to keep is a kept record. An older,
+  // automatically saved thread is a temporary copy: its follow-ups stay
+  // temporary, and Keep upgrades that same row.
+  savedId: doc.keptAt === undefined ? undefined : doc._id,
+  legacyId: doc.keptAt === undefined ? doc._id : undefined,
   mode: doc.mode,
   selection: doc.selection,
   question: doc.question,
@@ -207,6 +234,22 @@ export function useCompanion({
       for (const controller of running.values()) controller.abort();
       running.clear();
     };
+  }, [articleId, set, setOpenId]);
+
+  // Coming back from the back/forward cache restores the page as it was, but
+  // the reader left the article: its unkept answers are gone, as after any leave.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      clearAnswers(articleId);
+      for (const a of answersRef.current)
+        if (!a.savedId) controllers.current.get(a.id)?.abort();
+      set(answersRef.current.filter((a) => a.savedId));
+      if (!answersRef.current.some((a) => a.id === openIdRef.current))
+        setOpenId(null);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
   }, [articleId, set, setOpenId]);
 
   const run = useCallback(
@@ -311,6 +354,7 @@ export function useCompanion({
               ? ""
               : (paragraphs[base.paragraphIndex] ?? ""),
             base.selection,
+            base.occurrence,
           ),
           paragraphIndex: base.paragraphIndex ?? undefined,
           sense: senseOf(answer),
@@ -330,6 +374,7 @@ export function useCompanion({
           selection,
           question: args.question,
           paragraphIndex: paragraphIndexOf(args.range.startContainer),
+          occurrence: occurrenceOf(args.range),
           turns: [],
           status: "streaming",
         },
@@ -434,7 +479,11 @@ export function useCompanion({
           model: current.model ?? undefined,
         });
         // Saving it drops it from session storage: the record is now the copy.
-        patch(id, (t) => ({ ...t, savedId, keeping: false }), true);
+        patch(
+          id,
+          (t) => ({ ...t, savedId, legacyId: undefined, keeping: false }),
+          true,
+        );
         return true;
       } catch {
         patch(id, (t) => ({ ...t, keeping: false }));
@@ -450,6 +499,8 @@ export function useCompanion({
   const remove = useCallback(
     async (id: string) => {
       const current = answersRef.current.find((a) => a.id === id);
+      // Dismissing while Keep is writing would leave the new record behind.
+      if (!current || current.keeping) return;
       controllers.current.get(id)?.abort();
       controllers.current.delete(id);
       set(
@@ -457,9 +508,31 @@ export function useCompanion({
         true,
       );
       if (openIdRef.current === id) setOpenId(null);
-      if (current?.savedId) await removeThread({ threadId: current.savedId });
+      // Deleting an older saved answer deletes its row too, or it would return.
+      const recordId = current.savedId ?? current.legacyId;
+      if (recordId) await removeThread({ threadId: recordId });
     },
     [removeThread, set, setOpenId],
+  );
+
+  /** Drops an answer whose record was deleted elsewhere, such as in the notes pane. */
+  const forget = useCallback(
+    (recordId: string) => {
+      const gone = answersRef.current.filter(
+        (a) =>
+          a.id === recordId ||
+          a.savedId === recordId ||
+          a.legacyId === recordId,
+      );
+      if (!gone.length) return;
+      for (const a of gone) controllers.current.get(a.id)?.abort();
+      set(
+        answersRef.current.filter((a) => !gone.includes(a)),
+        true,
+      );
+      if (gone.some((a) => a.id === openIdRef.current)) setOpenId(null);
+    },
+    [set, setOpenId],
   );
 
   return {
@@ -475,6 +548,7 @@ export function useCompanion({
     regenerate,
     keep,
     remove,
+    forget,
   };
 }
 

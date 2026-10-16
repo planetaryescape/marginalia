@@ -112,3 +112,41 @@ it("keeps old clients working: create still saves a thread with no keptAt", asyn
   });
   expect(row.keptAt).toBeUndefined();
 });
+
+it("never shrinks a kept transcript when a stale tab keeps it again", async () => {
+  const t = await ownerTest(modules);
+  const articleId = await t.run((ctx) =>
+    ctx.db.insert("articles", {
+      userId: "default_user",
+      guid: "stale",
+      url: "https://example.com/stale",
+      title: "Markets",
+      extractionStatus: "extracted",
+      annotationStatus: "annotated",
+      createdAt: 1,
+    }),
+  );
+  const first = [{ role: "assistant" as const, content: "One." }];
+  const grown = [
+    ...first,
+    { role: "user" as const, content: "Why?" },
+    { role: "assistant" as const, content: "Because." },
+  ];
+  const base = {
+    articleId,
+    mode: "ask" as const,
+    selection: "x",
+    question: "q",
+    paragraphIndex: 0,
+  };
+  const id = await t.mutation(api.companionThreads.keep, {
+    ...base,
+    turns: grown,
+  });
+  await t.mutation(api.companionThreads.keep, { ...base, turns: first });
+  const [row] = await t.query(api.companionThreads.listByArticle, {
+    articleId,
+  });
+  expect(row._id).toBe(id);
+  expect(row.turns).toHaveLength(3);
+});

@@ -146,18 +146,46 @@ function passageStart(request: CompanionRequest): number | null {
   return found < 0 ? null : found;
 }
 
+/** Least text a selection must share with two paragraphs' edges to count as crossing between them. */
+const MIN_CROSSING = 12;
+
+/**
+ * Where the rest of a selection leaves `paragraph` for `next`: the selection
+ * so far ends the paragraph, and what follows is the start of the next one,
+ * however little of it. Returns that remainder, or null if it stays inside.
+ */
+function crossInto(rest: string, paragraph: string, next: string) {
+  for (let cut = Math.min(rest.length, paragraph.length); cut > 0; cut--) {
+    if (!paragraph.endsWith(rest.slice(0, cut))) continue;
+    const remainder = rest.slice(cut).trimStart();
+    if (!remainder) return null;
+    const shared = Math.min(remainder.length, next.length);
+    if (
+      shared > 0 &&
+      cut + shared >= MIN_CROSSING &&
+      next.startsWith(remainder.slice(0, shared))
+    )
+      return remainder;
+  }
+  return null;
+}
+
 /** The last paragraph of a passage that runs across several. */
 function passageEnd(request: CompanionRequest, start: number): number {
-  const selection = squash(request.selection);
   const last = Math.min(
     request.paragraphs.length - 1,
     start + MAX_PASSAGE_SPAN,
   );
+  let rest = squash(request.selection);
   let end = start;
-  // A selection that runs on into a paragraph contains that paragraph's opening.
   while (end < last) {
-    const head = squash(request.paragraphs[end + 1]).slice(0, 40);
-    if (!head || !selection.includes(head)) break;
+    const remainder = crossInto(
+      rest,
+      squash(request.paragraphs[end]),
+      squash(request.paragraphs[end + 1]),
+    );
+    if (remainder === null) break;
+    rest = remainder;
     end++;
   }
   return end;

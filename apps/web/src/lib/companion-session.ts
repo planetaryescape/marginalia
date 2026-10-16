@@ -1,23 +1,24 @@
-import type { CompanionMode, CompanionTurn } from "./companion";
+import { z } from "zod";
+
+const turnSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+});
 
 /** An unkept answer as it is held for the length of one visit to an article. */
-export interface StoredAnswer {
-  id: string;
-  mode: CompanionMode;
-  selection: string;
-  question?: string;
-  paragraphIndex: number | null;
-  turns: CompanionTurn[];
-  model: string | null;
-}
+const storedAnswerSchema = z.object({
+  id: z.string(),
+  mode: z.enum(["explain", "simplify", "define", "ask", "article"]),
+  selection: z.string(),
+  question: z.string().optional(),
+  paragraphIndex: z.number().nullable(),
+  turns: z.array(turnSchema).min(1),
+  model: z.string().nullable(),
+  occurrence: z.number().optional(),
+  legacyId: z.string().optional(),
+});
 
-const MODES: readonly string[] = [
-  "explain",
-  "simplify",
-  "define",
-  "ask",
-  "article",
-];
+export type StoredAnswer = z.infer<typeof storedAnswerSchema>;
 
 const keyFor = (articleId: string) => `marginalia:answers:${articleId}`;
 
@@ -30,37 +31,16 @@ function store(): Storage | null {
   }
 }
 
-function isTurn(value: unknown): value is CompanionTurn {
-  if (typeof value !== "object" || value === null) return false;
-  const turn = value as Record<string, unknown>;
-  return (
-    (turn.role === "user" || turn.role === "assistant") &&
-    typeof turn.content === "string"
-  );
-}
-
-function isStored(value: unknown): value is StoredAnswer {
-  if (typeof value !== "object" || value === null) return false;
-  const a = value as Record<string, unknown>;
-  return (
-    typeof a.id === "string" &&
-    typeof a.mode === "string" &&
-    MODES.includes(a.mode) &&
-    typeof a.selection === "string" &&
-    (a.question === undefined || typeof a.question === "string") &&
-    (a.paragraphIndex === null || typeof a.paragraphIndex === "number") &&
-    Array.isArray(a.turns) &&
-    a.turns.length > 0 &&
-    a.turns.every(isTurn) &&
-    (a.model === null || typeof a.model === "string")
-  );
-}
-
 export function readAnswers(articleId: string): StoredAnswer[] {
   try {
     const raw = store()?.getItem(keyFor(articleId));
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter(isStored) : [];
+    const parsed = z.array(z.unknown()).safeParse(raw ? JSON.parse(raw) : []);
+    if (!parsed.success) return [];
+    // One damaged entry must not cost the reader the rest.
+    return parsed.data.flatMap((entry) => {
+      const answer = storedAnswerSchema.safeParse(entry);
+      return answer.success ? [answer.data] : [];
+    });
   } catch {
     return [];
   }
@@ -104,6 +84,7 @@ export function isRefreshOf(
 
 export function restoreAnswers(articleId: string): StoredAnswer[] {
   if (typeof performance === "undefined") return [];
+  // SAFETY: entries of type "navigation" are PerformanceNavigationTiming by definition.
   const entry = performance.getEntriesByType("navigation")[0] as
     | PerformanceNavigationTiming
     | undefined;

@@ -10,12 +10,12 @@ const collapse = (text: string) => text.replace(/\s+/g, " ").trim();
 const clip = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 
-/** "Elastic," and "elastic" are the same dictionary headword. */
+/** Quotes, brackets and sentence punctuation around a term; `+ # . -` inside or after it are part of the term. */
+const AROUND = /^[\s.,;:!?"'“”‘’()[\]{}<>«»]+|[\s.,;:!?"'“”‘’()[\]{}<>«»]+$/g;
+
+/** "Elastic," and "elastic" are one headword; "C++" and "C#" are not. */
 export function wordKeyOf(word: string) {
-  return word
-    .toLowerCase()
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
-    .trim();
+  return word.toLowerCase().replace(AROUND, "");
 }
 
 /**

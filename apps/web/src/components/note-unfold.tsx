@@ -8,7 +8,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { type AnnotationKind, KINDS, plainNote } from "@/lib/margin-kinds";
-import { getArticleBody, getParagraphs } from "@/lib/paragraphs";
+import {
+  getArticleBody,
+  getParagraphs,
+  UI_HOST_ATTRIBUTE,
+} from "@/lib/paragraphs";
 
 export interface UnfoldAnnotation {
   _id: string;
@@ -60,6 +64,8 @@ function useUnfoldHost(
     }
     const el = document.createElement("div");
     el.className = "note-unfold-host";
+    // Never numbered as a paragraph, searched, or used as an insertion anchor.
+    el.setAttribute(UI_HOST_ATTRIBUTE, "");
     el.dataset.annotationId = id;
     if (position === "after") block.after(el);
     else block.before(el);

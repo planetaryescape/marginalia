@@ -105,13 +105,17 @@ export const keep = mutation({
         createdAt: now,
         updatedAt: now,
       }));
-    if (existing)
+    if (existing) {
+      // A stale tab may hold fewer turns than the record has grown to; never
+      // shrink a kept transcript.
+      const stale = args.turns.length < existing.turns.length;
       await ctx.db.patch("companionThreads", existing._id, {
-        turns: args.turns,
-        model: args.model,
+        turns: stale ? existing.turns : args.turns,
+        model: stale ? existing.model : args.model,
         keptAt: existing.keptAt ?? now,
         updatedAt: now,
       });
+    }
     await ctx.scheduler.runAfter(
       0,
       internal.actions.embedReaderActivity.embedThread,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { senseOf, sentenceAround } from "./lookups";
+import { occurrencesBefore, senseOf, sentenceAround } from "./lookups";
 
 describe("sentenceAround", () => {
   const paragraph =
@@ -18,6 +18,24 @@ describe("sentenceAround", () => {
   it("falls back to the paragraph when the word cannot be found", () => {
     expect(sentenceAround(paragraph, "glacier")).toBe(paragraph);
     expect(sentenceAround("", "tarn")).toBe("");
+  });
+});
+
+describe("a word that repeats in a paragraph", () => {
+  const paragraph = "He caught a bass. She played the bass. Nobody cared.";
+  it("takes the sentence of the occurrence that was selected", () => {
+    expect(sentenceAround(paragraph, "bass", 0)).toBe("He caught a bass.");
+    expect(sentenceAround(paragraph, "bass", 1)).toBe("She played the bass.");
+  });
+  it("counts the matches before the selection", () => {
+    expect(occurrencesBefore("He caught a ", "bass")).toBe(0);
+    expect(occurrencesBefore("He caught a bass. She played the ", "bass")).toBe(
+      1,
+    );
+    expect(occurrencesBefore("", "bass")).toBe(0);
+  });
+  it("falls back to the first match for an occurrence that is not there", () => {
+    expect(sentenceAround(paragraph, "bass", 9)).toBe("He caught a bass.");
   });
 });
 
