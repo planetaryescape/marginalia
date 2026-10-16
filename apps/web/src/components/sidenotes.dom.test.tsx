@@ -122,6 +122,9 @@ const all = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)];
 const render = async (ui: React.ReactElement) =>
   act(async () => root.render(ui));
 
+// Each slot animation reports this as finished; a test can hold it open to keep a shrink in progress.
+let animationFinished: Promise<void> = Promise.resolve();
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   reducedMotion = false;
@@ -202,13 +205,14 @@ beforeEach(() => {
     },
   });
   animations.length = 0;
+  animationFinished = Promise.resolve();
   (HTMLElement.prototype as unknown as { animate: unknown }).animate =
     function (this: HTMLElement, keyframes: Keyframe[], options: unknown) {
       animations.push({ el: this, keyframes, options });
       return {
         cancel() {},
         playState: "finished",
-        finished: Promise.resolve(),
+        finished: animationFinished,
       };
     };
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
@@ -674,5 +678,36 @@ describe("the open card in the column", () => {
     await render(<Column openId="a2" cardHeight={300} />);
     expect(animations).toHaveLength(0);
     expect(tops().a3).toBe("612px");
+  });
+
+  it("keeps a closed note's card mounted, fading, until its slot has shrunk", async () => {
+    await render(<Column openId="a2" />);
+    let finishShrink!: () => void;
+    const shrinking = new Promise<void>((resolve) => {
+      finishShrink = resolve;
+    });
+    animationFinished = shrinking;
+    await render(<Column openId={null} />);
+    const note = q('[data-key="a:a2"]') as HTMLElement;
+    expect(
+      note.querySelector(".sidenote-card-closing [data-card-height]"),
+    ).not.toBeNull();
+    // The collapsed text stays hidden, not removed, so the slot measures it as it shrinks
+    expect(
+      note.querySelector<HTMLElement>(".sidenote-hit")?.style.visibility,
+    ).toBe("hidden");
+    await act(async () => finishShrink());
+    expect(note.querySelector(".sidenote-card-closing")).toBeNull();
+    expect(
+      note.querySelector<HTMLElement>(".sidenote-hit")?.style.visibility,
+    ).toBe("");
+  });
+
+  it("unmounts the card at once under reduced motion", async () => {
+    await render(<Column openId="a2" />);
+    reducedMotion = true;
+    await render(<Column openId={null} />);
+    expect(q('[data-key="a:a2"] .sidenote-card')).toBeNull();
+    expect(q('[data-key="a:a2"] .sidenote-card-closing')).toBeNull();
   });
 });

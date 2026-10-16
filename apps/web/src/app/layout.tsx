@@ -14,6 +14,7 @@ import { InteractionFeedback } from "@/components/interaction-feedback";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { PageTransitions } from "@/components/page-transitions";
 import { PwaRuntime } from "@/components/pwa-runtime";
+import { ReaderRoomMemory } from "@/components/reader-room-memory";
 import { ConvexClientProvider } from "@/lib/convex";
 import "./globals.css";
 import "@planetaryescape/reader/reader.css";
@@ -132,6 +133,7 @@ export default function RootLayout({
           <PwaRuntime />
           <InteractionFeedback />
           <PageTransitions />
+          <ReaderRoomMemory />
         </ThemeProvider>
       </body>
     </html>

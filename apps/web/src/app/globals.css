@@ -205,6 +205,18 @@ article[data-margin="phone"] .annotation-mark::after {
 }
 
 /* The open annotation's card fills the note's slot in the column. */
+.sidenote-card-closing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  animation: sidenote-card-fade var(--motion-move) forwards;
+}
+@keyframes sidenote-card-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 .sidenote-card {
   width: 100%;
 }
@@ -804,11 +816,15 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 
 /* ───────────────────────── Reader: companion ───────────────────────── */
 
+/* Marginalia's marks are pencil, never the highlighter: ::highlight allows the text-decoration longhands (MDN) */
 ::highlight(companion-passage),
-::highlight(companion-pending),
-::highlight(companion-saved-hover) {
-  background-color: var(--highlighter);
+::highlight(companion-pending) {
+  background-color: color-mix(in srgb, var(--reader-fg) 6%, transparent);
   color: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--pencil-rule);
+  text-decoration-thickness: 1.5px;
 }
 
 /* Highlighter and pen tools */
@@ -821,10 +837,29 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   text-decoration: underline 2px var(--pen);
 }
 
-/* Saved Ask / Explain / Simplify passages: a lighter wash of the highlighter */
-::highlight(companion-saved) {
-  background-color: color-mix(in srgb, var(--highlighter) 45%, transparent);
+/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */
+::highlight(companion-saved),
+::highlight(companion-saved-hover) {
+  background-color: transparent;
   color: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--pencil-rule);
+  text-decoration-thickness: 1.5px;
+}
+
+/* The impression wash after ★ or r; the reader's pen never marks it */
+@keyframes impression-wash {
+  from { background-color: var(--reader-chip); }
+  to { background-color: var(--reader-surface); }
+}
+.impression-wash {
+  animation: impression-wash 600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .impression-wash {
+    animation: none;
+  }
 }
 
 /* The auto annotation whose card is open */

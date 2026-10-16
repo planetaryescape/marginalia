@@ -30,7 +30,7 @@ vi.mock("./reader-settings-panel", () => ({
 
 const handlers = {
   onToggleNotes: vi.fn(),
-  onRatingOpenChange: vi.fn(),
+  onRate: vi.fn(),
   onToggleLove: vi.fn(),
   onToggleListen: vi.fn(),
   onToggleSummary: vi.fn(),
@@ -39,15 +39,14 @@ const handlers = {
 
 function props(over: Partial<ReaderToolbarProps> = {}): ReaderToolbarProps {
   return {
-    articleId: "a1" as never,
     title: "A title",
     originalUrl: "https://example.com/post",
     backHref: "/",
+    backLabel: "Desk",
     maxWidth: "42rem",
     noteCount: 2,
     notesOpen: false,
     rating: undefined,
-    ratingOpen: false,
     loved: false,
     listening: false,
     settings: {} as never,
@@ -65,6 +64,12 @@ const toolbar = () =>
   document.querySelector("[data-testid=reader-toolbar]") as HTMLElement;
 const trigger = () =>
   document.querySelector("button[aria-label='More actions']") as HTMLElement;
+/** Finds an element the test expects to exist, or fails with the selector. */
+function required<T extends Element>(root: ParentNode, selector: string): T {
+  const found = root.querySelector<T>(selector);
+  if (!found) throw new Error(`No element matches ${selector}`);
+  return found;
+}
 const menuItems = () =>
   [...document.querySelectorAll("[role=menuitem]")] as HTMLElement[];
 const key = (el: Element, k: string) =>
@@ -105,14 +110,13 @@ afterEach(async () => {
 });
 
 describe("toolbar", () => {
-  it("shows Desk, Notes, Aa, rate, love and more, and nothing else", async () => {
+  it("shows Back, Aa, rate, love and more, and nothing else", async () => {
     await render({ backHref: "/session/s1" });
     const names = [...toolbar().querySelectorAll("a, button")].map(
       (el) => el.getAttribute("aria-label") ?? el.textContent?.trim(),
     );
     expect(names).toEqual([
       "Back to Desk",
-      "Notes2",
       "Reading settings",
       "Rate this article",
       "Love this article",
@@ -125,17 +129,43 @@ describe("toolbar", () => {
     expect(toolbar().textContent).not.toMatch(/min left/);
   });
 
-  it("opens the notes pane from the Notes button", async () => {
-    await render();
-    const notes = [...toolbar().querySelectorAll("button")].find((b) =>
-      b.textContent?.startsWith("Notes"),
-    ) as HTMLElement;
-    await act(async () => notes.click());
-    expect(handlers.onToggleNotes).toHaveBeenCalledTimes(1);
+  it("names the room Back returns to", async () => {
+    await render({ backHref: "/library", backLabel: "Library" });
+    const back = required<HTMLAnchorElement>(toolbar(), "a");
+    expect(back.getAttribute("aria-label")).toBe("Back to Library");
+    expect(back.getAttribute("href")).toBe("/library");
+    expect(back.textContent).toBe("Library");
+  });
+
+  it("sends the star to the impression, with no popover", async () => {
+    await render({ rating: 3 });
+    const star = required<HTMLElement>(
+      document,
+      "button[aria-label='Rate this article']",
+    );
+    await act(async () => star.click());
+    expect(handlers.onRate).toHaveBeenCalledTimes(1);
+    expect(
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+    ).toBeNull();
+    expect(star.querySelector("svg")?.getAttribute("fill")).toBe(
+      "currentColor",
+    );
   });
 });
 
 describe("overflow menu", () => {
+  it("opens notes from the top of the menu, with its count", async () => {
+    await render();
+    trigger().focus();
+    await key(trigger(), "Enter");
+    const notes = menuItems()[0];
+    expect(label(notes)).toBe("Notes · 2");
+    expect(notes.className).not.toContain("sm:hidden");
+    await key(notes, "Enter");
+    expect(handlers.onToggleNotes).toHaveBeenCalledTimes(1);
+  });
+
   it("opens on Enter and lists the actions in order", async () => {
     await render({ onMarkUnread: vi.fn() });
     expect(menuItems()).toHaveLength(0);

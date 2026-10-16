@@ -1,14 +1,12 @@
 "use client";
-import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import * as Popover from "@radix-ui/react-popover";
 import { ArrowLeft, Heart, MoreHorizontal, Star } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useToolbarFade } from "@/lib/use-toolbar-fade";
 import { cn } from "@/lib/utils";
-import { ImpressionPanel, RATINGS } from "./impression-panel";
+import { RATINGS } from "./impression-panel";
 import {
   ReaderSettingsPanel,
   type ReaderSettingsPanelProps,
@@ -29,19 +27,19 @@ function Kbd({ children }: { children: string }) {
 }
 
 export interface ReaderToolbarProps {
-  articleId: Id<"articles">;
   title: string;
   originalUrl: string;
-  /** Where "Desk" returns to: the session the article was opened from, or home. */
+  /** Where Back returns to, and the room it names (Desk, Library or Notes). */
   backHref: string;
+  backLabel: string;
   /** Widest the toolbar may run, matched to the article column. */
   maxWidth: string;
   noteCount: number;
   notesOpen: boolean;
   onToggleNotes: () => void;
   rating: number | undefined;
-  ratingOpen: boolean;
-  onRatingOpenChange: (open: boolean) => void;
+  /** Scrolls to the impression in the back matter (★ and `r`). */
+  onRate: () => void;
   loved: boolean;
   onToggleLove: () => void;
   listening: boolean;
@@ -53,19 +51,18 @@ export interface ReaderToolbarProps {
   settings: Omit<ReaderSettingsPanelProps, "onOpenChange">;
 }
 
-/** The reader's top bar: Desk, Notes, Aa, rate, love and an overflow menu. */
+/** The reader's top bar: Back, Aa, rate, love and an overflow menu. Notes lives in the menu. */
 export function ReaderToolbar({
-  articleId,
   title,
   originalUrl,
   backHref,
+  backLabel,
   maxWidth,
   noteCount,
   notesOpen,
   onToggleNotes,
   rating,
-  ratingOpen,
-  onRatingOpenChange,
+  onRate,
   loved,
   onToggleLove,
   listening,
@@ -78,7 +75,7 @@ export function ReaderToolbar({
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { hidden, focusProps } = useToolbarFade(
-    menuOpen || ratingOpen || settingsOpen || notesOpen,
+    menuOpen || settingsOpen || notesOpen,
   );
 
   const copyLink = async () => {
@@ -105,11 +102,12 @@ export function ReaderToolbar({
       >
         <Link
           href={backHref}
+          scroll={false}
           className="flex min-h-11 sm:min-h-0 items-center gap-1.5 font-sans text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors"
-          aria-label="Back to Desk"
+          aria-label={`Back to ${backLabel}`}
         >
           <ArrowLeft size={16} strokeWidth={1.5} aria-hidden />
-          <span className="hidden sm:inline">Desk</span>
+          <span className="hidden sm:inline">{backLabel}</span>
         </Link>
 
         <span className="sm:hidden flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]">
@@ -117,57 +115,26 @@ export function ReaderToolbar({
         </span>
 
         <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={onToggleNotes}
-            aria-keyshortcuts="n"
-            aria-pressed={notesOpen}
-            className="hidden sm:inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 font-sans text-[13.5px] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--reader-chip)] aria-pressed:bg-[var(--reader-chip)] aria-pressed:text-[var(--ink)] transition-colors"
-          >
-            Notes
-            {noteCount > 0 && (
-              <span className="font-medium text-[var(--ink-soft)]">
-                {noteCount}
-              </span>
-            )}
-          </button>
-
           <ReaderSettingsPanel {...settings} onOpenChange={setSettingsOpen} />
 
-          <Popover.Root open={ratingOpen} onOpenChange={onRatingOpenChange}>
-            <Popover.Trigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  BUTTON,
-                  // The rating is the reader's own mark, so it is the one place the pen shows here.
-                  rating && "text-[var(--pen)] hover:text-[var(--pen)]",
-                )}
-                title={
-                  rating
-                    ? `You rated this ${RATINGS[rating - 1]}`
-                    : "Rate this article"
-                }
-                aria-label="Rate this article"
-                aria-keyshortcuts="r"
-              >
-                <Star {...ICON} fill={rating ? "currentColor" : "none"} />
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                align="end"
-                sideOffset={10}
-                collisionPadding={12}
-                className="reader-popover reader-menu z-50 w-[340px] max-w-[calc(100vw-24px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-4 outline-none"
-              >
-                <ImpressionPanel
-                  articleId={articleId}
-                  heading="Your impression"
-                />
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
+          <button
+            type="button"
+            onClick={onRate}
+            className={cn(
+              BUTTON,
+              // The rating is the reader's own mark, so it is the one place the pen shows here.
+              rating && "text-[var(--pen)] hover:text-[var(--pen)]",
+            )}
+            title={
+              rating
+                ? `You rated this ${RATINGS[rating - 1]}`
+                : "Rate this article"
+            }
+            aria-label="Rate this article"
+            aria-keyshortcuts="r"
+          >
+            <Star {...ICON} fill={rating ? "currentColor" : "none"} />
+          </button>
 
           <button
             type="button"
@@ -208,8 +175,9 @@ export function ReaderToolbar({
                 className="reader-menu z-50 w-60 p-1.5 outline-none"
               >
                 <DropdownMenu.Item
-                  className={cn(MENU_ITEM, "sm:hidden")}
+                  className={MENU_ITEM}
                   onSelect={onToggleNotes}
+                  aria-keyshortcuts="n"
                 >
                   Notes{noteCount > 0 ? ` · ${noteCount}` : ""}
                   <Kbd>n</Kbd>

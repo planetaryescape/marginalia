@@ -292,6 +292,16 @@ export function Sidenotes({
   const slots = useRef(
     new Map<string, { open: boolean; height: number; animation?: Animation }>(),
   );
+  // The card of the note being closed stays mounted, fading, until its slot has shrunk.
+  const lastCard = useRef<ReactNode>(null);
+  useLayoutEffect(() => {
+    if (openCard) lastCard.current = openCard;
+  });
+  const [closing, setClosing] = useState<{
+    key: string;
+    card: ReactNode;
+  } | null>(null);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `openId` must run this pass even when the layout is unchanged
   useLayoutEffect(() => {
     for (const [key, placement] of Object.entries(layout.placements)) {
@@ -328,8 +338,12 @@ export function Sidenotes({
       slot.open = open;
       slot.animation?.cancel();
       const to = naturalHeight(el);
+      const unmountClosing = () =>
+        setClosing((current) => (current?.key === key ? null : current));
+      if (open) unmountClosing();
       if (!reduced) {
         el.style.overflow = "hidden";
+        if (!open) setClosing({ key, card: lastCard.current });
         const animation = el.animate(
           [{ height: `${slot.height}px` }, { height: `${to}px` }],
           moveTiming(),
@@ -338,9 +352,10 @@ export function Sidenotes({
         animation.finished.then(
           () => {
             el.style.overflow = "";
+            unmountClosing();
           },
           // Cancelled by a newer change, which owns the overflow now.
-          () => {},
+          () => unmountClosing(),
         );
       }
       slot.height = to;
@@ -478,6 +493,7 @@ export function Sidenotes({
         const label = isNote ? "your note" : (kind?.name ?? "");
         const paragraph = layout.labels[entry.key];
         const isOpen = entry.kind === "annotation" && entry.id === openId;
+        const isClosing = closing?.key === entry.key && !isOpen;
         const isArrived =
           reduced ||
           isOpen ||
@@ -541,6 +557,15 @@ export function Sidenotes({
               <div className="sidenote-card">{openCard}</div>
             ) : (
               <>
+                {isClosing && (
+                  <div
+                    className="sidenote-card sidenote-card-closing"
+                    aria-hidden="true"
+                    inert
+                  >
+                    {closing.card}
+                  </div>
+                )}
                 {(placement?.connector ?? true) && (
                   <span
                     className="sidenote-connector"
@@ -557,6 +582,8 @@ export function Sidenotes({
                   // text via aria-describedby); your own notes have no mark, so
                   // they take a stop of their own.
                   tabIndex={isNote ? 0 : -1}
+                  // Hidden, not removed: the slot measures this collapsed text as it shrinks.
+                  style={isClosing ? { visibility: "hidden" } : undefined}
                   aria-label={`${label}: ${entry.text}`}
                   onClick={() => (isNote ? onOpenNotes() : openMark(entry.id))}
                 >

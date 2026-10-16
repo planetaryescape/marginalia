@@ -1,14 +1,19 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { KINDS } from "@/lib/margin-kinds";
 import { getArticleBody, getParagraphs, paragraphText } from "@/lib/paragraphs";
 import type { ReadingPosition } from "@/lib/reading-modes";
 
 interface Block {
   length: number;
   heading: boolean;
-  annotated: boolean;
+  /** The margin note's kind (a key of KINDS), or null when the paragraph has none. */
+  kind: string | null;
   snippet: string;
 }
+
+const isKind = (value: string | null): value is keyof typeof KINDS =>
+  value !== null && Object.hasOwn(KINDS, value);
 
 const WIDTH = 34;
 
@@ -18,6 +23,7 @@ export function ReaderMap({
   position,
   marked,
   saved,
+  ticks,
   onJump,
   minutesLeft,
 }: {
@@ -28,6 +34,8 @@ export function ReaderMap({
   marked: number | null;
   /** Paragraphs with saved Ask / Explain / Simplify threads. */
   saved: number[];
+  /** Paragraphs with the reader's own highlight or underline. */
+  ticks: number[];
   onJump: (index: number) => void;
   /** Rough reading time still to go; shown in the map's tooltip, not the toolbar. */
   minutesLeft?: number | null;
@@ -45,7 +53,9 @@ export function ReaderMap({
         return {
           length: text.length,
           heading: /^H[1-6]$/.test(el.tagName),
-          annotated: Boolean(el.querySelector(".annotation-mark")),
+          kind:
+            el.querySelector(".annotation-mark")?.getAttribute("data-type") ??
+            null,
           snippet: text.length > 90 ? `${text.slice(0, 90).trimEnd()}…` : text,
         };
       }),
@@ -148,11 +158,9 @@ export function ReaderMap({
             const fill =
               i === marked
                 ? "var(--ink)"
-                : block.annotated
-                  ? "var(--reader-annotated)"
-                  : isCurrent || i === hover
-                    ? "var(--reader-fg)"
-                    : "var(--reader-muted)";
+                : isCurrent || i === hover
+                  ? "var(--reader-fg)"
+                  : "var(--reader-muted)";
             return (
               <rect
                 key={i}
@@ -172,12 +180,35 @@ export function ReaderMap({
               />
             );
           })}
+          {blocks.map((block, i) =>
+            isKind(block.kind) ? (
+              <circle
+                key={`kind-${i}`}
+                cx={WIDTH + 5}
+                cy={i * pitch + pitch / 2}
+                r={2.5}
+                fill={KINDS[block.kind].color}
+              />
+            ) : null,
+          )}
+          {[...new Set(ticks)]
+            .filter((i) => i >= 0 && i < blocks.length)
+            .map((i) => (
+              <rect
+                key={`tick-${i}`}
+                x={WIDTH + 10}
+                y={i * pitch + pitch / 2 - 1}
+                width={6}
+                height={2}
+                fill="var(--pen)"
+              />
+            ))}
           {[...new Set(saved)]
             .filter((i) => i >= 0 && i < blocks.length)
             .map((i) => (
               <circle
                 key={`saved-${i}`}
-                cx={WIDTH + 6}
+                cx={-7}
                 cy={i * pitch + pitch / 2}
                 r={2}
                 fill="var(--pencil)"

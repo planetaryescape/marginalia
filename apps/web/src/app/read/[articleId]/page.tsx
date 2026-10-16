@@ -22,6 +22,7 @@ import {
 import { ListenBar } from "@/components/listen-bar";
 import { NoteUnfold } from "@/components/note-unfold";
 import { NotesPanel } from "@/components/notes-panel";
+import { FinishedLine } from "@/components/reader-finished-line";
 import { ReaderMap } from "@/components/reader-map";
 import { ReaderToolbar } from "@/components/reader-toolbar";
 import { ReflectionBox } from "@/components/reflection-box";
@@ -37,6 +38,9 @@ import {
   paragraphIndexOf,
   useParagraphs,
 } from "@/lib/paragraphs";
+import { escapeGoesBack } from "@/lib/reader-escape";
+import { revealImpression } from "@/lib/reader-impression";
+import { backTarget, originRoom } from "@/lib/reader-return";
 import {
   DROP_CAP_FAMILIES,
   LINE_HEIGHTS,
@@ -85,7 +89,18 @@ export default function ReadPage() {
   const [finishing, setFinishing] = useState(false);
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
   const [articleAskOpen, setArticleAskOpen] = useState(false);
-  const [ratingOpen, setRatingOpen] = useState(false);
+  const impressionRef = useRef<HTMLElement>(null);
+  const washTimer = useRef<number | null>(null);
+  // The room the reader came from, read on the first render. The module holds nothing
+  // on the server, and the toolbar only renders once the article has loaded on the client.
+  const [origin] = useState<string | null>(() => originRoom());
+  useEffect(
+    () => () => {
+      if (washTimer.current) window.clearTimeout(washTimer.current);
+    },
+    [],
+  );
+  const back = backTarget(origin, sessionId);
   const [cursor, setCursor] = useState<number | null>(null);
   const passageCycle = useRef<{ paragraph: HTMLElement | null; index: number }>(
     { paragraph: null, index: -1 },
@@ -294,7 +309,7 @@ export default function ReadPage() {
     {
       j: () => moveParagraph(1),
       k: () => moveParagraph(-1),
-      r: () => setRatingOpen(true),
+      r: () => rateArticle(),
       n: () => setNotesPanelOpen(true),
       ",": () => emitCommand("open-settings"),
       u: () => emitCommand("toggle-summary"),
@@ -327,6 +342,46 @@ export default function ReadPage() {
     },
     Boolean(article),
   );
+
+  // ★ and `r` take the reader to the impression at the end, not a popover over the text.
+  const rateArticle = useCallback(() => {
+    const section = impressionRef.current;
+    if (!section) return;
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    washTimer.current = revealImpression(section, reduced, washTimer.current);
+  }, []);
+
+  // Esc goes back to the origin room, unless the reader has something open of its own.
+  const readerPanelOpen = Boolean(
+    activeAnnotation ||
+      companion.thread ||
+      notesPanelOpen ||
+      articleAskOpen ||
+      phoneSheet,
+  );
+  useEffect(() => {
+    const onEscape = (e: KeyboardEvent) => {
+      const selectionActive = !(window.getSelection()?.isCollapsed ?? true);
+      if (
+        !escapeGoesBack(
+          {
+            key: e.key,
+            defaultPrevented: e.defaultPrevented,
+            target: e.target,
+          },
+          { readerPanelOpen, selectionActive },
+          document,
+        )
+      )
+        return;
+      e.preventDefault();
+      router.push(back.href, { scroll: false });
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [readerPanelOpen, back.href, router]);
 
   const handleDone = useCallback(async () => {
     if (finishing) return;
@@ -441,17 +496,16 @@ export default function ReadPage() {
       />
 
       <ReaderToolbar
-        articleId={articleId as any}
         title={article.title}
         originalUrl={article.url}
-        backHref={sessionId ? `/session/${sessionId}` : "/"}
+        backHref={back.href}
+        backLabel={back.label}
         maxWidth={`max(${MAX_WIDTHS[settings.width]}, 42rem)`}
         noteCount={noteCount}
         notesOpen={notesPanelOpen}
         onToggleNotes={() => setNotesPanelOpen((o) => !o)}
         rating={impression?.rating ?? undefined}
-        ratingOpen={ratingOpen}
-        onRatingOpenChange={setRatingOpen}
+        onRate={rateArticle}
         loved={Boolean(isLoved)}
         onToggleLove={async () => {
           try {
@@ -559,6 +613,9 @@ export default function ReadPage() {
           position={position}
           marked={companionParagraph}
           saved={savedPassages.map((p) => p.doc.paragraphIndex ?? -1)}
+          ticks={(highlightDocs ?? []).flatMap((d) =>
+            d.paragraphIndex === undefined ? [] : [d.paragraphIndex],
+          )}
           onJump={jumpToParagraph}
           minutesLeft={estimatedMinRemaining}
         />
@@ -637,6 +694,7 @@ export default function ReadPage() {
           {/* Back matter: the Ask pill steps aside while it is in view */}
           <div ref={setBackMatter}>
             <section
+              ref={impressionRef}
               aria-label="Your impression"
               className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
             >
@@ -659,6 +717,11 @@ export default function ReadPage() {
                 </button>
               </div>
             )}
+
+            <FinishedLine
+              finished={article.finishedAt !== undefined}
+              onMarkUnread={handleRestore}
+            />
           </div>
         </article>
       </div>

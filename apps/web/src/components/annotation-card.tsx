@@ -7,7 +7,7 @@ import { CardQuote, cardIconButton, MarginCard } from "./margin-card";
 
 export const ANNOTATION_TYPES = {
   cross_reference: {
-    label: "Cross-reference",
+    label: "Connection",
     color: "#5b7f95",
     prompt: "Add your thoughts…",
   },
