@@ -116,6 +116,30 @@ const STEPS: Step[] = [
   ),
   rows((ctx, u) =>
     ctx.db
+      .query("tasteProfiles")
+      .withIndex("by_user", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("preAnnotations")
+      .withIndex("by_user_chosenAt", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("suggestionKeeps")
+      .withIndex("by_user_kind_subject", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("tagMergeSuggestions")
+      .withIndex("by_user", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
       .query("sessions")
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),

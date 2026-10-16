@@ -7,6 +7,7 @@ import {
   TEST_ENCRYPTION_KEY,
 } from "../test/owner";
 import { api, components, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
 import { sealTokens } from "./lib/chatgptTokens";
@@ -27,6 +28,7 @@ type Fixture = Awaited<ReturnType<typeof secondReaderTest>>;
 /** One row in every table that holds a library's data. */
 async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
   const now = Date.now();
+  let lastArticle: Id<"articles"> | undefined;
   for (let i = 0; i < copies; i++) {
     const feedId = await ctx.db.insert("feeds", {
       userId,
@@ -47,6 +49,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       embedding,
       createdAt: now,
     });
+    lastArticle = articleId;
     const annotationId = await ctx.db.insert("annotations", {
       articleId,
       userId,
@@ -223,6 +226,57 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       updatedAt: now,
     });
   }
+  // Rung 5c: taste, ahead-of-time choices, kept suggestions and tag merges
+  await ctx.db.insert("tasteProfiles", {
+    userId,
+    feeds: [],
+    authors: [{ key: "a writer", affinity: 0.4, n: 3 }],
+    tags: [],
+    evidence: 1,
+    computedAt: now,
+  });
+  if (lastArticle)
+    await ctx.db.insert("preAnnotations", {
+      userId,
+      articleId: lastArticle,
+      group: "chosen",
+      score: 0.5,
+      because: "author",
+      chosenAt: now,
+    });
+  await ctx.db.insert("suggestionKeeps", {
+    userId,
+    kind: "feed",
+    subject: "feed",
+    until: now,
+    createdAt: now,
+  });
+  const keep = await ctx.db.insert("tags", {
+    userId,
+    name: "llm",
+    key: "llm",
+    status: "active",
+    count: 1,
+    aliases: [],
+    createdAt: now,
+  });
+  const drop = await ctx.db.insert("tags", {
+    userId,
+    name: "llms",
+    key: "llms",
+    status: "active",
+    count: 0,
+    aliases: [],
+    createdAt: now,
+  });
+  await ctx.db.insert("tagMergeSuggestions", {
+    userId,
+    into: keep,
+    from: drop,
+    similarity: 0.95,
+    strength: "strong",
+    createdAt: now,
+  });
   await ctx.db.insert("readingQueueStats", {
     userId,
     annotated: 1,

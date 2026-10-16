@@ -9,6 +9,7 @@ import {
   readingSentence,
 } from "@/lib/reading-sentence";
 import { ShortAndLong } from "./short-and-long";
+import { TagMergeSuggestion } from "./tag-merge-suggestion";
 import { TopicMap } from "./topic-map";
 import { useLocalToday } from "./use-local-today";
 import { WhenYouRead } from "./when-you-read";
@@ -27,6 +28,10 @@ export function StatsTab() {
     period,
     today,
   });
+
+  const merges = useQuery(api.tagMerge.pending);
+  // One at a time: deciding this one brings up the next
+  const merge = merges?.[0];
 
   return (
     <div>
@@ -79,7 +84,13 @@ export function StatsTab() {
             <ShortAndLong weekday={room.weekday} weekend={room.weekend} />
           </div>
           <div className="space-y-9">
-            {topics && <TopicMap topics={topics} />}
+            {topics && (
+              <TopicMap
+                topics={topics}
+                paired={merge ? [merge.into, merge.from] : []}
+              />
+            )}
+            {merge && <TagMergeSuggestion suggestion={merge} />}
             <YourSources feeds={room.feeds} />
           </div>
         </div>

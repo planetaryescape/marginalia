@@ -7,7 +7,14 @@ function spent(minutes: number) {
 }
 
 /** Topics sized by time read. Renders nothing until some article has a topic. */
-export function TopicMap({ topics }: { topics: Topic[] }) {
+export function TopicMap({
+  topics,
+  paired = [],
+}: {
+  topics: Topic[];
+  /** Topics a merge suggestion names, underlined so the reader can see which */
+  paired?: string[];
+}) {
   if (topics.length === 0) return null;
   const most = Math.max(1, ...topics.map((t) => t.minutes));
   return (
@@ -22,7 +29,11 @@ export function TopicMap({ topics }: { topics: Topic[] }) {
         {topics.map((topic) => (
           <li
             key={topic.name}
-            className="font-serif text-[var(--reader-fg-soft)]"
+            className={`font-serif text-[var(--reader-fg-soft)] ${
+              paired.includes(topic.name)
+                ? "underline decoration-[var(--pencil-rule)] underline-offset-4"
+                : ""
+            }`}
             // Area follows minutes, so the size follows their square root
             style={{
               fontSize: `${(0.9 + 1.1 * Math.sqrt(topic.minutes / most)).toFixed(2)}rem`,

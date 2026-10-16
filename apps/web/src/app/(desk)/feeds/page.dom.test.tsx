@@ -11,7 +11,9 @@ import FeedsPage from "./page";
 const state = vi.hoisted(() => ({
   readwise: null as unknown,
   feeds: [] as unknown[],
+  suggestions: [] as unknown[],
   removeFeed: vi.fn(),
+  keepFeed: vi.fn(),
   toggleActive: vi.fn(),
   pollNow: vi.fn(),
 }));
@@ -29,6 +31,7 @@ vi.mock("convex/react", () => ({
   useQuery: (ref: unknown) => {
     if (ref === "readwise.status") return state.readwise;
     if (ref === "feeds.list") return state.feeds;
+    if (ref === "feedSuggestions.list") return state.suggestions;
     if (ref === "feeds.removalPreview")
       return {
         total: 3,
@@ -44,6 +47,7 @@ vi.mock("convex/react", () => ({
   useAction: () => state.pollNow,
   useMutation: (ref: unknown) => {
     if (ref === "feeds.remove") return state.removeFeed;
+    if (ref === "feedSuggestions.keep") return state.keepFeed;
     if (ref === "feeds.toggleActive") return state.toggleActive;
     return vi.fn().mockResolvedValue(null);
   },
@@ -112,6 +116,8 @@ beforeEach(() => {
   state.pollNow.mockReset().mockResolvedValue(null);
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();
+  state.keepFeed.mockReset().mockResolvedValue(null);
+  state.suggestions = [];
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -205,5 +211,59 @@ describe("checking feeds in place", () => {
     await act(async () => button("Retry")?.click());
     expect(state.pollNow).toHaveBeenCalledTimes(2);
     expect(document.querySelector(".inline-error")).toBeNull();
+  });
+});
+
+describe("a feed the reader almost never opens", () => {
+  beforeEach(() => {
+    state.suggestions = [{ feedId: "f2", offered: 40, opened: 1 }];
+  });
+
+  it("asks once, in a sentence under that feed only, and does nothing yet", async () => {
+    await act(async () => root.render(<FeedsPage />));
+    const text = document.body.textContent ?? "";
+    expect(text).toContain(
+      "You've opened 1 of the 40 from this feed. Unsubscribe?",
+    );
+    expect(text.match(/from this feed/g)).toHaveLength(1);
+    const betaRow = [...document.querySelectorAll("p")]
+      .find((p) => p.textContent === "beta")
+      ?.closest("div[class*='group']")?.parentElement;
+    expect(betaRow?.textContent).toContain("from this feed");
+    expect(state.removeFeed).not.toHaveBeenCalled();
+    expect(state.keepFeed).not.toHaveBeenCalled();
+  });
+
+  it("Unsubscribe removes the feed through the usual path, keeping its articles", async () => {
+    await act(async () => root.render(<FeedsPage />));
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Unsubscribe from beta"]',
+        )
+        ?.click(),
+    );
+    expect(state.removeFeed).toHaveBeenCalledWith({
+      feedId: "f2",
+      articles: "keep",
+    });
+    expect(state.keepFeed).not.toHaveBeenCalled();
+  });
+
+  it("Keep silences the suggestion without removing anything", async () => {
+    await act(async () => root.render(<FeedsPage />));
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Keep beta"]')
+        ?.click(),
+    );
+    expect(state.keepFeed).toHaveBeenCalledWith({ feedId: "f2" });
+    expect(state.removeFeed).not.toHaveBeenCalled();
+  });
+
+  it("shows nothing for a feed without a suggestion", async () => {
+    state.suggestions = [];
+    await act(async () => root.render(<FeedsPage />));
+    expect(document.body.textContent).not.toContain("from this feed");
   });
 });

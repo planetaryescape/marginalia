@@ -13,6 +13,7 @@ import {
   readingCheckpointSchema,
 } from "./lib/readingActivity";
 import { updateQueueStats } from "./readingQueue";
+import { queueTasteRefresh } from "./taste";
 
 const args = {
   articleId: v.string(),
@@ -173,6 +174,7 @@ async function saveCheckpoint(
         }),
       );
     if (article.finishedAt === undefined) {
+      await queueTasteRefresh(ctx, userId);
       await ctx.db.patch(article._id, { finishedAt: s.updatedAt });
       const after = await ctx.db.get(article._id);
       if (after) await updateQueueStats(ctx, article, after);

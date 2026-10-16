@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   todays: [] as (string | undefined)[],
   room: undefined as unknown,
   topics: undefined as unknown,
+  merges: undefined as unknown,
+  accept: vi.fn(),
+  keepBoth: vi.fn(),
   lookups: {
     results: [] as unknown[],
     status: "Exhausted" as string,
@@ -22,11 +25,14 @@ vi.mock("convex/react", () => ({
     return (mocks as never)[ref];
   },
   usePaginatedQuery: () => mocks.lookups,
+  useMutation: (ref: string) => (mocks as never)[ref],
 }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     stats: { readingRoom: "room", readingTopics: "topics" },
     dictionary: { page: "page" },
+    tagMerge: { pending: "merges", accept: "accept", keepBoth: "keepBoth" },
   },
 }));
 vi.mock("next/navigation", () => ({
@@ -76,6 +82,9 @@ beforeEach(() => {
   mocks.todays = [];
   mocks.room = undefined;
   mocks.topics = undefined;
+  mocks.merges = undefined;
+  mocks.accept = vi.fn().mockResolvedValue(null);
+  mocks.keepBoth = vi.fn().mockResolvedValue(null);
   mocks.lookups = { results: [], status: "Exhausted", loadMore: vi.fn() };
   container = document.createElement("div");
   document.body.append(container);
@@ -155,6 +164,73 @@ describe("Your reading", () => {
     expect(hints).toHaveLength(1);
     expect(hints[0].getAttribute("href")).toBe("/feeds");
     expect(container.textContent).toContain("60 · 3 · 0");
+  });
+});
+
+describe("two tags that look like one topic", () => {
+  const suggestion = (over: object = {}) => ({
+    suggestionId: "s1",
+    into: "llm",
+    from: "llms",
+    strong: true,
+    merging: false,
+    ...over,
+  });
+  const button = (name: string) =>
+    [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === name,
+    );
+
+  beforeEach(() => {
+    mocks.room = room();
+    mocks.topics = [
+      { name: "llm", minutes: 120, articles: 4 },
+      { name: "llms", minutes: 60, articles: 2 },
+      { name: "attention", minutes: 90, articles: 3 },
+    ];
+  });
+
+  it("says so under the topics, underlines both names, and acts on neither", async () => {
+    mocks.merges = [suggestion()];
+    await render();
+    expect(container.textContent).toContain(
+      "llm and llms look like the same topic.",
+    );
+    expect(button("Merge into llm")).toBeDefined();
+    expect(button("Keep both")).toBeDefined();
+    const underlined = [...container.querySelectorAll("li")]
+      .filter((li) => li.className.includes("underline"))
+      .map((li) => li.firstChild?.textContent);
+    expect(underlined).toEqual(["llm", "llms"]);
+    expect(mocks.accept).not.toHaveBeenCalled();
+    expect(mocks.keepBoth).not.toHaveBeenCalled();
+  });
+
+  it("Merge into asks for that merge, and Keep both for that one", async () => {
+    mocks.merges = [suggestion()];
+    await render();
+    await act(async () => button("Merge into llm")?.click());
+    expect(mocks.accept).toHaveBeenCalledWith({ suggestionId: "s1" });
+    await act(async () => button("Keep both")?.click());
+    expect(mocks.keepBoth).toHaveBeenCalledWith({ suggestionId: "s1" });
+  });
+
+  it("shows a merge in progress without the buttons", async () => {
+    mocks.merges = [suggestion({ merging: true })];
+    await render();
+    expect(container.textContent).toContain("Merging…");
+    expect(button("Merge into llm")).toBeUndefined();
+  });
+
+  it("says nothing when there is no suggestion", async () => {
+    mocks.merges = [];
+    await render();
+    expect(container.textContent).not.toContain("look like the same topic");
+    expect(
+      [...container.querySelectorAll("li")].some((li) =>
+        li.className.includes("underline"),
+      ),
+    ).toBe(false);
   });
 });
 

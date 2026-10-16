@@ -103,6 +103,17 @@ export const remove = mutation({
     const feed = await ctx.db.get(args.feedId);
     if (feed?.userId !== ctx.readerId) throw new Error("Feed not found");
     await ctx.db.delete(args.feedId);
+    // A kept suggestion is about this feed alone
+    const kept = await ctx.db
+      .query("suggestionKeeps")
+      .withIndex("by_user_kind_subject", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .eq("kind", "feed")
+          .eq("subject", args.feedId),
+      )
+      .first();
+    if (kept) await ctx.db.delete(kept._id);
     const choice = args.articles ?? "keep";
     if (choice !== "keep")
       await ctx.scheduler.runAfter(0, internal.feeds.removeArticles, {

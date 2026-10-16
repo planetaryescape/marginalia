@@ -3,6 +3,13 @@ import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 
+const tasteEntry = v.object({
+  key: v.string(),
+  affinity: v.number(),
+  // Offers or articles behind the affinity
+  n: v.number(),
+});
+
 export default defineSchema({
   // Fixed-window budgets for unauthenticated endpoints: "password" (global),
   // "password:<email>" and "waitlist". Stale rows are swept hourly.
@@ -982,4 +989,61 @@ export default defineSchema({
   })
     .index("by_hash", ["hash"])
     .index("by_userId", ["userId"]),
+
+  // What a reader tends to read (rung 5c, D-DES-057): one small row of
+  // explainable affinities, each in -1..1, capped per list. Recomputed daily
+  // and after a finish (taste.ts). Keys are feed IDs, normalised author names
+  // and tag IDs.
+  tasteProfiles: defineTable({
+    userId: v.string(),
+    feeds: v.array(tasteEntry),
+    authors: v.array(tasteEntry),
+    tags: v.array(tasteEntry),
+    // Articles whose outcomes fed this profile, so a thin profile can be told apart
+    evidence: v.number(),
+    computedAt: v.number(),
+    // A refresh scheduled by a finish, so a run of finishes queues one
+    refreshQueuedAt: v.optional(v.number()),
+  }).index("by_user", ["userId"]),
+
+  // Deferred articles the daily job chose to annotate ahead of time, and a
+  // control sample it passed over, so "pre-annotated articles are opened more
+  // often than a random sample" can be measured (preAnnotate.ts).
+  preAnnotations: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    group: v.union(v.literal("chosen"), v.literal("control")),
+    // The taste term when chosen, and the signal behind it; absent for controls
+    score: v.optional(v.number()),
+    because: v.optional(
+      v.union(v.literal("author"), v.literal("feed"), v.literal("tag")),
+    ),
+    chosenAt: v.number(),
+  })
+    .index("by_user_chosenAt", ["userId", "chosenAt"])
+    .index("by_user_article", ["userId", "articleId"]),
+
+  // A suggestion the reader declined. A feed's "Keep" lapses at `until`; a tag
+  // pair's "Keep both" has no end.
+  suggestionKeeps: defineTable({
+    userId: v.string(),
+    kind: v.union(v.literal("feed"), v.literal("tagPair")),
+    // The feed's ID, or the two tag IDs sorted and joined with "|"
+    subject: v.string(),
+    until: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_user_kind_subject", ["userId", "kind", "subject"]),
+
+  // Two active tags that look like one topic. Never acted on until the reader
+  // accepts: `into` keeps its name, `from` becomes an alias of it.
+  tagMergeSuggestions: defineTable({
+    userId: v.string(),
+    into: v.id("tags"),
+    from: v.id("tags"),
+    similarity: v.number(),
+    strength: v.union(v.literal("strong"), v.literal("suggested")),
+    // Set while the reader's accepted merge is moving links in batches
+    merging: v.optional(v.boolean()),
+    createdAt: v.number(),
+  }).index("by_user", ["userId"]),
 });

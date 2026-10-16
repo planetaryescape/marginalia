@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ApiTokens } from "@/components/api-tokens";
 import { ChangeWash, InlineError } from "@/components/in-place";
+import { FeedSuggestion } from "@/components/feed-suggestion";
 import { ReadwiseCard } from "@/components/readwise-card";
 import { RemoveFeedConfirm } from "@/components/remove-feed-confirm";
 import {
@@ -20,6 +21,7 @@ import { formatDate } from "@/lib/utils";
 
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
+  const suggestions = useQuery(api.feedSuggestions.list);
   const addFeed = useMutation(api.feeds.add);
   const toggleActive = useMutation(api.feeds.toggleActive);
   const pollNow = useAction(api.feeds.pollNow);
@@ -243,6 +245,17 @@ export default function FeedsPage() {
                   onClose={() => setRemovingId(null)}
                 />
               )}
+              {removingId !== feed._id &&
+                suggestions
+                  ?.filter((s) => s.feedId === feed._id)
+                  .map((s) => (
+                    <FeedSuggestion
+                      key={s.feedId}
+                      feed={feed}
+                      offered={s.offered}
+                      opened={s.opened}
+                    />
+                  ))}
             </div>
           ))}
         </div>

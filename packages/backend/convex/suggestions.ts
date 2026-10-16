@@ -7,7 +7,9 @@ import { query } from "./functions";
 import { needsAnnotationStart } from "./lib/annotationPolicy";
 import { type BookCandidate, bookCandidate, bookReason } from "./lib/bookPicks";
 import { WORDS_PER_MINUTE } from "./lib/constants";
+import { TASTE_MAX, type Taste } from "./lib/taste";
 import { unfinishedBooks } from "./lib/unfinishedBooks";
+import { loadTaste, tasteReason } from "./taste";
 
 // Nearest articles on each side of the window. Scoring weighs closeness at two
 // points a minute against at most ten for recency, so anything further out than
@@ -159,6 +161,8 @@ export const forWindow = query({
       .filter((a) => a.bookUnitCount === undefined);
 
     const saved = await savedAmong(ctx, candidates);
+    // Tag links only, never an article's text, so the 12/4/2 neighbour budget holds
+    const taste = await loadTaste(ctx, candidates);
 
     const now = Date.now();
     const scored = candidates.map((a) => {
@@ -170,33 +174,45 @@ export const forWindow = query({
         recency = Math.max(0, 10 - daysOld * 0.1);
       }
       // Only an article that fits gets the boost, so it never lifts one past the window
-      const boost =
-        readMin <= targetMinutes && saved.has(a._id) ? SAVED_BOOST : 0;
+      const fits = readMin <= targetMinutes;
+      const boost = fits && saved.has(a._id) ? SAVED_BOOST : 0;
+      // Taste is bounded and only moves an article that fits, so fit still wins
+      const liked = fits ? taste.get(a._id) : undefined;
       return {
         article: a,
         readMin,
-        score: timeFit * 2 + recency + boost,
+        taste: liked,
+        score: timeFit * 2 + recency + boost + (liked?.term ?? 0) * TASTE_MAX,
         fitsWindow: readMin <= targetMinutes * 1.3,
       };
     });
     // Equal scores fall back to the id, so the pick never depends on which
     // range or storage order an article was read from
     const offers = [
-      ...scored.map(({ article, readMin, fitsWindow, score }) => ({
+      ...scored.map(({ article, readMin, fitsWindow, score, taste }) => ({
         score,
         id: article._id as string,
+        taste,
         suggestion: toSuggestion(article, readMin, targetMinutes, fitsWindow),
       })),
       ...(await bookPicks(ctx, targetMinutes)).map((pick) => ({
         score:
           -Math.abs(pick.candidate.minutes - targetMinutes) * 2 + BOOK_BOOST,
         id: pick.article._id as string,
+        taste: undefined as Taste | undefined,
         suggestion: toBookSuggestion(pick),
       })),
     ];
     offers.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 
-    return offers.slice(0, 3).map((offer) => offer.suggestion);
+    return Promise.all(
+      offers.slice(0, 3).map(async (offer) => ({
+        ...offer.suggestion,
+        // What taste noticed, when it has something to say; else length and window
+        reason:
+          (await tasteReason(ctx, offer.taste)) ?? offer.suggestion.reason,
+      })),
+    );
   },
 });
 
@@ -273,18 +289,55 @@ export const moreForWindow = query({
         ? writeCursor(status, page.splitCursor)
         : page.splitCursor,
       page: [
-        ...page.page
-          .filter((a) => a.bookUnitCount === undefined)
-          .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
-          .filter(({ readMin }) => readMin <= targetMinutes)
-          .map(({ article, readMin }) =>
-            toSuggestion(article, readMin, targetMinutes, true),
-          ),
+        ...(await rankPage(
+          ctx,
+          page.page
+            .filter((a) => a.bookUnitCount === undefined)
+            .map((article) => ({ article, readMin: readMinutesOf(article) }))
+            .filter(({ readMin }) => readMin <= targetMinutes),
+          targetMinutes,
+        )),
         ...books,
       ],
     };
   },
 });
+
+/**
+ * One page, closest length first with taste breaking near-ties: the same
+ * bounded term as the deck, so fit still wins. Only this page's order moves,
+ * never which articles are on it, so paging cannot repeat or skip one; an
+ * equal score keeps the index order.
+ */
+async function rankPage(
+  ctx: Reader,
+  fitting: { article: Doc<"articles">; readMin: number }[],
+  targetMinutes: number,
+) {
+  const taste = await loadTaste(
+    ctx,
+    fitting.map((f) => f.article),
+  );
+  const ranked = fitting
+    .map((f, position) => ({
+      ...f,
+      position,
+      taste: taste.get(f.article._id),
+      score:
+        -(targetMinutes - f.readMin) * 2 +
+        (taste.get(f.article._id)?.term ?? 0) * TASTE_MAX,
+    }))
+    .sort((a, b) => b.score - a.score || a.position - b.position);
+  return Promise.all(
+    ranked.map(async ({ article, readMin, taste }) => {
+      const suggestion = toSuggestion(article, readMin, targetMinutes, true);
+      return {
+        ...suggestion,
+        reason: (await tasteReason(ctx, taste)) ?? suggestion.reason,
+      };
+    }),
+  );
+}
 
 /**
  * The single shortest unread article, by the same length `readMinutesOf` gives

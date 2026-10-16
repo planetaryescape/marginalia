@@ -5,6 +5,7 @@ import { ownedArticle, requireArticle } from "./access";
 import { countFeedOutcome } from "./feedStats";
 import { mutation, query } from "./functions";
 import { updateQueueStats } from "./readingQueue";
+import { queueTasteRefresh } from "./taste";
 
 export const create = mutation({
   args: { requestedMinutes: v.number() },
@@ -102,6 +103,7 @@ export const recordInteraction = mutation({
     await countFeedOutcome(ctx, article, interactionId);
     // Finishing an article that came from Readwise Reader archives it there
     if (args.action === "finished") {
+      await queueTasteRefresh(ctx, ctx.readerId);
       const before = await ctx.db.get(args.articleId);
       if (before && before.finishedAt === undefined) {
         await ctx.db.patch(before._id, { finishedAt: Date.now() });
