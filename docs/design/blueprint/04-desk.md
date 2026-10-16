@@ -4,13 +4,13 @@ The desk is the home screen, `apps/web/src/app/(desk)/page.tsx`. It asks one que
 
 ## Hierarchy
 
-Above the fold there are at most seven things, in this order of weight:
+Above the fold there are at most six things, in this order of weight:
 
 1. The question, "How much time do you have?", in `--type-display`.
 2. The main slot: Continue, or the pick for the chosen time, or the best pick for no particular time.
 3. The time choices.
 4. The search field ("Ask, or paste a link").
-5. Up next: three rows (Q13 asks whether these leave the desk).
+5. ~~Up next~~: removed from the desk; it's a Library shelf (D-DES-035).
 6. The date line in `--type-meta`. No backlog count: showing the size of the pile is the overwhelm the desk exists to remove (D-DES-034).
 7. The header.
 

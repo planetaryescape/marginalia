@@ -142,3 +142,7 @@ Change a decision only by adding a new entry that replaces the old one.
 - **Continue shows minutes left**, so it answers the same question as the time choices.
 - **Option rejected:** keeping the count as "one quiet line". Any number there is the pile in miniature.
 
+### D-DES-035: Up next leaves the desk; it lives only as a Library shelf. (BK)
+- **BK, 2026-10-16, answering Q13:** remove it from Home.
+- **Why:** a list of what's waiting is the pile in miniature (D-DES-033). The desk is the question, the one pick or Continue, and search. The Up next section in [04](04-desk.md#up-next) now describes the Library shelf's rows, and archiving from them moves with it.
+
