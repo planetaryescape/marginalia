@@ -29,6 +29,11 @@ export const MAX_BACKFILL_MINUTES = 20;
 const SCAN_ROWS = 20;
 /** Scans per step when they find nothing to queue. */
 const SCAN_PAGES = 5;
+/**
+ * How long a scheduled article stays claimed: the longest an action may run
+ * plus ten minutes. A run that finds a live claim leaves the article alone.
+ */
+export const CLAIM_TTL_MS = 20 * 60_000;
 /** A running backfill whose last step is older than this has lost its schedule. */
 export const STALE_MS = 10 * 60_000;
 
@@ -57,7 +62,13 @@ function minutesOf(article: Doc<"articles">): number | null {
 export async function needsBackfill(
   ctx: Db,
   article: Doc<"articles">,
+  now = Date.now(),
 ): Promise<boolean> {
+  if (
+    article.reannotateClaimedAt !== undefined &&
+    now - article.reannotateClaimedAt < CLAIM_TTL_MS
+  )
+    return false;
   if (
     article.annotationStatus !== "annotated" ||
     article.finishedAt !== undefined
@@ -161,7 +172,7 @@ export const step = internalMutation({
         .take(SCAN_ROWS);
       for (const article of rows) {
         cursor = article._creationTime;
-        if (batch.length < PAGE && (await needsBackfill(ctx, article)))
+        if (batch.length < PAGE && (await needsBackfill(ctx, article, now)))
           batch.push(article._id);
         // The batch is full: leave the cursor on the last article queued
         if (batch.length >= PAGE) break;
@@ -172,12 +183,16 @@ export const step = internalMutation({
       }
     }
 
-    for (const [index, articleId] of batch.entries())
+    for (const [index, articleId] of batch.entries()) {
+      // Claimed in the same transaction that schedules it, so a restart or a
+      // second run can't schedule it again while the first call is in flight
+      await ctx.db.patch("articles", articleId, { reannotateClaimedAt: now });
       await ctx.scheduler.runAfter(
         index * JOB_STAGGER_MS,
         internal.actions.generateAnnotations.generateForArticle,
         { articleId },
       );
+    }
     if (exhausted && !batch.length) {
       await finish();
       return null;
@@ -192,6 +207,20 @@ export const step = internalMutation({
       internal.reannotateBackfill.step,
       args,
     );
+    return null;
+  },
+});
+
+/** Ends the claim on an article once its generation has finished, however it ended. */
+export const releaseClaim = internalMutation({
+  args: { articleId: v.id("articles") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get("articles", args.articleId);
+    if (article?.reannotateClaimedAt !== undefined)
+      await ctx.db.patch("articles", args.articleId, {
+        reannotateClaimedAt: undefined,
+      });
     return null;
   },
 });

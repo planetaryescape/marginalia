@@ -155,6 +155,9 @@ export const assign = internalMutation({
           await ctx.db.patch("tags", tag._id, { aliases: tag.aliases });
         }
         await link(match.tagId);
+        // A candidate waiting for promotion keeps its nearest visible tag
+        if (tag?.status === "candidate" && tag.nearestTagId)
+          await link(tag.nearestTagId);
         continue;
       }
       const id = await ctx.db.insert("tags", {

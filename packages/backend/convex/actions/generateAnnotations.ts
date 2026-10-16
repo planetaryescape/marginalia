@@ -276,149 +276,158 @@ export function proposedTags(
 export const generateForArticle = internalAction({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    const article = await ctx.runQuery(internal.articles.getByIdInternal, {
-      articleId: args.articleId,
-    });
-
-    // A re-annotation (the backfill) keeps the notes it has when it can't run
-    const reannotating = article?.annotationStatus === "annotated";
-
-    if (!article?.content) {
-      if (!reannotating)
-        await ctx.runMutation(internal.articles.updateAnnotationStatus, {
-          articleId: args.articleId,
-          status: "skipped",
-        });
-      return;
-    }
-
-    // Skip very short articles
-    if ((article.wordCount ?? 0) < 100) {
-      if (!reannotating)
-        await ctx.runMutation(internal.articles.updateAnnotationStatus, {
-          articleId: args.articleId,
-          status: "skipped",
-        });
-      return;
-    }
-
-    // Marginalia use the keys of the library that owns the article
-    const ai = await loadReaderAI(ctx, article.userId);
-    const targets = ai.chain("annotations");
-    if (!targets.length) {
-      console.warn(
-        `Skipped marginalia for ${args.articleId}: no AI provider key`,
-      );
-      // Re-annotated by the catch-up once the library saves a key
-      if (!reannotating)
-        await ctx.runMutation(internal.articles.updateAnnotationStatus, {
-          articleId: args.articleId,
-          status: "skipped",
-          skipReason: "no_provider",
-        });
-      return;
-    }
-
     try {
-      // Step 1–2: Gather what the model should read: most of the article,
-      // dates, the reader's closely related notes and marks, and the nearest
-      // other articles in their library
-      const { articleText, contextText, vaultPaths, libraryCandidates } =
-        await buildMarginaliaContext(
-          ctx,
-          { ...article, content: article.content },
-          ai.embedder(),
-        );
-      const vocabulary: { name: string; key: string; aliases: string[] }[] =
-        await ctx.runQuery(internal.tags.vocabulary, {
-          userId: article.userId,
-        });
-      const wordCount = article.wordCount ?? 0;
-
-      // Step 3: Generate annotations via LLM
-      const { object, modelId } =
-        await generateObjectWithFallback<AnnotationResult>({
-          schema: annotationCandidateSchema,
-          system: SYSTEM_PROMPT,
-          prompt: buildUserPrompt({
-            title: article.title,
-            author: article.author,
-            articleText,
-            truncated: article.content.length > articleText.length,
-            contextText,
-            wordCount,
-            vocabulary: vocabulary.map((tag) => tag.name),
-          }),
-          targets,
-          onFailure: ai.noteFailure,
-        });
-
-      // Step 4: Quality gate
-      const { notes, rejected } = gateNotes(object.annotations, {
-        content: article.content,
-        offeredArticleIds: new Set(libraryCandidates.map((c) => c.id)),
-        cap: annotationBudget(wordCount).cap,
-      });
-
-      // Step 5: Persist notes and reflection together, so a half-written margin can't exist
-      await ctx.runMutation(internal.annotations.replaceForArticle, {
-        articleId: args.articleId,
-        userId: article.userId,
-        notes: notes.map((a) => ({
-          type: a.type,
-          fallacyName: a.fallacyName,
-          // Checked against the offered candidates by the gate, and again in the mutation
-          // SAFETY: gateNotes kept it only because it is the id of a library article offered in this prompt (an Id<"articles"> from the context query).
-          articleRefId: a.articleRefId as Id<"articles"> | undefined,
-          anchorText: a.anchorText,
-          anchorStartOffset: a.startOffset,
-          anchorEndOffset: a.startOffset + a.anchorText.length,
-          content: a.content,
-          notePath: resolveNotePath(a.notePath, vaultPaths),
-          noteExcerpt: a.noteExcerpt,
-          relevanceScore: a.relevanceScore,
-        })),
-        reflection: object.reflection,
-      });
-
-      // The one point and short summary, and the tags, are extras: failing at
-      // either must not undo the margin that was just written
-      if (object.thesis?.trim() && object.gist?.trim())
-        await ctx.runMutation(internal.summaries.saveOverview, {
-          userId: article.userId,
-          articleId: args.articleId,
-          thesis: object.thesis,
-          gist: object.gist,
-          model: modelId,
-        });
-      await assignTags(ctx, {
-        userId: article.userId,
-        articleId: args.articleId,
-        tags: object.tags,
-        vocabulary,
-        embedder: ai.embedder(),
-      });
-
-      const pushback = notes.filter((n) =>
-        KIND_FAMILIES.pushback.some((kind) => kind === n.type),
-      ).length;
-      console.log(
-        `Annotated "${article.title}" with ${modelId}: ${notes.length} of ${object.annotations.length} candidates kept (${pushback} pushback)`,
-        rejected,
-      );
-    } catch (error) {
-      console.error(
-        `Annotation generation failed for ${article.title}:`,
-        error,
-      );
-      if (!reannotating)
-        await ctx.runMutation(internal.articles.updateAnnotationStatus, {
-          articleId: args.articleId,
-          status: "failed",
-        });
+      await annotateArticle(ctx, args);
+    } finally {
+      // Ends a backfill claim however this ended; a crash leaves it to expire
+      await ctx.runMutation(internal.reannotateBackfill.releaseClaim, args);
     }
   },
 });
+
+async function annotateArticle(
+  ctx: ActionCtx,
+  args: { articleId: Id<"articles"> },
+) {
+  const article = await ctx.runQuery(internal.articles.getByIdInternal, {
+    articleId: args.articleId,
+  });
+
+  // A re-annotation (the backfill) keeps the notes it has when it can't run
+  const reannotating = article?.annotationStatus === "annotated";
+
+  if (!article?.content) {
+    if (!reannotating)
+      await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+        articleId: args.articleId,
+        status: "skipped",
+      });
+    return;
+  }
+
+  // Skip very short articles
+  if ((article.wordCount ?? 0) < 100) {
+    if (!reannotating)
+      await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+        articleId: args.articleId,
+        status: "skipped",
+      });
+    return;
+  }
+
+  // Marginalia use the keys of the library that owns the article
+  const ai = await loadReaderAI(ctx, article.userId);
+  const targets = ai.chain("annotations");
+  if (!targets.length) {
+    console.warn(
+      `Skipped marginalia for ${args.articleId}: no AI provider key`,
+    );
+    // Re-annotated by the catch-up once the library saves a key
+    if (!reannotating)
+      await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+        articleId: args.articleId,
+        status: "skipped",
+        skipReason: "no_provider",
+      });
+    return;
+  }
+
+  try {
+    // Step 1–2: Gather what the model should read: most of the article,
+    // dates, the reader's closely related notes and marks, and the nearest
+    // other articles in their library
+    const { articleText, contextText, vaultPaths, libraryCandidates } =
+      await buildMarginaliaContext(
+        ctx,
+        { ...article, content: article.content },
+        ai.embedder(),
+      );
+    const vocabulary: { name: string; key: string; aliases: string[] }[] =
+      await ctx.runQuery(internal.tags.vocabulary, {
+        userId: article.userId,
+      });
+    const wordCount = article.wordCount ?? 0;
+
+    // Step 3: Generate annotations via LLM
+    const { object, modelId } =
+      await generateObjectWithFallback<AnnotationResult>({
+        schema: annotationCandidateSchema,
+        system: SYSTEM_PROMPT,
+        prompt: buildUserPrompt({
+          title: article.title,
+          author: article.author,
+          articleText,
+          truncated: article.content.length > articleText.length,
+          contextText,
+          wordCount,
+          vocabulary: vocabulary.map((tag) => tag.name),
+        }),
+        targets,
+        onFailure: ai.noteFailure,
+      });
+
+    // Step 4: Quality gate
+    const { notes, rejected } = gateNotes(object.annotations, {
+      content: article.content,
+      offeredArticleIds: new Set(libraryCandidates.map((c) => c.id)),
+      cap: annotationBudget(wordCount).cap,
+    });
+
+    // Step 5: Persist notes and reflection together, so a half-written margin can't exist
+    await ctx.runMutation(internal.annotations.replaceForArticle, {
+      articleId: args.articleId,
+      userId: article.userId,
+      notes: notes.map((a) => ({
+        type: a.type,
+        fallacyName: a.fallacyName,
+        // Checked against the offered candidates by the gate, and again in the mutation
+        // SAFETY: gateNotes kept it only because it is the id of a library article offered in this prompt (an Id<"articles"> from the context query).
+        articleRefId: a.articleRefId as Id<"articles"> | undefined,
+        anchorText: a.anchorText,
+        anchorStartOffset: a.startOffset,
+        anchorEndOffset: a.startOffset + a.anchorText.length,
+        content: a.content,
+        notePath: resolveNotePath(a.notePath, vaultPaths),
+        noteExcerpt: a.noteExcerpt,
+        relevanceScore: a.relevanceScore,
+      })),
+      reflection: object.reflection,
+    });
+
+    // The one point and short summary, and the tags, are extras: failing at
+    // either must not undo the margin that was just written
+    if (object.thesis?.trim() && object.gist?.trim())
+      await ctx.runMutation(internal.summaries.saveOverview, {
+        userId: article.userId,
+        articleId: args.articleId,
+        thesis: object.thesis,
+        gist: object.gist,
+        model: modelId,
+      });
+    await assignTags(ctx, {
+      userId: article.userId,
+      articleId: args.articleId,
+      tags: object.tags,
+      vocabulary,
+      embedder: ai.embedder(),
+    });
+
+    const pushback = notes.filter((n) =>
+      KIND_FAMILIES.pushback.some((kind) => kind === n.type),
+    ).length;
+    console.log(
+      `Annotated "${article.title}" with ${modelId}: ${notes.length} of ${object.annotations.length} candidates kept (${pushback} pushback)`,
+      rejected,
+    );
+  } catch (error) {
+    console.error(`Annotation generation failed for ${article.title}:`, error);
+    if (!reannotating)
+      await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+        articleId: args.articleId,
+        status: "failed",
+      });
+  }
+}
 
 async function assignTags(
   ctx: ActionCtx,

@@ -187,6 +187,71 @@ describe("annotations.replaceForArticle", () => {
   });
 });
 
+describe("annotations the reader has responded to", () => {
+  it("survive a replacement that lands after they answered, and new notes go around them", async () => {
+    const f = await setup();
+    const [answered, plain] = await f.t.run(async (ctx) => {
+      const row = (anchorText: string, start: number) =>
+        ctx.db.insert("annotations", {
+          articleId: f.articleId,
+          userId: OWNER,
+          type: "question",
+          anchorText,
+          anchorStartOffset: start,
+          anchorEndOffset: start + anchorText.length,
+          content: `old ${anchorText}`,
+          relevanceScore: 0.7,
+          wasViewed: false,
+          wasDismissed: false,
+          createdAt: 1,
+        });
+      const answered = await row("answered", 0);
+      const plain = await row("plain", 50);
+      // The reader writes this while the new margin is being generated
+      await ctx.db.insert("userNotes", {
+        userId: OWNER,
+        articleId: f.articleId,
+        annotationId: answered,
+        selectedText: "answered",
+        content: "<p>mine</p>",
+        contentPlain: "mine",
+        createdAt: 2,
+        updatedAt: 2,
+      });
+      return [answered, plain];
+    });
+    await f.t.mutation(internal.annotations.replaceForArticle, {
+      articleId: f.articleId,
+      userId: OWNER,
+      notes: [
+        // Overlaps the answered note's anchor: dropped
+        note({
+          anchorText: "answered",
+          anchorStartOffset: 2,
+          anchorEndOffset: 6,
+        }),
+        note({
+          anchorText: "fresh",
+          anchorStartOffset: 100,
+          anchorEndOffset: 105,
+        }),
+      ],
+      reflection,
+    });
+    const rows = await notesOf(f.t, f.articleId);
+    expect(rows.map((r) => r._id)).toContain(answered);
+    expect(rows.map((r) => r._id)).not.toContain(plain);
+    expect(rows.map((r) => r.anchorText).sort()).toEqual(["answered", "fresh"]);
+    expect(rows.find((r) => r._id === answered)?.content).toBe("old answered");
+    expect(
+      (await f.t.run((ctx) => ctx.db.get(f.articleId)))?.annotationVersion,
+    ).toBe(2);
+    // Their note still points at a live annotation
+    const userNote = await f.t.run((ctx) => ctx.db.query("userNotes").first());
+    expect(userNote?.annotationId).toBe(answered);
+  });
+});
+
 describe("annotations.referencedArticle", () => {
   async function connect(
     f: Awaited<ReturnType<typeof setup>>,

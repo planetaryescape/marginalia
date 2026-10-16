@@ -9,7 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { BATCH_DELAY_MS, PAGE } from "./catchUp";
-import { STALE_MS } from "./reannotateBackfill";
+import { CLAIM_TTL_MS, STALE_MS } from "./reannotateBackfill";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -343,5 +343,85 @@ describe("reannotateBackfill", () => {
     expect(
       await f.t.query(internal.reannotateBackfill.status, { userId: f.userId }),
     ).toMatchObject({ running: false, queued: 1 });
+  });
+
+  describe("claims", () => {
+    const generateJobs = (t: Awaited<ReturnType<typeof setup>>["t"]) =>
+      t.run(async (ctx) =>
+        (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+          (job) => job.name.includes("generateForArticle"),
+        ),
+      );
+
+    it("does not schedule an article again on a restart while its call is in flight", async () => {
+      const f = await setup();
+      mockProviders();
+      const id = await f.t.run((ctx) => addArticle(ctx, f.userId, "slow"));
+      await f.start();
+      // The first batch queues the article and claims it; the call never completes here
+      await f.t.mutation(internal.reannotateBackfill.step, {
+        userId: f.userId,
+        runId: 1,
+      });
+      expect(await generateJobs(f.t)).toHaveLength(1);
+      expect(
+        (await f.t.run((ctx) => ctx.db.get(id)))?.reannotateClaimedAt,
+      ).toBeDefined();
+
+      // The run is marked finished, then restarted from the beginning
+      await f.t.run(async (ctx) => {
+        const row = await ctx.db.query("reannotateState").first();
+        await ctx.db.patch("reannotateState", row!._id, { running: false });
+      });
+      expect(await f.start()).toBe("started");
+      await f.t.mutation(internal.reannotateBackfill.step, {
+        userId: f.userId,
+        runId: 2,
+      });
+      expect(await generateJobs(f.t)).toHaveLength(1);
+    });
+
+    it("schedules it again once the claim has expired", async () => {
+      const f = await setup();
+      mockProviders();
+      const id = await f.t.run((ctx) => addArticle(ctx, f.userId, "lost"));
+      await f.start();
+      await f.t.mutation(internal.reannotateBackfill.step, {
+        userId: f.userId,
+        runId: 1,
+      });
+      await f.t.run(async (ctx) => {
+        await ctx.db.patch("articles", id, {
+          reannotateClaimedAt: Date.now() - CLAIM_TTL_MS - 1,
+        });
+        const row = await ctx.db.query("reannotateState").first();
+        await ctx.db.patch("reannotateState", row!._id, { running: false });
+      });
+      await f.start();
+      await f.t.mutation(internal.reannotateBackfill.step, {
+        userId: f.userId,
+        runId: 2,
+      });
+      expect(await generateJobs(f.t)).toHaveLength(2);
+    });
+
+    it("clears the claim on success and on failure, so a failed article is retried", async () => {
+      const f = await setup();
+      let failing = true;
+      mockProviders({ failFor: () => failing });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const id = await f.t.run((ctx) => addArticle(ctx, f.userId, "claimed"));
+      await f.start();
+      await runScheduled(f.t);
+      let article = await f.t.run((ctx) => ctx.db.get(id));
+      expect(article?.reannotateClaimedAt).toBeUndefined();
+      expect(article?.annotationVersion).toBeUndefined();
+      failing = false;
+      await f.start();
+      await runScheduled(f.t);
+      article = await f.t.run((ctx) => ctx.db.get(id));
+      expect(article?.reannotateClaimedAt).toBeUndefined();
+      expect(article?.annotationVersion).toBe(2);
+    });
   });
 });

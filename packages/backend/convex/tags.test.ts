@@ -224,6 +224,30 @@ describe("tags.assign", () => {
     expect(await linksOf(f, f.articleId)).toHaveLength(1);
   });
 
+  it("keeps the nearest visible tag when the same assignment is repeated", async () => {
+    const f = await setup();
+    const nearest = await f.t.run((ctx) =>
+      addTag(ctx, OWNER, "hiring", { embedding: [1, 0] }),
+    );
+    const proposal = [{ name: "talent scouting", embedding: similarTo(0.85) }];
+    for (let i = 0; i < 3; i++) {
+      await assign(f, f.articleId, proposal);
+      const linked = (await linksOf(f, f.articleId)).map((l) => l.tagId);
+      expect(linked).toHaveLength(2);
+      expect(linked).toContain(nearest);
+      expect(
+        await f.owner.query(api.tags.forArticle, { articleId: f.articleId }),
+      ).toMatchObject([{ _id: nearest }]);
+    }
+    // Counts are per article, not per call
+    expect(
+      (await allTags(f)).map((tag) => [tag.key, tag.count]).sort(),
+    ).toEqual([
+      ["hiring", 1],
+      ["talentscouting", 1],
+    ]);
+  });
+
   it("gives an article at most three tags, once each", async () => {
     const f = await setup();
     await f.t.run(async (ctx) => {

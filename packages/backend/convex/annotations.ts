@@ -150,7 +150,21 @@ export const replaceForArticle = internalMutation({
       .query("annotations")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
       .collect();
-    for (const row of existing) await ctx.db.delete(row._id);
+    // A reader may have answered a note while this was generating. Those
+    // annotations stay, so the answer keeps its place in the margin; the new
+    // notes go in around them, and any that overlap a kept anchor are dropped.
+    const answeredNotes = await ctx.db
+      .query("userNotes")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .collect();
+    const answered = new Set<string>(
+      answeredNotes.flatMap((note) =>
+        note.annotationId ? [note.annotationId] : [],
+      ),
+    );
+    const kept = existing.filter((row) => answered.has(row._id));
+    for (const row of existing)
+      if (!answered.has(row._id)) await ctx.db.delete(row._id);
 
     const refs = new Map<string, boolean>();
     const now = Date.now();
@@ -167,6 +181,14 @@ export const replaceForArticle = internalMutation({
           articleRefId = undefined;
       }
       if (note.articleRefId && !articleRefId && !note.notePath) continue;
+      if (
+        kept.some(
+          (row) =>
+            note.anchorStartOffset < row.anchorEndOffset &&
+            note.anchorEndOffset > row.anchorStartOffset,
+        )
+      )
+        continue;
       await ctx.db.insert("annotations", {
         ...note,
         articleRefId,
@@ -195,6 +217,8 @@ export const replaceForArticle = internalMutation({
 
     await ctx.db.patch("articles", args.articleId, {
       annotationVersion: CURRENT_ANNOTATION_VERSION,
+      // Done: the backfill's claim on this article ends with the new margin
+      reannotateClaimedAt: undefined,
     });
     await setAnnotationStatus(ctx, args.articleId, "annotated");
   },
