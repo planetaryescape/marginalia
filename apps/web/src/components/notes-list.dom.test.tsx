@@ -193,6 +193,25 @@ describe("the Notes page", () => {
     expect(ul?.className).not.toContain("bg-[var(--highlighter)]");
   });
 
+  it("shows a mark in its own colour, whatever the reader's highlighter is now", async () => {
+    mocks.marks.results = [
+      mark({ _id: "h1", color: "pink", text: "a pink line" }),
+      mark({
+        _id: "h2",
+        kind: "underline",
+        color: "vermilion",
+        text: "a red line",
+      }),
+    ];
+    await render();
+    const find = (text: string) =>
+      [...host.querySelectorAll("span")].find((s) => s.textContent === text);
+    expect(find("a pink line")?.getAttribute("data-color")).toBe("pink");
+    expect(find("a pink line")?.className).toContain("bg-[var(--mark)]");
+    expect(find("a red line")?.getAttribute("data-color")).toBe("vermilion");
+    expect(find("a red line")?.className).toContain("decoration-[var(--mark)]");
+  });
+
   it("keeps each article's notes, marks and answers in the order they were made", async () => {
     mocks.listAll = [note({ contentPlain: "first note", createdAt: 100 })];
     mocks.marks.results = [mark({ text: "a mark", createdAt: 200 })];

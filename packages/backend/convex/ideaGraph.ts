@@ -28,6 +28,7 @@ import {
   ideasOnArticle,
   linkedKeys,
 } from "./lib/ideaSignals";
+import type { MarkColor } from "./lib/markColours";
 
 const HINTS_USED = 12;
 const CANDIDATES_LOADED = FIRST_RING * 2;
@@ -52,6 +53,8 @@ export interface GraphNode {
   createdAt: number;
   /** For a vault idea: the passage (chunk) it is shown by, to send back with it. */
   via?: string;
+  /** For a highlight: its own colour; missing means the reader's current highlighter. */
+  color?: MarkColor;
 }
 
 export interface GraphEdge {
@@ -78,6 +81,7 @@ const view = (node: LoadedNode, hop: 0 | 1 | 2): GraphNode => ({
   hop,
   createdAt: node.createdAt,
   via: node.kind === "vault" ? node.id : undefined,
+  color: node.color,
 });
 
 export async function buildGraph(
@@ -382,6 +386,7 @@ export const node = query({
       prompt,
       createdAt: found.createdAt,
       filePath: found.filePath ?? null,
+      color: found.color ?? null,
       // Notes belong to an article, so a vault idea with none can't be written beside
       canWrite: Boolean(await articleFor(ctx, ctx.readerId, found)),
       articleId: article?._id ?? null,

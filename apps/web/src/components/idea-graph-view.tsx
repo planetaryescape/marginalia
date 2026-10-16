@@ -33,10 +33,13 @@ function Shape({ node, r }: { node: GraphNode; r: number }) {
     case "highlight":
       // The highlighter is translucent: lay it on paper so nothing shows through
       return (
-        <>
+        <g data-color={node.color}>
           <circle r={r} fill="var(--reader-bg)" />
-          <circle r={r} fill="var(--highlighter)" />
-        </>
+          <circle
+            r={r}
+            fill={node.color ? "var(--mark)" : "var(--highlighter)"}
+          />
+        </g>
       );
     case "vault":
       return <circle r={r} fill="var(--vault)" />;

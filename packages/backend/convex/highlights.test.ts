@@ -141,3 +141,86 @@ describe("highlights.listMine", () => {
     expect(new Set(seen).size).toBe(10);
   });
 });
+
+describe("mark colours", () => {
+  it("keeps the colour a mark was made in, and lists it", async () => {
+    const { reader, readerArticle } = await fixture();
+    const id = await reader.mutation(api.highlights.create, {
+      articleId: readerArticle,
+      kind: "highlight",
+      color: "pink",
+      text: "a pink passage",
+    });
+    const rows = await reader.query(api.highlights.listByArticle, {
+      articleId: readerArticle,
+    });
+    expect(rows.find((r) => r._id === id)?.color).toBe("pink");
+    const mine = await reader.query(api.highlights.listMine, {
+      paginationOpts: first(),
+    });
+    expect(mine.page.find((r) => r._id === id)?.color).toBe("pink");
+  });
+
+  it("leaves a mark without a colour when none is given, so it follows the setting", async () => {
+    const { reader, readerArticle } = await fixture();
+    const id = await reader.mutation(api.highlights.create, {
+      articleId: readerArticle,
+      kind: "underline",
+      text: "an old-style mark",
+    });
+    const rows = await reader.query(api.highlights.listByArticle, {
+      articleId: readerArticle,
+    });
+    expect(rows.find((r) => r._id === id)?.color).toBeUndefined();
+  });
+
+  it("refuses a pen colour on a highlight and the reverse", async () => {
+    const { reader, readerArticle, readerOld, readerUnder } = await fixture();
+    await expect(
+      reader.mutation(api.highlights.create, {
+        articleId: readerArticle,
+        kind: "highlight",
+        color: "cobalt",
+        text: "x",
+      }),
+    ).rejects.toThrow("not for this kind");
+    await expect(
+      reader.mutation(api.highlights.setColor, {
+        highlightId: readerOld,
+        color: "forest",
+      }),
+    ).rejects.toThrow("not for this kind");
+    await expect(
+      reader.mutation(api.highlights.setColor, {
+        highlightId: readerUnder,
+        color: "yellow",
+      }),
+    ).rejects.toThrow("not for this kind");
+  });
+
+  it("recolours a mark, and only for its own reader", async () => {
+    const { reader, owner, t, readerOld, ownerMark } = await fixture();
+    await reader.mutation(api.highlights.setColor, {
+      highlightId: readerOld,
+      color: "blue",
+    });
+    expect((await t.run((ctx) => ctx.db.get(readerOld)))?.color).toBe("blue");
+
+    await expect(
+      reader.mutation(api.highlights.setColor, {
+        highlightId: ownerMark,
+        color: "green",
+      }),
+    ).rejects.toThrow("Highlight not found");
+    expect(
+      (await t.run((ctx) => ctx.db.get(ownerMark)))?.color,
+    ).toBeUndefined();
+
+    await expect(
+      owner.mutation(api.highlights.setColor, {
+        highlightId: readerOld,
+        color: "green",
+      }),
+    ).rejects.toThrow("Highlight not found");
+  });
+});

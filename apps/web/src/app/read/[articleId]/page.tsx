@@ -44,6 +44,13 @@ import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import { answerNotes, articleHistory } from "@/lib/margin-answers";
 import {
+  defaultColor,
+  type HighlighterColor,
+  type MarkColor,
+  markColor,
+  type PenColor,
+} from "@/lib/mark-colours";
+import {
   getArticleBody,
   getParagraphs,
   paragraphIndexOf,
@@ -72,6 +79,7 @@ import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
+import { useMarkPaint } from "@/lib/use-mark-paint";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { usePlaceRestore } from "@/lib/use-place-restore";
 import { openAfterLanding, useQuoteLanding } from "@/lib/use-quote-landing";
@@ -338,39 +346,76 @@ export default function ReadPage() {
   });
   const createHighlight = useMutation(api.highlights.create);
   const removeHighlight = useMutation(api.highlights.remove);
+  const recolourHighlight = useMutation(api.highlights.setColor);
   const marks = useHighlights({
     containerRef: articleRef,
     docs: highlightDocs,
     version: paragraphs.version,
   });
 
+  useMarkPaint(marks, settings);
+
   const isMarked = useCallback(
     (kind: MarkKind, range: Range) => Boolean(findMark(marks, kind, range)),
     [marks],
+  );
+
+  const saveMark = useCallback(
+    async (kind: MarkKind, range: Range, color: MarkColor) => {
+      // Sweeps at once; the saved mark takes over when the doc arrives
+      if (kind === "highlight") sweepHighlight(range, color);
+      await createHighlight({
+        articleId: articleId as any,
+        kind,
+        color,
+        text: range.toString().replace(/\s+/g, " ").trim(),
+        paragraphIndex: paragraphIndexOf(range.startContainer) ?? undefined,
+        unitIndex: unit,
+      });
+    },
+    [createHighlight, articleId, unit],
   );
 
   const toggleMark = useCallback(
     async (kind: MarkKind, range: Range) => {
       const existing = findMark(marks, kind, range);
       try {
-        if (existing) {
-          await removeHighlight({ highlightId: existing.doc._id });
-        } else {
-          // Sweeps at once; the saved mark takes over when the doc arrives
-          if (kind === "highlight") sweepHighlight(range);
-          await createHighlight({
-            articleId: articleId as any,
-            kind,
-            text: range.toString().replace(/\s+/g, " ").trim(),
-            paragraphIndex: paragraphIndexOf(range.startContainer) ?? undefined,
-            unitIndex: unit,
-          });
-        }
+        if (existing) await removeHighlight({ highlightId: existing.doc._id });
+        else await saveMark(kind, range, defaultColor(kind, settings));
       } catch {
         toast.error("Couldn't save that");
       }
     },
-    [marks, createHighlight, removeHighlight, articleId, unit],
+    [marks, removeHighlight, saveMark, settings],
+  );
+
+  // Picking a colour marks the passage in it, or recolours the mark already
+  // there, and becomes the default for that tool until another is picked.
+  const markInColor = useCallback(
+    async (kind: MarkKind, range: Range, color: MarkColor) => {
+      updateSettings(
+        kind === "highlight"
+          ? { highlighter: color as HighlighterColor }
+          : { pen: color as PenColor },
+      );
+      const existing = findMark(marks, kind, range);
+      try {
+        if (!existing) await saveMark(kind, range, color);
+        else if (markColor(existing.doc, settings) !== color)
+          await recolourHighlight({ highlightId: existing.doc._id, color });
+      } catch {
+        toast.error("Couldn't save that");
+      }
+    },
+    [marks, saveMark, recolourHighlight, updateSettings, settings],
+  );
+
+  const markedColor = useCallback(
+    (kind: MarkKind, range: Range) => {
+      const existing = findMark(marks, kind, range);
+      return existing ? markColor(existing.doc, settings) : null;
+    },
+    [marks, settings],
   );
 
   const startCompanion = useCallback(
@@ -913,6 +958,12 @@ export default function ReadPage() {
         }
         isMarked={isMarked}
         onToggleMark={toggleMark}
+        onMarkInColor={markInColor}
+        markedColor={markedColor}
+        defaultColors={{
+          highlight: settings.highlighter,
+          underline: settings.pen,
+        }}
       />
 
       {settings.map && (

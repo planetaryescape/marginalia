@@ -4,6 +4,8 @@ import {
   ArrowUp,
   BookA,
   BookOpenText,
+  Check,
+  ChevronDown,
   Copy,
   Feather,
   Globe,
@@ -23,6 +25,7 @@ import {
 import { toast } from "sonner";
 import { type CompanionMode, usePassageHighlight } from "@/lib/companion";
 import type { MarkKind } from "@/lib/highlights";
+import { type MarkColor, SWATCHES } from "@/lib/mark-colours";
 import { passagePlacement } from "@/lib/passage-placement";
 import type { AnswerDepth } from "@/lib/reader-settings";
 import { isTypingTarget, useShortcuts } from "@/lib/shortcuts";
@@ -47,6 +50,12 @@ interface SelectionToolbarProps {
   onWebChange: (web: boolean) => void;
   isMarked: (kind: MarkKind, range: Range) => boolean;
   onToggleMark: (kind: MarkKind, range: Range) => void;
+  /** Marks the passage in this colour (or recolours the mark there) and makes it the tool's default. */
+  onMarkInColor: (kind: MarkKind, range: Range, color: MarkColor) => void;
+  /** The colour of the mark already on this passage, if any. */
+  markedColor: (kind: MarkKind, range: Range) => MarkColor | null;
+  /** Each tool's current default colour. */
+  defaultColors: Record<MarkKind, MarkColor>;
 }
 
 const SHORTCUTS: Record<string, CompanionMode | MarkKind> = {
@@ -64,14 +73,12 @@ const MARK_TOOLS = [
     label: "Highlight",
     key: "H",
     Icon: Highlighter,
-    swatch: "var(--highlighter)",
   },
   {
     kind: "underline",
     label: "Underline",
     key: "P",
     Icon: Underline,
-    swatch: "var(--pen)",
   },
 ] as const;
 
@@ -111,6 +118,9 @@ export function SelectionToolbar({
   onWebChange,
   isMarked,
   onToggleMark,
+  onMarkInColor,
+  markedColor,
+  defaultColors,
 }: SelectionToolbarProps) {
   const reducedMotion = useReducedMotion();
   const [range, setRange] = useState<Range | null>(null);
@@ -119,17 +129,22 @@ export function SelectionToolbar({
   );
   const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
+  // The tool whose colour picker is open
+  const [picking, setPicking] = useState<MarkKind | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const askingRef = useRef(false);
+  // Asking and picking a colour both keep the toolbar open without a selection
+  const holding = asking || picking !== null;
   useLayoutEffect(() => {
-    askingRef.current = asking;
-  }, [asking]);
+    askingRef.current = holding;
+  }, [holding]);
 
   const hide = useCallback(() => {
     setRange(null);
     setPosition(null);
     setAsking(false);
     setQuestion("");
+    setPicking(null);
   }, []);
 
   const handleSelectionChange = useCallback(() => {
@@ -207,22 +222,22 @@ export function SelectionToolbar({
     };
   }, [range]);
   // Re-measure when the Ask editor changes the menu's height.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: asking changes the rendered dimensions.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asking and picking change the rendered dimensions.
   useLayoutEffect(() => {
     if (range) setPosition(placement(range, toolbarRef.current));
-  }, [range, asking]);
+  }, [range, asking, picking]);
 
   // Typing a question moves focus out of the article, so keep the passage tinted
   usePassageHighlight("companion-pending", asking ? range : null);
 
   useEffect(() => {
-    if (!asking) return;
+    if (!holding) return;
     const onPointerDown = (e: PointerEvent) => {
       if (!toolbarRef.current?.contains(e.target as Node)) hide();
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [asking, hide]);
+  }, [holding, hide]);
 
   const finish = () => {
     window.getSelection()?.removeAllRanges();
@@ -253,6 +268,12 @@ export function SelectionToolbar({
     [range, onToggleMark, hide],
   );
 
+  const pickColor = (kind: MarkKind, color: MarkColor) => {
+    if (!range) return;
+    onMarkInColor(kind, range, color);
+    finish();
+  };
+
   useShortcuts(
     Object.fromEntries(
       Object.entries(SHORTCUTS).map(([key, action]) => [
@@ -282,7 +303,7 @@ export function SelectionToolbar({
         },
       ]),
     ),
-    !asking,
+    !holding,
     {
       help: {
         group: "Reading",
@@ -298,7 +319,7 @@ export function SelectionToolbar({
     },
   );
 
-  useShortcuts({ Escape: () => finish() }, Boolean(range) && !asking);
+  useShortcuts({ Escape: () => finish() }, Boolean(range) && !holding);
 
   const submitQuestion = () => {
     if (!range || !question.trim()) return;
@@ -357,10 +378,17 @@ export function SelectionToolbar({
             }
             className={cn(
               "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-2xl md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
-              asking && "block",
+              holding && "block",
             )}
           >
-            {asking ? (
+            {picking ? (
+              <ColorPicker
+                kind={picking}
+                selected={markedColor(picking, range) ?? defaultColors[picking]}
+                onPick={(color) => pickColor(picking, color)}
+                onClose={() => setPicking(null)}
+              />
+            ) : asking ? (
               <form
                 className="flex flex-wrap md:flex-nowrap items-center gap-1 px-2 md:pl-3 md:pr-0 w-full md:w-auto"
                 onSubmit={(e) => {
@@ -430,32 +458,45 @@ export function SelectionToolbar({
               </form>
             ) : (
               <>
-                {MARK_TOOLS.map(({ kind, label, key, Icon, swatch }) => {
+                {MARK_TOOLS.map(({ kind, label, key, Icon }) => {
                   const active = isMarked(kind, range);
+                  const color = markedColor(kind, range) ?? defaultColors[kind];
+                  const swatch = SWATCHES[kind].find((c) => c.id === color);
                   return (
-                    <button
-                      key={kind}
-                      className={cn(
-                        iconClass,
-                        "relative",
-                        active && "opacity-100 bg-white/15",
-                      )}
-                      title={`${active ? "Remove" : label} (${key})`}
-                      aria-label={
-                        active ? `Remove ${label.toLowerCase()}` : label
-                      }
-                      aria-pressed={active}
-                      onClick={() => toggleMark(kind)}
-                    >
-                      <Icon size={14} />
-                      <span className="md:hidden">
-                        {active ? "Remove mark" : label}
-                      </span>
-                      <span
-                        className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-[2px] w-3 rounded-full"
-                        style={{ background: swatch }}
-                      />
-                    </button>
+                    <div key={kind} className="flex items-stretch">
+                      <button
+                        className={cn(
+                          iconClass,
+                          "relative flex-1",
+                          active && "opacity-100 bg-white/15",
+                        )}
+                        title={`${active ? "Remove" : label} (${key})`}
+                        aria-label={
+                          active ? `Remove ${label.toLowerCase()}` : label
+                        }
+                        aria-pressed={active}
+                        onClick={() => toggleMark(kind)}
+                      >
+                        <Icon size={14} />
+                        <span className="md:hidden">
+                          {active ? "Remove mark" : label}
+                        </span>
+                        <span
+                          className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-[2px] w-3 rounded-full"
+                          style={{ background: swatch?.hex }}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex items-center justify-center w-6 md:w-4 rounded-full opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                        title={`${label} colour`}
+                        aria-label={`${label} colour, now ${swatch?.label.toLowerCase()}`}
+                        aria-haspopup="true"
+                        onClick={() => setPicking(kind)}
+                      >
+                        <ChevronDown size={10} />
+                      </button>
+                    </div>
                   );
                 })}
                 <button
@@ -526,5 +567,95 @@ export function SelectionToolbar({
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Four dots for a tool. Arrow keys move between them, Enter or Space picks,
+ * Escape goes back to the toolbar. The selected dot takes focus on open.
+ */
+function ColorPicker({
+  kind,
+  selected,
+  onPick,
+  onClose,
+}: {
+  kind: MarkKind;
+  selected: MarkColor;
+  onPick: (color: MarkColor) => void;
+  onClose: () => void;
+}) {
+  const swatches = SWATCHES[kind];
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const name = kind === "highlight" ? "Highlighter" : "Pen";
+
+  // Focus once, when the picker opens; later selection changes must not steal it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: opens once
+  useEffect(() => {
+    const at = swatches.findIndex((c) => c.id === selected);
+    refs.current[Math.max(at, 0)]?.focus({ preventScroll: true });
+  }, []);
+
+  const move = (from: number, step: number) =>
+    refs.current[(from + step + swatches.length) % swatches.length]?.focus({
+      preventScroll: true,
+    });
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label={`${name} colour`}
+      className="flex items-center gap-1 px-2 h-11 md:h-8"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <span className="text-[12px] opacity-60 pr-1">{name}</span>
+      {swatches.map(({ id, label, hex }, i) => (
+        <button
+          key={id}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          type="button"
+          role="radio"
+          aria-checked={id === selected}
+          aria-label={label}
+          title={label}
+          tabIndex={id === selected ? 0 : -1}
+          onClick={() => onPick(id)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+              e.preventDefault();
+              move(i, 1);
+            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+              e.preventDefault();
+              move(i, -1);
+            }
+          }}
+          className="flex items-center justify-center w-9 h-9 md:w-7 md:h-7 rounded-full transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+        >
+          <span
+            className="flex items-center justify-center w-5 h-5 rounded-full ring-1 ring-black/20"
+            style={{ background: hex }}
+          >
+            {id === selected && (
+              <Check size={12} strokeWidth={3} className="text-black/70" />
+            )}
+          </span>
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-label="Back to passage actions"
+        onClick={onClose}
+        className="ml-1 w-9 h-9 md:w-7 md:h-7 flex items-center justify-center rounded-full opacity-60 hover:opacity-100"
+      >
+        <X size={14} />
+      </button>
+    </div>
   );
 }

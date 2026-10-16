@@ -9,6 +9,7 @@ import {
   snippet,
   UNLIMITED,
 } from "./ideaGraph";
+import type { MarkColor } from "./markColours";
 
 export type Db = Pick<QueryCtx, "db">;
 
@@ -22,6 +23,8 @@ export interface LoadedNode {
   createdAt: number;
   /** For a vault note: its file, so chunks of one file show once. */
   filePath?: string;
+  /** For a highlight: the colour it was made in, when it has one. */
+  color?: MarkColor;
 }
 
 /** The node a key names, or null when it is gone or belongs to someone else. */
@@ -68,6 +71,7 @@ export async function loadNode(
         label: snippet(row.text, 70),
         text: row.text,
         createdAt: row.createdAt,
+        color: row.color,
       };
     }
     case "answer": {

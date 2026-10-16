@@ -7,7 +7,11 @@ import { SelectionToolbar } from "./selection-toolbar";
 vi.mock("@/lib/companion", () => ({ usePassageHighlight: vi.fn() }));
 let root: Root;
 let article: HTMLElement;
+const onMarkInColor = vi.fn();
+let markedColor: (kind: string) => string | null = () => null;
 beforeEach(async () => {
+  onMarkInColor.mockReset();
+  markedColor = () => null;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({
     matches: true,
@@ -35,6 +39,9 @@ beforeEach(async () => {
         onWebChange={vi.fn()}
         isMarked={() => false}
         onToggleMark={vi.fn()}
+        onMarkInColor={onMarkInColor}
+        markedColor={(kind) => markedColor(kind) as never}
+        defaultColors={{ highlight: "green", underline: "cobalt" }}
       />,
     ),
   );
@@ -104,7 +111,9 @@ describe("the passage menu, ordered by hand", () => {
     );
     expect(order).toEqual([
       "Highlight",
+      "Highlight colour, now green",
       "Underline",
+      "Underline colour, now cobalt",
       "Add note",
       "|",
       "Explain",
@@ -113,5 +122,70 @@ describe("the passage menu, ordered by hand", () => {
       "Ask",
       "Copy",
     ]);
+  });
+});
+
+describe("the colour picker", () => {
+  async function open() {
+    select(article.querySelector("p")!);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+  }
+  const button = (label: string) =>
+    document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+
+  it("opens four dots for the tool, with its default checked and focused", async () => {
+    await open();
+    await act(async () => button("Highlight colour, now green").click());
+    const dots = Array.from(
+      document.querySelectorAll('[role="radiogroup"] [role="radio"]'),
+      (el) => [el.getAttribute("aria-label"), el.getAttribute("aria-checked")],
+    );
+    expect(dots).toEqual([
+      ["Yellow", "false"],
+      ["Green", "true"],
+      ["Blue", "false"],
+      ["Pink", "false"],
+    ]);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Green");
+  });
+
+  it("marks the passage in the picked colour and closes", async () => {
+    await open();
+    await act(async () => button("Underline colour, now cobalt").click());
+    await act(async () => button("Vermilion").click());
+    expect(onMarkInColor).toHaveBeenCalledWith(
+      "underline",
+      expect.any(Range),
+      "vermilion",
+    );
+    expect(document.querySelector('[role="toolbar"]')).toBeNull();
+  });
+
+  it("shows the colour of a mark already on the passage as the choice", async () => {
+    markedColor = (kind) => (kind === "highlight" ? "pink" : null);
+    await open();
+    await act(async () => button("Highlight colour, now pink").click());
+    expect(button("Pink").getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("moves between dots with the arrow keys and Escape goes back to the tools", async () => {
+    await open();
+    await act(async () => button("Highlight colour, now green").click());
+    await act(async () => {
+      button("Green").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Blue");
+    await act(async () => {
+      button("Blue").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(document.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(button("Highlight")).not.toBeNull();
+    expect(onMarkInColor).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
+import { colorFitsKind, markColor } from "./lib/markColours";
 
 export const listByArticle = query({
   args: {
@@ -53,6 +54,7 @@ export const listMine = query({
         _id: row._id,
         articleId: row.articleId,
         kind: row.kind,
+        color: row.color,
         text: row.text,
         paragraphIndex: row.paragraphIndex,
         unitIndex: row.unitIndex,
@@ -75,12 +77,16 @@ export const create = mutation({
   args: {
     articleId: v.id("articles"),
     kind: v.union(v.literal("highlight"), v.literal("underline")),
+    // Left out, the mark follows the reader's current highlighter or pen setting
+    color: v.optional(markColor),
     text: v.string(),
     paragraphIndex: v.optional(v.number()),
     unitIndex: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (args.color && !colorFitsKind(args.kind, args.color))
+      throw new Error("That colour is not for this kind of mark");
     const highlightId = await ctx.db.insert("highlights", {
       ...args,
       userId: ctx.readerId,
@@ -103,6 +109,17 @@ export const create = mutation({
       },
     );
     return highlightId;
+  },
+});
+
+export const setColor = mutation({
+  args: { highlightId: v.id("highlights"), color: markColor },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("highlights", args.highlightId);
+    if (row?.userId !== ctx.readerId) throw new Error("Highlight not found");
+    if (!colorFitsKind(row.kind, args.color))
+      throw new Error("That colour is not for this kind of mark");
+    await ctx.db.patch("highlights", args.highlightId, { color: args.color });
   },
 });
 

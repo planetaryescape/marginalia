@@ -324,6 +324,14 @@ describe("separate reader libraries", () => {
           }),
       ],
       [
+        "highlight recolour",
+        () =>
+          reader.mutation(api.highlights.setColor, {
+            highlightId: owner.highlightId,
+            color: "pink",
+          }),
+      ],
+      [
         "highlight remove",
         () =>
           reader.mutation(api.highlights.remove, {

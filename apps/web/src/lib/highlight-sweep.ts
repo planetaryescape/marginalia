@@ -1,3 +1,5 @@
+import type { MarkColor } from "@/lib/mark-colours";
+
 /** Matches --motion-sweep: one linear 180 ms pass over the whole passage. */
 export const SWEEP_MS = 180;
 
@@ -8,7 +10,7 @@ export const SWEEP_MS = 180;
  * removes them once the pass ends. Reduced motion draws nothing: the saved
  * mark and its tick simply appear.
  */
-export function sweepHighlight(range: Range): void {
+export function sweepHighlight(range: Range, color?: MarkColor): void {
   if (
     typeof window === "undefined" ||
     typeof Element.prototype.animate !== "function" ||
@@ -25,10 +27,11 @@ export function sweepHighlight(range: Range): void {
   layer.setAttribute("aria-hidden", "true");
   layer.style.cssText =
     "position:fixed;inset:0;pointer-events:none;z-index:30;overflow:hidden";
+  const fill = color ? `var(--mark-${color})` : "var(--highlighter)";
   let done = 0;
   const animations = lines.map((r) => {
     const bar = document.createElement("div");
-    bar.style.cssText = `position:absolute;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;background:var(--highlighter);border-radius:2px;transform-origin:0 50%;transform:scaleX(0)`;
+    bar.style.cssText = `position:absolute;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;background:${fill};border-radius:2px;transform-origin:0 50%;transform:scaleX(0)`;
     layer.appendChild(bar);
     const animation = bar.animate(
       [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],

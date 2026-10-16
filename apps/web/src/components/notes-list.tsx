@@ -17,6 +17,7 @@ import {
   type KeptThread,
   readLink,
 } from "@/lib/notes-groups";
+import { cn } from "@/lib/utils";
 
 /** Marks are read this many at a time; each row carries an embedding, so pages stay small. */
 const MARKS_PAGE = 50;
@@ -235,7 +236,7 @@ function NoteRow({
   );
 }
 
-/** A highlight in the highlighter colour, or an underline in the pen colour. */
+/** A highlight or underline in its own colour; older marks follow the reader's current highlighter or pen. */
 function MarkRow({ mark, at }: { mark: KeptMark; at: LinkTo }) {
   return (
     <Opens
@@ -244,11 +245,25 @@ function MarkRow({ mark, at }: { mark: KeptMark; at: LinkTo }) {
     >
       <p className="font-serif text-[16px] leading-relaxed text-[var(--reader-fg)]">
         {mark.kind === "highlight" ? (
-          <span className="rounded-sm bg-[var(--highlighter)]">
+          <span
+            data-color={mark.color}
+            className={cn(
+              "rounded-sm",
+              mark.color ? "bg-[var(--mark)]" : "bg-[var(--highlighter)]",
+            )}
+          >
             {mark.text}
           </span>
         ) : (
-          <span className="underline decoration-[var(--pen)] decoration-2 underline-offset-4">
+          <span
+            data-color={mark.color}
+            className={cn(
+              "underline decoration-2 underline-offset-4",
+              mark.color
+                ? "decoration-[var(--mark)]"
+                : "decoration-[var(--pen)]",
+            )}
+          >
             {mark.text}
           </span>
         )}

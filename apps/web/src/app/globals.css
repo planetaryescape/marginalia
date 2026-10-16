@@ -790,30 +790,57 @@ html[data-reader-theme="ink"] {
 }
 
 :root {
-  --pen: #3b63d9;
   --reader-focus: color-mix(in srgb, var(--reader-fg) 65%, var(--reader-bg));
-  --highlighter: rgba(246, 205, 72, 0.45);
   --reader-annotated: #b07050;
   --reader-font: var(--font-newsreader), Georgia, serif;
   --reader-size: 20px;
   --reader-leading: 1.8;
 }
-html[data-pen="vermilion"] { --pen: #d1492b; }
-html[data-pen="forest"] { --pen: #2f7d47; }
-html[data-pen="graphite"] { --pen: #555555; }
-html.dark { --pen: #7d9cf5; }
-html.dark[data-pen="vermilion"] { --pen: #ec7556; }
-html.dark[data-pen="forest"] { --pen: #62b07a; }
-html.dark[data-pen="graphite"] { --pen: #b5b0ab; }
+/* Every mark colour, tuned per theme. --pen and --highlighter are the reader's
+   defaults and point at one of these; a mark with its own colour uses its entry
+   directly (data-color, or a ::highlight(mark-<colour>) name). */
+:root {
+  --mark-yellow: rgba(246, 205, 72, 0.45);
+  --mark-green: rgba(120, 200, 112, 0.4);
+  --mark-blue: rgba(110, 165, 240, 0.38);
+  --mark-pink: rgba(240, 130, 180, 0.36);
+  --mark-cobalt: #3b63d9;
+  --mark-vermilion: #d1492b;
+  --mark-forest: #2f7d47;
+  --mark-graphite: #555555;
+}
+html.dark,
+html[data-reader-theme="night"],
+html[data-reader-theme="dusk"],
+html[data-reader-theme="ink"] {
+  --mark-yellow: rgba(246, 205, 72, 0.26);
+  --mark-green: rgba(120, 200, 112, 0.26);
+  --mark-blue: rgba(110, 165, 240, 0.28);
+  --mark-pink: rgba(240, 130, 180, 0.26);
+  --mark-cobalt: #7d9cf5;
+  --mark-vermilion: #ec7556;
+  --mark-forest: #62b07a;
+  --mark-graphite: #b5b0ab;
+}
+:root { --pen: var(--mark-cobalt); --highlighter: var(--mark-yellow); }
+html[data-pen="vermilion"] { --pen: var(--mark-vermilion); }
+html[data-pen="forest"] { --pen: var(--mark-forest); }
+html[data-pen="graphite"] { --pen: var(--mark-graphite); }
+html[data-highlighter="green"] { --highlighter: var(--mark-green); }
+html[data-highlighter="blue"] { --highlighter: var(--mark-blue); }
+html[data-highlighter="pink"] { --highlighter: var(--mark-pink); }
 html { --pen-soft: color-mix(in srgb, var(--pen) 12%, transparent); }
 
-html[data-highlighter="green"] { --highlighter: rgba(120, 200, 112, 0.4); }
-html[data-highlighter="blue"] { --highlighter: rgba(110, 165, 240, 0.38); }
-html[data-highlighter="pink"] { --highlighter: rgba(240, 130, 180, 0.36); }
-html.dark { --highlighter: rgba(246, 205, 72, 0.26); }
-html.dark[data-highlighter="green"] { --highlighter: rgba(120, 200, 112, 0.26); }
-html.dark[data-highlighter="blue"] { --highlighter: rgba(110, 165, 240, 0.28); }
-html.dark[data-highlighter="pink"] { --highlighter: rgba(240, 130, 180, 0.26); }
+/* An element showing one mark in its own colour: set data-color, read --mark. */
+[data-color] { --mark: var(--highlighter); }
+[data-color="yellow"] { --mark: var(--mark-yellow); }
+[data-color="green"] { --mark: var(--mark-green); }
+[data-color="blue"] { --mark: var(--mark-blue); }
+[data-color="pink"] { --mark: var(--mark-pink); }
+[data-color="vermilion"] { --mark: var(--mark-vermilion); }
+[data-color="cobalt"] { --mark: var(--mark-cobalt); }
+[data-color="forest"] { --mark: var(--mark-forest); }
+[data-color="graphite"] { --mark: var(--mark-graphite); }
 
 html[data-reader-theme] body {
   background: var(--reader-bg);
@@ -939,15 +966,22 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   text-decoration-thickness: 1.5px;
 }
 
-/* Highlighter and pen tools */
-::highlight(user-highlight) {
-  background-color: var(--highlighter);
-  color: inherit;
+/* Highlighter and pen tools. The reader package registers user-highlight and
+   user-underline for every mark; Marginalia paints each mark under its own
+   colour's name instead (use-mark-paint.ts), so those two stay unpainted. */
+::highlight(user-highlight),
+::highlight(user-underline) {
+  background-color: transparent;
 }
 
-::highlight(user-underline) {
-  text-decoration: underline 2px var(--pen);
-}
+::highlight(mark-yellow) { background-color: var(--mark-yellow); color: inherit; }
+::highlight(mark-green) { background-color: var(--mark-green); color: inherit; }
+::highlight(mark-blue) { background-color: var(--mark-blue); color: inherit; }
+::highlight(mark-pink) { background-color: var(--mark-pink); color: inherit; }
+::highlight(mark-vermilion) { text-decoration: underline 2px var(--mark-vermilion); }
+::highlight(mark-cobalt) { text-decoration: underline 2px var(--mark-cobalt); }
+::highlight(mark-forest) { text-decoration: underline 2px var(--mark-forest); }
+::highlight(mark-graphite) { text-decoration: underline 2px var(--mark-graphite); }
 
 /* Kept Ask / Explain / Simplify passages: a pencil dotted underline */
 ::highlight(companion-saved),

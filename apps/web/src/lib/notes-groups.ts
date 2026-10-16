@@ -9,6 +9,7 @@ export type KeptMark = Pick<
   | "_id"
   | "articleId"
   | "kind"
+  | "color"
   | "text"
   | "createdAt"
   | "paragraphIndex"

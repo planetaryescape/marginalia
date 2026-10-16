@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
+import { markColor } from "./lib/markColours";
 
 const tasteEntry = v.object({
   key: v.string(),
@@ -856,11 +857,12 @@ export default defineSchema({
     .index("by_user_article", ["userId", "articleId"]),
 
   // Highlighter and pen marks, re-anchored by text when the article renders.
-  // Colours come from reader settings, so they follow the user's palette.
+  // A mark keeps the colour it was made in; rows without one follow the reader's current setting.
   highlights: defineTable({
     userId: v.string(),
     articleId: v.id("articles"),
     kind: v.union(v.literal("highlight"), v.literal("underline")),
+    color: v.optional(markColor),
     text: v.string(),
     paragraphIndex: v.optional(v.number()),
     // The part of a book the mark is in; paragraphIndex counts within it

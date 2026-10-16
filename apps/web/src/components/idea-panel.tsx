@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type GraphEdge, KIND_LABELS } from "@/lib/idea-kinds";
 import { readLink } from "@/lib/notes-groups";
+import { cn } from "@/lib/utils";
 
 const LABEL =
   "mb-2 text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--reader-muted)]";
@@ -83,7 +84,13 @@ export function NodePanel({
       )}
       {node.kind === "highlight" && (
         <p className="mb-3 font-serif text-[16px] leading-relaxed text-[var(--reader-fg)]">
-          <span className="rounded-sm bg-[var(--highlighter)]">
+          <span
+            data-color={node.color ?? undefined}
+            className={cn(
+              "rounded-sm",
+              node.color ? "bg-[var(--mark)]" : "bg-[var(--highlighter)]",
+            )}
+          >
             {node.text}
           </span>
         </p>
