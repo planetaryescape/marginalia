@@ -53,7 +53,7 @@ async function fixture() {
 
 const sixPosts: Post[] = [1, 2, 3, 4, 5, 6].map((id) => ({
   id,
-  daysAgo: id * 10,
+  daysAgo: id * 3,
 }));
 
 describe("polling a newly added feed", () => {
@@ -70,6 +70,29 @@ describe("polling a newly added feed", () => {
     serve([{ id: 0, daysAgo: 0 }, ...sixPosts]);
     await poll();
     expect(await titles()).toEqual(["Post 0", "Post 1", "Post 2", "Post 3"]);
+  });
+
+  it("leaves out posts older than a month, so a quiet feed adds nothing", async () => {
+    const { poll, titles } = await fixture();
+    serve([
+      { id: 1, daysAgo: 20 },
+      { id: 2, daysAgo: 40 },
+      { id: 3, daysAgo: 900 },
+    ]);
+    await poll();
+    expect(await titles()).toEqual(["Post 1"]);
+
+    const quiet = await fixture();
+    serve([{ id: 4, daysAgo: 900 }]);
+    await quiet.poll();
+    await quiet.poll();
+    expect(await quiet.titles()).toEqual([]);
+    serve([
+      { id: 5, daysAgo: 0 },
+      { id: 4, daysAgo: 900 },
+    ]);
+    await quiet.poll();
+    expect(await quiet.titles()).toEqual(["Post 5"]);
   });
 
   it("skips a post already imported from Readwise Reader by its link", async () => {

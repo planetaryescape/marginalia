@@ -40,6 +40,8 @@ export const pollAllFeeds = internalAction({
 // importing a few dozen feeds would otherwise fill the queue with hundreds of
 // old posts and annotate every one
 export const FIRST_POLL_POSTS = 3;
+// …and only recent ones, so a feed that went quiet years ago adds nothing
+const FIRST_POLL_MAX_AGE_MS = 30 * 86_400_000;
 
 async function pollSingleFeed(ctx: any, feed: any): Promise<number> {
   // Dynamic import for Node.js action
@@ -62,12 +64,20 @@ async function pollSingleFeed(ctx: any, feed: any): Promise<number> {
     const dated = items.filter((i): i is typeof i & { publishedAt: number } =>
       Number.isFinite(i.publishedAt),
     );
-    candidates = (
-      dated.length ? dated.sort((a, b) => b.publishedAt - a.publishedAt) : items
-    ).slice(0, FIRST_POLL_POSTS);
-    importAfter = dated.length
-      ? Math.min(...candidates.map((i) => i.publishedAt as number))
-      : undefined;
+    if (dated.length) {
+      const cutoff = Date.now() - FIRST_POLL_MAX_AGE_MS;
+      candidates = dated
+        .filter((i) => i.publishedAt >= cutoff)
+        .sort((a, b) => b.publishedAt - a.publishedAt)
+        .slice(0, FIRST_POLL_POSTS);
+      // A feed with nothing recent waits for its next post
+      importAfter = candidates.length
+        ? Math.min(...candidates.map((i) => i.publishedAt as number))
+        : Math.max(...dated.map((i) => i.publishedAt)) + 1;
+    } else {
+      candidates = items.slice(0, FIRST_POLL_POSTS);
+      importAfter = undefined;
+    }
   } else if (importAfter !== undefined) {
     // Keeps the older posts left out on the first poll out for good. Undated
     // posts can't be placed, so they're treated as new.
