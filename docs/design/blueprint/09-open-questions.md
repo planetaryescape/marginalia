@@ -298,3 +298,126 @@ String normalisation alone (lowercase, strip `#` and punctuation, singularise, c
 - Rung 2f should keep the model on Haiku 5.5: Sonnet is about 20x the cost per pass.
 
 **Not verified:** real output token counts (needs a usage log from the import action); OpenRouter pricing for `anthropic/claude-haiku-5.5`; Haiku cache-read price; whether import runs have the vault context populated for most articles (annotated: 134 of 2,202 rows; 1,855 skipped, 213 failed in the snapshot).
+
+### S7 result (2026-10-16)
+
+**Question.** Which PDF text extraction runs in Convex, or beside it, and keeps headings and paragraphs well enough to read and annotate?
+
+**Setup.** Repo read at `origin/main` 574f3912303da152351a991654b3a12bef5e2125 (clean checkout). Nothing written to the repo, no Convex call made. Throwaway code is in (local scratchpad) (`lib/bench.ts`, `lib/structure.ts`). Samples, all openly licensed:
+- Pro Git 2.1.450 (CC BY-NC-SA, github.com/progit/progit2 release), 501 pages, Asciidoctor PDF, has an outline of 22 chapters and 123 entries in total.
+- "Attention Is All You Need" (arXiv 1706.03762, 15 pages, single column, footnotes, rotated arXiv stamp).
+- "Deep Residual Learning" (arXiv 1512.03385, 12 pages, two-column CVPR). Added because the Attention paper is single column.
+
+**Candidates and what they are.** `unpdf` 1.8.1, `pdfjs-dist` 6.4.299, `pdf-parse` 2.4.5 (installed with bun). All three are pdf.js underneath, so their text is nearly the same. Differences are packaging and API.
+
+**Measured, plain-text extraction** (bun 1.3.14, Apple silicon; `bench.ts`, one candidate per process):
+
+| | Attention (15p) | ResNet (12p) | Pro Git (501p) |
+|---|---|---|---|
+| unpdf `extractText` | 405 ms, 39,605 chars | 307 ms, 59,486 | 780 ms, 869,998; peak RSS 480 MB (bun), 386 MB (node 26) |
+| pdfjs-dist legacy | 508 ms, 39,636 | 249 ms, 59,511 | 668 ms, 871,001; RSS 395 MB (bun), 348 MB (node) |
+| pdf-parse `getText` | 401 ms, 39,970 | 242 ms, 59,765 | 1,945 ms, 879,410; RSS 398 MB (bun), 349 MB (node) |
+
+Findings that changed the choice:
+- Speed is not a differentiator: the whole book is under 2 s on any of them.
+- Running `unpdf` and `pdfjs-dist` in one process fails with `The API version "6.4.299" does not match the Worker version "6.1.200"`. `unpdf` bundles its own pdf.js. Pick one library per bundle.
+- Bundle size (`bun build --target=node --minify`): `unpdf` entry 1.62 MB (507 KB gzipped); `pdfjs-dist` legacy 0.50 MB entry plus a separate worker file. Install size on disk: unpdf 2.5 MB, pdfjs-dist 62 MB, pdf-parse 57 MB. Convex's cap is 90 MB compressed / 230 MB uncompressed per deployment, and external packages count toward it (https://docs.convex.dev/functions/bundling). `unpdf` is far inside it, `pdf-parse` and `pdfjs-dist` take a large share.
+- `pdf-parse` returns text only (v2 adds `getText`/`getInfo`); it hides the position and font data needed for headings. `extractText` in `unpdf` does the same. The structure work needs the pdf.js proxy: `getDocumentProxy` from `unpdf`, then `page.getTextContent()`.
+- Memory: `extractText` on the whole book peaks near 386 MB in node, uncomfortably close to Convex's 512 MiB Node action RAM. Reading page by page with `page.cleanup()` and building lines as I go (`structure.ts`) peaked at 259 MB in node (`/usr/bin/time -l`, 672 ms). Memory scales with page count and image-heavy pages; I did not test a 1,000-page or image-heavy file.
+
+**Convex limits (docs.convex.dev/production/state/limits, fetched today).** Node actions: 512 MiB RAM, 10 minute timeout. Node action arguments max 5 MiB (16 MiB for other functions), return value 16 MiB. Document size 1 MiB. Code 90 MB compressed / 230 MB uncompressed. File storage (https://docs.convex.dev/file-storage/upload-files): "The file size is not limited, but upload POST request has a 2 minute timeout"; upload URLs live one hour. Consequence: the browser uploads the PDF to storage with an upload URL, and the Node action reads it with `ctx.storage.get` (a Blob). Never pass PDF bytes as an action argument (5 MiB cap).
+
+**Structure rebuild prototype** (`structure.ts`, ~100 lines, on the `unpdf` proxy). Results with the numbers it produced:
+- Attention: 133 blocks, 32 headings, all numbered sections and subsections found (`3.2.1 Scaled Dot-Product Attention`, `7 Conclusion`, `References`); 14 header/footer lines dropped; rotated arXiv stamp removed by skipping rotated text items.
+- ResNet (two-column): 307 blocks, 18 headings (`1. Introduction` ... `4.3. Object Detection...`, appendix headings). Columns come out in the right order, because pdf.js returns items in content-stream order and LaTeX writes column by column. I did not test PDFs whose streams interleave columns (Word exports, scanned-then-OCR'd files); that needs a column splitter by x-gap.
+- Pro Git: 4,875 blocks, 396 headings, 4,479 paragraphs, median paragraph 151 chars, 498 header/footer lines dropped, 3 words with a stray `- ` left. Headings found include chapters and sections, but heading levels are unreliable (most land at the same level), so use the PDF outline for hierarchy when one exists (Pro Git has one).
+- Admonition icon glyphs in the private-use Unicode block (U+E000 to U+F8FF) became empty headings until I stripped that range. Keep the strip.
+
+**Recipe for the reader's HTML.**
+1. Lines: per page, group `getTextContent()` items by baseline y within 2 pt, in stream order; insert a space when the x gap exceeds about 0.15 x font size; skip rotated items (`transform[1]` far from 0).
+2. Body size: the font size with the most characters. Body font id likewise.
+3. Headings: size above 1.15 x body and under 120 chars; or a numbered pattern `^(\d+\.)*\d+\.?\s+[A-Z]` in a font other than the body font, under 80 chars, not ending in `.,;`. Level from the number of dots, or from size rank. Real font names are not available from text content (`commonObjs` gives "Requesting object that isn't resolved yet"), only ids like `g_d0_f2`, and `styles[].fontFamily` only says serif or sans-serif (it did not flag monospace in Pro Git code listings). So bold and code blocks cannot be detected by name; compare font ids against the body font id.
+4. Paragraphs: a new paragraph on a vertical gap above 1.7 x line height, or a first-line indent after a line ending in terminal punctuation. Join a line ending in `[a-z]-` to the next line without the hyphen (measured: 3 leftovers in 4,479 paragraphs of Pro Git; this wrongly merges real compounds such as `well-` `known`, which I did not count).
+5. Emit `<h1..h3>` and `<p>`, escape `&` and `<`, run through `slimHtml` and `htmlToPlainText` in `lib/ingest.ts` as today.
+6. Running headers and footers: only lines in the top or bottom 9% of the page are candidates. Normalise digits to `#`, lowercase. Drop when the pattern appears on at least max(3, 25% of pages) pages, or the line is just a page number or roman numeral. Result: 14 lines dropped across the 15 Attention pages (page numbers), 498 lines across Pro Git's 501 pages. Risk seen: roman-numeral rule dropped a lone `c` line on Pro Git; use `^[ivxlcdm]+$` only when 2+ characters or when the page-number sequence is consistent.
+7. Not handled (seen): footnotes stay inline where the PDF places them (ResNet footnote 1 followed by figure axis labels `0 1 2 3 4 5 6`); figures contribute stray axis text; TOC pages come out as dot-leader paragraphs (filter lines with 4+ dots; I did this in the S8 code); equations flatten (`softmax( QK T √ dk )V`). Tables flatten into one paragraph per row.
+
+**Scanned PDFs.** Test: `sips` converted a rendered page of the paper to an image-only PDF; `unpdf` returned 0 characters (`scan.ts`: "pages 1 chars 0 chars/page 0") against 2,584 chars/page for the real paper. Rule: after extraction, if total characters per page averages under about 100 (or most pages are under 20), refuse with "This PDF is scanned images with no text layer; Marginalia can't read it yet". OCR is out of scope as asked.
+
+**Hosted parsers (nothing sent).** LlamaParse: "1,000 credits = $1.25", basic parsing "as low as 1 credit" per page, 10K free credits a month (llamaindex.ai/pricing, fetched today); agentic modes cost more, figures not on that page. Mistral OCR: billed per 1,000 pages, rate not shown on mistral.ai/pricing when fetched. Also exist and not priced: Reducto, Unstructured, Adobe PDF Extract. They matter only for scanned files and high-fidelity layout.
+
+**Recommendation.** Use `unpdf` (via `getDocumentProxy`), in a Convex Node action (`"use node"`), not a Vercel route and not the client.
+- Why Convex Node: the file is already in `ctx.storage`, the action has 512 MiB and 10 minutes against the 260 MB and 0.7 s measured for a 501-page book, and it sits beside `ingestArticle`. A Vercel route adds a second place holding user files and the Convex key; the client would ship 1.6 MB of pdf.js to every reader and cannot be trusted for the import record.
+- Process page by page with `page.cleanup()`; destroy the document at the end; set a page ceiling (for example 1,500 pages) until a larger file has been measured.
+- Mark `unpdf` as an external package or let the bundler include it; I could not test an actual Convex push (not allowed), so "bundles and runs inside Convex's esbuild" is unverified. A `bun build --target=node` succeeded at 1.62 MB. Verify with a dev deployment before rung 3b commits to it.
+- Storage: Pro Git is 852,211 characters of text and the HTML for it is 912,437 bytes. `ingestArticle` refuses anything where HTML plus text reaches `MAX_STORED_BYTES = 900_000` (`lib/ingest.ts`), so a 500-page book cannot be one `articles` row. Books need their text in sections (a table, or one storage file per book) and an `articles` row that holds only the outline and summary. This feeds S8.
+
+### S8 result (2026-10-16)
+
+**Question.** How should long documents be split, what does indexing a book cost, and how well does searching inside one document find the passages a question needs?
+
+**Setup.** Same sample as S7: Pro Git 2.1.450, 501 pages, extracted with the S7 prototype, TOC pages filtered. 139,495 words, 852,211 characters, 201,335 tokens (js-tiktoken `cl100k_base`, the tokenizer of `text-embedding-3-small`; `lib/s8.ts`). Embedding model in the repo: `text-embedding-3-small`, 1536 dimensions, direct to OpenAI or as `openai/text-embedding-3-small` via OpenRouter (`packages/backend/convex/lib/embeddings.ts#L13-L20`). Annotation today cuts at `MAX_ARTICLE_CHARS = 120_000` (`lib/marginaliaContext.ts#L8`): that is 14% of this book's characters, about the first 2.5 chapters.
+
+**1. Splitting three ways** (sizes in cl100k tokens; `s8.ts`):
+
+| Rule | Units | Median | p90 | Max | Under 100 tok | Over 8,191 | Start mid-sentence (lowercase first letter) |
+|---|---|---|---|---|---|---|---|
+| Outline depth 0 (22 chapters) | 22 | 5,926 | 21,287 | 46,606 | 4 | 9 | 0 |
+| Outline depth 0 and 1 (123 entries) | 123 | 884 | 4,035 | 16,590 | 15 | 2 | 1 |
+| Detected headings, every heading | 396 | 272 | 1,151 | 6,776 | 86 | 0 | 50 |
+| Detected headings, merge runs under 300 tok | 230 | 650 | 1,598 | 6,776 | 0 | 0 | 14 |
+| Fixed 1,000 tok, 100 overlap, raw token window | 224 | 1,000 | 1,000 | 1,000 | 0 | 0 | 153 |
+| Fixed 1,000 tok, 100 overlap, paragraph-aligned | 247 | 982 | 1,006 | 1,436 | 0 | 0 | 15 |
+| Fixed 3,000 tok, 200 overlap, paragraph-aligned | 74 | 2,995 | 3,022 | 3,038 | 0 | 0 | 4 |
+
+Boundary quality:
+- The outline is exact: all 123 entries resolved to a page (0 unresolved), and starts never fall mid-sentence. Its weakness is size: chapters run to 46,606 tokens (Git Tools), and two sections exceed the 8,191-token embedding input limit (the largest is "Git as a Client", 16,590). The 15 sections under 100 tokens are chapter introductions before the first subsection.
+- Detected headings found 15 of the 15 chapter starts I checked by page (the other 7 outline chapters are front and back matter), but over-split (396 units, 86 tiny) and some starts are mid-sentence because of false headings. Merging runs under 300 tokens fixes tiny units but still leaves 14 mid-sentence starts.
+- Fixed size with overlap: the raw window starts mid-sentence in 153 of 224 chunks; paragraph-aligned fixes that (15 of 247). 10 of 15 chapter starts coincided with a chunk start page at 1,000 tokens and 3 of 15 at 3,000, so fixed chunks routinely straddle chapters. (I did not get a working "chunks spanning two chapters" count; that function was wrong and I discarded its output.)
+
+**2. Cost of indexing** (tokens counted above; prices from developers.openai.com/api/docs/pricing, fetched today: text-embedding-3-small $0.02 per 1M tokens, no batch price listed for embeddings; OpenRouter reported the same rate, `cost: 2e-08` for one token):
+- Whole book: 201,335 tokens x $0.02/M = $0.0040.
+- With 100-token overlap at 1,000 tokens: 239,740 tokens = $0.0048. Per paragraph (3,341 units over 60 chars): 189,778 tokens = $0.0038.
+- Measured: embedding all seven schemes above, 1,333,191 tokens in total, cost $0.02666 on OpenRouter. So one scheme costs about 0.4 to 0.5 cent per 500-page book. Embedding cost is negligible against everything else; do not choose a scheme on cost.
+- Units of roughly 650 to 1,000 tokens did best on embeddings (section 3 below). Sizes over 8,191 tokens must be split before embedding or the call fails; I truncated at 8,000 in the test, which scores a 16,590-token section on its first half only.
+
+**3. Retrieval quality.** An OpenAI key was not available ("OpenAI API" in 1Password has empty credential fields; checked field lengths only, nothing printed). The OpenRouter item holds a key, and the app itself supports OpenRouter embeddings, so I used it for the real model, `openai/text-embedding-3-small`, on public text only. 10 hand-written questions against Pro Git, each with a gold phrase from the passage that answers it (found by grep before scoring; e.g. "Do not rebase commits that exist outside your repository" for "Why is rebasing dangerous once other people have my commits?"). A unit counts as a hit if it contains the gold phrase. Questions were worded away from the gold text, but this is 10 questions on one book by one author (me), so treat differences of one question as noise. BM25 is a self-written implementation (`k1=1.2`, `b=0.75`, stopwords, crude stemming). Hits among 10 questions:
+
+| Unit | Units | BM25 top-1 / top-3 / top-5 | Embedding top-1 / top-3 / top-5 |
+|---|---|---|---|
+| Outline chapters | 22 | 4 / 8 / 9 | 5 / 8 / 9 |
+| Outline sections (depth 0 and 1) | 123 | 5 / 8 / 9 | 7 / 8 / 8 |
+| Headings merged (300+ tok) | 230 | 6 / 7 / 8 | 7 / 9 / 9 |
+| Fixed 3,000 tok | 74 | 4 / 6 / 8 | 2 / 3 / 5 |
+| Fixed 1,000 tok | 247 | 2 / 6 / 8 | 6 / 8 / 8 |
+| Heading plus ~300-tok paragraph windows | 922 | 4 / 6 / 6 | 6 / 8 / 9 |
+| Single paragraphs | 3,341 | 1 / 1 / 2 | 3 / 5 / 5 |
+
+(Paragraphs: 8 of 10 gold phrases fit inside one paragraph, so two questions can never hit there.)
+
+What this shows:
+- Embeddings beat or tied BM25 at top-1 for every unit except 3,000-token chunks (2 vs 4), and the gain is largest on small units (paragraph windows 4 to 6, fixed 1,000 from 2 to 6). Top-5 differences are within one question for most rows.
+- Structure-aligned sections (outline sections, merged headings) gave the best embedding scores (7 / 8 / 8 and 7 / 9 / 9). Fixed 3,000-token chunks did worst (2 / 3 / 5): a vector over 3,000 tokens averages several topics.
+- Per-paragraph search is poor on its own for this test (top-5 of 5 with embeddings). Search a section, then show the passage inside it.
+- Two questions are weak in most rows even with embeddings: the stash one ("set it aside" while the passage says "stashing"; section ranks 8 to 10 with embeddings) and the protocols one (ranks 2 to 37 depending on unit). The answer is a sentence inside a section about something else, or uses different vocabulary, so a section vector and BM25 both miss it. Other rows give ranks per question in `lib/eval.ts` output.
+- Not measured: whether a cross-encoder or hybrid (BM25 plus embeddings) beats either alone. A reasonable next step, but I have no number for it.
+
+**4. Recommendation.**
+
+*Sectioning rule* (per D-DES-055):
+1. If the PDF has an outline with page destinations, use it: depth 0 and 1 entries, text from each start page (matched by heading text on that page) to the next entry. Pro Git resolved 123 of 123.
+2. Group consecutive small sections within a chapter into reading units so they are worth offering: with a 1,500-token minimum and 4,000 maximum (never crossing a chapter), Pro Git gives 69 units, median 2,275 tokens (about 1,570 words, about 7 min at `WORDS_PER_MINUTE = 220`, `lib/constants.ts`); 2,500/6,000 gives 49 units, median 3,822 (about 2,640 words, 12 min). Pick the target from the desk's time choices.
+3. Split any unit over about 6,000 tokens (2 in Pro Git, up to 16,590) on paragraph boundaries into parts of at most 1,500 to 3,000 tokens, never beyond 8,000.
+4. No outline: use detected headings, merging runs under 300 tokens, with the same size caps (S7 heading detection; Pro Git 230 units, 14 mid-sentence starts).
+5. Neither: fixed 1,000 tokens (about 700 words) paragraph-aligned with a 100-token overlap, titled "Part N". Never use the raw token window.
+6. HTML books (EPUB-like): headings play the outline's role; not measured here.
+
+*What to embed:* the reading unit's text split into passages of about 300 tokens preceded by their heading (the "heading plus paragraph window" row: 6 / 8 / 9 with embeddings, 922 vectors, about 203,600 tokens, $0.004), so a hit points at a passage, and store the passage's section id. Whole-section vectors scored similar or higher in this small test (7 / 8 / 8) and need fewer vectors (123 vs 922; storage and query cost not measured). If rung 3b needs the passage anyway, take the 300-token window and roll up by section. Either choice costs under a cent per book; storage and index size matter more than price. Convex documents are 1 MiB; one vector row per passage fits.
+
+*Storage:* text must live outside the `articles` row (S7: the book's HTML alone is 912 KB against `MAX_STORED_BYTES = 900_000`). Store sections as rows or one file per book; keep the outline, summary and per-section summaries on the article.
+
+*Per-section summaries at import:* one Haiku 5.5 call per reading unit, prices from the claude-api skill model table (cached 2026-10-06): $0.10 in / $0.50 out per 1M tokens for prompts under 100K tokens; Message Batches run at 50% cost. For Pro Git's 123 outline sections: 201,317 input tokens plus about 300 tokens of instructions each (36,900) = 238,000 x $0.10/M = $0.024; output assumed 120 tokens per summary (an assumption, not measured; adaptive thinking on by default for this model could add) = 14,760 x $0.50/M = $0.007. Total about $0.03 for the book, about $0.016 on batch. Chapter summaries and the book's one point are then written from the section summaries (22 chapters x about 150 tokens of input plus a final call): well under a cent more. Together with embeddings the whole import costs about 3 to 4 cents for a 500-page book; the bill is the summary calls, not the vectors. Reasoning: the summaries are small, structured and run once, so use the cheap model, queue them after the book is readable, and let the outline fill in as they land.
+
+*"Next section" for book picks (D-DES-055):* the next reading unit after the last one BK read, in book order, where the reading unit is the grouped unit from step 2 (so "Chapter 4" in the desk copy is shown only when a unit is a whole chapter; otherwise show the unit title and its chapter, "Distributed Git, Contributing to a Project, part 2 of 3 - 12 min"). It is "last read" by furthest scroll position or done flag, not by what BK opened; the minutes shown are `ceil(unit words / 220)`. A unit is offered only when its minutes fit the chosen time, otherwise nothing from that book is offered. Never offer a unit past the next one.
+
+**What is not settled.** Real Convex deploy of `unpdf` (S7). Page-destination matching on PDFs whose outline points at wrong pages or uses named destinations (Pro Git's all resolved). Retrieval on a book that is not technical documentation, and on questions that need several passages. Embedding index size and query latency in Convex's vector index. A hybrid BM25 plus embeddings test.
