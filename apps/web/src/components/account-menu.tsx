@@ -38,17 +38,23 @@ function ThemeRow() {
   return (
     <div role="group" aria-label="Theme" className="px-1 pb-1.5 pt-1">
       <p className="px-1.5 pb-1.5 text-xs text-[var(--reader-muted)]">Theme</p>
-      <div className="grid grid-cols-7 gap-0.5">
+      {/* A radio group: each swatch is a menuitemradio, and the chosen one is aria-checked */}
+      <DropdownMenu.RadioGroup
+        value={settings.theme}
+        onValueChange={(value) => {
+          const theme = THEMES.find((t) => t.id === value);
+          if (theme) update({ theme: theme.id });
+        }}
+        className="grid grid-cols-7 gap-0.5"
+      >
         {THEMES.map((theme) => {
           const active = settings.theme === theme.id;
           return (
-            <DropdownMenu.Item
+            <DropdownMenu.RadioItem
               key={theme.id}
-              aria-pressed={active}
-              onSelect={(event) => {
-                event.preventDefault();
-                update({ theme: theme.id });
-              }}
+              value={theme.id}
+              // Keep the menu open, so themes can be compared one after another
+              onSelect={(event) => event.preventDefault()}
               className="flex min-h-11 sm:min-h-0 cursor-default flex-col items-center gap-1 rounded-md px-0.5 py-1 outline-none data-[highlighted]:bg-[var(--reader-chip)]"
             >
               <span
@@ -86,10 +92,10 @@ function ThemeRow() {
               >
                 {theme.label}
               </span>
-            </DropdownMenu.Item>
+            </DropdownMenu.RadioItem>
           );
         })}
-      </div>
+      </DropdownMenu.RadioGroup>
     </div>
   );
 }

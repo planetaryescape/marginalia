@@ -98,13 +98,9 @@ const trigger = () =>
     "button[aria-label^='Account']",
   ) as HTMLButtonElement;
 const menuItems = () =>
-  [
-    ...document.querySelectorAll("[role=menuitem]:not([aria-pressed])"),
-  ] as HTMLElement[];
+  [...document.querySelectorAll("[role=menuitem]")] as HTMLElement[];
 const swatches = () =>
-  [
-    ...document.querySelectorAll("[role=menuitem][aria-pressed]"),
-  ] as HTMLElement[];
+  [...document.querySelectorAll("[role=menuitemradio]")] as HTMLElement[];
 const labels = () => menuItems().map((el) => el.textContent ?? "");
 const key = (el: Element, k: string) =>
   act(async () => {
@@ -216,7 +212,7 @@ describe("AccountMenu", () => {
     ]);
     const pressed = () =>
       swatches()
-        .filter((el) => el.getAttribute("aria-pressed") === "true")
+        .filter((el) => el.getAttribute("aria-checked") === "true")
         .map((el) => el.textContent);
     expect(pressed()).toEqual(["AaAuto"]);
     const night = swatches().find((el) => el.textContent === "AaNight");
