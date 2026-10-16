@@ -3,14 +3,9 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { type EmbeddingTarget, embedTexts } from "./embeddings";
+import { MAX_ARTICLE_CHARS, splitIntoSections } from "./readingSections";
 
-/** How much of the article the marginalia model reads (~20k words). */
-export const MAX_ARTICLE_CHARS = 120_000;
-
-// The article is searched section by section so a claim deep in the piece can
-// find its own matches, not just whatever the introduction is about.
-const MAX_SECTIONS = 12;
-const MIN_SECTION_CHARS = 3_000;
+export { MAX_ARTICLE_CHARS, splitIntoSections };
 
 // Cosine similarity floors for text-embedding-3-small, calibrated on the
 // vault: genuine matches score ~0.55–0.65, loose topical overlap ~0.5.
@@ -47,28 +42,6 @@ export interface LibraryCandidate {
   title: string;
   minutes: number | null;
   excerpt: string;
-}
-
-export function splitIntoSections(text: string): string[] {
-  const size = Math.max(
-    MIN_SECTION_CHARS,
-    Math.ceil(text.length / MAX_SECTIONS),
-  );
-  const sections: string[] = [];
-  let start = 0;
-  while (start < text.length && sections.length < MAX_SECTIONS) {
-    let end = Math.min(text.length, start + size);
-    if (end < text.length) {
-      // Prefer to cut at a paragraph or sentence boundary
-      const window = text.slice(start + Math.floor(size * 0.7), end);
-      const cut = Math.max(window.lastIndexOf("\n"), window.lastIndexOf(". "));
-      if (cut > 0) end = start + Math.floor(size * 0.7) + cut + 1;
-    }
-    if (sections.length === MAX_SECTIONS - 1) end = text.length;
-    sections.push(text.slice(start, end).trim());
-    start = end;
-  }
-  return sections.filter(Boolean);
 }
 
 function sectionLabel(section: string) {
@@ -155,6 +128,12 @@ export async function buildMarginaliaContext(
   contextText: string;
   vaultPaths: string[];
   libraryCandidates: LibraryCandidate[];
+  /**
+   * Every stored item the context drew on, as `kind:id:version`. A pass
+   * compares these between runs to see whether this section's retrieval
+   * changed (the precise gate).
+   */
+  sources: string[];
 }> {
   // Everything recalled here comes from the article's own library
   const userId = article.userId;
@@ -169,6 +148,7 @@ export async function buildMarginaliaContext(
     : [];
   const titles = new Map<string, string>([[article._id, article.title]]);
   const parts: string[] = [];
+  const sources: string[] = [];
 
   // Dates: lets context notes flag what may have changed since publication
   const source = (() => {
@@ -213,6 +193,7 @@ export async function buildMarginaliaContext(
     if (count >= MAX_CHUNKS_PER_NOTE) continue;
     perNote.set(chunk.filePath, count + 1);
     vaultPaths.push(chunk.filePath);
+    sources.push(`chunk:${chunk._id}:${chunk.indexedAt}`);
     vaultBlocks.push(
       `--- Vault note: ${chunk.filePath} (${matchedNear(match)}) ---\n${chunk.content}`,
     );
@@ -247,6 +228,8 @@ export async function buildMarginaliaContext(
   const libraryCandidates = found
     .filter((candidate) => candidate.id !== article._id)
     .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+  for (const candidate of libraryCandidates)
+    sources.push(`article:${candidate.id}`);
   if (libraryCandidates.length)
     parts.push(
       `## Other articles in the reader's library\n\nA connection may cite one of these by its id, only when the link is specific.\n\n${libraryCandidates
@@ -280,6 +263,7 @@ export async function buildMarginaliaContext(
       },
     );
     if (!note || !isElsewhere(note)) continue;
+    sources.push(`note:${note._id}:${note.updatedAt}`);
     const title = await articleTitle(ctx, userId, note.articleId, titles);
     noteBlocks.push(
       [
@@ -316,6 +300,7 @@ export async function buildMarginaliaContext(
       },
     );
     if (!row || !isElsewhere(row)) continue;
+    sources.push(`highlight:${row._id}:${row.createdAt}`);
     const title = await articleTitle(ctx, row.userId, row.articleId, titles);
     const verb = row.kind === "underline" ? "Underlined" : "Highlighted";
     highlightBlocks.push(
@@ -345,6 +330,7 @@ export async function buildMarginaliaContext(
       { threadId: match.id },
     );
     if (!row || !isElsewhere(row)) continue;
+    sources.push(`thread:${row._id}:${row.updatedAt}`);
     threadBlocks.push(await formatThread(ctx, row, titles, matchedNear(match)));
   }
   if (threadBlocks.length) {
@@ -369,6 +355,12 @@ export async function buildMarginaliaContext(
       articleId: article._id,
     }),
   ]);
+  for (const h of ownHighlights.slice(0, 10))
+    sources.push(`highlight:${h._id}:${h.createdAt}`);
+  for (const n of ownNotes.slice(0, 10))
+    sources.push(`note:${n._id}:${n.updatedAt}`);
+  for (const thread of ownThreads.slice(0, 8))
+    sources.push(`thread:${thread._id}:${thread.updatedAt}`);
   const own: string[] = [
     ...ownHighlights
       .slice(0, 10)
@@ -397,6 +389,7 @@ export async function buildMarginaliaContext(
     contextText: parts.join("\n\n"),
     vaultPaths,
     libraryCandidates,
+    sources,
   };
 }
 

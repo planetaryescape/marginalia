@@ -4,6 +4,7 @@ import { setAnnotationStatus } from "./articles";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { CURRENT_ANNOTATION_VERSION } from "./lib/annotationGate";
 import { annotationType } from "./lib/annotationKinds";
+import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 
 export const listByArticle = query({
   args: {
@@ -123,7 +124,7 @@ export const libraryCandidates = internalQuery({
   },
 });
 
-const noteFields = v.object({
+export const noteFields = v.object({
   type: annotationType,
   fallacyName: v.optional(v.string()),
   articleRefId: v.optional(v.id("articles")),
@@ -153,6 +154,8 @@ export const replaceForArticle = internalMutation({
       credibleCounterview: v.string(),
       questionForYou: v.string(),
     }),
+    // What the library held when this pass began (reading alongside, rung 2f)
+    fingerprint: v.optional(marginaliaFingerprint),
   },
   handler: async (ctx, args) => {
     const article = await ownedArticle(ctx, args.articleId, args.userId);
@@ -231,7 +234,19 @@ export const replaceForArticle = internalMutation({
     // (releaseClaim), never here: this run may be older than a newer claim
     await ctx.db.patch("articles", args.articleId, {
       annotationVersion: CURRENT_ANNOTATION_VERSION,
+      ...(args.fingerprint ? { marginaliaFingerprint: args.fingerprint } : {}),
     });
+    // The margin was written afresh, so earlier section passes (and the
+    // budget they used) belong to notes that no longer exist; an in-flight
+    // pass loses its claim and writes nothing
+    const passes = await ctx.db
+      .query("marginaliaPasses")
+      .withIndex("by_userId_and_articleId_and_sectionIndex", (q) =>
+        q.eq("userId", args.userId).eq("articleId", args.articleId),
+      )
+      .collect();
+    for (const pass of passes)
+      await ctx.db.delete("marginaliaPasses", pass._id);
     await setAnnotationStatus(ctx, args.articleId, "annotated");
   },
 });

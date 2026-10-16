@@ -9,6 +9,7 @@
   "exports": {
     "./reading-activity": "./convex/lib/readingActivity.ts",
     "./library-search": "./convex/lib/librarySearch.ts",
+    "./reading-sections": "./convex/lib/readingSections.ts",
     "./*": "./convex/*",
     "./_generated/*": "./convex/_generated/*",
     "./convex/_generated/api": "./convex/_generated/api.js",

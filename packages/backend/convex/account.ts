@@ -198,6 +198,12 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("marginaliaPasses")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
   // A book's units carry its text, like articles do
   rows((ctx, u) =>
     ctx.db

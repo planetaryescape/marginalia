@@ -142,6 +142,7 @@ export function Sidenotes({
   userNotes,
   marks,
   waiting,
+  waitingAnchor,
   openId,
   answers,
   openAnswerId,
@@ -161,6 +162,11 @@ export function Sidenotes({
   marks: SidenoteMark[];
   /** Annotation is still running for this article. */
   waiting: boolean;
+  /**
+   * Opening words of the section being written while the reader is partway
+   * through; the waiting line sits there instead of at the top.
+   */
+  waitingAnchor?: string | null;
   /** The annotation whose card is open, if any. */
   openId: string | null;
   /** Marginalia's answers, each a note beside its passage. */
@@ -297,8 +303,18 @@ export function Sidenotes({
             ? range.startContainer
             : (range?.startContainer.parentElement ?? null);
       } else {
-        host = body.querySelector("[data-para]") ?? body;
-        rect = firstRect(host.getClientRects());
+        // The waiting line: at the section being written, else the top
+        const range = waitingAnchor ? findTextRange(body, waitingAnchor) : null;
+        if (range) {
+          rect = firstRect(range.getClientRects());
+          host =
+            range.startContainer instanceof Element
+              ? range.startContainer
+              : range.startContainer.parentElement;
+        } else {
+          host = body.querySelector("[data-para]") ?? body;
+          rect = firstRect(host.getClientRects());
+        }
       }
       if (!rect) continue;
       const para = host?.closest<HTMLElement>("[data-para]")?.dataset.para;
@@ -348,7 +364,7 @@ export function Sidenotes({
     if (json === layoutJson.current) return;
     layoutJson.current = json;
     setLayout(next);
-  }, [containerRef, entries, marks, version, openKey]);
+  }, [containerRef, entries, marks, version, openKey, waitingAnchor]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `layoutKey` asks for a re-measure
   useLayoutEffect(() => {

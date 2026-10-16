@@ -53,6 +53,7 @@ function Article({
   notes = annotations,
   users = userNotes,
   waiting = false,
+  waitingAnchor = null,
   version = 1,
   onClose = () => {},
   onOpenNotes = () => {},
@@ -63,6 +64,7 @@ function Article({
   notes?: SidenoteAnnotation[];
   users?: SidenoteUserNote[];
   waiting?: boolean;
+  waitingAnchor?: string | null;
   version?: number;
   onClose?: () => void;
   onOpenNotes?: () => void;
@@ -109,6 +111,7 @@ function Article({
         userNotes={users}
         marks={[]}
         waiting={waiting}
+        waitingAnchor={waitingAnchor}
         openId={open}
         onClose={onClose}
         onOpenNotes={onOpenNotes}
@@ -471,6 +474,16 @@ describe("waiting", () => {
     expect(waiting?.textContent).toContain("Reading alongside you…");
     expect(waiting?.querySelector("svg path")).not.toBeNull();
     expect(waiting?.getAttribute("data-placed")).toBe("true");
+  });
+
+  it("sits at the section being written when it is told where that begins", async () => {
+    await render(
+      <Article waiting waitingAnchor="second anchor" notes={[]} users={[]} />,
+    );
+    const top = (sel: string) => Number.parseFloat(q(sel)?.style.top ?? "NaN");
+    const atTop = top(".sidenote-waiting");
+    await render(<Article waiting notes={[]} users={[]} />);
+    expect(top(".sidenote-waiting")).not.toBe(atTop);
   });
 
   it("is gone once annotation is done", async () => {

@@ -128,6 +128,25 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       indexedAt: now,
     });
     await ctx.db.insert("savedArticles", { userId, articleId, savedAt: now });
+    await ctx.db.insert("marginaliaPasses", {
+      userId,
+      articleId,
+      sectionIndex: 1,
+      status: "done",
+      claim: now,
+      fingerprint: {
+        notesMax: 0,
+        threadsMax: 0,
+        highlightsMax: 0,
+        highlightsCount: 0,
+        vaultIndexedMax: 0,
+        passAt: now,
+      },
+      contextHash: "fixture",
+      calls: 1,
+      notesAdded: 1,
+      updatedAt: now,
+    });
     await ctx.db.insert("userNotes", {
       userId,
       articleId,

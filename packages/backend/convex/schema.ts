@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
+import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 
 export default defineSchema({
   // Fixed-window budgets for unauthenticated endpoints: "password" (global),
@@ -132,6 +133,9 @@ export default defineSchema({
     // When the backfill scheduled this article; no run schedules it again
     // until the claim is released or expires (reannotateBackfill.ts)
     reannotateClaimedAt: v.optional(v.number()),
+    // What the margin drew on when the import pass started; reading alongside
+    // compares it with the reader's library now (rung 2f). Absent on older rows.
+    marginaliaFingerprint: v.optional(marginaliaFingerprint),
     embedding: v.optional(v.array(v.float64())),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
@@ -213,6 +217,39 @@ export default defineSchema({
     .index("by_user", ["userId"])
     // Which annotations point at a vault note, by its file so reindexing keeps them (idea graph)
     .index("by_user_note_path", ["userId", "notePath"]),
+
+  // One row per article section that reading alongside has looked at (rung
+  // 2f). The row is the claim: a pass starts only by claiming it in a mutation,
+  // so two tabs or a fast scroll can't run a section twice.
+  marginaliaPasses: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    sectionIndex: v.number(),
+    status: v.union(
+      v.literal("running"),
+      v.literal("done"),
+      v.literal("skipped"),
+      v.literal("failed"),
+    ),
+    // When the running pass was claimed; it identifies that run
+    claim: v.number(),
+    // The library fingerprint this section was last settled against
+    fingerprint: marginaliaFingerprint,
+    // The fingerprint the running pass was claimed under
+    pending: v.optional(marginaliaFingerprint),
+    // Hash of the stored items this section's context drew on, last time
+    contextHash: v.optional(v.string()),
+    // Passes claimed for this section that were not refunded
+    calls: v.number(),
+    notesAdded: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_and_articleId_and_sectionIndex", [
+      "userId",
+      "articleId",
+      "sectionIndex",
+    ])
+    .index("by_userId", ["userId"]),
 
   // A PDF on its way in: the desk shows its steps, and a failure keeps its
   // reason here so nothing else is left half-imported (documentImports.ts).
@@ -555,6 +592,8 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_file", ["userId", "filePath"])
     .index("by_file_hash", ["userId", "fileHash"])
+    // The newest chunk, for the reading-alongside fingerprint
+    .index("by_user_indexedAt", ["userId", "indexedAt"])
     .searchIndex("search_content", {
       searchField: "content",
       filterFields: ["userId"],
@@ -663,6 +702,8 @@ export default defineSchema({
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_user", ["userId"])
     .index("by_user_kept", ["userId", "keptAt"])
+    // The latest edit, for the reading-alongside fingerprint
+    .index("by_user_updatedAt", ["userId", "updatedAt"])
     .searchIndex("search_selection", {
       searchField: "selection",
       filterFields: ["userId"],

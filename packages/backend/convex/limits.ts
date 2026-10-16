@@ -60,6 +60,13 @@ export const READER_LIMITS = {
     windowMs: 60 * 60_000,
     message: "Too many PDFs in the last hour. Try again later.",
   },
+  // Reading-alongside passes (rung 2f): about $0.25 a day on Haiku. Used up, the
+  // margin just stops filling ahead; nothing is shown to the reader.
+  alongsideDaily: {
+    max: 130,
+    windowMs: 24 * 60 * 60_000,
+    message: "Reading alongside is resting until tomorrow.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -74,6 +81,7 @@ const bucket = v.union(
   v.literal("annotateAhead"),
   v.literal("apiTokenCreate"),
   v.literal("pdfImport"),
+  v.literal("alongsideDaily"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */
@@ -106,6 +114,24 @@ export async function spendReaderLimit(
   if (row.count >= max) return false;
   await ctx.db.patch("readerLimits", row._id, { count: row.count + 1 });
   return true;
+}
+
+/** Gives back one request spent in the current window, e.g. for a pass that made no model call. */
+export async function refundReaderLimit(
+  ctx: MutationCtx,
+  userId: string,
+  name: LimitBucket,
+  spentAt: number,
+): Promise<void> {
+  const row = await ctx.db
+    .query("readerLimits")
+    .withIndex("by_userId_and_bucket", (q) =>
+      q.eq("userId", userId).eq("bucket", name),
+    )
+    .unique();
+  // Only the window the request was spent in; a newer window owes nothing
+  if (row && row.startedAt <= spentAt && row.count > 0)
+    await ctx.db.patch("readerLimits", row._id, { count: row.count - 1 });
 }
 
 export const spend = internalMutation({

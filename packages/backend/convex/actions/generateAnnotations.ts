@@ -339,6 +339,12 @@ async function annotateArticle(
   }
 
   try {
+    // Taken before the context is built, so anything added while the model
+    // works is seen by reading alongside as a change
+    const fingerprint = await ctx.runQuery(
+      internal.alongside.currentFingerprint,
+      { userId: article.userId },
+    );
     // Step 1–2: Gather what the model should read: most of the article,
     // dates, the reader's closely related notes and marks, and the nearest
     // other articles in their library
@@ -398,6 +404,7 @@ async function annotateArticle(
         relevanceScore: a.relevanceScore,
       })),
       reflection: object.reflection,
+      fingerprint,
     });
 
     // The one point and short summary, and the tags, are extras: failing at

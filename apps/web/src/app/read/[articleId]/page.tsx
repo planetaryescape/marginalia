@@ -70,6 +70,7 @@ import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { useQuoteLanding } from "@/lib/use-quote-landing";
+import { useReadAlongside } from "@/lib/use-read-alongside";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import {
   marginNotesPending,
@@ -200,6 +201,13 @@ export default function ReadPage() {
       return articleProgress(rect.top, rect.height, window.innerHeight);
     }, []),
   );
+  // The margin fills in ahead of the reader (rung 2f); a book's parts are written by the part
+  const alongsideAnchor = useReadAlongside({
+    articleId: articleId as Id<"articles">,
+    enabled: !isBook && article?.annotationStatus === "annotated",
+    content: article?.content,
+    progress: scrollPercent,
+  });
   // A link to a part the book doesn't have opens its first
   useEffect(() => {
     if (missingUnit) router.replace(`/read/${articleId}?unit=0`);
@@ -945,7 +953,8 @@ export default function ReadPage() {
         annotations={annotations}
         userNotes={articleNotes}
         marks={marks}
-        waiting={marginNotesPending(article)}
+        waiting={marginNotesPending(article) || alongsideAnchor !== null}
+        waitingAnchor={alongsideAnchor}
         openId={activeAnnotationId}
         answers={answers}
         openAnswerId={companion.openId}

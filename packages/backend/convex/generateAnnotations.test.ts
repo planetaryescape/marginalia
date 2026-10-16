@@ -343,6 +343,12 @@ describe("generateForArticle", () => {
       ]),
     );
     expect(result.notes).toHaveLength(3);
+    // The import pass records what the library held, for reading alongside
+    const stamped = await result.t.run((ctx) => ctx.db.get(result.target));
+    expect(stamped?.marginaliaFingerprint).toMatchObject({
+      highlightsCount: 0,
+      notesMax: 0,
+    });
 
     // The prompt offered this library's neighbour and nothing of the owner's
     expect(result.prompts).toHaveLength(1);
