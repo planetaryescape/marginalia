@@ -14,11 +14,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AnnotationCard } from "@/components/annotation-card";
 import { ArticleAsk } from "@/components/article-ask";
+import { ArticleBackMatter } from "@/components/article-back-matter";
 import { ArticleRenderer } from "@/components/article-renderer";
 import { ArticleTags } from "@/components/article-tags";
 import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
-import { ArticleBackMatter } from "@/components/article-back-matter";
 import { ImpressionSummary } from "@/components/impression-panel";
 import { InlineError } from "@/components/in-place";
 import { ListenBar } from "@/components/listen-bar";
@@ -52,7 +52,7 @@ import { shouldRestorePlace } from "@/lib/place-restore";
 import { escapeGoesBack } from "@/lib/reader-escape";
 import { revealImpression } from "@/lib/reader-impression";
 import { attachLeavingLinks, type LeavingLink } from "@/lib/reader-links";
-import { backTarget, originRoom } from "@/lib/reader-return";
+import { backTarget, doneDestination, originRoom } from "@/lib/reader-return";
 import {
   DROP_CAP_FAMILIES,
   LINE_HEIGHTS,
@@ -619,13 +619,16 @@ export default function ReadPage() {
       await reflectionFlush.current?.();
       await finish();
       markFinished();
-      router.push("/", { transitionTypes: [FINISH_ARTICLE] });
+      const destination = doneDestination(back);
+      if (destination.finishing)
+        router.push(destination.href, { transitionTypes: [FINISH_ARTICLE] });
+      else router.push(destination.href, { scroll: false });
     } catch {
       setDoneFailed(true);
     } finally {
       setFinishing(false);
     }
-  }, [finish, finishing, router]);
+  }, [finish, finishing, router, back]);
   const doneError = doneFailed && (
     <InlineError
       message="Couldn't save your reading activity. Check your connection."

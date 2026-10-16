@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   backTarget,
   canReach,
+  doneDestination,
   isReaderPath,
   originRoom,
   recordRoom,
@@ -66,5 +67,29 @@ describe("canReach", () => {
     expect(canReach(1200, 900, 900)).toBe(false);
     expect(canReach(1200, 2100, 900)).toBe(true);
     expect(canReach(0, 900, 900)).toBe(true);
+  });
+});
+
+describe("doneDestination", () => {
+  it("fades to the Desk when the reader came from the Desk or a session", () => {
+    expect(doneDestination(backTarget(null, null))).toEqual({
+      href: "/",
+      finishing: true,
+    });
+    expect(doneDestination(backTarget("/session/s1", null))).toEqual({
+      href: "/",
+      finishing: true,
+    });
+  });
+
+  it("returns to Library or Notes without the Desk's finishing transition", () => {
+    expect(doneDestination(backTarget("/library", null))).toEqual({
+      href: "/library",
+      finishing: false,
+    });
+    expect(doneDestination(backTarget("/notes", null))).toEqual({
+      href: "/notes",
+      finishing: false,
+    });
   });
 });

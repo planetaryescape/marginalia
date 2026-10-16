@@ -50,6 +50,20 @@ export function backTarget(
   return DESK;
 }
 
+/**
+ * Where Done goes. From the Desk it is the Desk, with the finishing transition
+ * (which belongs to the Desk's next pick); from Library or Notes it is that
+ * room, as Back would, so the reader lands where they left off.
+ */
+export function doneDestination(back: BackTarget): {
+  href: string;
+  finishing: boolean;
+} {
+  return back.label === "Desk"
+    ? { href: "/", finishing: true }
+    : { href: back.href, finishing: false };
+}
+
 export function rememberScroll(room: string, y: number): void {
   roomScroll.set(room, y);
 }
