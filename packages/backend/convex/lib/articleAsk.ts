@@ -505,8 +505,8 @@ export interface PassageAskContext {
 /**
  * What Ask about a passage adds to its window: paragraphs the question cites
  * and, when it reaches beyond the passage, the top matches from the same
- * article. The window counts against the budget and is never repeated; cited
- * paragraphs win the budget first, as in a question about the whole article.
+ * article. The window's cost is reserved first and it is never repeated; cited
+ * paragraphs then win what remains, ahead of retrieved passages.
  */
 export async function retrievePassageContext(
   ctx: ActionCtx,
@@ -531,7 +531,8 @@ export async function retrievePassageContext(
   });
   const selection = selectWithinBudget({
     paragraphs: input.paragraphs,
-    pinned: [...cited, ...input.window],
+    // The window is reserved first, so what it costs is never spent twice
+    pinned: [...input.window, ...cited],
     ranked: relatedBeyondWindow(ranked ?? [], window),
   });
   const segments = selection.segments.filter((s) => !window.has(s.index));

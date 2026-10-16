@@ -9,11 +9,13 @@ import {
   citedParagraphs,
   LONG_PARAGRAPH_CHARS,
   passageText,
+  retrievePassageContext,
 } from "./lib/articleAsk";
 import {
   buildCompanionPrompt,
   type CompanionRequest,
   companionRequestSchema,
+  selectContext,
 } from "./lib/readingCompanion";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -540,6 +542,56 @@ describe("Ask about a passage reaching into the article", () => {
     expect(response.status).toBe(200);
     expect(mock.prompts.at(-1)).not.toContain("<elsewhere_in_the_article>");
     expect(await rows()).toEqual([]);
+  });
+});
+
+describe("the budget for a passage question", () => {
+  const ask = (paragraphs: string[], question: string) =>
+    companionRequestSchema.parse({
+      mode: "ask",
+      title: "T",
+      paragraphs,
+      selection: "x",
+      paragraphIndex: 10,
+      paragraphEnd: 10,
+      question,
+    });
+
+  it("keeps the window and a long citation within the one budget", async () => {
+    // A 15,000-character window (five 3,000-character paragraphs) and a 10,000-character citation
+    const paragraphs = Array.from({ length: 30 }, (_, i) =>
+      `P${i + 1} `.padEnd(i === 2 ? 10_000 : 3_000, "w"),
+    );
+    const request = ask(paragraphs, "How does this follow from ¶3?");
+    const { indices } = selectContext(request);
+    expect(indices).toEqual([8, 9, 10, 11, 12]);
+    const windowChars = indices.reduce((n, i) => n + paragraphs[i].length, 0);
+    expect(windowChars).toBe(15_000);
+    const { related } = await retrievePassageContext({} as never, {
+      userId: "u",
+      articleId: undefined,
+      paragraphs,
+      window: indices,
+      question: request.question ?? "",
+      history: [],
+      embedder: null,
+    });
+    // The citation gets what the window left, cut where the budget ends
+    expect(related?.chars).toBe(ASK_BUDGET_CHARS - windowChars);
+    expect(windowChars + (related?.chars ?? 0)).toBeLessThanOrEqual(
+      ASK_BUDGET_CHARS,
+    );
+  });
+
+  it("trims the outer window paragraphs first when the window alone is too big", () => {
+    const paragraphs = Array.from({ length: 30 }, (_, i) =>
+      `P${i + 1} `.padEnd(4_000, "w"),
+    );
+    const { indices, marked } = selectContext(ask(paragraphs, "Why?"));
+    // Five at 4,000 is 20,000: the farthest goes (the later one on a tie) until it fits 16,000
+    expect(indices).toEqual([8, 9, 10, 11]);
+    expect([...marked]).toEqual([10]);
+    expect(indices).toContain(10);
   });
 });
 

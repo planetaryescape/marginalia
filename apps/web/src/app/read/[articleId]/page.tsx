@@ -184,7 +184,7 @@ export default function ReadPage() {
   // Reopening an unfinished article, or a book's part, returns to where the reader stopped.
   // A link that names a passage lands there instead.
   const articleProgressSaved = useQuery(
-    api.readingActivity.furthest,
+    api.readingActivity.furthestPlace,
     isBook ? "skip" : { articleId: articleId as any },
   );
   const saved = isBook

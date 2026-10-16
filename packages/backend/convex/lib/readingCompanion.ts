@@ -264,7 +264,37 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
     indices.push(i);
   const marked = new Set<number>();
   for (let i = start; i <= end; i++) marked.add(i);
-  return { indices, marked };
+  return {
+    indices:
+      mode === "ask"
+        ? trimWindow(paragraphs, indices, marked, ASK_BUDGET_CHARS)
+        : indices,
+    marked,
+  };
+}
+
+/**
+ * Drops the outermost unmarked paragraphs, farthest from the passage first,
+ * until the window fits the budget. The passage's own paragraphs always stay.
+ */
+function trimWindow(
+  paragraphs: readonly string[],
+  indices: readonly number[],
+  marked: ReadonlySet<number>,
+  budget: number,
+): number[] {
+  const kept = [...indices];
+  let total = kept.reduce((sum, i) => sum + paragraphs[i].length, 0);
+  const centre = (Math.min(...marked) + Math.max(...marked)) / 2;
+  while (total > budget) {
+    const outer = kept
+      .filter((i) => !marked.has(i))
+      .sort((a, b) => Math.abs(b - centre) - Math.abs(a - centre) || b - a)[0];
+    if (outer === undefined) break;
+    kept.splice(kept.indexOf(outer), 1);
+    total -= paragraphs[outer].length;
+  }
+  return kept;
 }
 
 export function formatArticle(

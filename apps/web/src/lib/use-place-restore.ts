@@ -34,10 +34,13 @@ export function usePlaceRestore(
     const rect = body.getBoundingClientRect();
     // Data loads after first paint; an unlaid-out body would clamp the scroll
     if (rect.height < window.innerHeight) return;
+    const tagged = getParagraphs(containerRef.current);
+    // Paragraphs are numbered a frame after the text appears; falling back to
+    // the percent before then would settle on it for good. The re-tag bumps
+    // `version` and runs this again.
+    if (paragraphIndex !== undefined && tagged.length === 0) return;
     const paragraph =
-      paragraphIndex === undefined
-        ? undefined
-        : getParagraphs(containerRef.current)[paragraphIndex];
+      paragraphIndex === undefined ? undefined : tagged[paragraphIndex];
     if (paragraph) {
       restored.current = key;
       window.scrollTo({

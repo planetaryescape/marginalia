@@ -7,15 +7,16 @@ import {
   internalMutation,
   type MutationCtx,
   mutation,
+  type QueryCtx,
   query,
 } from "./functions";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 import {
   capDwell,
   furthestParagraph,
-  furthestPlace,
   hasReadArticle,
   mergeDwell,
+  furthestPlace as pickFurthestPlace,
   type ReadingCheckpoint,
   readingCheckpointSchema,
 } from "./lib/readingActivity";
@@ -291,21 +292,41 @@ export const record = internalMutation({
 
 /**
  * How far the reader has got into an article across every visit, as a percent
- * of its body and the paragraph at the top of the view there (absent on visits
- * recorded before paragraphs were kept), or null when it is not theirs. The
- * reader scrolls back to it on reopening.
+ * of its body, or null when it is not theirs. The reader scrolls back to it on
+ * reopening. Clients open during a deploy still read a number from this, so its
+ * shape stays; `furthestPlace` adds the paragraph.
  */
 export const furthest = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
     const article = await ownedArticle(ctx, args.articleId, ctx.readerId);
     if (!article) return null;
-    const visits = await ctx.db
-      .query("readingActivity")
-      .withIndex("by_user_article", (q) =>
-        q.eq("userId", ctx.readerId).eq("articleId", article._id),
-      )
-      .take(200);
-    return furthestPlace(visits);
+    return (await visitsOf(ctx, article)).reduce(
+      (max, v) => Math.max(max, v.maxScrollPercent),
+      0,
+    );
   },
 });
+
+/**
+ * The furthest place as a percent and the paragraph at the top of the view
+ * there (absent on visits recorded before paragraphs were kept), or null when
+ * the article is not theirs.
+ */
+export const furthestPlace = query({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    const article = await ownedArticle(ctx, args.articleId, ctx.readerId);
+    if (!article) return null;
+    return pickFurthestPlace(await visitsOf(ctx, article));
+  },
+});
+
+function visitsOf(ctx: QueryCtx, article: Doc<"articles">) {
+  return ctx.db
+    .query("readingActivity")
+    .withIndex("by_user_article", (q) =>
+      q.eq("userId", article.userId).eq("articleId", article._id),
+    )
+    .take(200);
+}

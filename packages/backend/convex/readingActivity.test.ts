@@ -231,8 +231,11 @@ describe("reading checkpoints", () => {
   describe("furthest place", () => {
     it("is the furthest any visit reached, and null for another reader's article", async () => {
       const { t, articleId, checkpoint } = await fixture();
+      expect(await t.query(api.readingActivity.furthest, { articleId })).toBe(
+        0,
+      );
       expect(
-        await t.query(api.readingActivity.furthest, { articleId }),
+        await t.query(api.readingActivity.furthestPlace, { articleId }),
       ).toEqual({ percent: 0 });
       await t.mutation(api.readingActivity.checkpoint, checkpoint);
       await t.mutation(api.readingActivity.checkpoint, {
@@ -240,8 +243,11 @@ describe("reading checkpoints", () => {
         visitId: "270d1ba0-28c2-44b1-9d97-c9f9bc9e944e",
         maxScrollPercent: 65,
       });
+      expect(await t.query(api.readingActivity.furthest, { articleId })).toBe(
+        65,
+      );
       expect(
-        await t.query(api.readingActivity.furthest, { articleId }),
+        await t.query(api.readingActivity.furthestPlace, { articleId }),
       ).toEqual({ percent: 65 });
       const other = await t.run((ctx) =>
         ctx.db.insert("articles", {
@@ -257,6 +263,9 @@ describe("reading checkpoints", () => {
       expect(
         await t.query(api.readingActivity.furthest, { articleId: other }),
       ).toBeNull();
+      expect(
+        await t.query(api.readingActivity.furthestPlace, { articleId: other }),
+      ).toBeNull();
     });
 
     it("returns the paragraph recorded at the furthest scroll, and none for old rows", async () => {
@@ -266,7 +275,7 @@ describe("reading checkpoints", () => {
         paragraphIndex: 14,
       });
       expect(
-        await t.query(api.readingActivity.furthest, { articleId }),
+        await t.query(api.readingActivity.furthestPlace, { articleId }),
       ).toEqual({ percent: 40, paragraphIndex: 14 });
       // Another visit goes further but predates paragraphs: the stale one is not offered
       await t.mutation(api.readingActivity.checkpoint, {
@@ -275,7 +284,7 @@ describe("reading checkpoints", () => {
         maxScrollPercent: 70,
       });
       expect(
-        await t.query(api.readingActivity.furthest, { articleId }),
+        await t.query(api.readingActivity.furthestPlace, { articleId }),
       ).toEqual({ percent: 70 });
     });
 
@@ -293,7 +302,7 @@ describe("reading checkpoints", () => {
         paragraphIndex: 5,
       });
       expect(
-        await t.query(api.readingActivity.furthest, { articleId }),
+        await t.query(api.readingActivity.furthestPlace, { articleId }),
       ).toEqual({ percent: 60, paragraphIndex: 30 });
     });
   });
