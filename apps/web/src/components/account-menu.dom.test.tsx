@@ -152,6 +152,15 @@ describe("AccountMenu", () => {
     );
   });
 
+  it("shows Your reading first, only at phone widths where the bottom bar has no slot for it", async () => {
+    await render();
+    await key(trigger(), "Enter");
+    const [first] = menuItems();
+    expect(first.textContent).toBe("Your reading");
+    // Same breakpoint as the bottom bar (`mobile-app-nav md:hidden`) in site-header.tsx
+    expect(first.className).toContain("md:hidden");
+  });
+
   it("hides Readers and the owner line from a reader who isn't the owner", async () => {
     data.reader = { isOwner: false, email: "r@example.com", name: "R" };
     await render();
