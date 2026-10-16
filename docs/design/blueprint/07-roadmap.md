@@ -16,7 +16,7 @@
 |---|---|---|
 | A1 | BK answers Q1 (the concept), Q7 (pen only for the reader's marks) and Q2 (references) | Rung 1 |
 | A2 | BK answers Q6 and Q5 (sidenotes always shown; phone in-flow) | Rung 2 |
-| A3 | BK answers Q8 and Q12 (keycaps hidden; the pick on the desk) | Rung 3 |
+| A3 | BK answers Q8, Q12 and Q13 (keycaps hidden; the pick on the desk; Up next off the desk) | Rung 3 |
 | A4 | BK answers Q3, Q4 and Q9 (three rooms; settings behind the avatar; GitHub link moves) | Rung 4 |
 
 Spikes from [09](09-open-questions.md): S4 before rung 1, S2 before rung 2, S3 before rung 3, S1 before rung 7.
