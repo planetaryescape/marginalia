@@ -1,7 +1,7 @@
 import type { Doc } from "@marginalia/backend/convex/_generated/dataModel";
 import type { SidenoteAnswer } from "@/components/sidenotes";
+import { answerPreview } from "./answer-preview";
 import type { CompanionMode, CompanionThread } from "./companion";
-import { plainNote } from "./margin-kinds";
 
 export const MODE_LABELS = {
   explain: "Explain",
@@ -11,8 +11,8 @@ export const MODE_LABELS = {
   article: "Ask the article",
 } as const satisfies Record<CompanionMode, string>;
 
-const firstLine = (turns: { role: string; content: string }[]) =>
-  plainNote(
+const answerText = (turns: { role: string; content: string }[]) =>
+  answerPreview(
     turns.find((t) => t.role === "assistant" && t.content.trim())?.content ??
       "",
   ) || "…";
@@ -36,7 +36,7 @@ export function answerNotes(
     notes.push({
       id: a.id,
       label: labelOf(a.mode, Boolean(a.savedId)),
-      text: firstLine(a.turns),
+      text: answerText(a.turns),
       selection: a.selection,
       paragraphIndex: a.paragraphIndex,
     });
@@ -47,7 +47,7 @@ export function answerNotes(
     notes.push({
       id: doc._id,
       label: labelOf(doc.mode, doc.keptAt !== undefined),
-      text: firstLine(doc.turns),
+      text: answerText(doc.turns),
       selection: doc.selection,
       paragraphIndex: doc.paragraphIndex ?? null,
     });

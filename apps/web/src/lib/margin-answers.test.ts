@@ -22,6 +22,22 @@ const saved = (over: Record<string, unknown>) =>
   }) as never;
 
 describe("answerNotes", () => {
+  it("previews an answer's markdown as plain text, list markers included", () => {
+    const [note] = answerNotes(
+      [
+        live({
+          turns: [
+            {
+              role: "assistant",
+              content: "Terms:\n- *transducere*\n- **bold**",
+            },
+          ],
+        }),
+      ],
+      [],
+    );
+    expect(note.text).toBe("Terms: transducere bold");
+  });
   it("labels this visit's answers and previews their first line in plain text", () => {
     const [note] = answerNotes([live({})], []);
     expect(note).toMatchObject({
