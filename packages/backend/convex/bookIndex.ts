@@ -17,12 +17,18 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { libraryIsActive, ownedArticle } from "./access";
 import { BATCH_DELAY_MS, JOB_STAGGER_MS } from "./catchUp";
-import { internalMutation, internalQuery, type QueryCtx } from "./functions";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  type QueryCtx,
+} from "./functions";
 import {
   BATCH_JOBS,
   CLAIM_TTL_MS,
   INDEX_UNIT_CAP,
   MAX_ATTEMPTS,
+  MAX_PAUSES,
   STALE_MS,
 } from "./lib/bookIndex";
 import { embeddingProvider } from "./lib/providers";
@@ -85,16 +91,39 @@ function indexRow(
 }
 
 /**
- * Whether the library can do a phase's work: it must be active, summaries need
- * a text key, and passages need an embedding key. A reader without the key
- * stops the run quietly; saving one and starting again resumes it.
+ * Whether a book may still be written to: its library is active (a reader
+ * being deleted is disabled first), and the article, its book row and its text
+ * exist. Every write of indexing checks this in its own transaction, so a job
+ * that outlives its reader or its book writes nothing.
  */
-async function canRun(ctx: Db, userId: string, phase: Phase) {
-  if (!(await libraryIsActive(ctx, userId))) return false;
+async function liveBook(ctx: Db, userId: string, articleId: Id<"articles">) {
+  if (!(await libraryIsActive(ctx, userId))) return null;
+  const article = await ownedArticle(ctx, articleId, userId);
+  if (!article?.bookOutline) return null;
+  return bookRow(ctx, userId, articleId);
+}
+
+/**
+ * Whether the library can do a phase's work: summaries need a text key and
+ * passages an embedding key. A reader without the key pauses the run with a
+ * reason; saving a key resumes it (resumeBooks).
+ */
+async function keyFor(ctx: Db, userId: string, phase: Phase) {
   const { providers } = await readerProviders(ctx, userId);
-  return phase === "passages"
-    ? embeddingProvider(providers) !== null
-    : providers.length > 0;
+  return (
+    phase === "passages"
+      ? embeddingProvider(providers) !== null
+      : providers.length > 0
+  )
+    ? "ok"
+    : "no_key";
+}
+
+async function canRun(ctx: Db, userId: string, phase: Phase) {
+  return (
+    (await libraryIsActive(ctx, userId)) &&
+    (await keyFor(ctx, userId, phase)) === "ok"
+  );
 }
 
 type Verdict = "queue" | "wait" | "skip" | "give_up";
@@ -148,6 +177,8 @@ export const start = internalMutation({
       phase,
       cursor: 0,
       pointAttempts: 0,
+      pointClaimedAt: undefined,
+      pausedReason: undefined,
       updatedAt: now,
       finishedAt: undefined,
     };
@@ -168,27 +199,45 @@ export const start = internalMutation({
   },
 });
 
+/**
+ * Schedules a start for each of the library's books that isn't indexed, one
+ * after another BATCH_DELAY_MS apart, and returns how many. Saving a key calls
+ * this with `respectCap`, so a library whose keys keep failing isn't resumed
+ * for ever; the backfill command does not.
+ */
+export async function resumeBooks(
+  ctx: MutationCtx,
+  userId: string,
+  { respectCap }: { respectCap: boolean },
+): Promise<{ scheduled: number; books: number }> {
+  const books = await ctx.db
+    .query("books")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .take(BACKFILL_BOOKS);
+  let scheduled = 0;
+  for (const book of books) {
+    const row = await stateRow(ctx, userId, book.articleId);
+    if (row?.phase === "done") continue;
+    if (respectCap && (row?.failures ?? 0) >= MAX_PAUSES) continue;
+    await ctx.scheduler.runAfter(
+      scheduled === 0 ? 0 : scheduled * BATCH_DELAY_MS,
+      internal.bookIndex.start,
+      { userId, articleId: book.articleId },
+    );
+    scheduled++;
+  }
+  return { scheduled, books: books.length };
+}
+
 /** Queues indexing for books already imported, one book after another. */
 export const backfill = internalMutation({
   args: { userId: v.string() },
   returns: v.string(),
   handler: async (ctx, args) => {
-    const books = await ctx.db
-      .query("books")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .take(BACKFILL_BOOKS);
-    let scheduled = 0;
-    for (const book of books) {
-      const row = await stateRow(ctx, args.userId, book.articleId);
-      if (row?.phase === "done") continue;
-      await ctx.scheduler.runAfter(
-        scheduled * BATCH_DELAY_MS,
-        internal.bookIndex.start,
-        { userId: args.userId, articleId: book.articleId },
-      );
-      scheduled++;
-    }
-    return `scheduled ${scheduled} of ${books.length} books`;
+    const { scheduled, books } = await resumeBooks(ctx, args.userId, {
+      respectCap: false,
+    });
+    return `scheduled ${scheduled} of ${books} books`;
   },
 });
 
@@ -209,35 +258,56 @@ export const step = internalMutation({
     const next = (delayMs: number) =>
       ctx.scheduler.runAfter(delayMs, internal.bookIndex.step, args);
 
-    const book = await bookRow(ctx, args.userId, args.articleId);
-    // Checked every batch: a removed key, a left reader or a gone book stops the spend
-    if (
-      !book ||
-      state.phase === "done" ||
-      !(await canRun(ctx, args.userId, state.phase))
-    ) {
-      await patch({ running: false });
+    const book = await liveBook(ctx, args.userId, args.articleId);
+    // Checked every batch: a left reader or a gone book stops the run, and a
+    // removed key pauses it until one is saved
+    if (!book || state.phase === "done") {
+      await patch({ running: false, pointClaimedAt: undefined });
+      return null;
+    }
+    if ((await keyFor(ctx, args.userId, state.phase)) !== "ok") {
+      await patch({
+        running: false,
+        pointClaimedAt: undefined,
+        pausedReason: "no_key",
+        failures: (state.failures ?? 0) + 1,
+      });
       return null;
     }
     const end = Math.min(book.unitCount, INDEX_UNIT_CAP);
 
     if (state.phase === "point") {
+      // A call for the point is in flight; its watchdog takes over if it is lost
+      if (
+        state.pointClaimedAt !== undefined &&
+        now - state.pointClaimedAt < CLAIM_TTL_MS
+      )
+        return null;
       if (state.pointAttempts >= MAX_ATTEMPTS) {
         // The part-1 point stays; the book is still searchable
-        await patch({ phase: "passages", cursor: 0 });
+        await patch({
+          phase: "passages",
+          cursor: 0,
+          pointClaimedAt: undefined,
+        });
         await next(0);
         return null;
       }
-      await patch({ pointAttempts: state.pointAttempts + 1 });
-      // The action moves the run on (pointWritten) or retries it (pointFailed)
+      await patch({
+        pointAttempts: state.pointAttempts + 1,
+        pointClaimedAt: now,
+      });
+      // The action moves the run on (pointWritten) or retries it (pointFailed);
+      // if it is lost, the watchdog frees the claim and the step tries again
       await ctx.scheduler.runAfter(
         0,
         internal.actions.indexBook.writeOverview,
-        {
-          userId: args.userId,
-          articleId: args.articleId,
-          runId: args.runId,
-        },
+        { ...args, claim: now },
+      );
+      await ctx.scheduler.runAfter(
+        CLAIM_TTL_MS + 1_000,
+        internal.bookIndex.pointWatchdog,
+        { ...args, claim: now },
       );
       return null;
     }
@@ -366,49 +436,124 @@ export const step = internalMutation({
   },
 });
 
+const pointArgs = {
+  userId: v.string(),
+  articleId: v.id("articles"),
+  runId: v.number(),
+  claim: v.number(),
+};
+
+/** The state row, if it is the current run waiting on this call for the point. */
+async function pointState(
+  ctx: MutationCtx,
+  args: {
+    userId: string;
+    articleId: Id<"articles">;
+    runId: number;
+    claim: number;
+  },
+) {
+  const state = await stateRow(ctx, args.userId, args.articleId);
+  if (
+    !state?.running ||
+    state.runId !== args.runId ||
+    state.phase !== "point" ||
+    state.pointClaimedAt !== args.claim ||
+    !(await liveBook(ctx, args.userId, args.articleId))
+  )
+    return null;
+  return state;
+}
+
 /** The book's one point is written: on to the passages. */
 export const pointWritten = internalMutation({
-  args: {
-    userId: v.string(),
-    articleId: v.id("articles"),
-    runId: v.number(),
-  },
+  args: pointArgs,
   returns: v.null(),
   handler: async (ctx, args) => {
-    const state = await stateRow(ctx, args.userId, args.articleId);
-    if (
-      !state?.running ||
-      state.runId !== args.runId ||
-      state.phase !== "point"
-    )
-      return null;
+    const state = await pointState(ctx, args);
+    if (!state) return null;
     await ctx.db.patch("bookIndexState", state._id, {
       phase: "passages",
       cursor: 0,
+      pointClaimedAt: undefined,
       updatedAt: Date.now(),
     });
-    await ctx.scheduler.runAfter(0, internal.bookIndex.step, args);
+    await ctx.scheduler.runAfter(0, internal.bookIndex.step, {
+      userId: args.userId,
+      articleId: args.articleId,
+      runId: args.runId,
+    });
     return null;
   },
 });
 
 /** The call for the book's one point failed: the step tries again, up to its cap. */
 export const pointFailed = internalMutation({
+  args: pointArgs,
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const state = await pointState(ctx, args);
+    if (!state) return null;
+    await ctx.db.patch("bookIndexState", state._id, {
+      pointClaimedAt: undefined,
+      updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(BATCH_DELAY_MS, internal.bookIndex.step, {
+      userId: args.userId,
+      articleId: args.articleId,
+      runId: args.runId,
+    });
+    return null;
+  },
+});
+
+/**
+ * Scheduled when a call for the point is, to run a TTL later. If that call is
+ * still the current claim it was lost, so the claim is freed and the step
+ * tries again within MAX_ATTEMPTS, or moves on keeping the part-1 point.
+ */
+export const pointWatchdog = internalMutation({
+  args: pointArgs,
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const state = await pointState(ctx, args);
+    if (!state) return null;
+    await ctx.db.patch("bookIndexState", state._id, {
+      pointClaimedAt: undefined,
+      updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.bookIndex.step, {
+      userId: args.userId,
+      articleId: args.articleId,
+      runId: args.runId,
+    });
+    return null;
+  },
+});
+
+/**
+ * A job found no usable key (none saved, or one that won't open): the run
+ * stops with a reason instead of retrying, and saving a key resumes it. The
+ * pause is counted, and refunded tries don't reset the count.
+ */
+export const pauseIndex = internalMutation({
   args: {
     userId: v.string(),
     articleId: v.id("articles"),
-    runId: v.number(),
+    reason: v.union(v.literal("no_key"), v.literal("unusable_key")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const state = await stateRow(ctx, args.userId, args.articleId);
-    if (
-      !state?.running ||
-      state.runId !== args.runId ||
-      state.phase !== "point"
-    )
-      return null;
-    await ctx.scheduler.runAfter(BATCH_DELAY_MS, internal.bookIndex.step, args);
+    // Only the first of a batch's jobs to report pauses it and counts
+    if (!state?.running) return null;
+    await ctx.db.patch("bookIndexState", state._id, {
+      running: false,
+      pointClaimedAt: undefined,
+      pausedReason: args.reason,
+      failures: (state.failures ?? 0) + 1,
+      updatedAt: Date.now(),
+    });
     return null;
   },
 });
@@ -485,6 +630,7 @@ export const completeJob = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
+    if (!(await liveBook(ctx, args.userId, args.articleId))) return false;
     const row = await indexRow(
       ctx,
       args.userId,
@@ -563,6 +709,7 @@ export const clearPassages = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
+    if (!(await liveBook(ctx, args.userId, args.articleId))) return false;
     const row = await indexRow(
       ctx,
       args.userId,
@@ -604,6 +751,7 @@ export const addPassages = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
+    if (!(await liveBook(ctx, args.userId, args.articleId))) return false;
     const row = await indexRow(
       ctx,
       args.userId,

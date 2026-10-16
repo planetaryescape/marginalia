@@ -86,6 +86,20 @@ function authRows(
 
 /** Every table that holds a library's rows, then its reader and auth records. */
 const STEPS: Step[] = [
+  // First, so a job already in flight finds its claim gone and writes nothing
+  // (bookIndex.ts also refuses writes for a reader being deleted)
+  rows((ctx, u) =>
+    ctx.db
+      .query("bookIndexUnits")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("bookIndexState")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
   rows((ctx, u) =>
     ctx.db
       .query("articleInteractions")
@@ -262,18 +276,6 @@ const STEPS: Step[] = [
       .query("bookPassages")
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(PASSAGE_BATCH),
-  ),
-  rows((ctx, u) =>
-    ctx.db
-      .query("bookIndexUnits")
-      .withIndex("by_userId", (q) => q.eq("userId", u))
-      .take(BATCH),
-  ),
-  rows((ctx, u) =>
-    ctx.db
-      .query("bookIndexState")
-      .withIndex("by_userId", (q) => q.eq("userId", u))
-      .take(BATCH),
   ),
   // An import still reading owns an uploaded file, which goes with it
   async (ctx, { userId }) => {

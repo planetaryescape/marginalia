@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { ownedArticle, requireArticle } from "./access";
+import { libraryIsActive, ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, query } from "./functions";
 
 export const getByArticle = query({
@@ -124,8 +124,10 @@ export const saveBookOverview = internalMutation({
     model: v.string(),
   },
   handler: async (ctx, args) => {
-    const article = await requireArticle(ctx, args.articleId, args.userId);
-    if (!article.bookOutline) throw new Error("Book not found");
+    // A late call for a reader who is leaving or a book that is gone writes nothing
+    if (!(await libraryIsActive(ctx, args.userId))) return null;
+    const article = await ownedArticle(ctx, args.articleId, args.userId);
+    if (!article?.bookOutline) return null;
     const thesis = args.thesis.trim();
     const gist = args.gist.trim();
     if (!thesis || !gist) return null;

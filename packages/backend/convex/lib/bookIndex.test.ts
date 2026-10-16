@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   chunkPassages,
+  groupSpans,
   inBatches,
   MAX_PASSAGES_PER_UNIT,
   outlineText,
   PASSAGE_TOKENS,
   passageEmbedText,
   passageTokens,
+  reduceSpans,
+  spansOf,
+  spansText,
 } from "./bookIndex";
 
 const para = (n: number, chars: number) => `P${n} ${"x".repeat(chars)}`;
@@ -75,5 +79,50 @@ describe("outlineText", () => {
     expect(text).toContain("Part 1: Part title 1");
     expect(text).toContain("Part 152: Part title 152. Summary 152");
     expect(text).not.toContain("Summary 2 ");
+  });
+});
+
+describe("reduceSpans", () => {
+  const lines = Array.from({ length: 1_500 }, (_, i) => ({
+    title: `Chapter ${i + 1}`,
+    summary: `Summary of part ${i + 1} ${"z".repeat(280)}`,
+  }));
+
+  it("covers a 1,500-part outline to its last part within two levels", async () => {
+    const calls: number[] = [];
+    const sizes: number[] = [];
+    const spans = await reduceSpans(spansOf(lines), async (group) => {
+      calls.push(group.length);
+      sizes.push(spansText(group).length);
+      return `covers ${group[0].first} to ${group[group.length - 1].last}`;
+    });
+    // Every part is covered once, in order, from the first to the last
+    expect(spans[0].first).toBe(1);
+    expect(spans[spans.length - 1].last).toBe(1_500);
+    for (const [i, span] of spans.entries())
+      if (i > 0) expect(span.first).toBe(spans[i - 1].last + 1);
+    // It fits one call, and no call was sent more than a group's budget
+    expect(spansText(spans).length).toBeLessThanOrEqual(14_000);
+    expect(spansText(spans)).toContain("–1500");
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(12_400);
+    // 1,500 parts need two levels, so not one call per part
+    expect(calls.length).toBeLessThan(80);
+  });
+
+  it("leaves an outline that fits as it is, with no calls", async () => {
+    const spans = await reduceSpans(spansOf(lines.slice(0, 5)), async () => {
+      throw new Error("not needed");
+    });
+    expect(spans).toHaveLength(5);
+  });
+
+  it("groups consecutive spans, at least two to a group", () => {
+    const groups = groupSpans(spansOf(lines.slice(0, 40)), 1_000);
+    expect(groups.flat().map((s) => s.first)).toEqual(
+      Array.from({ length: 40 }, (_, i) => i + 1),
+    );
+    expect(groups.every((g) => g.length >= 2 || g === groups.at(-1))).toBe(
+      true,
+    );
   });
 });

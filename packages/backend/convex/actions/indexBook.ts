@@ -8,12 +8,17 @@ import {
   bookOverviewSchema,
   chunkPassages,
   EMBED_BATCH,
+  GROUP_SYSTEM,
+  groupPrompt,
+  groupSummarySchema,
   inBatches,
   MIN_SUMMARY_WORDS,
   OVERVIEW_SYSTEM,
   overviewPrompt,
   passageEmbedText,
+  reduceSpans,
   SUMMARY_SYSTEM,
+  spansOf,
   summaryPrompt,
   unitHeading,
   unitSummarySchema,
@@ -62,7 +67,13 @@ export const summarizeUnit = internalAction({
     const ai = await loadReaderAI(ctx, userId);
     const targets = ai.chain("annotations");
     if (!targets.length) {
+      // No try is spent; the run pauses until a usable key is saved
       await finish({ status: "failed", refund: true });
+      await ctx.runMutation(internal.bookIndex.pauseIndex, {
+        userId,
+        articleId: args.articleId,
+        reason: "unusable_key",
+      });
       return;
     }
     try {
@@ -99,12 +110,18 @@ export const summarizeUnit = internalAction({
   },
 });
 
-/** Writes the book's one point and short summary from its section summaries, in one call. */
+/**
+ * Writes the book's one point and short summary from its section summaries.
+ * A book whose summaries fit one call is written in that call; a longer one is
+ * reduced first, runs of parts summarised and those summaries standing in for
+ * them, so the last part counts as much as the first.
+ */
 export const writeOverview = internalAction({
   args: {
     userId: v.string(),
     articleId: v.id("articles"),
     runId: v.number(),
+    claim: v.number(),
   },
   handler: async (ctx, args): Promise<void> => {
     const retry = () => ctx.runMutation(internal.bookIndex.pointFailed, args);
@@ -120,16 +137,36 @@ export const writeOverview = internalAction({
       const ai = await loadReaderAI(ctx, args.userId);
       const targets = ai.chain("annotations");
       if (!targets.length) {
-        // The next step finds no key and stops the run quietly
-        await retry();
+        // A key that is saved but won't open: pause rather than retry
+        await ctx.runMutation(internal.bookIndex.pauseIndex, {
+          userId: args.userId,
+          articleId: args.articleId,
+          reason: "unusable_key",
+        });
         return;
       }
+      const spans = await reduceSpans(
+        spansOf(book.lines),
+        async (group) =>
+          (
+            await generateObjectWithFallback<
+              z.infer<typeof groupSummarySchema>
+            >({
+              schema: groupSummarySchema,
+              system: GROUP_SYSTEM,
+              prompt: groupPrompt(book.title, group),
+              targets,
+              maxOutputTokens: 200,
+              onFailure: ai.noteFailure,
+            })
+          ).object.summary,
+      );
       const { object, modelId } = await generateObjectWithFallback<
         z.infer<typeof bookOverviewSchema>
       >({
         schema: bookOverviewSchema,
         system: OVERVIEW_SYSTEM,
-        prompt: overviewPrompt(book.title, book.lines),
+        prompt: overviewPrompt(book.title, spans),
         targets,
         maxOutputTokens: 400,
         onFailure: ai.noteFailure,
@@ -194,6 +231,11 @@ export const embedPassages = internalAction({
     ).embedder();
     if (!embedder) {
       await finish({ status: "failed", refund: true });
+      await ctx.runMutation(internal.bookIndex.pauseIndex, {
+        userId,
+        articleId: args.articleId,
+        reason: "unusable_key",
+      });
       return;
     }
     try {

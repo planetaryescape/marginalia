@@ -15,6 +15,7 @@ import {
   EMBED_BATCH,
   MAX_ATTEMPTS,
 } from "./lib/bookIndex";
+import { encryptProviderKey } from "./lib/providerKeys";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -45,6 +46,7 @@ function vectorFor(text: string) {
 function mockProviders() {
   const prompts: { system: string; user: string }[] = [];
   const embedBatches: number[] = [];
+  const embedInputs: string[] = [];
   let failSummaries = false;
   vi.stubGlobal(
     "fetch",
@@ -54,6 +56,7 @@ function mockProviders() {
       if (url.endsWith("/embeddings")) {
         const texts = request.input as string[];
         embedBatches.push(texts.length);
+        embedInputs.push(...texts);
         return Response.json({
           data: texts.map((text, index) => ({
             index,
@@ -97,6 +100,7 @@ function mockProviders() {
   return {
     prompts,
     embedBatches,
+    embedInputs,
     failSummaries: (on: boolean) => {
       failSummaries = on;
     },
@@ -720,6 +724,38 @@ describe("Ask about this book", () => {
     expect(user).not.toContain("alpha passage in my book");
   });
 
+  it("searches for the latest question joined with the one before, not the first alone", async () => {
+    const { f, mock, mine } = await askSetup();
+    await ask(f.owner, { articleId: mine, unitIndex: 0 });
+    const first = mock.embedInputs.at(-1);
+    expect(first).toBe("What about alpha?");
+    await ask(f.owner, {
+      articleId: mine,
+      unitIndex: 0,
+      history: [
+        { role: "assistant", content: "Alpha is the first thing." },
+        { role: "user", content: "And what about beta?" },
+      ],
+    });
+    // The follow-up is resolved by the question it follows
+    expect(mock.embedInputs.at(-1)).toBe(
+      "What about alpha?\nAnd what about beta?",
+    );
+    await ask(f.owner, {
+      articleId: mine,
+      unitIndex: 0,
+      history: [
+        { role: "user", content: "And what about beta?" },
+        { role: "assistant", content: "Beta is the second." },
+        { role: "user", content: "Which came first?" },
+      ],
+    });
+    // Only the last two user turns count
+    expect(mock.embedInputs.at(-1)).toBe(
+      "And what about beta?\nWhich came first?",
+    );
+  });
+
   it("gives another reader's book no context at all", async () => {
     const { f, mock, mine } = await askSetup();
     // The second reader names the owner's book
@@ -777,5 +813,273 @@ describe("Ask about this book", () => {
     const { user, system } = mock.prompts.at(-1) ?? { user: "", system: "" };
     expect(user).not.toContain("<book_outline>");
     expect(system).not.toContain("whole book");
+  });
+});
+
+describe("when indexing is interrupted", () => {
+  const sealed = (userId: string, key: string) =>
+    encryptProviderKey(key, userId, "openrouter");
+
+  it("writes nothing for a reader being deleted, then nothing after the purge", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, f.readerLibraryId, "openrouter", READER_KEY);
+    const mock = mockProviders();
+    const userId = f.readerLibraryId;
+    const articleId = await seedBook(f, userId, [{}, {}]);
+    await f.t.mutation(internal.bookIndex.start, { userId, articleId });
+    await f.t.mutation(internal.bookIndex.step, {
+      userId,
+      articleId,
+      runId: 1,
+    });
+    const claims = (await indexRows(f, "summary", userId)).map(
+      (row) => row.claimedAt,
+    );
+    expect(claims).toHaveLength(2);
+    // A passages job holding a claim, as one would mid-flight
+    const claim = Date.now();
+    await f.t.run((ctx) =>
+      ctx.db.insert("bookIndexUnits", {
+        userId,
+        articleId,
+        stage: "passages",
+        unitIndex: 0,
+        status: "pending",
+        claimedAt: claim,
+        attempts: 1,
+      }),
+    );
+    const late = async () => ({
+      completed: await f.t.mutation(internal.bookIndex.completeJob, {
+        userId,
+        articleId,
+        stage: "summary",
+        unitIndex: 0,
+        claim: claims[0],
+        status: "done",
+        summary: "Late.",
+      }),
+      cleared: await f.t.mutation(internal.bookIndex.clearPassages, {
+        userId,
+        articleId,
+        unitIndex: 0,
+        claim,
+      }),
+      added: await f.t.mutation(internal.bookIndex.addPassages, {
+        userId,
+        articleId,
+        unitIndex: 0,
+        claim,
+        passages: [
+          {
+            passageIndex: 0,
+            heading: "H",
+            text: "T",
+            embedding: vectorFor(""),
+          },
+        ],
+      }),
+      overview: await f.t.mutation(internal.summaries.saveBookOverview, {
+        userId,
+        articleId,
+        thesis: "Late.",
+        gist: "Late.",
+        model: "x",
+      }),
+    });
+    // Live: the claims are honoured
+    expect(await late()).toMatchObject({ completed: true, added: true });
+
+    await f.reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
+    // Deletion has begun; claims still exist, and a late job still writes nothing
+    const before = await f.t.run(async (ctx) => ({
+      passages: (await ctx.db.query("bookPassages").take(50)).length,
+      units: await ctx.db.query("bookIndexUnits").take(50),
+    }));
+    expect(await late()).toEqual({
+      completed: false,
+      cleared: false,
+      added: false,
+      overview: null,
+    });
+    expect(
+      await f.t.run(
+        async (ctx) => (await ctx.db.query("bookPassages").take(50)).length,
+      ),
+    ).toBe(before.passages);
+
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    // Jobs that were already scheduled found a purged library and called no model
+    expect(mock.prompts).toEqual([]);
+    expect(await late()).toEqual({
+      completed: false,
+      cleared: false,
+      added: false,
+      overview: null,
+    });
+    const left = await f.t.run(async (ctx) => {
+      const mine = <T extends { userId: string }>(rows: T[]) =>
+        rows.filter((row) => row.userId === userId).length;
+      return [
+        mine(await ctx.db.query("bookPassages").take(100)),
+        mine(await ctx.db.query("bookIndexUnits").take(100)),
+        mine(await ctx.db.query("bookIndexState").take(100)),
+        mine(await ctx.db.query("summaries").take(100)),
+        mine(await ctx.db.query("bookUnits").take(100)),
+      ];
+    });
+    expect(left).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("retries a lost overview call within its cap, then moves on keeping the part-1 point", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}, {}]);
+    await f.t.run(async (ctx) => {
+      for (const unitIndex of [0, 1])
+        await ctx.db.insert("bookIndexUnits", {
+          userId: OWNER,
+          articleId,
+          stage: "summary",
+          unitIndex,
+          status: "done",
+          claimedAt: 0,
+          attempts: 1,
+          summary: `About part ${unitIndex + 1}.`,
+        });
+    });
+    await start(f, articleId);
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db.query("bookIndexState").first();
+      if (row)
+        await ctx.db.patch("bookIndexState", row._id, { phase: "point" });
+    });
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      await step(f, articleId);
+      const claimed = await state(f, articleId);
+      expect(claimed).toMatchObject({ phase: "point", pointAttempts: attempt });
+      const claim = claimed?.pointClaimedAt as number;
+      // The action is lost: it never reports. A step meanwhile leaves the claim alone.
+      await step(f, articleId);
+      expect((await state(f, articleId))?.pointAttempts).toBe(attempt);
+      // The watchdog was scheduled with the claim
+      expect(
+        (await scheduled(f, "pointWatchdog")).some(
+          (job) => job.args[0].claim === claim,
+        ),
+      ).toBe(true);
+      // The clock moves without running what is scheduled: the action is lost
+      vi.setSystemTime(Date.now() + CLAIM_TTL_MS + 2_000);
+      await f.t.mutation(internal.bookIndex.pointWatchdog, {
+        userId: OWNER,
+        articleId,
+        runId: 1,
+        claim,
+      });
+      expect((await state(f, articleId))?.pointClaimedAt).toBeUndefined();
+      // A watchdog for a claim that is gone does nothing
+      await f.t.mutation(internal.bookIndex.pointWatchdog, {
+        userId: OWNER,
+        articleId,
+        runId: 1,
+        claim,
+      });
+    }
+    await step(f, articleId);
+    expect(await state(f, articleId)).toMatchObject({
+      phase: "passages",
+      running: true,
+    });
+  });
+
+  it("pauses on a credential that won't open and resumes when a key is saved, counting the pause", async () => {
+    const f = await secondReaderTest(modules);
+    const mock = mockProviders();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const credential = await saveTestCredential(
+      f.t,
+      OWNER,
+      "openrouter",
+      OWNER_KEY,
+    );
+    const original = await f.t.run((ctx) =>
+      ctx.db.get("providerCredentials", credential),
+    );
+    await f.t.run((ctx) =>
+      ctx.db.patch("providerCredentials", credential, {
+        ciphertext: "not-a-real-ciphertext",
+      }),
+    );
+    const articleId = await seedBook(f, OWNER, [{}, {}, {}]);
+    await start(f, articleId);
+    await runScheduled(f.t, { stepMs: 15_000 });
+
+    // Stopped with a reason, no model call, and the tries were refunded
+    expect(await state(f, articleId)).toMatchObject({
+      running: false,
+      phase: "summaries",
+      pausedReason: "unusable_key",
+      failures: 1,
+    });
+    expect(mock.prompts).toEqual([]);
+    expect((await indexRows(f, "summary")).every((r) => r.attempts === 0)).toBe(
+      true,
+    );
+
+    // Saving a working key resumes it, paced, and the count stays
+    await f.t.mutation(internal.providerCredentials.store, {
+      userId: OWNER,
+      provider: "openrouter",
+      ciphertext: original?.ciphertext ?? "",
+      iv: original?.iv ?? "",
+      last4: OWNER_KEY.slice(-4),
+    });
+    await runScheduled(f.t, { stepMs: 15_000 });
+    expect(await state(f, articleId)).toMatchObject({
+      phase: "done",
+      failures: 1,
+    });
+    expect((await state(f, articleId))?.pausedReason).toBeUndefined();
+    expect(mock.summaryPrompts()).toHaveLength(3);
+  });
+
+  it("resumes a book that never started for want of a key when one is saved", async () => {
+    const f = await secondReaderTest(modules);
+    mockProviders();
+    const articleId = await seedBook(f, OWNER, [{}, {}]);
+    expect(await start(f, articleId)).toMatch(/^not started/);
+    const key = await sealed(OWNER, OWNER_KEY);
+    await f.t.mutation(internal.providerCredentials.store, {
+      userId: OWNER,
+      provider: "openrouter",
+      ...key,
+      last4: "0001",
+    });
+    expect(await scheduled(f, "bookIndex:start")).toHaveLength(1);
+    await runScheduled(f.t, { stepMs: 15_000 });
+    expect(await state(f, articleId)).toMatchObject({ phase: "done" });
+  });
+
+  it("does not resume a book whose key keeps failing past the pause cap", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}]);
+    await start(f, articleId);
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db.query("bookIndexState").first();
+      if (row)
+        await ctx.db.patch("bookIndexState", row._id, {
+          running: false,
+          failures: 5,
+        });
+    });
+    const key = await sealed(OWNER, OWNER_KEY);
+    await f.t.mutation(internal.providerCredentials.store, {
+      userId: OWNER,
+      provider: "openrouter",
+      ...key,
+      last4: "0001",
+    });
+    expect(await scheduled(f, "bookIndex:start")).toHaveLength(0);
   });
 });

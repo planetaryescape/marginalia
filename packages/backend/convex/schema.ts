@@ -379,6 +379,15 @@ export default defineSchema({
     cursor: v.number(),
     // Calls made for the book's one point, capped
     pointAttempts: v.number(),
+    // When the call for the book's one point was scheduled; a watchdog retries
+    // it if that claim is still the current one a TTL later
+    pointClaimedAt: v.optional(v.number()),
+    // Why a run stopped for want of a usable key; saving a key resumes it
+    pausedReason: v.optional(
+      v.union(v.literal("no_key"), v.literal("unusable_key")),
+    ),
+    // Pauses for an unusable key. Refunded tries never reset it.
+    failures: v.optional(v.number()),
     queued: v.number(),
     startedAt: v.number(),
     updatedAt: v.number(),

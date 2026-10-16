@@ -4,7 +4,7 @@ import { type ActionCtx, httpAction } from "./_generated/server";
 import type { IngestExternalResult } from "./actions/ingestExternal";
 import { type ResolvedToken, TOKEN_PREFIX } from "./apiTokens";
 import { authComponent, createAuth } from "./auth";
-import { retrieveBookContext } from "./lib/bookAsk";
+import { retrievalQuery, retrieveBookContext } from "./lib/bookAsk";
 import { isTerminalChatGPTError } from "./lib/chatgptResponses";
 import {
   type ChatMessage,
@@ -316,7 +316,10 @@ http.route({
             userId: readerId,
             articleId: parsed.data.articleId,
             unitIndex: parsed.data.unitIndex,
-            question: parsed.data.question ?? "",
+            question: retrievalQuery(
+              parsed.data.question ?? "",
+              parsed.data.history,
+            ),
             embedder: ai.embedder(),
           })
         : null;

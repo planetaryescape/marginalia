@@ -11,6 +11,8 @@ export const INDEX_UNIT_CAP = 1_500;
 export const BATCH_JOBS = 5;
 /** Tries for one unit's job, and for the book's one point. */
 export const MAX_ATTEMPTS = 3;
+/** Pauses for an unusable key after which saving a key no longer resumes a book on its own. */
+export const MAX_PAUSES = 5;
 /** A pending job older than this has lost its action (an action runs at most 10 minutes). */
 export const CLAIM_TTL_MS = 20 * 60_000;
 /** A running index whose last step is older than this has lost its schedule. */
@@ -126,15 +128,125 @@ export function outlineText(
   return text.slice(0, budget);
 }
 
+/** Text the book's point is written from, and the budgets that bound a call. */
+export const OVERVIEW_DIRECT_CHARS = 14_000;
+export const OVERVIEW_GROUP_CHARS = 12_000;
+/** Levels of grouping before the point; a 1,500-part book needs two. */
+export const MAX_REDUCE_LEVELS = 3;
+/** Group calls in flight at once. */
+const REDUCE_CONCURRENCY = 4;
+const GROUP_SUMMARY_CHARS = OUTLINE_SUMMARY_CHARS;
+
+export const groupSummarySchema = z.object({
+  summary: z
+    .string()
+    .describe(
+      "One or two plain sentences, under 50 words: what these consecutive parts of the book cover together.",
+    ),
+});
+
+export const GROUP_SYSTEM = `You condense a run of consecutive parts of a book into a short summary for the book's outline. You are given the book's title and the parts, each with its own summary. Write one or two plain sentences saying what the run covers together. Use only what the summaries say.`;
+
+/** A run of consecutive parts, counted from 1, with what is known of it. */
+export interface Span {
+  first: number;
+  last: number;
+  title: string;
+  summary: string | null;
+}
+
+export const spansOf = (lines: readonly OutlineLine[]): Span[] =>
+  lines.map((line, index) => ({
+    first: index + 1,
+    last: index + 1,
+    title: line.title,
+    summary: line.summary?.trim() || null,
+  }));
+
+function spanLine(span: Span): string {
+  const label =
+    span.first === span.last
+      ? `Part ${span.first}`
+      : `Parts ${span.first}–${span.last}`;
+  const summary = span.summary?.slice(0, GROUP_SUMMARY_CHARS);
+  return [label, [span.title, summary].filter(Boolean).join(". ")]
+    .filter(Boolean)
+    .join(": ");
+}
+
+export const spansText = (spans: readonly Span[]) =>
+  spans.map(spanLine).join("\n");
+
+/** Consecutive runs of spans, each within the budget and at least two long so every level shrinks. */
+export function groupSpans(spans: readonly Span[], budget: number): Span[][] {
+  const groups: Span[][] = [];
+  let current: Span[] = [];
+  let size = 0;
+  for (const span of spans) {
+    const length = spanLine(span).length + 1;
+    if (current.length >= 2 && size + length > budget) {
+      groups.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(span);
+    size += length;
+  }
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+/**
+ * Reduces a long outline until it fits one call: runs of parts are summarised
+ * (a cheap call each, a few at a time) and the run summaries stand in for them,
+ * level by level. Every part stays covered; none is cut to fit. Two levels
+ * serve a 1,500-part book.
+ */
+export async function reduceSpans(
+  spans: Span[],
+  summarizeGroup: (group: Span[]) => Promise<string>,
+  budget = OVERVIEW_DIRECT_CHARS,
+  groupBudget = OVERVIEW_GROUP_CHARS,
+): Promise<Span[]> {
+  let current = spans;
+  for (
+    let level = 0;
+    level < MAX_REDUCE_LEVELS && spansText(current).length > budget;
+    level++
+  ) {
+    const groups = groupSpans(current, groupBudget);
+    if (groups.length >= current.length) break;
+    const next: Span[] = [];
+    for (let at = 0; at < groups.length; at += REDUCE_CONCURRENCY)
+      next.push(
+        ...(await Promise.all(
+          groups.slice(at, at + REDUCE_CONCURRENCY).map(async (group) => ({
+            first: group[0].first,
+            last: group[group.length - 1].last,
+            title: "",
+            summary: (await summarizeGroup(group)).trim() || null,
+          })),
+        )),
+      );
+    current = next;
+  }
+  return current;
+}
+
+export const groupPrompt = (bookTitle: string, group: readonly Span[]) =>
+  [`Book: ${bookTitle}`, "", "<parts>", spansText(group), "</parts>"].join(
+    "\n",
+  );
+
 export function overviewPrompt(
   bookTitle: string,
-  lines: readonly OutlineLine[],
+  spans: readonly Span[],
 ): string {
   return [
     `Book: ${bookTitle}`,
     "",
     "<parts>",
-    outlineText(lines),
+    spansText(spans).slice(0, OVERVIEW_DIRECT_CHARS * 2),
     "</parts>",
   ].join("\n");
 }

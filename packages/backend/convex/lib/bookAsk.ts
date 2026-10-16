@@ -113,3 +113,20 @@ export function formatBookContext(book: BookAskContext): string[] {
         ]),
   ];
 }
+
+/**
+ * What the passages are searched for: the latest question joined with the one
+ * before it, so a follow-up like "and why?" is resolved by what it follows. The
+ * first question is the request's own `question`; follow-ups are user turns in
+ * its history.
+ */
+export function retrievalQuery(
+  question: string,
+  history: readonly { role: "user" | "assistant"; content: string }[],
+): string {
+  const asked = [
+    question,
+    ...history.filter((turn) => turn.role === "user").map((t) => t.content),
+  ].filter((text) => text.trim());
+  return asked.slice(-2).join("\n").slice(0, 4000);
+}
