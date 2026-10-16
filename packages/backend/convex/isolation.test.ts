@@ -345,6 +345,7 @@ describe("separate reader libraries", () => {
         () =>
           reader.mutation(api.companionThreads.keep, {
             articleId,
+            answerId: "a",
             mode: "ask",
             selection: "x",
             turns: [],

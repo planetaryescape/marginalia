@@ -164,6 +164,61 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     expect(host.querySelector('[data-hand="pen"]')).not.toBeNull();
   });
 
+  it("recognises a question heading only when a saved thread asked it", async () => {
+    mocks.notes = [
+      note({
+        _id: "n3",
+        selectedText: "a tarn",
+        content: "<h3>What is a tarn?</h3><p>A small mountain lake.</p>",
+        contentPlain: "What is a tarn?\n\nA small mountain lake.",
+      }),
+    ];
+    await render();
+    expect(answerLines()).toHaveLength(0);
+    mocks.threads = [
+      thread({ mode: "ask", question: "What is a tarn?", selection: "a tarn" }),
+    ];
+    await render();
+    expect(answerLines()[0].textContent).toContain("Ask");
+  });
+
+  it("keeps a note under the right heading and passage as the reader's when its text is not the thread's answer", async () => {
+    mocks.notes = [
+      note({
+        _id: "n4",
+        selectedText: "tarn",
+        content: "<h3>Define</h3><p>My own gloss, not the model&rsquo;s.</p>",
+        contentPlain: "Define\n\nMy own gloss, not the model’s.",
+      }),
+    ];
+    mocks.threads = [thread({})];
+    await render();
+    expect(answerLines()).toHaveLength(0);
+    expect(host.querySelector('[data-hand="pen"]')).not.toBeNull();
+  });
+
+  it("folds a copy made before later follow-ups, and ignores spacing and markup", async () => {
+    mocks.notes = [
+      note({
+        _id: "n5",
+        selectedText: "tarn",
+        content: "<h3>Define</h3><p>A small  mountain\nlake.</p>",
+        contentPlain: "Define\n\nA small mountain lake.",
+      }),
+    ];
+    mocks.threads = [
+      thread({
+        turns: [
+          { role: "assistant", content: "A small mountain lake." },
+          { role: "user", content: "More?" },
+          { role: "assistant", content: "Often glacial." },
+        ],
+      }),
+    ];
+    await render();
+    expect(answerLines()).toHaveLength(1);
+  });
+
   it("keeps your own note that opens with a heading as yours", async () => {
     mocks.notes = [
       note({

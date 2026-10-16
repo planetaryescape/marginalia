@@ -54,3 +54,49 @@ export function answerNotes(
   }
   return notes;
 }
+
+/** One whole-article question in the Ask history. */
+export interface ArticleHistoryItem {
+  id: string;
+  question: string;
+  /** When it was kept or last extended; absent for an answer only held for this visit. */
+  when?: number;
+  questions: number;
+}
+
+const questionsIn = (turns: { role: string }[]) =>
+  turns.filter((t) => t.role === "user").length + 1;
+
+/**
+ * Every whole-article conversation the reader can reopen: this visit's answers
+ * first (kept or not, newest first), then earlier kept ones. The history is
+ * the handle for a temporary answer wherever the margin has no column.
+ */
+export function articleHistory(
+  answers: CompanionThread[],
+  saved: Doc<"companionThreads">[] | undefined,
+): ArticleHistoryItem[] {
+  const live = answers
+    .filter((a) => a.mode === "article" && a.question)
+    .reverse()
+    .map((a) => ({
+      id: a.id,
+      question: a.question ?? "",
+      questions: questionsIn(a.turns),
+    }));
+  const earlier = (saved ?? [])
+    .filter(
+      (doc) =>
+        doc.mode === "article" &&
+        doc.question &&
+        !answers.some((a) => a.id === doc._id || a.savedId === doc._id),
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((doc) => ({
+      id: doc._id,
+      question: doc.question ?? "",
+      when: doc.updatedAt,
+      questions: questionsIn(doc.turns),
+    }));
+  return [...live, ...earlier];
+}

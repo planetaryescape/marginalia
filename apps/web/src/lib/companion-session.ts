@@ -15,6 +15,7 @@ const storedAnswerSchema = z.object({
   turns: z.array(turnSchema).min(1),
   model: z.string().nullable(),
   occurrence: z.number().optional(),
+  paragraphEnd: z.number().optional(),
   legacyId: z.string().optional(),
 });
 

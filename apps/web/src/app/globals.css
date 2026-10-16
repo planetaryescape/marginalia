@@ -394,6 +394,33 @@ article[data-margin="phone"] .annotation-mark::after {
   line-height: 1.55;
 }
 
+/* Whole-article answers waiting, folded, where there is no margin column */
+.note-unfold-folded {
+  margin: 0 0 1.5rem 15px;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--pencil-rule);
+  list-style: none;
+  color: var(--pencil);
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.note-unfold-folded button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.note-unfold-folded .note-unfold-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
 .note-unfold-actions {
   display: flex;
   align-items: center;

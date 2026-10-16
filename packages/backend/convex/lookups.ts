@@ -28,6 +28,7 @@ export const record = mutation({
     word: v.string(),
     sentence: v.string(),
     paragraphIndex: v.optional(v.number()),
+    occurrence: v.optional(v.number()),
     sense: v.string(),
   },
   handler: async (ctx, args) => {
@@ -49,6 +50,7 @@ export const record = mutation({
       (row) =>
         row.articleId === args.articleId &&
         row.paragraphIndex === args.paragraphIndex &&
+        row.occurrence === args.occurrence &&
         row.sentence === sentence,
     );
     if (repeat) {
@@ -62,6 +64,7 @@ export const record = mutation({
       wordKey,
       sentence,
       paragraphIndex: args.paragraphIndex,
+      occurrence: args.occurrence,
       sense,
       createdAt: Date.now(),
     });

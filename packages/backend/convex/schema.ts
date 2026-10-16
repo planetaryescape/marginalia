@@ -399,6 +399,8 @@ export default defineSchema({
     // Set when the reader chose Keep. Rows written before answers became
     // temporary have none: they were saved automatically.
     keptAt: v.optional(v.number()),
+    // The id the reader client gave the answer: a retried Keep finds its row by this
+    answerId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -421,6 +423,8 @@ export default defineSchema({
     wordKey: v.string(),
     sentence: v.string(),
     paragraphIndex: v.optional(v.number()),
+    // Which match of the word in its paragraph was looked up
+    occurrence: v.optional(v.number()),
     sense: v.string(),
     createdAt: v.number(),
   })

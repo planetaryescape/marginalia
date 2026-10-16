@@ -1,9 +1,9 @@
 "use client";
-import type { Doc } from "@marginalia/backend/convex/_generated/dataModel";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Globe, History, MessagesSquare, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { ArticleHistoryItem } from "@/lib/margin-answers";
 import type { AnswerDepth } from "@/lib/reader-settings";
 import { useShortcuts } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
@@ -44,9 +44,9 @@ export function ArticleAsk({
   onDepthChange: (depth: AnswerDepth) => void;
   web: boolean;
   onWebChange: (web: boolean) => void;
-  /** Earlier whole-article conversations, newest first. */
-  history: Doc<"companionThreads">[];
-  onOpen: (thread: Doc<"companionThreads">) => void;
+  /** Whole-article conversations, this visit's first. */
+  history: ArticleHistoryItem[];
+  onOpen: (id: string) => void;
 }) {
   const [question, setQuestion] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -225,23 +225,25 @@ export function ArticleAsk({
                     <p className="px-2.5 pt-1.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
                       Earlier questions
                     </p>
-                    {history.map((thread) => (
-                      <Popover.Close asChild key={thread._id}>
+                    {history.map((item) => (
+                      <Popover.Close asChild key={item.id}>
                         <button
                           type="button"
                           onClick={() => {
                             setOpen(false);
-                            onOpen(thread);
+                            onOpen(item.id);
                           }}
                           className="w-full text-left rounded-lg px-2.5 py-2 hover:bg-[var(--reader-chip)] transition-colors"
                         >
                           <span className="block text-[13px] leading-snug line-clamp-2">
-                            {thread.question}
+                            {item.question}
                           </span>
                           <span className="mt-0.5 block text-[11px] text-[var(--reader-muted)]">
-                            {when(thread.updatedAt)}
-                            {thread.turns.length > 1 &&
-                              ` · ${thread.turns.filter((t) => t.role === "user").length + 1} questions`}
+                            {item.when === undefined
+                              ? "This visit"
+                              : when(item.when)}
+                            {item.questions > 1 &&
+                              ` · ${item.questions} questions`}
                           </span>
                         </button>
                       </Popover.Close>

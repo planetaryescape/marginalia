@@ -379,6 +379,8 @@ describe("Keep", () => {
     expect(mocks.keepThread).toHaveBeenCalledTimes(1);
     expect(mocks.keepThread).toHaveBeenCalledWith({
       articleId: "a1",
+      answerId: id,
+      legacyId: undefined,
       mode: "explain",
       selection: "tarn",
       question: undefined,
@@ -532,6 +534,7 @@ describe("Define leaves a lookup", () => {
       word: "tarn",
       sentence: "The path climbed to a still tarn.",
       paragraphIndex: 1,
+      occurrence: 0,
       sense: "tarn (noun): a small mountain lake.",
     });
     // Unkept, so still no saved record
@@ -735,5 +738,97 @@ describe("the sentence of the occurrence that was selected", () => {
       word: "bass",
       sentence: "She played the bass.",
     });
+  });
+});
+
+describe("a follow-up never costs the completed answer its place in storage", () => {
+  it("keeps the completed transcript while the follow-up streams, then replaces it when done", async () => {
+    await mount();
+    await ask();
+    await finish("A small mountain lake.");
+    await act(async () => latest.followUp("Is it deep?"));
+    await ask();
+    await finish("Another answer.", 2);
+    // A's follow-up is still streaming, and A is still stored as it was
+    const during = stored();
+    expect(during).toHaveLength(2);
+    expect(during[0].turns).toEqual([
+      { role: "assistant", content: "A small mountain lake." },
+    ]);
+    await finish("Not very.", 1);
+    expect(stored()[0].turns).toHaveLength(3);
+  });
+
+  it("restores the completed answer after a follow-up failed, and after a reload", async () => {
+    await mount();
+    await ask();
+    await finish("A small mountain lake.");
+    await act(async () => latest.followUp("Is it deep?"));
+    await act(async () => streams[1].fail(new Error("provider stopped")));
+    await settle();
+    expect(latest.thread?.status).toBe("error");
+    expect(stored()).toHaveLength(1);
+    await ask();
+    await finish("Another.", 2);
+    expect(stored().map((a: { turns: unknown[] }) => a.turns.length)).toEqual([
+      1, 1,
+    ]);
+    navigation("reload", "/read/a1");
+    await refresh();
+    await mount();
+    expect(latest.answers.map((a) => a.turns[0].content)).toEqual([
+      "A small mountain lake.",
+      "Another.",
+    ]);
+    expect(latest.answers.every((a) => a.status === "done")).toBe(true);
+  });
+});
+
+describe("a distinct answer is a distinct Keep", () => {
+  it("sends each answer's own id, so two answers to one passage are two keeps", async () => {
+    mocks.keepThread
+      .mockResolvedValueOnce("row-a")
+      .mockResolvedValueOnce("row-b");
+    await mount();
+    await ask();
+    await finish("First.");
+    await ask();
+    await finish("Second.", 1);
+    await act(async () => {
+      await latest.keep(latest.answers[0].id);
+      await latest.keep(latest.answers[1].id);
+    });
+    const ids = mocks.keepThread.mock.calls.map((c) => c[0].answerId);
+    expect(new Set(ids).size).toBe(2);
+    expect(latest.answers.map((a) => a.savedId)).toEqual(["row-a", "row-b"]);
+  });
+});
+
+describe("the range's own paragraphs", () => {
+  it("sends the last paragraph a selection crosses", async () => {
+    article.innerHTML =
+      '<div data-article-body><p data-para="1">Opening.</p><p data-para="2">Why?</p><p data-para="3">No.</p><p data-para="4">A long closing paragraph.</p></div>';
+    const paras = article.querySelectorAll("p");
+    const crossing = document.createRange();
+    crossing.setStart(paras[1].firstChild as Text, 0);
+    crossing.setEnd(paras[2].firstChild as Text, 3);
+    await mount();
+    await act(async () => latest.start({ mode: "explain", range: crossing }));
+    await settle();
+    expect(bodies[0]).toMatchObject({ paragraphIndex: 1, paragraphEnd: 2 });
+  });
+
+  it("sends none for a selection inside one paragraph, or one that stops at the start of the next", async () => {
+    const paras = article.querySelectorAll("p");
+    const stops = document.createRange();
+    stops.setStart(paras[0].firstChild as Text, 0);
+    stops.setEnd(paras[1].firstChild as Text, 0);
+    await mount();
+    await act(async () => latest.start({ mode: "explain", range }));
+    await settle();
+    await act(async () => latest.start({ mode: "explain", range: stops }));
+    await settle();
+    expect(bodies[0].paragraphEnd).toBeUndefined();
+    expect(bodies[1].paragraphEnd).toBeUndefined();
   });
 });

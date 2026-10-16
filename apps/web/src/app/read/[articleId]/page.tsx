@@ -20,7 +20,11 @@ import {
   ImpressionSummary,
 } from "@/components/impression-panel";
 import { ListenBar } from "@/components/listen-bar";
-import { AnswerUnfold, NoteUnfold } from "@/components/note-unfold";
+import {
+  AnswerUnfold,
+  FoldedArticleAnswers,
+  NoteUnfold,
+} from "@/components/note-unfold";
 import { NotesPanel } from "@/components/notes-panel";
 import { FinishedLine } from "@/components/reader-finished-line";
 import { ReaderMap } from "@/components/reader-map";
@@ -32,7 +36,7 @@ import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
-import { answerNotes } from "@/lib/margin-answers";
+import { answerNotes, articleHistory } from "@/lib/margin-answers";
 import {
   getArticleBody,
   getParagraphs,
@@ -885,6 +889,20 @@ export default function ReadPage() {
 
       {marginMode === "sheet" && companion.thread && answerCard(false)}
 
+      {marginMode !== "sidenotes" && (
+        <FoldedArticleAnswers
+          containerRef={articleRef}
+          version={paragraphs.version}
+          items={answers.filter(
+            (a) =>
+              a.paragraphIndex === null &&
+              !a.selection &&
+              a.id !== companion.openId,
+          )}
+          onOpen={openAnswer}
+        />
+      )}
+
       {marginMode === "phone" && (
         <NoteUnfold
           containerRef={articleRef}
@@ -942,13 +960,8 @@ export default function ReadPage() {
         onWebChange={(on) =>
           updateSettings({ webSearch: on ? "always" : "off" })
         }
-        history={(savedThreads ?? [])
-          .filter((t) => t.mode === "article")
-          .sort((a, b) => b.updatedAt - a.updatedAt)}
-        onOpen={(doc) => {
-          setActiveAnnotation(null);
-          companion.open(doc);
-        }}
+        history={articleHistory(companion.answers, savedThreads)}
+        onOpen={openAnswer}
       />
 
       <ReaderReturnChip entry={returnTo} onBack={backToParagraph} />

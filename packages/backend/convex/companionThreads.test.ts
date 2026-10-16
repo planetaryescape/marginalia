@@ -71,6 +71,7 @@ it("keeps an answer once, however many times Keep is pressed", async () => {
   );
   const answer = {
     articleId,
+    answerId: "answer-1",
     mode: "define" as const,
     selection: "elastic",
     paragraphIndex: 0,
@@ -134,6 +135,7 @@ it("never shrinks a kept transcript when a stale tab keeps it again", async () =
   ];
   const base = {
     articleId,
+    answerId: "answer-1",
     mode: "ask" as const,
     selection: "x",
     question: "q",
@@ -149,4 +151,93 @@ it("never shrinks a kept transcript when a stale tab keeps it again", async () =
   });
   expect(row._id).toBe(id);
   expect(row.turns).toHaveLength(3);
+});
+
+const makeArticle = (t: Awaited<ReturnType<typeof ownerTest>>, guid: string) =>
+  t.run((ctx) =>
+    ctx.db.insert("articles", {
+      userId: "default_user",
+      guid,
+      url: `https://example.com/${guid}`,
+      title: "Markets",
+      extractionStatus: "extracted",
+      annotationStatus: "annotated",
+      createdAt: 1,
+    }),
+  );
+
+it("keeps two answers to the same passage and question as two rows, and a retried Keep as one", async () => {
+  const t = await ownerTest(modules);
+  const articleId = await makeArticle(t, "twins");
+  const same = {
+    articleId,
+    mode: "explain" as const,
+    selection: "tarn",
+    paragraphIndex: 1,
+  };
+  const longer = [
+    { role: "assistant" as const, content: "A long first answer." },
+    { role: "user" as const, content: "More?" },
+    { role: "assistant" as const, content: "Yes." },
+  ];
+  const shorter = [{ role: "assistant" as const, content: "A short one." }];
+  const a = await t.mutation(api.companionThreads.keep, {
+    ...same,
+    answerId: "A",
+    turns: longer,
+  });
+  const b = await t.mutation(api.companionThreads.keep, {
+    ...same,
+    answerId: "B",
+    turns: shorter,
+  });
+  const retry = await t.mutation(api.companionThreads.keep, {
+    ...same,
+    answerId: "A",
+    turns: longer,
+  });
+  expect(b).not.toBe(a);
+  expect(retry).toBe(a);
+  const rows = await t.query(api.companionThreads.listByArticle, { articleId });
+  expect(rows).toHaveLength(2);
+  expect(rows.find((r) => r._id === b)?.turns).toEqual(shorter);
+});
+
+it("upgrades an older saved thread in place when it is the row the answer came from", async () => {
+  const t = await ownerTest(modules);
+  const articleId = await makeArticle(t, "upgrade");
+  const old = await t.mutation(api.companionThreads.create, {
+    articleId,
+    mode: "explain",
+    selection: "tarn",
+    turns: [{ role: "assistant", content: "Old." }],
+  });
+  const turns = [
+    { role: "assistant" as const, content: "Old." },
+    { role: "user" as const, content: "And?" },
+    { role: "assistant" as const, content: "New." },
+  ];
+  const kept = await t.mutation(api.companionThreads.keep, {
+    articleId,
+    answerId: old,
+    legacyId: old,
+    mode: "explain",
+    selection: "tarn",
+    turns,
+  });
+  expect(kept).toBe(old);
+  const rows = await t.query(api.companionThreads.listByArticle, { articleId });
+  expect(rows).toHaveLength(1);
+  expect(rows[0].keptAt).toBeTypeOf("number");
+  expect(rows[0].turns).toHaveLength(3);
+  // A second answer claiming the same row is a different answer: a row of its own
+  const other = await t.mutation(api.companionThreads.keep, {
+    articleId,
+    answerId: "other",
+    legacyId: old,
+    mode: "explain",
+    selection: "tarn",
+    turns: [{ role: "assistant", content: "Other." }],
+  });
+  expect(other).not.toBe(old);
 });

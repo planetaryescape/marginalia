@@ -51,6 +51,10 @@ export interface CompanionThread {
   keeping?: boolean;
   /** Which match of the selected words in its paragraph was selected. */
   occurrence?: number;
+  /** The last paragraph the selection crosses, when it crosses more than one. */
+  paragraphEnd?: number;
+  /** The last completed transcript: what a refresh restores, however a follow-up ends. */
+  doneTurns?: CompanionTurn[];
   /** A thread saved before answers became temporary: shown as a temporary copy until kept. */
   legacyId?: Id<"companionThreads">;
 }
@@ -123,9 +127,19 @@ function occurrenceOf(range: Range): number {
   return occurrencesBefore(before.toString(), range.toString());
 }
 
-/** Only a finished, unkept answer is held for a refresh. */
+/** The last paragraph a selection crosses, when it crosses more than one. */
+function paragraphEndOf(range: Range): number | undefined {
+  const start = paragraphIndexOf(range.startContainer);
+  let end = paragraphIndexOf(range.endContainer);
+  if (start === null || end === null || end <= start) return undefined;
+  // A selection that stops at the very start of a block has not entered it.
+  if (range.endOffset === 0) end -= 1;
+  return end > start ? end : undefined;
+}
+
+/** An unkept answer with a completed transcript is held for a refresh. */
 const holdsForRefresh = (a: CompanionThread) =>
-  a.status === "done" && !a.savedId && a.turns.length > 0;
+  !a.savedId && (a.doneTurns?.length ?? 0) > 0;
 
 const toStored = (a: CompanionThread): StoredAnswer => ({
   id: a.id,
@@ -133,14 +147,18 @@ const toStored = (a: CompanionThread): StoredAnswer => ({
   selection: a.selection,
   question: a.question,
   paragraphIndex: a.paragraphIndex,
-  turns: a.turns,
+  // Not `turns`: a follow-up that is still streaming or failed must not cost
+  // the completed answer before it.
+  turns: a.doneTurns ?? a.turns,
   model: a.model ?? null,
   occurrence: a.occurrence,
+  paragraphEnd: a.paragraphEnd,
   legacyId: a.legacyId,
 });
 
 const fromStored = (a: StoredAnswer): CompanionThread => ({
   ...a,
+  doneTurns: a.turns,
   // SAFETY: only fromDoc sets legacyId, from a companionThreads document's own _id.
   legacyId: a.legacyId as Id<"companionThreads"> | undefined,
   status: "done",
@@ -158,6 +176,7 @@ const fromDoc = (doc: Doc<"companionThreads">): CompanionThread => ({
   question: doc.question,
   paragraphIndex: doc.paragraphIndex ?? null,
   turns: doc.turns,
+  doneTurns: doc.turns,
   status: "done",
   model: doc.model ?? null,
 });
@@ -288,6 +307,7 @@ export function useCompanion({
             paragraphs,
             selection: base.selection,
             paragraphIndex: base.paragraphIndex,
+            paragraphEnd: base.paragraphEnd,
             question: base.question,
             history,
             length: settings.answerLength,
@@ -332,7 +352,11 @@ export function useCompanion({
         ...history,
         { role: "assistant" as const, content: answer },
       ];
-      patch(base.id, (t) => ({ ...t, turns, model, status: "done" }), true);
+      patch(
+        base.id,
+        (t) => ({ ...t, turns, doneTurns: turns, model, status: "done" }),
+        true,
+      );
 
       // A kept answer is the reader's record, so its follow-ups join it.
       const savedId = answersRef.current.find((a) => a.id === base.id)?.savedId;
@@ -357,6 +381,7 @@ export function useCompanion({
             base.occurrence,
           ),
           paragraphIndex: base.paragraphIndex ?? undefined,
+          occurrence: base.occurrence ?? 0,
           sense: senseOf(answer),
         }).catch((error) => console.error("Couldn't log the lookup", error));
     },
@@ -375,6 +400,7 @@ export function useCompanion({
           question: args.question,
           paragraphIndex: paragraphIndexOf(args.range.startContainer),
           occurrence: occurrenceOf(args.range),
+          paragraphEnd: paragraphEndOf(args.range),
           turns: [],
           status: "streaming",
         },
@@ -471,6 +497,8 @@ export function useCompanion({
       try {
         const savedId = await keepThread({
           articleId,
+          answerId: current.id,
+          legacyId: current.legacyId,
           mode: current.mode,
           selection: current.selection,
           question: current.question,

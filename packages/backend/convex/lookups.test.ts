@@ -65,6 +65,36 @@ describe("lookups", () => {
     expect(rows[0].sense).toBe("adj. Responsive to price.");
   });
 
+  it("keeps two occurrences of a word in one sentence apart, and a retry of one as one", async () => {
+    const { owner, articleId, t } = await fixture();
+    const sentence = { sentence: "She played the bass, not the bass." };
+    await owner.mutation(api.lookups.record, {
+      ...lookup(articleId),
+      ...sentence,
+      word: "bass",
+      occurrence: 0,
+    });
+    await owner.mutation(api.lookups.record, {
+      ...lookup(articleId),
+      ...sentence,
+      word: "bass",
+      occurrence: 1,
+      sense: "n. The lowest part.",
+    });
+    await owner.mutation(api.lookups.record, {
+      ...lookup(articleId),
+      ...sentence,
+      word: "bass",
+      occurrence: 1,
+      sense: "n. The lowest voice.",
+    });
+    const rows = await t.run((ctx) => ctx.db.query("lookups").collect());
+    expect(rows.map((r) => [r.occurrence, r.sense])).toEqual([
+      [0, "adj. Changing a lot when the price changes."],
+      [1, "n. The lowest voice."],
+    ]);
+  });
+
   it("keeps the same word looked up in two places as two entries", async () => {
     const { owner, articleId, t } = await fixture();
     await owner.mutation(api.lookups.record, lookup(articleId));

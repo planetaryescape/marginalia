@@ -68,12 +68,18 @@ export const create = mutation({
 
 /**
  * Keeps an answer the reader chose to keep. Answers are temporary until this
- * runs, so it is the only way a new reader client creates a thread. Keeping the
- * same answer again (a double click, a second tab) updates the one row.
+ * runs, so it is the only way a new reader client creates a thread. An
+ * answer's identity is the id the client gave it, so a retry (a double click,
+ * a second tab) updates its one row while a different answer to the same
+ * passage and question is a row of its own. An older automatically saved
+ * thread, which has no such id, is upgraded in place when the client says
+ * which row the answer was loaded from (`legacyId`).
  */
 export const keep = mutation({
   args: {
     articleId: v.id("articles"),
+    answerId: v.string(),
+    legacyId: v.optional(v.id("companionThreads")),
     mode: modeValidator,
     selection: v.string(),
     question: v.optional(v.string()),
@@ -81,21 +87,25 @@ export const keep = mutation({
     turns: v.array(turnValidator),
     model: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { legacyId, ...args }) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
     const now = Date.now();
     const threads = await ctx.db
       .query("companionThreads")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
       .take(200);
-    const existing = threads.find(
-      (t) =>
-        t.userId === ctx.readerId &&
-        t.mode === args.mode &&
-        t.selection === args.selection &&
-        t.question === args.question &&
-        t.paragraphIndex === args.paragraphIndex,
-    );
+    const legacy = legacyId
+      ? threads.find(
+          (t) =>
+            t._id === legacyId &&
+            t.userId === ctx.readerId &&
+            t.answerId === undefined,
+        )
+      : undefined;
+    const existing =
+      threads.find(
+        (t) => t.userId === ctx.readerId && t.answerId === args.answerId,
+      ) ?? legacy;
     const threadId =
       existing?._id ??
       (await ctx.db.insert("companionThreads", {
@@ -110,6 +120,7 @@ export const keep = mutation({
       // shrink a kept transcript.
       const stale = args.turns.length < existing.turns.length;
       await ctx.db.patch("companionThreads", existing._id, {
+        answerId: args.answerId,
         turns: stale ? existing.turns : args.turns,
         model: stale ? existing.model : args.model,
         keptAt: existing.keptAt ?? now,

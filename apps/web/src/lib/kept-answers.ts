@@ -29,13 +29,34 @@ const headingOf = (thread: Doc<"companionThreads">) =>
   thread.question ??
   (thread.mode === "article" ? "Article" : MODE_LABELS[thread.mode]);
 
+const plainText = (html: string) =>
+  unescapeHtml(html.replace(/<[^>]*>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Whether the copy's body is a thread's assistant answers. The old button
+ * copied the transcript as it stood, so the copy may predate later follow-ups:
+ * it matches if it equals the first k assistant answers for some k.
+ */
+function bodyMatches(bodyHtml: string, thread: Doc<"companionThreads">) {
+  const body = plainText(bodyHtml);
+  const answers = thread.turns
+    .filter((t) => t.role === "assistant")
+    .map((t) => t.content.trim());
+  return answers.some(
+    (_, k) => plainText(answers.slice(0, k + 1).join("\n\n")) === body,
+  );
+}
+
 /**
  * Whether a note is a copy of an answer the old "Add to notes" button made.
  * The copy has no marker, only a shape (one <h3>, then only <p> blocks), and
  * BK's own notes can take that shape too: the editor allows level-3 headings,
- * and "Explain" is as good a heading as any. So the shape alone never decides
- * authorship. A note counts as Marginalia's only when a thread saved on the
- * same passage has that heading, which every answer had before answers became
+ * and "Explain" is as good a heading as any. So neither the shape nor the
+ * heading and passage decide authorship. A note counts as Marginalia's only
+ * when its body text is the assistant transcript of a thread saved on the same
+ * passage with that heading, which every answer had before answers became
  * temporary. A copy whose thread was since deleted reads as BK's own note: it
  * stays visible, just not folded.
  */
@@ -50,7 +71,10 @@ export function legacyAnswer(
   if (!note.contentPlain.startsWith(`${heading}\n\n`)) return null;
   return (
     threads.find(
-      (t) => t.selection === note.selectedText && headingOf(t) === heading,
+      (t) =>
+        t.selection === note.selectedText &&
+        headingOf(t) === heading &&
+        bodyMatches(match[2], t),
     )?.mode ?? null
   );
 }

@@ -100,6 +100,53 @@ describe("readingCompanion", () => {
       expect(context.indices).toEqual([0, 1, 2, 3]);
     });
 
+    it("includes every paragraph the client says the selection crosses, however short", () => {
+      const blocks = [
+        "An opening paragraph that is long enough to stand alone here.",
+        "Why?",
+        "No.",
+        "A long closing paragraph that the selection does not reach at all.",
+        "Another.",
+      ];
+      const asked = (extra: Record<string, number>) =>
+        selectContext(
+          companionRequestSchema.parse({
+            mode: "explain",
+            title: "T",
+            paragraphs: blocks,
+            paragraphIndex: 1,
+            selection: "Why? No.",
+            ...extra,
+          }),
+        );
+      const told = asked({ paragraphEnd: 2 });
+      expect([...told.marked]).toEqual([1, 2]);
+      expect(told.indices).toEqual([0, 1, 2, 3]);
+      // Old clients send no range, and text matching alone misses blocks this short
+      expect([...asked({}).marked]).toEqual([1]);
+    });
+
+    it("clamps a range end that is out of order or past the article", () => {
+      expect([
+        ...selectContext(
+          request({
+            paragraphIndex: 4,
+            paragraphEnd: 1,
+            selection: "Paragraph 4.",
+          }),
+        ).marked,
+      ]).toEqual([4]);
+      expect(
+        selectContext(
+          request({
+            paragraphIndex: 7,
+            paragraphEnd: 99,
+            selection: "Paragraph 7.",
+          }),
+        ).indices,
+      ).toEqual([6, 7, 8]);
+    });
+
     it("does not extend when the selection ends exactly at the paragraph's end", () => {
       const context = selectContext(
         request({ paragraphIndex: 4, selection: "Paragraph 4." }),

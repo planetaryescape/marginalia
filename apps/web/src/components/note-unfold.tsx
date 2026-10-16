@@ -28,6 +28,28 @@ interface UnfoldPlace {
   position: "after" | "before";
 }
 
+/** Whether the host is still next to its block, past any other hosts of ours between them. */
+function sitsBeside(
+  host: HTMLElement,
+  block: HTMLElement,
+  position: "after" | "before",
+) {
+  let sibling =
+    position === "after"
+      ? host.previousElementSibling
+      : host.nextElementSibling;
+  while (
+    sibling &&
+    sibling !== block &&
+    sibling.hasAttribute(UI_HOST_ATTRIBUTE)
+  )
+    sibling =
+      position === "after"
+        ? sibling.previousElementSibling
+        : sibling.nextElementSibling;
+  return sibling === block;
+}
+
 /**
  * A host element in the text flow for a note to render into through a portal.
  * The article HTML belongs to the reader package, so the host is inserted next
@@ -50,9 +72,7 @@ function useUnfoldHost(
     if (
       current?.isConnected &&
       block &&
-      (position === "after"
-        ? current.previousElementSibling
-        : current.nextElementSibling) === block &&
+      sitsBeside(current, block, position) &&
       current.dataset.annotationId === id
     )
       return;
@@ -196,4 +216,44 @@ export function AnswerUnfold({
       : { block: paragraphs[paragraphIndex] ?? null, position: "after" };
   });
   return host ? createPortal(children, host) : null;
+}
+
+/**
+ * Where there is no margin column, a whole-article answer that is folded (or
+ * restored after a refresh) waits as a line at the top of the article, where
+ * it appeared when it was open.
+ */
+export function FoldedArticleAnswers({
+  containerRef,
+  version,
+  items,
+  onOpen,
+}: {
+  containerRef: React.RefObject<HTMLElement | null>;
+  version: number;
+  items: { id: string; label: string; text: string }[];
+  onOpen: (id: string) => void;
+}) {
+  const host = useUnfoldHost(
+    items.length ? "folded-answers" : null,
+    version,
+    () => ({
+      block: getParagraphs(getArticleBody(containerRef.current))[0] ?? null,
+      position: "before",
+    }),
+  );
+  if (!host) return null;
+  return createPortal(
+    <ul className="note-unfold-folded">
+      {items.map((item) => (
+        <li key={item.id}>
+          <button type="button" onClick={() => onOpen(item.id)}>
+            <span className="sidenote-kind">{item.label}</span>
+            <span className="note-unfold-text">{item.text}</span>
+          </button>
+        </li>
+      ))}
+    </ul>,
+    host,
+  );
 }

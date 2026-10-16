@@ -16,6 +16,9 @@ export const companionRequestSchema = z
     paragraphs: z.array(z.string().max(20_000)).max(4000),
     selection: z.string().trim().max(4000).default(""),
     paragraphIndex: z.number().int().min(0).nullable(),
+    // The last paragraph the selection crosses, from the reader's own range.
+    // Older clients omit it and the server works it out from the text.
+    paragraphEnd: z.number().int().min(0).optional(),
     question: z.string().trim().max(2000).optional(),
     length: z.enum(["brief", "standard", "detailed"]).default("standard"),
     level: z.enum(["plain", "balanced", "expert"]).default("balanced"),
@@ -213,7 +216,16 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
       marked: new Set(),
     };
   }
-  const end = mode === "define" ? start : passageEnd(request, start);
+  const end =
+    mode === "define"
+      ? start
+      : request.paragraphEnd === undefined
+        ? passageEnd(request, start)
+        : Math.min(
+            Math.max(request.paragraphEnd, start),
+            start + MAX_PASSAGE_SPAN,
+            paragraphs.length - 1,
+          );
   // Seam for rung 3b: "ask" will add the passages found by searching the
   // document for the question; until then it sees the same window as Explain.
   const reach = mode === "define" ? 0 : NEIGHBOURS;
