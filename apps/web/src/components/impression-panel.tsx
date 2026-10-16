@@ -230,18 +230,24 @@ export function ImpressionSummary({
     <div className="mt-4 font-sans text-[13px] text-[var(--reader-muted)]">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {impression.rating && (
-          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--pen)]">
-            <span className="flex gap-[3px]" aria-hidden>
+          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--ink)]">
+            {/* Stars in ink: the chrome echoes the rating, the pen stays for the reader's marks */}
+            <span
+              data-testid="summary-stars"
+              className="inline-flex gap-[2px] leading-none"
+              aria-hidden
+            >
               {RATINGS.map((label, i) => (
-                <span
+                <Star
                   key={label}
-                  className="w-[7px] h-[7px] rounded-[2px]"
-                  style={{
-                    background:
-                      i < (impression.rating ?? 0)
-                        ? "var(--pen)"
-                        : "var(--reader-border-strong)",
-                  }}
+                  size={13}
+                  strokeWidth={1.5}
+                  fill={i < (impression.rating ?? 0) ? "currentColor" : "none"}
+                  className={
+                    i < (impression.rating ?? 0)
+                      ? "text-[var(--ink)]"
+                      : "text-[var(--ink-muted)]"
+                  }
                 />
               ))}
             </span>
