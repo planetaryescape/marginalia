@@ -103,26 +103,58 @@ export function layoutIdeaMap(ideas: Idea[], links: Link[]): MapLayout {
   };
 }
 
+// Corner radius of the elbows, at most: small enough to read as a corner,
+// large enough that the line doesn't look drawn with a ruler
+const ELBOW_RADIUS = 8;
+
 /**
- * Cubic curves that leave each point along the flow direction. Each segment
- * bends halfway between its ends, so lines run out of a box and into the next
- * one without kinking.
+ * Right-angled connectors with softly rounded corners. Each leg leaves its
+ * box straight along the flow, turns once halfway, runs across, and turns
+ * again to arrive square-on, the way a well-drawn diagram connects boxes.
  */
 export function edgeCurve(points: Point[], direction: Direction): string {
   if (points.length < 2) return "";
-  const [first, ...rest] = points;
-  let d = `M ${first.x} ${first.y}`;
-  let prev = first;
-  for (const p of rest) {
-    if (direction === "TB") {
-      const mid = (prev.y + p.y) / 2;
-      d += ` C ${prev.x} ${mid}, ${p.x} ${mid}, ${p.x} ${p.y}`;
-    } else {
-      const mid = (prev.x + p.x) / 2;
-      d += ` C ${mid} ${prev.y}, ${mid} ${p.y}, ${p.x} ${p.y}`;
+  const along = (p: Point) => (direction === "TB" ? p.y : p.x);
+  const across = (p: Point) => (direction === "TB" ? p.x : p.y);
+  const at = (a: number, c: number): Point =>
+    direction === "TB" ? { x: c, y: a } : { x: a, y: c };
+
+  // The orthogonal route through every point: along, across, along
+  const route: Point[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (Math.abs(across(a) - across(b)) >= 0.5) {
+      const mid = (along(a) + along(b)) / 2;
+      route.push(at(mid, across(a)), at(mid, across(b)));
     }
-    prev = p;
+    route.push(b);
   }
+
+  let d = `M ${route[0].x} ${route[0].y}`;
+  for (let i = 1; i < route.length - 1; i++) {
+    const prev = route[i - 1];
+    const v = route[i];
+    const next = route[i + 1];
+    const inLen = Math.hypot(v.x - prev.x, v.y - prev.y);
+    const outLen = Math.hypot(next.x - v.x, next.y - v.y);
+    const r = Math.min(ELBOW_RADIUS, inLen / 2, outLen / 2);
+    if (r < 0.5) {
+      d += ` L ${v.x} ${v.y}`;
+      continue;
+    }
+    const into = {
+      x: v.x - ((v.x - prev.x) / inLen) * r,
+      y: v.y - ((v.y - prev.y) / inLen) * r,
+    };
+    const outOf = {
+      x: v.x + ((next.x - v.x) / outLen) * r,
+      y: v.y + ((next.y - v.y) / outLen) * r,
+    };
+    d += ` L ${into.x} ${into.y} Q ${v.x} ${v.y} ${outOf.x} ${outOf.y}`;
+  }
+  const last = route[route.length - 1];
+  d += ` L ${last.x} ${last.y}`;
   return d;
 }
 

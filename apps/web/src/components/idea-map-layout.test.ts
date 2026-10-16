@@ -146,25 +146,49 @@ describe("layoutIdeaMap", () => {
 });
 
 describe("edgeCurve", () => {
-  it("bends halfway between points along the flow", () => {
+  const segments = (d: string) => d.split(/(?=[MLQ])/).map((s) => s.trim());
+
+  it("draws a straight line when the ends line up", () => {
     expect(
       edgeCurve(
         [
-          { x: 0, y: 0 },
-          { x: 10, y: 20 },
+          { x: 10, y: 0 },
+          { x: 10, y: 40 },
         ],
         "TB",
       ),
-    ).toBe("M 0 0 C 0 10, 10 10, 10 20");
-    expect(
-      edgeCurve(
-        [
-          { x: 0, y: 0 },
-          { x: 10, y: 20 },
-        ],
-        "LR",
-      ),
-    ).toBe("M 0 0 C 5 0, 5 20, 10 20");
+    ).toBe("M 10 0 L 10 40");
+  });
+
+  it("turns at right angles with rounded corners and arrives straight down", () => {
+    const d = edgeCurve(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 80 },
+      ],
+      "TB",
+    );
+    const parts = segments(d);
+    expect(parts[0]).toBe("M 0 0");
+    expect(parts.filter((p) => p.startsWith("Q"))).toHaveLength(2);
+    // The last leg is vertical, so the arrowhead points straight into the box
+    const [, lx, ly] = parts.at(-1)!.split(" ").map(Number);
+    const beforeLast = parts.at(-2)!.split(" ").map(Number);
+    expect(lx).toBe(100);
+    expect(ly).toBe(80);
+    expect(beforeLast.at(-2)).toBe(100);
+  });
+
+  it("does the same side-on", () => {
+    const d = edgeCurve(
+      [
+        { x: 0, y: 0 },
+        { x: 80, y: 60 },
+      ],
+      "LR",
+    );
+    const beforeLast = segments(d).at(-2)!.split(" ").map(Number);
+    expect(beforeLast.at(-1)).toBe(60);
   });
 });
 
