@@ -30,7 +30,14 @@ function computeLayout(
   pinned: boolean,
 ): Layout {
   const article = container.getBoundingClientRect();
-  const gutter = window.innerWidth - article.right;
+  // The docked notes pane owns the right edge while it is open.
+  const notesInset =
+    Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        "--notes-inset",
+      ),
+    ) || 0;
+  const gutter = window.innerWidth - notesInset - article.right;
   if (gutter < MIN_GUTTER) return { kind: "sheet" };
   if (pinned) {
     return {
@@ -234,7 +241,7 @@ export function MarginCard({
 
   if (layout.kind === "sheet") {
     return (
-      <div className="fixed z-40 bottom-[calc(var(--app-keyboard-inset)+env(safe-area-inset-bottom)+0.75rem)] right-3 left-3 sm:left-auto sm:w-[400px]">
+      <div className="fixed z-40 [html[data-notes-open]_&]:z-[55] bottom-[calc(var(--app-keyboard-inset)+env(safe-area-inset-bottom)+0.75rem)] right-3 left-3 sm:left-auto sm:right-[calc(var(--notes-inset)+0.75rem)] sm:w-[400px]">
         {card}
       </div>
     );

@@ -143,6 +143,11 @@ html {
   --app-viewport-top: 0px;
   --app-keyboard-inset: 0px;
   --reader-bottom-clearance: env(safe-area-inset-bottom, 0px);
+  /* Width the docked notes pane takes from the reader; set while the pane is open. */
+  --notes-inset: 0px;
+}
+@media (min-width: 640px) {
+  html[data-notes-open] { --notes-inset: 380px; }
 }
 
 .article-ask { bottom: calc(max(var(--app-keyboard-inset), var(--reader-bottom-clearance)) + 1rem); }

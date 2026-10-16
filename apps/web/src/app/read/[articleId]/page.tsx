@@ -431,7 +431,7 @@ export default function ReadPage() {
       />
 
       {/* Top nav */}
-      <div className="fixed top-0 left-0 right-0 pt-[env(safe-area-inset-top)] z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm">
+      <div className="fixed top-0 left-0 right-[var(--notes-inset)] transition-[right] duration-200 pt-[env(safe-area-inset-top)] z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm">
         <div
           className="mx-auto px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between"
           style={{ maxWidth: `max(${MAX_WIDTHS[settings.width]}, 42rem)` }}
@@ -733,91 +733,100 @@ export default function ReadPage() {
         />
       )}
 
-      {/* Article content */}
-      <article
-        ref={articleRef}
-        className={cn(
-          "article-column mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
-          settings.numbers && "reader-numbers",
-          settings.focus && "reader-focus",
-          settings.align === "justify" && "reader-justify",
-          settings.paragraphs === "indented" && "reader-indented",
-          settings.dropCap !== "off" && "reader-dropcap",
-        )}
-        data-dropcap-style={settings.dropCap}
-        style={
-          {
-            maxWidth: MAX_WIDTHS[settings.width],
-            "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
-            "--reader-size": `${settings.size}px`,
-            "--reader-leading": LINE_HEIGHTS[settings.spacing],
-            "--dropcap-lines": settings.dropCapLines,
-            "--dropcap-font":
-              settings.dropCap === "off"
-                ? undefined
-                : DROP_CAP_FAMILIES[settings.dropCap],
-          } as React.CSSProperties
-        }
+      {/* Article content; padded so the docked notes pane never covers the text */}
+      <div
+        className="pr-[var(--notes-inset)] transition-[padding] duration-200"
+        onTransitionEnd={(e) => {
+          // Margin cards measure the gutter on resize, so tell them it changed.
+          if (e.target === e.currentTarget)
+            window.dispatchEvent(new Event("resize"));
+        }}
       >
-        <header className="mb-10">
-          <h1
-            className="text-3xl sm:text-4xl font-medium text-[var(--reader-fg)] leading-tight mb-4"
-            style={{ fontFamily: "var(--reader-font)" }}
-          >
-            {article.title}
-          </h1>
-          <div className="flex flex-wrap gap-3 text-sm font-sans text-ink-400 dark:text-ink-500">
-            {article.author && <span>{article.author}</span>}
-            {article.estimatedReadMinutes && (
-              <>
-                <span>&middot;</span>
-                <span>{formatReadTime(article.estimatedReadMinutes)}</span>
-              </>
-            )}
-          </div>
-          {impression && <ImpressionSummary impression={impression} />}
-        </header>
-
-        <SummaryPanel
-          articleId={articleId as any}
-          title={article.title}
-          wordCount={article.wordCount}
-          summary={summary}
-          containerRef={articleRef}
-          onJump={jumpToParagraph}
-        />
-        <ArticleRenderer
-          content={article.content ?? ""}
-          contentHtml={article.contentHtml ?? ""}
-          annotations={annotations ?? []}
-          activeAnnotationId={activeAnnotation?.id ?? null}
-          onAnnotationSelect={handleAnnotationSelect}
-        />
-
-        <section
-          aria-label="Your impression"
-          className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
+        <article
+          ref={articleRef}
+          className={cn(
+            "article-column mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
+            settings.numbers && "reader-numbers",
+            settings.focus && "reader-focus",
+            settings.align === "justify" && "reader-justify",
+            settings.paragraphs === "indented" && "reader-indented",
+            settings.dropCap !== "off" && "reader-dropcap",
+          )}
+          data-dropcap-style={settings.dropCap}
+          style={
+            {
+              maxWidth: MAX_WIDTHS[settings.width],
+              "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
+              "--reader-size": `${settings.size}px`,
+              "--reader-leading": LINE_HEIGHTS[settings.spacing],
+              "--dropcap-lines": settings.dropCapLines,
+              "--dropcap-font":
+                settings.dropCap === "off"
+                  ? undefined
+                  : DROP_CAP_FAMILIES[settings.dropCap],
+            } as React.CSSProperties
+          }
         >
-          <ImpressionPanel articleId={articleId as any} />
-        </section>
-
-        {reflection && (
-          <div className="mt-10">
-            <ReflectionBox reflection={reflection} onDone={handleDone} />
-          </div>
-        )}
-
-        {!reflection && (
-          <div className="mt-10 text-center">
-            <button
-              onClick={handleDone}
-              className="px-8 py-3 reader-float rounded-xl font-sans text-sm font-medium hover:opacity-90 transition-opacity"
+          <header className="mb-10">
+            <h1
+              className="text-3xl sm:text-4xl font-medium text-[var(--reader-fg)] leading-tight mb-4"
+              style={{ fontFamily: "var(--reader-font)" }}
             >
-              Done
-            </button>
-          </div>
-        )}
-      </article>
+              {article.title}
+            </h1>
+            <div className="flex flex-wrap gap-3 text-sm font-sans text-ink-400 dark:text-ink-500">
+              {article.author && <span>{article.author}</span>}
+              {article.estimatedReadMinutes && (
+                <>
+                  <span>&middot;</span>
+                  <span>{formatReadTime(article.estimatedReadMinutes)}</span>
+                </>
+              )}
+            </div>
+            {impression && <ImpressionSummary impression={impression} />}
+          </header>
+
+          <SummaryPanel
+            articleId={articleId as any}
+            title={article.title}
+            wordCount={article.wordCount}
+            summary={summary}
+            containerRef={articleRef}
+            onJump={jumpToParagraph}
+          />
+          <ArticleRenderer
+            content={article.content ?? ""}
+            contentHtml={article.contentHtml ?? ""}
+            annotations={annotations ?? []}
+            activeAnnotationId={activeAnnotation?.id ?? null}
+            onAnnotationSelect={handleAnnotationSelect}
+          />
+
+          <section
+            aria-label="Your impression"
+            className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
+          >
+            <ImpressionPanel articleId={articleId as any} />
+          </section>
+
+          {reflection && (
+            <div className="mt-10">
+              <ReflectionBox reflection={reflection} onDone={handleDone} />
+            </div>
+          )}
+
+          {!reflection && (
+            <div className="mt-10 text-center">
+              <button
+                onClick={handleDone}
+                className="px-8 py-3 reader-float rounded-xl font-sans text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                Done
+              </button>
+            </div>
+          )}
+        </article>
+      </div>
 
       {companion.thread && (
         <CompanionCard
