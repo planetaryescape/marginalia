@@ -968,10 +968,12 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 
 /* Highlighter and pen tools. The reader package registers user-highlight and
    user-underline for every mark; Marginalia paints each mark under its own
-   colour's name instead (use-mark-paint.ts), so those two stay unpainted. */
-::highlight(user-highlight),
-::highlight(user-underline) {
+   colour's name instead (use-mark-paint.ts), so those two stay unpainted. The
+   package's stylesheet loads after this one, so the extra `html` is what wins. */
+html ::highlight(user-highlight),
+html ::highlight(user-underline) {
   background-color: transparent;
+  text-decoration: none;
 }
 
 ::highlight(mark-yellow) { background-color: var(--mark-yellow); color: inherit; }
