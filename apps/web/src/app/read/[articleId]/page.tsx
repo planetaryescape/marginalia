@@ -38,6 +38,7 @@ import { SelectionToolbar } from "@/components/selection-toolbar";
 import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
 import { FINISH_ARTICLE } from "@/components/view-transition";
+import { readerMeta } from "@/lib/article-meta";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
@@ -80,7 +81,7 @@ import {
   marginNotesPending,
   useStartAnnotation,
 } from "@/lib/use-start-annotation";
-import { cn, formatReadTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 export default function ReadPage() {
   const { articleId } = useParams<{ articleId: string }>();
@@ -748,7 +749,9 @@ export default function ReadPage() {
     if (rememberedTitle(articleId)) return opening;
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-ink-400 font-sans text-sm">Loading article...</p>
+        <p className="text-[var(--ink-muted)] font-sans text-sm">
+          Loading article...
+        </p>
       </div>
     );
   }
@@ -968,20 +971,21 @@ export default function ReadPage() {
         >
           <header className="mb-10">
             <ReaderTitle articleId={articleId} title={article.title} />
-            <div className="flex flex-wrap gap-3 text-sm font-sans text-[var(--ink-muted)]">
-              {isBook && outline && unitIndex !== null && (
-                <span>
-                  Part {unitIndex + 1} of {outline.length}
-                </span>
-              )}
-              {article.author && <span>{article.author}</span>}
-              {article.estimatedReadMinutes && (
-                <>
-                  <span>&middot;</span>
-                  <span>{formatReadTime(article.estimatedReadMinutes)}</span>
-                </>
-              )}
-            </div>
+            <p
+              data-testid="reader-meta"
+              className="text-sm font-sans text-[var(--ink-muted)]"
+            >
+              {readerMeta({
+                url: article.url,
+                uploaded: Boolean(article.uploadedFileName),
+                author: article.author,
+                minutes: article.estimatedReadMinutes,
+                part:
+                  isBook && outline && unitIndex !== null
+                    ? { index: unitIndex, of: outline.length }
+                    : undefined,
+              })}
+            </p>
             <ArticleTags articleId={articleId as any} />
             {impression && <ImpressionSummary impression={impression} />}
           </header>
