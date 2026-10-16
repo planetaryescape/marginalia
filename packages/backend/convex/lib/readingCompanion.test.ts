@@ -5,6 +5,7 @@ import {
   buildSystemPrompt,
   companionRequestSchema,
   formatArticle,
+  selectContext,
   selectParagraphWindow,
 } from "./readingCompanion";
 
@@ -40,6 +41,110 @@ describe("readingCompanion", () => {
       expect(text.startsWith("# T\n\n[…]")).toBe(true);
       expect(text.trimEnd().endsWith("[…]")).toBe(true);
       expect(text).not.toContain("¶1\n");
+    });
+  });
+
+  describe("per-tool context", () => {
+    const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
+    const request = (over: Record<string, string | number | null>) =>
+      companionRequestSchema.parse({
+        mode: "explain",
+        title: "T",
+        paragraphs,
+        selection: "Paragraph 4.",
+        paragraphIndex: 4,
+        ...over,
+      });
+
+    it("gives Define only the sentence's paragraph", () => {
+      expect(selectContext(request({ mode: "define" })).indices).toEqual([4]);
+    });
+
+    it("gives Explain, Simplify and Ask the passage and a paragraph either side", () => {
+      for (const mode of ["explain", "simplify"])
+        expect(selectContext(request({ mode })).indices).toEqual([3, 4, 5]);
+      expect(
+        selectContext(request({ mode: "ask", question: "Why?" })).indices,
+      ).toEqual([3, 4, 5]);
+    });
+
+    it("includes every paragraph a passage runs across", () => {
+      const context = selectContext(
+        request({
+          paragraphIndex: 2,
+          selection: "Paragraph 2. Paragraph 3. Paragraph 4.",
+        }),
+      );
+      expect(context.indices).toEqual([1, 2, 3, 4, 5]);
+      expect([...context.marked]).toEqual([2, 3, 4]);
+    });
+
+    it("stops at the edges of the article", () => {
+      expect(
+        selectContext(request({ paragraphIndex: 0, selection: "Paragraph 0." }))
+          .indices,
+      ).toEqual([0, 1]);
+      expect(
+        selectContext(request({ paragraphIndex: 8, selection: "Paragraph 8." }))
+          .indices,
+      ).toEqual([7, 8]);
+    });
+
+    it("finds the paragraph by its text when the client sent no index", () => {
+      expect(
+        selectContext(request({ mode: "define", paragraphIndex: null }))
+          .indices,
+      ).toEqual([4]);
+    });
+
+    it("keeps today's window for a question about the whole article", () => {
+      const context = selectContext(
+        request({
+          mode: "article",
+          selection: "",
+          paragraphIndex: null,
+          question: "Why?",
+        }),
+      );
+      expect(context.indices).toEqual(paragraphs.map((_, i) => i));
+    });
+
+    it("sends a definition only its paragraph, not the whole article", () => {
+      const { messages } = buildCompanionPrompt(request({ mode: "define" }));
+      const opening = String(messages[0].content);
+      expect(opening).toContain("Paragraph 4.");
+      expect(opening).not.toContain("Paragraph 3.");
+      expect(opening).not.toContain("Paragraph 5.");
+    });
+
+    it("adds the summary as background when there is one", () => {
+      const { messages } = buildCompanionPrompt(request({}), {
+        thesis: "Prices drive demand.",
+        gist: "A tour of markets.",
+      });
+      const opening = String(messages[0].content);
+      expect(opening).toContain("<summary>");
+      expect(opening).toContain("Prices drive demand.");
+      expect(opening).toContain("A tour of markets.");
+      expect(opening.indexOf("<summary>")).toBeLessThan(
+        opening.indexOf("<article>"),
+      );
+      expect(
+        String(buildCompanionPrompt(request({})).messages[0].content),
+      ).not.toContain("<summary>");
+    });
+
+    it("tells each tool how long to be", () => {
+      const text = (mode: string, extra = {}) =>
+        String(
+          buildCompanionPrompt(request({ mode, ...extra })).messages[0].content,
+        );
+      expect(text("define")).toContain("a line or two");
+      expect(text("explain")).toContain("one short paragraph");
+      expect(text("simplify")).toContain("one short paragraph");
+      expect(text("ask", { question: "Why?" })).toContain(
+        "as long as the question needs",
+      );
     });
   });
 

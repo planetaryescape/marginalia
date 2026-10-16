@@ -136,6 +136,15 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       createdAt: now,
       updatedAt: now,
     });
+    await ctx.db.insert("lookups", {
+      userId,
+      articleId,
+      word: "text",
+      wordKey: "text",
+      sentence: "Text.",
+      sense: "Written words.",
+      createdAt: now,
+    });
     await ctx.db.insert("highlights", {
       userId,
       articleId,

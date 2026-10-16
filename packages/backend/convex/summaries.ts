@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { ownedArticle, requireArticle } from "./access";
-import { internalMutation, query } from "./functions";
+import { internalMutation, internalQuery, query } from "./functions";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
@@ -61,5 +61,23 @@ export const save = internalMutation({
       ...args,
       createdAt: Date.now(),
     });
+  },
+});
+
+/**
+ * The background the reading companion sends with every answer. The article ID
+ * arrives as text from the browser, so it is checked here against the reader.
+ */
+export const forCompanion = internalQuery({
+  args: { articleId: v.string(), userId: v.string() },
+  handler: async (ctx, args) => {
+    const articleId = ctx.db.normalizeId("articles", args.articleId);
+    if (!articleId || !(await ownedArticle(ctx, articleId, args.userId)))
+      return null;
+    const row = await ctx.db
+      .query("summaries")
+      .withIndex("by_article", (q) => q.eq("articleId", articleId))
+      .first();
+    return row ? { thesis: row.thesis, gist: row.gist } : null;
   },
 });

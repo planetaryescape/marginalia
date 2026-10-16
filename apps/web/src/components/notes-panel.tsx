@@ -11,7 +11,10 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { type KeptAnswer, splitNotes } from "@/lib/kept-answers";
+import { MODE_LABELS } from "@/lib/margin-answers";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { CompanionAnswer } from "./companion-answer";
 import { NoteEditor } from "./note-editor";
 
 type Selection = {
@@ -35,6 +38,53 @@ interface NotesPanelProps {
   onClose: () => void;
   pendingSelection: Selection | null;
   onClearSelection: () => void;
+  /** Jumps to a ¶ cited in a kept answer. */
+  onJump?: (index: number) => void;
+}
+
+/** What a kept answer shows once it is expanded. */
+function KeptAnswerBody({
+  answer,
+  onJump,
+}: {
+  answer: KeptAnswer;
+  onJump: (index: number) => void;
+}) {
+  if (answer.kind === "legacy")
+    return (
+      <div
+        className="text-sm font-sans text-[var(--reader-fg-soft)] leading-relaxed break-words [&_h3]:font-medium"
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(answer.note.content) }}
+      />
+    );
+  const { thread } = answer;
+  return (
+    <div className="space-y-3">
+      {thread.question && (
+        <p className="text-[14px] font-medium text-[var(--reader-fg)]">
+          {thread.question}
+        </p>
+      )}
+      {thread.turns.map((turn, i) =>
+        turn.role === "user" ? (
+          <p
+            key={i}
+            className="border-t border-[var(--reader-border)] pt-3 text-[14px] font-medium text-[var(--reader-fg)]"
+          >
+            {turn.content}
+          </p>
+        ) : (
+          <CompanionAnswer
+            key={i}
+            text={turn.content}
+            lead={false}
+            streaming={false}
+            onJump={onJump}
+          />
+        ),
+      )}
+    </div>
+  );
 }
 
 export function NotesPanel({
@@ -43,11 +93,18 @@ export function NotesPanel({
   onClose,
   pendingSelection,
   onClearSelection,
+  onJump = () => {},
 }: NotesPanelProps) {
   const notes = useQuery(api.userNotes.listByArticle, {
     // SAFETY: the caller passes an article route ID; Convex's v.id validator enforces the table at the boundary.
     articleId: articleId as Id<"articles">,
   });
+  const threads = useQuery(api.companionThreads.listByArticle, {
+    // SAFETY: same article route ID, validated by the Convex query's v.id argument.
+    articleId: articleId as Id<"articles">,
+  });
+  const removeThread = useMutation(api.companionThreads.remove);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const createNote = useMutation(api.userNotes.create);
   const updateNote = useMutation(api.userNotes.update);
   const removeNote = useMutation(api.userNotes.remove);
@@ -180,6 +237,18 @@ export function NotesPanel({
     onClearSelection();
   };
 
+  const { mine, answers } = splitNotes(notes ?? [], threads ?? []);
+
+  const handleDeleteAnswer = async (answer: KeptAnswer) => {
+    try {
+      if (answer.kind === "thread")
+        await removeThread({ threadId: answer.thread._id });
+      else await removeNote({ noteId: answer.note._id });
+    } catch {
+      toast.error("Couldn't delete the answer. Try again.");
+    }
+  };
+
   const handleDelete = async (noteId: Id<"userNotes">) => {
     try {
       await removeNote({ noteId });
@@ -250,32 +319,37 @@ export function NotesPanel({
 
           {/* Existing notes */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-            {notes && notes.length === 0 && !showEditor && (
-              <div className="px-4 py-12 text-center">
-                <p className="text-sm font-sans text-[var(--reader-muted)]">
-                  No notes yet.
-                </p>
-                <p className="text-xs font-sans text-[var(--reader-muted)] mt-1">
-                  Highlight text in the article to start a note.
-                </p>
-              </div>
-            )}
+            {notes &&
+              mine.length === 0 &&
+              answers.length === 0 &&
+              !showEditor && (
+                <div className="px-4 py-12 text-center">
+                  <p className="text-sm font-sans text-[var(--reader-muted)]">
+                    No notes yet.
+                  </p>
+                  <p className="text-xs font-sans text-[var(--reader-muted)] mt-1">
+                    Highlight text in the article to start a note.
+                  </p>
+                </div>
+              )}
 
-            {notes
-              ?.filter((note) => !(showEditor && note._id === draftId))
+            {mine
+              .filter((note) => !(showEditor && note._id === draftId))
               .map((note) => (
                 <div
                   key={note._id}
                   className="px-4 py-3 border-b border-[var(--reader-border)] group"
                 >
                   {note.selectedText && (
-                    <blockquote className="text-[12px] font-serif text-[var(--reader-muted)] border-l border-[var(--reader-border-strong)] pl-2 mb-2 italic line-clamp-2">
+                    <blockquote className="text-[12px] font-serif text-[var(--ink-muted)] border-l border-[var(--reader-border-strong)] pl-2 mb-2 italic line-clamp-2">
                       {note.selectedText}
                     </blockquote>
                   )}
 
+                  {/* Your words lead: your ink, with your pen's rule beside them */}
                   <div
-                    className="text-sm font-sans text-[var(--reader-fg-soft)] leading-relaxed break-words max-w-none
+                    data-hand="pen"
+                    className="border-l-2 border-[var(--pen)] pl-3 text-[15px] font-sans text-[var(--ink)] leading-relaxed break-words max-w-none
                     [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-4 [&_blockquote]:border-l [&_blockquote]:pl-2 [&_blockquote]:italic [&_blockquote]:text-[var(--reader-muted)]"
                     dangerouslySetInnerHTML={{
                       __html: sanitizeHtml(note.content),
@@ -300,6 +374,63 @@ export function NotesPanel({
                   </div>
                 </div>
               ))}
+
+            {answers.map((answer) => {
+              const open = expanded.has(answer.id);
+              const quote =
+                answer.kind === "thread"
+                  ? answer.thread.selection
+                  : answer.note.selectedText;
+              return (
+                <div
+                  key={answer.id}
+                  data-hand="pencil"
+                  className="px-4 py-2.5 border-b border-[var(--reader-border)] group"
+                >
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() =>
+                      setExpanded((prev) => {
+                        const next = new Set(prev);
+                        if (!next.delete(answer.id)) next.add(answer.id);
+                        return next;
+                      })
+                    }
+                    className="flex w-full items-center gap-1.5 text-left text-[13px] font-sans text-[var(--pencil)]"
+                  >
+                    <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+                    Marginalia&rsquo;s answer &middot;{" "}
+                    {MODE_LABELS[answer.mode]}
+                  </button>
+                  {open && (
+                    <div className="mt-2">
+                      {quote && (
+                        <blockquote className="text-[12px] font-serif text-[var(--ink-muted)] border-l border-[var(--reader-border-strong)] pl-2 mb-2 italic line-clamp-2">
+                          {quote}
+                        </blockquote>
+                      )}
+                      <KeptAnswerBody answer={answer} onJump={onJump} />
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-[11px] font-sans text-[var(--reader-muted)]">
+                          {new Date(answer.createdAt).toLocaleDateString(
+                            "en-US",
+                            { month: "short", day: "numeric" },
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAnswer(answer)}
+                          className="md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-[12px] font-sans text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-opacity"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </motion.aside>
       )}

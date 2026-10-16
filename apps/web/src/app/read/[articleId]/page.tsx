@@ -9,7 +9,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AnnotationCard } from "@/components/annotation-card";
 import { ArticleAsk } from "@/components/article-ask";
@@ -20,7 +20,7 @@ import {
   ImpressionSummary,
 } from "@/components/impression-panel";
 import { ListenBar } from "@/components/listen-bar";
-import { NoteUnfold } from "@/components/note-unfold";
+import { AnswerUnfold, NoteUnfold } from "@/components/note-unfold";
 import { NotesPanel } from "@/components/notes-panel";
 import { FinishedLine } from "@/components/reader-finished-line";
 import { ReaderMap } from "@/components/reader-map";
@@ -32,6 +32,7 @@ import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
+import { answerNotes } from "@/lib/margin-answers";
 import {
   getArticleBody,
   getParagraphs,
@@ -50,8 +51,9 @@ import {
   webSearchEnabled,
 } from "@/lib/reader-settings";
 import { useListen, useReadingPosition } from "@/lib/reading-modes";
-import { useSavedPassages } from "@/lib/saved-passages";
+import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
+import { findTextRange } from "@/lib/text-range";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
@@ -145,7 +147,28 @@ export default function ReadPage() {
     containerRef: articleRef,
     listening: listen.active,
   });
-  usePassageHighlight("companion-passage", companion.thread?.range ?? null);
+  // The open answer's passage, found again by its text so a refresh can restore it.
+  const [openRange, setOpenRange] = useState<Range | null>(null);
+  const openThread = companion.thread;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `paragraphs.version` signals the article HTML changed
+  useEffect(() => {
+    const body = getArticleBody(articleRef.current);
+    if (!body || !openThread?.selection) {
+      setOpenRange(null);
+      return;
+    }
+    const preferred =
+      openThread.paragraphIndex === null
+        ? null
+        : getParagraphs(body)[openThread.paragraphIndex];
+    setOpenRange(findTextRange(body, openThread.selection, preferred));
+  }, [
+    openThread?.id,
+    openThread?.selection,
+    openThread?.paragraphIndex,
+    paragraphs.version,
+  ]);
+  usePassageHighlight("companion-passage", openRange);
 
   // One margin card at a time: an auto annotation or a companion thread
   const [activeAnnotation, setActiveAnnotation] = useState<{
@@ -153,15 +176,51 @@ export default function ReadPage() {
     paragraphIndex: number | null;
   } | null>(null);
 
+  // Where the margin column is, a kept answer's passage is marked and the note is
+  // its handle. Elsewhere every answer is marked, since the text is the handle.
+  const marginMode = useMarginMode(articleRef, Boolean(article), settings);
+  // Streaming rebuilds `companion.answers` on every chunk, so the passages are
+  // keyed by value: only a changed passage makes the text be searched again.
+  const passageKey = JSON.stringify(
+    [
+      ...companion.answers.map((a) => ({
+        _id: a.id,
+        selection: a.selection,
+        paragraphIndex: a.paragraphIndex ?? undefined,
+        marked: Boolean(a.savedId) || marginMode !== "sidenotes",
+      })),
+      ...(savedThreads ?? [])
+        .filter(
+          (doc) =>
+            !companion.answers.some(
+              (a) => a.id === doc._id || a.savedId === doc._id,
+            ),
+        )
+        .map((doc) => ({
+          _id: doc._id,
+          selection: doc.selection,
+          paragraphIndex: doc.paragraphIndex,
+          marked: true,
+        })),
+    ].filter((p) => p.selection),
+  );
+  const passageSources = useMemo<PassageSource[]>(
+    () => JSON.parse(passageKey),
+    [passageKey],
+  );
+
   const savedPassages = useSavedPassages({
     containerRef: articleRef,
-    threads: savedThreads,
+    threads: passageSources,
     version: paragraphs.version,
-    activeId: companion.thread?.savedId,
-    onOpen: ({ doc, range }) => {
-      setActiveAnnotation(null);
-      if (companion.thread?.savedId === doc._id) companion.close();
-      else companion.open(doc, range);
+    activeId: companion.thread?.savedId ?? companion.thread?.id,
+    onOpen: ({ doc }) => {
+      if (
+        companion.thread?.id === doc._id ||
+        companion.thread?.savedId === doc._id
+      )
+        companion.collapse();
+      else openAnswer(doc._id);
     },
   });
 
@@ -212,7 +271,6 @@ export default function ReadPage() {
   );
 
   useReaderTheme(settings);
-  const marginMode = useMarginMode(articleRef, Boolean(article), settings);
   // On a phone the note unfolds in the text; the sheet only opens for its sources and follow-up.
   const [phoneSheet, setPhoneSheet] = useState(false);
   const activeAnnotationId = activeAnnotation?.id ?? null;
@@ -222,6 +280,12 @@ export default function ReadPage() {
     if (marginMode === "phone" && phoneSheet) setPhoneSheet(false);
     else setActiveAnnotation(null);
   }, [marginMode, phoneSheet]);
+
+  // A click on the page folds whichever note is open.
+  const closeNote = useCallback(() => {
+    if (companion.thread) companion.collapse();
+    else closeAnnotation();
+  }, [companion.thread, companion.collapse, closeAnnotation]);
 
   // Focus mode keeps the passage under discussion lit
   const companionParagraph =
@@ -246,21 +310,35 @@ export default function ReadPage() {
     back: backToParagraph,
   } = useParagraphReturn(articleRef);
 
-  const handleSaveCompanionNote = useCallback(
-    async (note: {
-      selectedText: string;
-      content: string;
-      contentPlain: string;
-    }) => {
+  const keepAnswer = useCallback(
+    async (id: string) => {
+      if (await companion.keep(id)) toast.success("Kept in your notes");
+      else toast.error("Couldn't keep that answer");
+    },
+    [companion.keep],
+  );
+  const deleteAnswer = useCallback(
+    async (id: string) => {
       try {
-        await createNote({ articleId: articleId as any, ...note });
-        toast.success("Saved to notes");
+        await companion.remove(id);
       } catch {
-        toast.error("Couldn't save the note");
+        toast.error("Couldn't delete the kept answer");
       }
     },
-    [createNote, articleId],
+    [companion.remove],
   );
+  // A margin note opens whether its answer is from this visit or kept earlier.
+  const openAnswer = useCallback(
+    (id: string) => {
+      setActiveAnnotation(null);
+      const doc = savedThreads?.find((t) => t._id === id);
+      if (doc && !companion.answers.some((a) => a.id === id))
+        companion.open(doc);
+      else companion.openAnswer(id);
+    },
+    [savedThreads, companion.answers, companion.open, companion.openAnswer],
+  );
+  const answers = answerNotes(companion.answers, savedThreads);
 
   const toggleListen = useCallback(() => {
     if (listen.active) {
@@ -334,8 +412,7 @@ export default function ReadPage() {
           ...savedPassages
             .filter((p) => p.range.intersectsNode(paragraph))
             .map((passage) => () => {
-              setActiveAnnotation(null);
-              companion.open(passage.doc, passage.range);
+              openAnswer(passage.doc._id);
             }),
         ];
         if (!openers.length) return;
@@ -421,7 +498,7 @@ export default function ReadPage() {
         setActiveAnnotation(null);
         return;
       }
-      companion.close();
+      companion.collapse();
       const mark = articleRef.current?.querySelector(
         `[data-annotation-id="${CSS.escape(annotationId)}"]`,
       );
@@ -431,7 +508,7 @@ export default function ReadPage() {
       });
       trackAnnotationOpen(annotationId);
     },
-    [trackAnnotationOpen, companion.close],
+    [trackAnnotationOpen, companion.collapse],
   );
 
   const openAnnotation = annotations?.find(
@@ -492,7 +569,28 @@ export default function ReadPage() {
       )
     : null;
 
-  const noteCount = articleNotes?.length ?? 0;
+  const noteCount =
+    (articleNotes?.length ?? 0) +
+    (savedThreads ?? []).filter((t) => t.keptAt !== undefined).length;
+
+  const answerThread = companion.thread;
+  const answerCard = (inline: boolean) =>
+    answerThread && (
+      <CompanionCard
+        key={answerThread.id}
+        inline={inline}
+        thread={answerThread}
+        range={openRange}
+        containerRef={articleRef}
+        layoutVersion={paragraphs.version}
+        onClose={companion.collapse}
+        onDelete={() => deleteAnswer(answerThread.id)}
+        onFollowUp={companion.followUp}
+        onRegenerate={companion.regenerate}
+        onJump={jumpToParagraph}
+        onKeep={() => keepAnswer(answerThread.id)}
+      />
+    );
 
   return (
     <>
@@ -555,7 +653,7 @@ export default function ReadPage() {
           onClick={() => {
             setNotesPanelOpen(false);
             setActiveAnnotation(null);
-            companion.close();
+            companion.collapse();
             setArticleAskOpen((open) => !open);
           }}
         >
@@ -733,21 +831,6 @@ export default function ReadPage() {
         </article>
       </div>
 
-      {companion.thread && (
-        <CompanionCard
-          key={companion.thread.id}
-          thread={companion.thread}
-          containerRef={articleRef}
-          layoutVersion={paragraphs.version}
-          onClose={companion.close}
-          onDelete={companion.remove}
-          onFollowUp={companion.followUp}
-          onRegenerate={companion.regenerate}
-          onJump={jumpToParagraph}
-          onSaveNote={handleSaveCompanionNote}
-        />
-      )}
-
       <Sidenotes
         key={articleId}
         containerRef={articleRef}
@@ -762,10 +845,15 @@ export default function ReadPage() {
           article.extractionStatus === "extracted"
         }
         openId={activeAnnotationId}
-        onClose={closeAnnotation}
+        answers={answers}
+        openAnswerId={companion.openId}
+        onOpenAnswer={openAnswer}
+        onClose={closeNote}
         onOpenNotes={() => setNotesPanelOpen(true)}
         openCard={
-          openAnnotation && activeAnnotation ? (
+          companion.thread ? (
+            answerCard(true)
+          ) : openAnnotation && activeAnnotation ? (
             <AnnotationCard
               inline
               annotation={openAnnotation}
@@ -783,6 +871,19 @@ export default function ReadPage() {
           ) : null
         }
       />
+
+      {marginMode === "phone" && companion.thread && (
+        <AnswerUnfold
+          containerRef={articleRef}
+          version={paragraphs.version}
+          id={companion.thread.id}
+          paragraphIndex={companion.thread.paragraphIndex}
+        >
+          {answerCard(true)}
+        </AnswerUnfold>
+      )}
+
+      {marginMode === "sheet" && companion.thread && answerCard(false)}
 
       {marginMode === "phone" && (
         <NoteUnfold
@@ -870,6 +971,7 @@ export default function ReadPage() {
         onClose={() => setNotesPanelOpen(false)}
         pendingSelection={pendingSelection}
         onClearSelection={() => setPendingSelection(null)}
+        onJump={jumpToParagraph}
       />
     </>
   );

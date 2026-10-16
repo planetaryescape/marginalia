@@ -396,6 +396,9 @@ export default defineSchema({
     model: v.optional(v.string()),
     // Passage + question + first answer, so future marginalia can recall it
     embedding: v.optional(v.array(v.float64())),
+    // Set when the reader chose Keep. Rows written before answers became
+    // temporary have none: they were saved automatically.
+    keptAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -406,6 +409,23 @@ export default defineSchema({
       dimensions: 1536,
       filterFields: ["userId"],
     }),
+
+  // Every Define the reader completed, kept or not: the raw material of the
+  // personal dictionary. `sense` is the one line of Marginalia's text kept
+  // without Keep, because it is the reader's own dictionary entry.
+  lookups: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    word: v.string(),
+    // Lower-cased `word` without surrounding punctuation, for finding repeats
+    wordKey: v.string(),
+    sentence: v.string(),
+    paragraphIndex: v.optional(v.number()),
+    sense: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_user_created", ["userId", "createdAt"])
+    .index("by_user_word", ["userId", "wordKey"]),
 
   // Highlighter and pen marks, re-anchored by text when the article renders.
   // Colours come from reader settings, so they follow the user's palette.

@@ -7,7 +7,6 @@ import {
   Copy,
   MessageCircleQuestion,
   MessagesSquare,
-  NotebookPen,
   RotateCcw,
   Trash2,
   Wand2,
@@ -26,49 +25,40 @@ const MODES = {
   article: { label: "Article", Icon: MessagesSquare },
 } as const;
 
-function escapeHtml(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function toNoteHtml(text: string) {
-  return text
-    .trim()
-    .split(/\n{2,}/)
-    .map((p) => `<p>${escapeHtml(p)}</p>`)
-    .join("");
-}
-
 export function CompanionCard({
   thread,
+  range,
   containerRef,
   layoutVersion,
+  inline = false,
   onClose,
   onDelete,
   onFollowUp,
   onRegenerate,
   onJump,
-  onSaveNote,
+  onKeep,
 }: {
   thread: CompanionThread;
+  /** The passage the answer is about, for the floating card to sit beside. */
+  range?: Range | null;
   containerRef: React.RefObject<HTMLElement | null>;
   layoutVersion: number;
+  /** Sits in the margin column or the text flow, which place it. */
+  inline?: boolean;
+  /** Folds the answer back into the margin. */
   onClose: () => void;
   onDelete: () => void;
   onFollowUp: (question: string) => void;
   onRegenerate: () => void;
   onJump: (index: number) => void;
-  onSaveNote: (note: {
-    selectedText: string;
-    content: string;
-    contentPlain: string;
-  }) => Promise<void>;
+  onKeep: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [copied, setCopied] = useState(false);
-  const [saved, setSaved] = useState(false);
 
   const { label, Icon } = MODES[thread.mode];
   const streaming = thread.status === "streaming";
+  const kept = Boolean(thread.savedId);
   const transcript = thread.turns
     .filter((t) => t.role === "assistant")
     .map((t) => t.content.trim())
@@ -79,16 +69,6 @@ export function CompanionCard({
     await navigator.clipboard.writeText(transcript);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
-  };
-
-  const save = async () => {
-    const heading = thread.question ?? label;
-    await onSaveNote({
-      selectedText: thread.selection,
-      content: `<h3>${escapeHtml(heading)}</h3>${toNoteHtml(transcript)}`,
-      contentPlain: `${heading}\n\n${transcript}`,
-    });
-    setSaved(true);
   };
 
   const body = (
@@ -166,12 +146,17 @@ export function CompanionCard({
         <div className="ml-auto flex items-center">
           <button
             type="button"
-            onClick={save}
-            className={cardIconButton}
-            disabled={streaming || !transcript || saved}
-            title={saved ? "Added to notes" : "Add to notes"}
+            onClick={onKeep}
+            disabled={
+              kept || streaming || thread.keeping || thread.status !== "done"
+            }
+            title={
+              kept ? "Kept in your notes" : "Keep this answer in your notes"
+            }
+            className="mr-1 flex h-11 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-[var(--reader-fg-soft)] transition-colors hover:bg-[var(--reader-chip)] hover:text-[var(--reader-fg)] disabled:pointer-events-none disabled:opacity-60 sm:h-7"
           >
-            {saved ? <Check size={14} /> : <NotebookPen size={14} />}
+            {kept && <Check size={13} aria-hidden />}
+            {kept ? "Kept" : "Keep"}
           </button>
           <button
             type="button"
@@ -195,7 +180,8 @@ export function CompanionCard({
             type="button"
             onClick={onDelete}
             className={cardIconButton}
-            title="Delete"
+            title={kept ? "Delete the kept answer" : "Dismiss"}
+            aria-label={kept ? "Delete the kept answer" : "Dismiss"}
           >
             <Trash2 size={14} />
           </button>
@@ -206,7 +192,7 @@ export function CompanionCard({
         className="focus-frame mx-3 mb-3 flex items-center gap-2 rounded-xl bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--reader-focus)]"
         onSubmit={(e) => {
           e.preventDefault();
-          if (streaming || !draft.trim()) return;
+          if (streaming || thread.keeping || !draft.trim()) return;
           onFollowUp(draft);
           setDraft("");
         }}
@@ -220,7 +206,7 @@ export function CompanionCard({
         />
         <button
           type="submit"
-          disabled={streaming || !draft.trim()}
+          disabled={streaming || thread.keeping || !draft.trim()}
           aria-label="Send follow-up"
           className="w-7 h-7 flex items-center justify-center rounded-lg bg-[var(--ink)] text-[var(--reader-bg)] transition-opacity disabled:opacity-30"
         >
@@ -232,14 +218,16 @@ export function CompanionCard({
 
   return (
     <MarginCard
+      inline={inline}
       containerRef={containerRef}
       layoutVersion={layoutVersion}
-      anchorKey={thread.range}
-      getAnchorRect={() => thread.range?.getBoundingClientRect() ?? null}
+      anchorKey={range}
+      getAnchorRect={() => range?.getBoundingClientRect() ?? null}
       title={
         <>
           <Icon size={13} strokeWidth={2.25} />
           {label}
+          {kept && <span className="font-normal opacity-70">· kept</span>}
         </>
       }
       label={thread.mode === "article" ? "Ask the article" : `${label} passage`}

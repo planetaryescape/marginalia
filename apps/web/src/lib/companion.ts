@@ -3,6 +3,15 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  leaveArticle,
+  restoreAnswers,
+  type StoredAnswer,
+  stayOnArticle,
+  writeAnswers,
+} from "./companion-session";
+import { senseOf, sentenceAround } from "./lookups";
 import {
   getArticleBody,
   getParagraphs,
@@ -10,7 +19,6 @@ import {
   paragraphText,
 } from "./paragraphs";
 import { type ReaderSettings, webSearchEnabled } from "./reader-settings";
-import { findTextRange } from "./text-range";
 
 /** "article" is a question about the whole piece, with no highlighted passage. */
 export type CompanionMode =
@@ -26,19 +34,20 @@ export interface CompanionTurn {
 }
 
 export interface CompanionThread {
-  /** Local identity for the open card; stays the same once the thread is saved. */
+  /** Local identity for the answer; stays the same once it is kept. */
   id: string;
+  /** The saved record, once the reader has kept the answer. */
   savedId?: Id<"companionThreads">;
   mode: CompanionMode;
   selection: string;
   question?: string;
   paragraphIndex: number | null;
-  /** Null when a saved passage can no longer be found in the article. */
-  range: Range | null;
   turns: CompanionTurn[];
   status: "streaming" | "done" | "error";
   error?: string;
   model?: string | null;
+  /** Keep has been pressed and the record is being written. */
+  keeping?: boolean;
 }
 
 /** A request the backend refused with a reason the reader can act on. */
@@ -95,6 +104,42 @@ export async function streamFromConvex(
   }
 }
 
+/** Only a finished, unkept answer is held for a refresh. */
+const holdsForRefresh = (a: CompanionThread) =>
+  a.status === "done" && !a.savedId && a.turns.length > 0;
+
+const toStored = (a: CompanionThread): StoredAnswer => ({
+  id: a.id,
+  mode: a.mode,
+  selection: a.selection,
+  question: a.question,
+  paragraphIndex: a.paragraphIndex,
+  turns: a.turns,
+  model: a.model ?? null,
+});
+
+const fromStored = (a: StoredAnswer): CompanionThread => ({
+  ...a,
+  status: "done",
+});
+
+const fromDoc = (doc: Doc<"companionThreads">): CompanionThread => ({
+  id: doc._id,
+  savedId: doc._id,
+  mode: doc.mode,
+  selection: doc.selection,
+  question: doc.question,
+  paragraphIndex: doc.paragraphIndex ?? null,
+  turns: doc.turns,
+  status: "done",
+  model: doc.model ?? null,
+});
+
+/**
+ * The answers of one visit to an article. They are temporary (D-DES-045): held
+ * in this tab's session storage so a refresh keeps them, cleared when the
+ * reader leaves the article, and written to the server only by `keep`.
+ */
 export function useCompanion({
   articleId,
   containerRef,
@@ -106,56 +151,82 @@ export function useCompanion({
   title: string;
   settings: ReaderSettings;
 }) {
-  const [thread, setThread] = useState<CompanionThread | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const latest = useRef({ thread, title, settings });
+  // The ref is the truth; the state mirrors it for rendering. Handlers read
+  // the ref, so a quick second action never acts on a stale render.
+  const answersRef = useRef<CompanionThread[]>([]);
+  const [answers, setAnswersState] = useState<CompanionThread[]>([]);
+  const [openId, setOpenState] = useState<string | null>(null);
+  const openIdRef = useRef<string | null>(null);
+  const setOpenId = useCallback((next: string | null) => {
+    openIdRef.current = next;
+    setOpenState(next);
+  }, []);
+  const controllers = useRef(new Map<string, AbortController>());
+  // The article whose answers may be written to session storage; null once left.
+  const live = useRef<string | null>(null);
+  const latest = useRef({ title, settings });
   useEffect(() => {
-    latest.current = { thread, title, settings };
+    latest.current = { title, settings };
   });
-  useEffect(() => () => abortRef.current?.abort(), []);
 
-  const createThread = useMutation(api.companionThreads.create);
+  const keepThread = useMutation(api.companionThreads.keep);
   const updateTurns = useMutation(api.companionThreads.updateTurns);
   const removeThread = useMutation(api.companionThreads.remove);
+  const recordLookup = useMutation(api.lookups.record);
 
-  const persist = useCallback(
-    async (
-      base: CompanionThread,
-      turns: CompanionTurn[],
-      model: string | null,
-    ) => {
-      const fields = { turns, model: model ?? undefined };
-      if (base.savedId) {
-        await updateTurns({ threadId: base.savedId, ...fields });
-        return base.savedId;
-      }
-      return createThread({
-        articleId,
-        mode: base.mode,
-        selection: base.selection,
-        question: base.question,
-        paragraphIndex: base.paragraphIndex ?? undefined,
-        ...fields,
-      });
-    },
-    [articleId, createThread, updateTurns],
+  const set = useCallback((next: CompanionThread[], save = false) => {
+    answersRef.current = next;
+    setAnswersState(next);
+    if (save && live.current)
+      writeAnswers(live.current, next.filter(holdsForRefresh).map(toStored));
+  }, []);
+  const patch = useCallback(
+    (
+      id: string,
+      change: (t: CompanionThread) => CompanionThread,
+      save = false,
+    ) =>
+      set(
+        answersRef.current.map((a) => (a.id === id ? change(a) : a)),
+        save,
+      ),
+    [set],
   );
+
+  // Arriving on an article restores a refresh's answers; leaving it clears them.
+  // Cleanup does not run on a refresh, so a refresh never clears.
+  useEffect(() => {
+    live.current = articleId;
+    stayOnArticle(articleId);
+    set(restoreAnswers(articleId).map(fromStored));
+    setOpenId(null);
+    const running = controllers.current;
+    return () => {
+      live.current = null;
+      leaveArticle(articleId);
+      for (const controller of running.values()) controller.abort();
+      running.clear();
+    };
+  }, [articleId, set, setOpenId]);
 
   const run = useCallback(
     async (base: CompanionThread, history: CompanionTurn[]) => {
-      abortRef.current?.abort();
+      controllers.current.get(base.id)?.abort();
       const controller = new AbortController();
-      abortRef.current = controller;
+      controllers.current.set(base.id, controller);
 
-      const patch = (fn: (t: CompanionThread) => CompanionThread) =>
-        setThread((t) => (t && t.id === base.id ? fn(t) : t));
-
-      setThread({
+      const streaming: CompanionThread = {
         ...base,
         turns: [...history, { role: "assistant", content: "" }],
         status: "streaming",
         error: undefined,
-      });
+      };
+      set(
+        answersRef.current.some((a) => a.id === base.id)
+          ? answersRef.current.map((a) => (a.id === base.id ? streaming : a))
+          : [...answersRef.current, streaming],
+      );
+      setOpenId(base.id);
 
       const { title, settings } = latest.current;
       const paragraphs = getParagraphs(
@@ -169,6 +240,7 @@ export function useCompanion({
           "/api/companion",
           {
             mode: base.mode,
+            articleId,
             title,
             paragraphs,
             selection: base.selection,
@@ -184,11 +256,11 @@ export function useCompanion({
             signal: controller.signal,
             onModel: (m) => {
               model = m;
-              patch((t) => ({ ...t, model: m }));
+              patch(base.id, (t) => ({ ...t, model: m }));
             },
             onText: (chunk) => {
               answer += chunk;
-              patch((t) => {
+              patch(base.id, (t) => {
                 const turns = t.turns.slice();
                 turns[turns.length - 1] = {
                   role: "assistant",
@@ -200,16 +272,9 @@ export function useCompanion({
           },
         );
         if (!answer.trim()) throw new Error("No answer came back. Try again.");
-        // Save before marking done so a quick follow-up can't create a duplicate.
-        const savedId = await persist(
-          base,
-          [...history, { role: "assistant", content: answer }],
-          model,
-        );
-        patch((t) => ({ ...t, savedId, status: "done" }));
       } catch (error) {
         if (controller.signal.aborted) return;
-        patch((t) => ({
+        patch(base.id, (t) => ({
           ...t,
           status: "error",
           error:
@@ -217,9 +282,41 @@ export function useCompanion({
               ? error.message
               : "Something went wrong.",
         }));
+        return;
       }
+
+      const turns = [
+        ...history,
+        { role: "assistant" as const, content: answer },
+      ];
+      patch(base.id, (t) => ({ ...t, turns, model, status: "done" }), true);
+
+      // A kept answer is the reader's record, so its follow-ups join it.
+      const savedId = answersRef.current.find((a) => a.id === base.id)?.savedId;
+      if (savedId)
+        updateTurns({
+          threadId: savedId,
+          turns,
+          model: model ?? undefined,
+        }).catch(() => toast.error("Couldn't update the kept answer"));
+
+      // The lookup log keeps every completed Define, kept or not (D-DES-058).
+      // Follow-ups are not new lookups, and Regenerate repeats the same one.
+      if (base.mode === "define" && history.length === 0)
+        recordLookup({
+          articleId,
+          word: base.selection,
+          sentence: sentenceAround(
+            base.paragraphIndex === null
+              ? ""
+              : (paragraphs[base.paragraphIndex] ?? ""),
+            base.selection,
+          ),
+          paragraphIndex: base.paragraphIndex ?? undefined,
+          sense: senseOf(answer),
+        }).catch((error) => console.error("Couldn't log the lookup", error));
     },
-    [containerRef, persist],
+    [articleId, containerRef, patch, recordLookup, set, setOpenId, updateTurns],
   );
 
   const start = useCallback(
@@ -233,7 +330,6 @@ export function useCompanion({
           selection,
           question: args.question,
           paragraphIndex: paragraphIndexOf(args.range.startContainer),
-          range: args.range,
           turns: [],
           status: "streaming",
         },
@@ -253,7 +349,6 @@ export function useCompanion({
           selection: "",
           question: question.trim(),
           paragraphIndex: null,
-          range: null,
           turns: [],
           status: "streaming",
         },
@@ -263,77 +358,122 @@ export function useCompanion({
     [run],
   );
 
-  /** Reopens a saved thread without calling the model again. */
+  /** Opens an answer already in this visit. */
+  const openAnswer = useCallback((id: string) => setOpenId(id), [setOpenId]);
+
+  /** Opens a kept answer without calling the model again. */
   const open = useCallback(
-    (doc: Doc<"companionThreads">, range?: Range | null) => {
-      abortRef.current?.abort();
-      const paragraphIndex = doc.paragraphIndex ?? null;
-      let anchor = range ?? null;
-      const body = getArticleBody(containerRef.current);
-      if (!anchor && body && doc.selection) {
-        const preferred =
-          paragraphIndex === null ? null : getParagraphs(body)[paragraphIndex];
-        anchor = findTextRange(body, doc.selection, preferred);
+    (doc: Doc<"companionThreads">) => {
+      const existing = answersRef.current.find(
+        (a) => a.id === doc._id || a.savedId === doc._id,
+      );
+      if (existing) {
+        setOpenId(existing.id);
+        return;
       }
-      setThread({
-        id: doc._id,
-        savedId: doc._id,
-        mode: doc.mode,
-        selection: doc.selection,
-        question: doc.question,
-        paragraphIndex,
-        range: anchor,
-        turns: doc.turns,
-        status: "done",
-        model: doc.model ?? null,
-      });
+      set([...answersRef.current, fromDoc(doc)]);
+      setOpenId(doc._id);
     },
-    [containerRef],
+    [set, setOpenId],
+  );
+
+  const openThread = useCallback(
+    () => answersRef.current.find((a) => a.id === openIdRef.current),
+    [],
   );
 
   const followUp = useCallback(
     (question: string) => {
-      const current = latest.current.thread;
-      if (!current || current.status === "streaming" || !question.trim())
+      const current = openThread();
+      if (
+        !current ||
+        current.status === "streaming" ||
+        current.keeping ||
+        !question.trim()
+      )
         return;
       run(current, [
         ...current.turns,
         { role: "user", content: question.trim() },
       ]);
     },
-    [run],
+    [openThread, run],
   );
 
   const regenerate = useCallback(() => {
-    const current = latest.current.thread;
-    if (!current) return;
+    const current = openThread();
+    if (!current || current.keeping) return;
     const history =
       current.turns[current.turns.length - 1]?.role === "assistant"
         ? current.turns.slice(0, -1)
         : current.turns;
     run(current, history);
-  }, [run]);
+  }, [openThread, run]);
 
-  const close = useCallback(() => {
-    abortRef.current?.abort();
-    setThread(null);
-  }, []);
+  /** Keeps an answer: the one place a new reader writes a thread. */
+  const keep = useCallback(
+    async (id: string): Promise<boolean> => {
+      const current = answersRef.current.find((a) => a.id === id);
+      // One Keep at a time per answer, and only for a finished, unkept answer.
+      if (
+        !current ||
+        current.savedId ||
+        current.keeping ||
+        current.status !== "done"
+      )
+        return false;
+      patch(id, (t) => ({ ...t, keeping: true }));
+      try {
+        const savedId = await keepThread({
+          articleId,
+          mode: current.mode,
+          selection: current.selection,
+          question: current.question,
+          paragraphIndex: current.paragraphIndex ?? undefined,
+          turns: current.turns,
+          model: current.model ?? undefined,
+        });
+        // Saving it drops it from session storage: the record is now the copy.
+        patch(id, (t) => ({ ...t, savedId, keeping: false }), true);
+        return true;
+      } catch {
+        patch(id, (t) => ({ ...t, keeping: false }));
+        return false;
+      }
+    },
+    [articleId, keepThread, patch],
+  );
 
-  const remove = useCallback(async () => {
-    const current = latest.current.thread;
-    abortRef.current?.abort();
-    setThread(null);
-    if (current?.savedId) await removeThread({ threadId: current.savedId });
-  }, [removeThread]);
+  /** Folds the open answer back into the margin; it stays for the visit. */
+  const collapse = useCallback(() => setOpenId(null), [setOpenId]);
+
+  const remove = useCallback(
+    async (id: string) => {
+      const current = answersRef.current.find((a) => a.id === id);
+      controllers.current.get(id)?.abort();
+      controllers.current.delete(id);
+      set(
+        answersRef.current.filter((a) => a.id !== id),
+        true,
+      );
+      if (openIdRef.current === id) setOpenId(null);
+      if (current?.savedId) await removeThread({ threadId: current.savedId });
+    },
+    [removeThread, set, setOpenId],
+  );
 
   return {
-    thread,
+    answers,
+    openId,
+    thread: answers.find((a) => a.id === openId) ?? null,
     start,
     startArticle,
     open,
+    openAnswer,
+    collapse,
     followUp,
     regenerate,
-    close,
+    keep,
     remove,
   };
 }

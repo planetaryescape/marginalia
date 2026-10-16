@@ -28,6 +28,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
       update: "update",
       remove: "remove",
     },
+    companionThreads: { listByArticle: "x", remove: "removeThread" },
   },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));

@@ -8,6 +8,14 @@ const turnValidator = v.object({
   content: v.string(),
 });
 
+const modeValidator = v.union(
+  v.literal("explain"),
+  v.literal("simplify"),
+  v.literal("define"),
+  v.literal("ask"),
+  v.literal("article"),
+);
+
 export const listByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
@@ -31,13 +39,7 @@ export const listByArticleInternal = internalQuery({
 export const create = mutation({
   args: {
     articleId: v.id("articles"),
-    mode: v.union(
-      v.literal("explain"),
-      v.literal("simplify"),
-      v.literal("define"),
-      v.literal("ask"),
-      v.literal("article"),
-    ),
+    mode: modeValidator,
     selection: v.string(),
     question: v.optional(v.string()),
     paragraphIndex: v.optional(v.number()),
@@ -59,6 +61,61 @@ export const create = mutation({
       {
         threadId,
       },
+    );
+    return threadId;
+  },
+});
+
+/**
+ * Keeps an answer the reader chose to keep. Answers are temporary until this
+ * runs, so it is the only way a new reader client creates a thread. Keeping the
+ * same answer again (a double click, a second tab) updates the one row.
+ */
+export const keep = mutation({
+  args: {
+    articleId: v.id("articles"),
+    mode: modeValidator,
+    selection: v.string(),
+    question: v.optional(v.string()),
+    paragraphIndex: v.optional(v.number()),
+    turns: v.array(turnValidator),
+    model: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, ctx.readerId);
+    const now = Date.now();
+    const threads = await ctx.db
+      .query("companionThreads")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .take(200);
+    const existing = threads.find(
+      (t) =>
+        t.userId === ctx.readerId &&
+        t.mode === args.mode &&
+        t.selection === args.selection &&
+        t.question === args.question &&
+        t.paragraphIndex === args.paragraphIndex,
+    );
+    const threadId =
+      existing?._id ??
+      (await ctx.db.insert("companionThreads", {
+        ...args,
+        userId: ctx.readerId,
+        keptAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }));
+    if (existing)
+      await ctx.db.patch("companionThreads", existing._id, {
+        turns: args.turns,
+        model: args.model,
+        keptAt: existing.keptAt ?? now,
+        updatedAt: now,
+      });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.actions.embedReaderActivity.embedThread,
+      { threadId },
     );
     return threadId;
   },

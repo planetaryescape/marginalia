@@ -341,6 +341,26 @@ describe("separate reader libraries", () => {
           }),
       ],
       [
+        "thread keep",
+        () =>
+          reader.mutation(api.companionThreads.keep, {
+            articleId,
+            mode: "ask",
+            selection: "x",
+            turns: [],
+          }),
+      ],
+      [
+        "lookup record",
+        () =>
+          reader.mutation(api.lookups.record, {
+            articleId,
+            word: "x",
+            sentence: "x.",
+            sense: "x",
+          }),
+      ],
+      [
         "thread update",
         () =>
           reader.mutation(api.companionThreads.updateTurns, {

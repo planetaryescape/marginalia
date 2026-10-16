@@ -296,7 +296,13 @@ http.route({
     const ai = await loadReaderAI(ctx, readerId);
     const targets = ai.chain(parsed.data.depth);
     if (!targets.length) return setupNeeded("no_provider");
-    const { system, messages } = buildCompanionPrompt(parsed.data);
+    const summary = parsed.data.articleId
+      ? await ctx.runQuery(internal.summaries.forCompanion, {
+          articleId: parsed.data.articleId,
+          userId: readerId,
+        })
+      : null;
+    const { system, messages } = buildCompanionPrompt(parsed.data, summary);
     const chat: ChatMessage[] = [
       { role: "system", content: system },
       ...messages,

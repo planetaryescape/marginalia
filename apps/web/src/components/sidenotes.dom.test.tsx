@@ -711,3 +711,128 @@ describe("the open card in the column", () => {
     expect(q('[data-key="a:a2"] .sidenote-card-closing')).toBeNull();
   });
 });
+
+describe("Marginalia's answers in the column", () => {
+  const opened = vi.fn();
+  function Answers({
+    openAnswerId,
+    answers = [
+      {
+        id: "d1",
+        label: "Define",
+        text: "A small mountain lake.",
+        selection: "tarn",
+        paragraphIndex: 1,
+      },
+    ],
+  }: {
+    openAnswerId: string | null;
+    answers?: React.ComponentProps<typeof Sidenotes>["answers"];
+  }) {
+    const ref = useRef<HTMLElement>(null);
+    return (
+      <>
+        <article ref={ref}>
+          <div data-article-body>
+            <p data-para="1" data-y="100">
+              Opening words.
+            </p>
+            <p data-para="2" data-y="300">
+              A still tarn lay ahead.
+            </p>
+            <p data-para="3" data-y="400">
+              <mark
+                className="annotation-mark"
+                data-annotation-id="a1"
+                data-y="400"
+              >
+                later mark
+              </mark>
+            </p>
+          </div>
+        </article>
+        <Sidenotes
+          containerRef={ref}
+          mode="sidenotes"
+          version={1}
+          layoutKey={DEFAULT_SETTINGS}
+          annotations={[
+            { _id: "a1", type: "context", content: "A later note" },
+          ]}
+          userNotes={[]}
+          marks={[]}
+          waiting={false}
+          openId={null}
+          answers={answers}
+          openAnswerId={openAnswerId}
+          onOpenAnswer={opened}
+          openCard={
+            openAnswerId ? (
+              <div data-card-height={260}>answer card</div>
+            ) : undefined
+          }
+          onClose={() => {}}
+          onOpenNotes={() => {}}
+        />
+      </>
+    );
+  }
+  const top = (key: string) => q(`[data-key="${key}"]`)?.style.top;
+
+  it("sets a collapsed answer beside its passage, in pencil, and opens it on click", async () => {
+    opened.mockReset();
+    await render(<Answers openAnswerId={null} />);
+    // SAFETY: the answer is rendered by this test, so the node exists.
+    const note = q('[data-key="c:d1"]') as HTMLElement;
+    expect(note.dataset.hand).toBe("pencil");
+    expect(note.textContent).toContain("Define");
+    expect(note.textContent).toContain("A small mountain lake.");
+    expect(top("c:d1")).toBe("304px");
+    await act(async () =>
+      note.querySelector<HTMLElement>(".sidenote-hit")?.click(),
+    );
+    expect(opened).toHaveBeenCalledWith("d1");
+  });
+
+  it("opens the answer's card in the column and pushes the notes below it down", async () => {
+    await render(<Answers openAnswerId={null} />);
+    expect(top("a:a1")).toBe("404px");
+    await render(<Answers openAnswerId="d1" />);
+    // SAFETY: the answer is rendered by this test, so the node exists.
+    const note = q('[data-key="c:d1"]') as HTMLElement;
+    expect(note.dataset.open).toBe("true");
+    expect(
+      note.querySelector(".sidenote-card [data-card-height]"),
+    ).not.toBeNull();
+    expect(top("c:d1")).toBe("304px");
+    // 304 + the 260px card + the 8px gap
+    expect(top("a:a1")).toBe("572px");
+    await render(<Answers openAnswerId={null} />);
+    expect(top("a:a1")).toBe("404px");
+  });
+
+  it("puts an answer about the whole article at the top of the margin", async () => {
+    await render(
+      <Answers
+        openAnswerId={null}
+        answers={[
+          {
+            id: "w1",
+            label: "Ask the article",
+            text: "It argues for patience.",
+            selection: "",
+            paragraphIndex: null,
+          },
+        ]}
+      />,
+    );
+    expect(top("c:w1")).toBe("100px");
+  });
+
+  it("only one note is open: an answer closes the annotation's slot", async () => {
+    await render(<Answers openAnswerId="d1" />);
+    expect(
+      all('.sidenote[data-open="true"]').map((n) => n.dataset.key),
+    ).toEqual(["c:d1"]);
+  });
+});

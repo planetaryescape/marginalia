@@ -417,40 +417,6 @@ export function SelectionToolbar({
               </form>
             ) : (
               <>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("ask")}
-                  title="Ask (A)"
-                >
-                  <MessageCircleQuestion size={14} />
-                  Ask
-                </button>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("explain")}
-                  title="Explain (E)"
-                >
-                  <BookOpenText size={14} />
-                  Explain
-                </button>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("simplify")}
-                  title="Simplify (S)"
-                >
-                  <Wand2 size={14} />
-                  Simplify
-                </button>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("define")}
-                  title="Define in context (D)"
-                  aria-keyshortcuts="d"
-                >
-                  <BookA size={14} />
-                  Define
-                </button>
-                <span className="hidden md:block w-px h-4 mx-1 bg-current opacity-20" />
                 {MARK_TOOLS.map(({ kind, label, key, Icon, swatch }) => {
                   const active = isMarked(kind, range);
                   return (
@@ -490,6 +456,43 @@ export function SelectionToolbar({
                 >
                   <NotebookPen size={14} />
                   <span className="md:hidden">Note</span>
+                </button>
+                <hr
+                  aria-orientation="vertical"
+                  className="hidden md:block w-px h-4 mx-1 border-0 bg-current opacity-20"
+                />
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("explain")}
+                  title="Explain (E)"
+                >
+                  <BookOpenText size={14} />
+                  Explain
+                </button>
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("simplify")}
+                  title="Simplify (S)"
+                >
+                  <Wand2 size={14} />
+                  Simplify
+                </button>
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("define")}
+                  title="Define in context (D)"
+                  aria-keyshortcuts="d"
+                >
+                  <BookA size={14} />
+                  Define
+                </button>
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("ask")}
+                  title="Ask (A)"
+                >
+                  <MessageCircleQuestion size={14} />
+                  Ask
                 </button>
                 <button
                   className={iconClass}

@@ -89,3 +89,29 @@ describe("native passage menus", () => {
     expect(nativeMenu(outside).defaultPrevented).toBe(false);
   });
 });
+
+describe("the passage menu, ordered by hand", () => {
+  it("puts the pen actions first, then a hairline, then the pencil actions, then Copy", async () => {
+    select(article.querySelector("p")!);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+    const toolbar = document.querySelector('[role="toolbar"]')!;
+    const order = Array.from(toolbar.querySelectorAll("button, hr"), (el) =>
+      el.tagName === "HR"
+        ? "|"
+        : (el.getAttribute("aria-label") ?? el.textContent?.trim() ?? ""),
+    );
+    expect(order).toEqual([
+      "Highlight",
+      "Underline",
+      "Add note",
+      "|",
+      "Explain",
+      "Simplify",
+      "Define",
+      "Ask",
+      "Copy",
+    ]);
+  });
+});

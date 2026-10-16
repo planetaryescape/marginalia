@@ -1,11 +1,19 @@
 "use client";
-import type { Doc } from "@marginalia/backend/convex/_generated/dataModel";
 import { useEffect, useRef, useState } from "react";
 import { getArticleBody, getParagraphs } from "./paragraphs";
 import { findTextRange, rangeContainsPoint } from "./text-range";
 
+/** An answer with a passage in the article, kept or not. */
+export interface PassageSource {
+  _id: string;
+  selection: string;
+  paragraphIndex?: number;
+  /** Tinted in the text and opened by a click. Answers with a margin note aren't until kept. */
+  marked: boolean;
+}
+
 export interface SavedPassage {
-  doc: Doc<"companionThreads">;
+  doc: PassageSource;
   range: Range;
 }
 
@@ -14,8 +22,8 @@ function supportsHighlights() {
 }
 
 /**
- * Tints every saved Ask / Explain / Simplify passage in the article and
- * reopens its card on click. Uses the CSS Custom Highlight API, so the
+ * Tints every kept answer's passage in the article, and the passage of any
+ * answer that has no margin note to return to, and reopens it on click. Uses the CSS Custom Highlight API, so the
  * article DOM is never modified.
  */
 export function useSavedPassages({
@@ -26,7 +34,7 @@ export function useSavedPassages({
   onOpen,
 }: {
   containerRef: React.RefObject<HTMLElement | null>;
-  threads: Doc<"companionThreads">[] | undefined;
+  threads: PassageSource[] | undefined;
   /** Paragraph tagging version: bumps whenever the article DOM changes. */
   version: number;
   activeId: string | undefined;
@@ -59,7 +67,7 @@ export function useSavedPassages({
   useEffect(() => {
     if (!supportsHighlights()) return;
     const ranges = passages
-      .filter((p) => p.doc._id !== activeId)
+      .filter((p) => p.doc.marked && p.doc._id !== activeId)
       .map((p) => p.range);
     CSS.highlights.set("companion-saved", new Highlight(...ranges));
     return () => {
@@ -72,8 +80,10 @@ export function useSavedPassages({
     if (!article || !passages.length) return;
 
     const hitTest = (e: MouseEvent) =>
-      passages.find((p) => rangeContainsPoint(p.range, e.clientX, e.clientY)) ??
-      null;
+      passages.find(
+        (p) =>
+          p.doc.marked && rangeContainsPoint(p.range, e.clientX, e.clientY),
+      ) ?? null;
 
     const onClick = (e: MouseEvent) => {
       const selection = window.getSelection();

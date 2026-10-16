@@ -134,6 +134,12 @@ const STEPS: Step[] = [
   ),
   rows((ctx, u) =>
     ctx.db
+      .query("lookups")
+      .withIndex("by_user_created", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
       .query("summaries")
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),

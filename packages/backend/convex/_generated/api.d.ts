@@ -65,6 +65,7 @@ import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_vaultUpload from "../lib/vaultUpload.js";
 import type * as library from "../library.js";
 import type * as limits from "../limits.js";
+import type * as lookups from "../lookups.js";
 import type * as lovedArticles from "../lovedArticles.js";
 import type * as noteChunks from "../noteChunks.js";
 import type * as providerCredentials from "../providerCredentials.js";
@@ -147,6 +148,7 @@ declare const fullApi: ApiFromModules<{
   "lib/vaultUpload": typeof lib_vaultUpload;
   library: typeof library;
   limits: typeof limits;
+  lookups: typeof lookups;
   lovedArticles: typeof lovedArticles;
   noteChunks: typeof noteChunks;
   providerCredentials: typeof providerCredentials;

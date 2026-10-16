@@ -16,7 +16,7 @@ import {
   type Placement,
 } from "@/lib/margin-layout";
 import { type MarginMode, measureGutter } from "@/lib/margin-mode";
-import { getArticleBody } from "@/lib/paragraphs";
+import { getArticleBody, getParagraphs } from "@/lib/paragraphs";
 import type { ReaderSettings } from "@/lib/reader-settings";
 import { findTextRange } from "@/lib/text-range";
 import { usePrefersReducedMotion } from "@/lib/use-margin-mode";
@@ -41,6 +41,18 @@ export interface SidenoteUserNote {
   annotationId?: string;
 }
 
+/** One of Marginalia's answers to the reader: temporary, or kept. */
+export interface SidenoteAnswer {
+  id: string;
+  /** "Define", "Explain", … with " · kept" once the answer is kept. */
+  label: string;
+  /** The first line of the answer. */
+  text: string;
+  /** The passage it answers; empty for a question about the whole article. */
+  selection: string;
+  paragraphIndex: number | null;
+}
+
 interface SidenoteMark {
   doc: { _id: string };
   range: Range;
@@ -60,6 +72,15 @@ type Entry =
       id: string;
       text: string;
       selectedText: string;
+    }
+  | {
+      key: string;
+      kind: "answer";
+      id: string;
+      label: string;
+      text: string;
+      selection: string;
+      paragraphIndex: number | null;
     }
   | { key: "waiting"; kind: "waiting" };
 
@@ -113,6 +134,9 @@ export function Sidenotes({
   marks,
   waiting,
   openId,
+  answers,
+  openAnswerId,
+  onOpenAnswer,
   onClose,
   onOpenNotes,
   openCard,
@@ -130,9 +154,14 @@ export function Sidenotes({
   waiting: boolean;
   /** The annotation whose card is open, if any. */
   openId: string | null;
+  /** Marginalia's answers, each a note beside its passage. */
+  answers?: SidenoteAnswer[];
+  /** The answer whose card is open, if any; only one note is open at a time. */
+  openAnswerId?: string | null;
+  onOpenAnswer?: (id: string) => void;
   onClose: () => void;
   onOpenNotes: () => void;
-  /** The open annotation's card; it takes the open note's place in the column. */
+  /** The open note's card; it takes the note's place in the column. */
   openCard?: ReactNode;
 }) {
   const active = mode === "sidenotes";
@@ -143,9 +172,19 @@ export function Sidenotes({
   const reduced = usePrefersReducedMotion();
   const [arrived, setArrived] = useState<ReadonlySet<string>>(new Set());
 
+  const openKey = openAnswerId
+    ? `c:${openAnswerId}`
+    : openId
+      ? `a:${openId}`
+      : undefined;
+
   const entries = useMemo<Entry[]>(() => {
     const list: Entry[] = [];
     if (waiting) list.push({ key: "waiting", kind: "waiting" });
+    // Whole-article answers come first: they sit at the top of the margin.
+    for (const a of answers ?? []) {
+      list.push({ key: `c:${a.id}`, kind: "answer", ...a });
+    }
     for (const a of annotations ?? []) {
       list.push({
         key: `a:${a._id}`,
@@ -170,7 +209,7 @@ export function Sidenotes({
       });
     }
     return list;
-  }, [annotations, userNotes, waiting]);
+  }, [annotations, answers, userNotes, waiting]);
 
   // Resolved ranges survive layout passes; they only go stale with the HTML.
   const ranges = useRef<{ key: string; map: Map<string, Range | null> }>({
@@ -212,6 +251,29 @@ export function Sidenotes({
           `[data-annotation-id="${CSS.escape(entry.id)}"]`,
         );
         rect = firstRect(host?.getClientRects());
+      } else if (entry.kind === "answer") {
+        if (entry.paragraphIndex === null && !entry.selection) {
+          // A question about the whole piece: the top of the article's margin.
+          host = body.querySelector("[data-para]") ?? body;
+          rect = firstRect(host.getClientRects());
+        } else {
+          let range = ranges.current.map.get(entry.key);
+          if (range === undefined) {
+            range = findTextRange(
+              body,
+              entry.selection,
+              entry.paragraphIndex === null
+                ? null
+                : getParagraphs(body)[entry.paragraphIndex],
+            );
+            ranges.current.map.set(entry.key, range);
+          }
+          rect = firstRect(range?.getClientRects());
+          host =
+            range?.startContainer instanceof Element
+              ? range.startContainer
+              : (range?.startContainer.parentElement ?? null);
+        }
       } else if (entry.kind === "note") {
         let range = ranges.current.map.get(entry.key);
         if (range === undefined) {
@@ -238,17 +300,24 @@ export function Sidenotes({
           COLLAPSED_HEIGHT);
       notes.push({
         id: entry.key,
-        anchor: entry.kind === "waiting" ? rect.top + scrollY : centred(rect),
+        anchor:
+          entry.kind === "waiting" ||
+          (entry.kind === "answer" && !entry.selection)
+            ? rect.top + scrollY
+            : centred(rect),
         height,
         collapsedHeight: entry.kind === "waiting" ? height : COLLAPSED_HEIGHT,
         hand: entry.kind === "note" ? "pen" : "pencil",
-        mergeable: entry.kind !== "waiting" && !isOpenNote,
+        mergeable:
+          entry.kind !== "waiting" &&
+          !(entry.kind === "answer" && !entry.selection) &&
+          !isOpenNote,
       });
     }
 
     const placements = layoutMargin(notes, {
       contentEnd: body.getBoundingClientRect().bottom + scrollY,
-      openId: openId ? `a:${openId}` : undefined,
+      openId: openKey,
     });
     const ticks = marks.flatMap((m) => {
       const rect = m.range.startContainer.isConnected
@@ -268,7 +337,7 @@ export function Sidenotes({
     if (json === layoutJson.current) return;
     layoutJson.current = json;
     setLayout(next);
-  }, [containerRef, entries, marks, version, openId]);
+  }, [containerRef, entries, marks, version, openKey]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `layoutKey` asks for a re-measure
   useLayoutEffect(() => {
@@ -277,13 +346,13 @@ export function Sidenotes({
 
   // The open card grows as its content streams in, and the notes below follow its height.
   useEffect(() => {
-    const el = openId ? nodes.current.get(`a:${openId}`) : undefined;
+    const el = openKey ? nodes.current.get(openKey) : undefined;
     if (!active || !el) return;
     // Observe the card itself: its size is its content's, not the animated slot's.
     const resize = new ResizeObserver(() => run());
     resize.observe(el.querySelector<HTMLElement>(".sidenote-card") ?? el);
     return () => resize.disconnect();
-  }, [active, openId, run]);
+  }, [active, openKey, run]);
 
   // Notes that move slide from where they were, so they never jump. A note that
   // opens or closes also grows or shrinks its slot over the same duration and
@@ -302,7 +371,7 @@ export function Sidenotes({
     card: ReactNode;
   } | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `openId` must run this pass even when the layout is unchanged
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `openKey` must run this pass even when the layout is unchanged
   useLayoutEffect(() => {
     for (const [key, placement] of Object.entries(layout.placements)) {
       const previous = lastTops.current.get(key);
@@ -360,7 +429,7 @@ export function Sidenotes({
       }
       slot.height = to;
     }
-  }, [layout, openId, reduced]);
+  }, [layout, openKey, reduced]);
 
   // Anything that moves lines without a React update: resize, the notes pane, web fonts.
   useEffect(() => {
@@ -445,7 +514,7 @@ export function Sidenotes({
 
   // A click on the page closes the open note.
   useEffect(() => {
-    if (!active || !openId) return;
+    if (!active || !openKey) return;
     const onClick = (e: MouseEvent) => {
       const target = e.target instanceof Element ? e.target : null;
       if (
@@ -460,21 +529,21 @@ export function Sidenotes({
     };
     document.addEventListener("click", onClick);
     return () => document.removeEventListener("click", onClick);
-  }, [active, openId, onClose]);
+  }, [active, openKey, onClose]);
 
   // Closing hands focus back to the note the card grew from.
   const lastOpen = useRef<string | null>(null);
   useEffect(() => {
     const closed = lastOpen.current;
-    lastOpen.current = openId;
-    if (!closed || openId) return;
+    lastOpen.current = openKey ?? null;
+    if (!closed || openKey) return;
     const focused = document.activeElement;
     if (focused && focused !== document.body) return;
     nodes.current
-      .get(`a:${closed}`)
+      .get(closed)
       ?.querySelector<HTMLElement>(".sidenote-hit")
       ?.focus({ preventScroll: true });
-  }, [openId]);
+  }, [openKey]);
 
   if (!active) return null;
 
@@ -488,11 +557,16 @@ export function Sidenotes({
       {entries.map((entry) => {
         const placement = layout.placements[entry.key];
         const isNote = entry.kind === "note";
+        const isAnswer = entry.kind === "answer";
         const kind =
           entry.kind === "annotation" ? KINDS[entry.type] : undefined;
-        const label = isNote ? "your note" : (kind?.name ?? "");
+        const label = isNote
+          ? "your note"
+          : entry.kind === "answer"
+            ? entry.label
+            : (kind?.name ?? "");
         const paragraph = layout.labels[entry.key];
-        const isOpen = entry.kind === "annotation" && entry.id === openId;
+        const isOpen = entry.key === openKey;
         const isClosing = closing?.key === entry.key && !isOpen;
         const isArrived =
           reduced ||
@@ -579,13 +653,19 @@ export function Sidenotes({
                   type="button"
                   className="sidenote-hit"
                   // Marks are the keyboard stop for annotations (they carry this
-                  // text via aria-describedby); your own notes have no mark, so
-                  // they take a stop of their own.
-                  tabIndex={isNote ? 0 : -1}
+                  // text via aria-describedby); your own notes and answers have no
+                  // mark, so they take a stop of their own.
+                  tabIndex={isNote || isAnswer ? 0 : -1}
                   // Hidden, not removed: the slot measures this collapsed text as it shrinks.
                   style={isClosing ? { visibility: "hidden" } : undefined}
                   aria-label={`${label}: ${entry.text}`}
-                  onClick={() => (isNote ? onOpenNotes() : openMark(entry.id))}
+                  onClick={() =>
+                    isNote
+                      ? onOpenNotes()
+                      : isAnswer
+                        ? onOpenAnswer?.(entry.id)
+                        : openMark(entry.id)
+                  }
                 >
                   <span className="sidenote-body">
                     <span className="sidenote-kind">

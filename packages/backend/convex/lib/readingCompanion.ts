@@ -9,6 +9,9 @@ export const companionRequestSchema = z
   .object({
     // "article" questions are about the whole piece and have no passage
     mode: z.enum(["explain", "simplify", "define", "ask", "article"]),
+    // Lets the server add the article's summary as background. Optional so an
+    // older client keeps working, without the summary.
+    articleId: z.string().max(100).optional(),
     title: z.string().max(500),
     paragraphs: z.array(z.string().max(20_000)).max(4000),
     selection: z.string().trim().max(4000).default(""),
@@ -48,7 +51,7 @@ The article is given with numbered paragraphs (¶1, ¶2, …). When there is a h
 
 How to answer:
 - Start with ONE plain sentence that directly answers. Put it alone in the first paragraph.
-- Then one or two short paragraphs that add what the reader actually needs: how the passage or idea fits the author's argument, what a term or reference means, background the author assumes, or what is easy to miss.
+- Then add only what the reader actually needs, within the length the task gives: how the passage or idea fits the author's argument, what a term or reference means, background the author assumes, or what is easy to miss. Stop when that is done; never pad.
 - Ground claims in the article and cite paragraphs inline like ¶12 or ¶4–6. Only cite paragraphs that exist.
 - If you draw on knowledge from outside the article, say so briefly. If the article doesn't support an answer, say that instead of guessing.
 - Use \`backticks\` for code, identifiers, and commands. Use **bold** sparingly. No headings, no bullet lists, no preamble such as "Great question" or "This passage".`;
@@ -83,14 +86,14 @@ export function buildSystemPrompt(
 
 const TASKS: Record<CompanionRequest["mode"], string> = {
   explain:
-    "Explain what the highlighted passage means in the context of this article: what the author is saying, why it matters at this point in the piece, and any jargon, reference or background the reader needs.",
+    "Explain what the highlighted passage means in the context of this article: what the author is saying, why it matters at this point in the piece, and any jargon, reference or background the reader needs. Keep it to one short paragraph.",
   simplify:
-    "Rewrite the highlighted passage in plain, everyday language a curious non-expert would follow. The first sentence is the plain-language rewrite itself. Afterwards, briefly note any nuance the simpler version loses, if it matters.",
+    "Rewrite the highlighted passage in plain, everyday language a curious non-expert would follow. The first sentence is the plain-language rewrite itself. Afterwards, briefly note any nuance the simpler version loses, if it matters. Keep it to one short paragraph.",
   define:
-    "Define the selected word or phrase, rather than explaining the whole argument. Start with its ordinary dictionary-style meaning and part of speech. Then identify the precise sense in this sentence and article, including technical, idiomatic or figurative usage, citing the surrounding paragraph. If several words are selected, treat an idiom as a unit; otherwise identify the key term and name it explicitly. Briefly give etymology only when you know it reliably and it helps; acknowledge uncertainty rather than inventing an origin. Offer two or three synonyms or short substitute phrases that fit the grammar, tone and meaning of this actual sentence, showing the relevant sentence fragment with each replacement and noting any change in nuance. If no faithful substitute exists, say so. Prioritize meaning and context when the answer length is brief.",
-  ask: "Answer the reader's question about the highlighted passage.",
+    "Define the selected word or phrase, rather than explaining the whole argument. Start with its ordinary dictionary-style meaning and part of speech. Then identify the precise sense in this sentence and article, including technical, idiomatic or figurative usage, citing the surrounding paragraph. If several words are selected, treat an idiom as a unit; otherwise identify the key term and name it explicitly. Briefly give etymology only when you know it reliably and it helps; acknowledge uncertainty rather than inventing an origin. Offer two or three synonyms or short substitute phrases that fit the grammar, tone and meaning of this actual sentence, showing the relevant sentence fragment with each replacement and noting any change in nuance. If no faithful substitute exists, say so. Be brief: answer in a line or two, and leave out any part (etymology, synonyms) that does not earn its place in that space. Prioritize meaning and context.",
+  ask: "Answer the reader's question about the highlighted passage. Be as long as the question needs and no longer.",
   article:
-    "Answer the reader's question about the article as a whole. Draw on whichever parts of the article bear on it, citing them by ¶.",
+    "Answer the reader's question about the article as a whole. Draw on whichever parts of the article bear on it, citing them by ¶. Be as long as the question needs and no longer.",
 };
 
 export function selectParagraphWindow(
@@ -120,18 +123,99 @@ export function selectParagraphWindow(
   return [...picked].sort((a, b) => a - b);
 }
 
+export interface ArticleSummary {
+  thesis?: string;
+  gist: string;
+}
+
+/** Paragraphs either side of the passage that Explain, Simplify and Ask see. */
+const NEIGHBOURS = 1;
+/** How far past its first paragraph a passage is searched for its last one. */
+const MAX_PASSAGE_SPAN = 20;
+
+const squash = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/** The paragraph the passage starts in, found by text when the client sent no index. */
+function passageStart(request: CompanionRequest): number | null {
+  const { paragraphs, paragraphIndex, selection } = request;
+  if (paragraphIndex !== null && paragraphIndex < paragraphs.length)
+    return paragraphIndex;
+  const needle = squash(selection);
+  if (!needle) return null;
+  const found = paragraphs.findIndex((p) => squash(p).includes(needle));
+  return found < 0 ? null : found;
+}
+
+/** The last paragraph of a passage that runs across several. */
+function passageEnd(request: CompanionRequest, start: number): number {
+  const selection = squash(request.selection);
+  const last = Math.min(
+    request.paragraphs.length - 1,
+    start + MAX_PASSAGE_SPAN,
+  );
+  let end = start;
+  // A selection that runs on into a paragraph contains that paragraph's opening.
+  while (end < last) {
+    const head = squash(request.paragraphs[end + 1]).slice(0, 40);
+    if (!head || !selection.includes(head)) break;
+    end++;
+  }
+  return end;
+}
+
+/**
+ * The paragraphs each tool gets: only what its question needs (D-DES-054).
+ * Define sees the sentence's paragraph; Explain, Simplify and Ask about a
+ * passage see the passage and a paragraph either side. Asking about the whole
+ * article keeps today's window until book-scale retrieval (rung 3b).
+ */
+export interface ParagraphContext {
+  indices: number[];
+  marked: Set<number>;
+}
+
+export function selectContext(request: CompanionRequest): ParagraphContext {
+  const { paragraphs, mode } = request;
+  const start = mode === "article" ? null : passageStart(request);
+  if (start === null) {
+    // No passage to centre on: either the whole-article tool or a selection
+    // that could not be placed. Both keep the legacy window from ¶1.
+    return {
+      indices: selectParagraphWindow(paragraphs, request.paragraphIndex),
+      marked: new Set(),
+    };
+  }
+  const end = mode === "define" ? start : passageEnd(request, start);
+  // Seam for rung 3b: "ask" will add the passages found by searching the
+  // document for the question; until then it sees the same window as Explain.
+  const reach = mode === "define" ? 0 : NEIGHBOURS;
+  const indices: number[] = [];
+  for (
+    let i = Math.max(0, start - reach);
+    i <= Math.min(paragraphs.length - 1, end + reach);
+    i++
+  )
+    indices.push(i);
+  const marked = new Set<number>();
+  for (let i = start; i <= end; i++) marked.add(i);
+  return { indices, marked };
+}
+
 export function formatArticle(
   title: string,
   paragraphs: string[],
   paragraphIndex: number | null,
+  context?: ParagraphContext,
 ): string {
-  const indices = selectParagraphWindow(paragraphs, paragraphIndex);
+  const indices =
+    context?.indices ?? selectParagraphWindow(paragraphs, paragraphIndex);
+  const marked =
+    context?.marked ?? new Set(paragraphIndex === null ? [] : [paragraphIndex]);
   const lines: string[] = [];
   let previous = -1;
   for (const i of indices) {
     if (i !== previous + 1) lines.push("[…]");
-    const marker =
-      i === paragraphIndex ? " ← contains the highlighted passage" : "";
+    const marker = marked.has(i) ? " ← contains the highlighted passage" : "";
     lines.push(`¶${i + 1}${marker}\n${paragraphs[i]}`);
     previous = i;
   }
@@ -140,7 +224,24 @@ export function formatArticle(
   return `# ${title || "Untitled"}\n\n${lines.join("\n\n")}`;
 }
 
-export function buildCompanionPrompt(request: CompanionRequest): {
+function formatSummary(summary: ArticleSummary | null | undefined): string[] {
+  if (!summary) return [];
+  const body = [summary.thesis, summary.gist].filter(Boolean).join("\n\n");
+  return body
+    ? [
+        "<summary>",
+        "Background on the whole piece, for orientation. The ¶ numbers refer only to the excerpt below.",
+        body,
+        "</summary>",
+        "",
+      ]
+    : [];
+}
+
+export function buildCompanionPrompt(
+  request: CompanionRequest,
+  summary?: ArticleSummary | null,
+): {
   system: string;
   messages: { role: "user" | "assistant"; content: string }[];
 } {
@@ -158,8 +259,14 @@ export function buildCompanionPrompt(request: CompanionRequest): {
           "",
         ];
   const opening = [
+    ...formatSummary(summary),
     "<article>",
-    formatArticle(request.title, request.paragraphs, request.paragraphIndex),
+    formatArticle(
+      request.title,
+      request.paragraphs,
+      request.paragraphIndex,
+      selectContext(request),
+    ),
     "</article>",
     "",
     ...passage,
