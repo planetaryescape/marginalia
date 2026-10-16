@@ -30,7 +30,7 @@ export function StarRating({ rating }: { rating: number }) {
             strokeWidth={1.5}
             aria-hidden
             fill={filled ? "currentColor" : "none"}
-            className={filled ? "text-[var(--pen)]" : "text-[var(--ink-muted)]"}
+            className={filled ? "text-[var(--ink)]" : "text-[var(--ink-muted)]"}
           />
         );
       })}
