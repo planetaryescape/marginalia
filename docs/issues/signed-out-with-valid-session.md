@@ -16,3 +16,14 @@ Next step: when it recurs, capture `navigator.serviceWorker.controller?.scriptUR
 ## Second sighting, 2026-10-16 after the rung 4 deploy
 
 Right after `vercel deploy --prod` of `27cce50`, the first page load in the same automated browser showed the previous build's header and Library. A reload a minute later showed the new build. During the stale view, `/saved` already redirected (new server code) and the service worker was ruled out: `sw.js` caches only the offline screen and passes every navigation to the network, and the loaded `_next/static` chunks matched what the server served at that moment. Both sightings came within seconds of a production deploy, so the likely window is the domain alias switching between deployments: an HTML response from one deployment with client state or chunks from the other. When it recurs, record the time against the deploy's alias time (`vercel inspect reader.bhekani.com`) before reloading.
+
+## Cause found in code, fixed at `c527438` (2026-10-16)
+
+`ConvexProviderWithAuth` treats a null token as signed out. When its forced refetch returns null, `authentication_manager.js` (convex 1.46.0, `refetchToken`) calls `setAndReportAuthFailed`, and nothing asks for a token again until the token function changes, which in `lib/convex.tsx` happened only when the session id changed. Our token function returned null for every failure, including a network error or a 5xx while a deploy switches the domain. One transient failure therefore looked exactly like a sign-out, and stayed that way until a full browser restart. Reloading inside the same failure window failed the same way.
+
+The fix:
+- **Token fetch:** `lib/auth-retry.ts` retries transient token failures after 0.5 s, 1.5 s and 4 s. It returns null only for a 401 or 403, or once the retries run out.
+- **Session check:** a failed session check that isn't a 401 now counts as still loading, not signed out.
+- **Gate:** when a session exists but Convex auth failed, the auth gate shows "Reconnecting to your library…". It re-arms Convex auth after 3 s, and offers Try again and Sign out.
+
+A probe of `/api/auth/get-session` and `/api/auth/convex/token` every second through the `c527438` deploy (36 checks) saw no failure, so the exact failing request in the earlier sightings is still unobserved. Leave this open until a deploy passes without the sign-in screen in a long-lived browser. If the stale-build half recurs (an old header after a deploy), record `vercel inspect` alias time against the page load.
