@@ -73,7 +73,7 @@ Lookups are recorded on every Define, whether or not BK kept the answer (D-DES-0
 
 ## Your week (inside Your reading)
 
-The approved rung 5b comp replaced "This week" with the Your reading room's own opening view. The room opens on one sentence ("This month you read for 1 hour 30 minutes over 5 days, mostly short reads in the afternoon."), with the period as a quiet text control ("This month ▾"), then the pictures from [Stats](#stats).
+The approved rung 5b comp replaced "This week" with the Your reading room's own opening view. The room opens on one sentence ("This month you read for 6 hours over 19 days, mostly in short sittings before 9 a.m."), with the period as a quiet text control ("This month ▾"), then the pictures from [Stats](#stats).
 
 - The hour-by-day heat map takes the place of the daily rhythm bars, because it shows when as well as how much.
 - The week's notes stay in Notes, not in a "What you kept" list, because the room is a mirror of how BK reads, not a second copy of what he kept.
