@@ -60,6 +60,10 @@ export function useReadable(
     /** Identity of the part whose text is on screen */
     unitKey: unit && article ? unit._id : undefined,
     outline: book?.outline,
+    /** The part and percent the reader got furthest to, for resuming within it */
+    furthest: book
+      ? { unit: book.furthestUnit, scroll: book.furthestScroll }
+      : undefined,
     /** Each part's one-line summary by part, null until written */
     summaries: book?.summaries,
     /** A part that doesn't exist (a stale link): the reader falls back to the first. */

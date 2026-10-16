@@ -1,9 +1,14 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { libraryIsActive } from "./access";
+import { libraryIsActive, ownedArticle } from "./access";
 import { countFeedOutcome } from "./feedStats";
-import { internalMutation, type MutationCtx, mutation } from "./functions";
+import {
+  internalMutation,
+  type MutationCtx,
+  mutation,
+  query,
+} from "./functions";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 import {
   capDwell,
@@ -274,4 +279,25 @@ export const checkpoint = mutation({
 export const record = internalMutation({
   args: { ...args, userId: v.string() },
   handler: (ctx, { userId, ...input }) => saveCheckpoint(ctx, input, userId),
+});
+
+/**
+ * How far the reader has got into an article across every visit, as a percent
+ * of its body, or null when it is not theirs. The reader scrolls back to it on
+ * reopening. Only the percent is recorded, not a paragraph, so the place is a
+ * proportion of the text.
+ */
+export const furthest = query({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    const article = await ownedArticle(ctx, args.articleId, ctx.readerId);
+    if (!article) return null;
+    const visits = await ctx.db
+      .query("readingActivity")
+      .withIndex("by_user_article", (q) =>
+        q.eq("userId", ctx.readerId).eq("articleId", article._id),
+      )
+      .take(200);
+    return visits.reduce((max, v) => Math.max(max, v.maxScrollPercent), 0);
+  },
 });

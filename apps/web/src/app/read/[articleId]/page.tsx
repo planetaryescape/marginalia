@@ -51,6 +51,7 @@ import {
   paragraphIndexOf,
   useParagraphs,
 } from "@/lib/paragraphs";
+import { shouldRestorePlace } from "@/lib/place-restore";
 import { escapeGoesBack } from "@/lib/reader-escape";
 import { revealImpression } from "@/lib/reader-impression";
 import { attachLeavingLinks, type LeavingLink } from "@/lib/reader-links";
@@ -74,6 +75,7 @@ import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
+import { usePlaceRestore } from "@/lib/use-place-restore";
 import { useQuoteLanding } from "@/lib/use-quote-landing";
 import { useReadAlongside } from "@/lib/use-read-alongside";
 import { useReaderTheme } from "@/lib/use-reader-theme";
@@ -97,6 +99,7 @@ export default function ReadPage() {
     unitKey,
     outline,
     summaries,
+    furthest,
     missingUnit,
   } = useReadable(articleId as Id<"articles">, searchParams.get("unit"));
   // What a book's marks, notes and kept answers are filed under; absent for an article
@@ -175,6 +178,31 @@ export default function ReadPage() {
     Number.isFinite(landingParagraph) && landingParagraph >= 0
       ? landingParagraph
       : null,
+  );
+  // Reopening an unfinished article, or a book's part, returns to where the reader stopped.
+  // A link that names a passage lands there instead.
+  const articleProgressSaved = useQuery(
+    api.readingActivity.furthest,
+    isBook ? "skip" : { articleId: articleId as any },
+  );
+  const savedPercent = isBook
+    ? furthest && furthest.unit === unitIndex
+      ? furthest.scroll
+      : null
+    : articleProgressSaved;
+  usePlaceRestore(
+    articleRef,
+    `${articleId}:${unitIndex ?? ""}`,
+    article &&
+      shouldRestorePlace({
+        percent: savedPercent,
+        finished: article.finishedAt !== undefined,
+        hasTarget:
+          searchParams.get("quote") !== null || searchParams.get("p") !== null,
+      })
+      ? (savedPercent ?? null)
+      : null,
+    paragraphs.version,
   );
   const position = useReadingPosition(articleRef, paragraphs.version);
   const summary = useQuery(api.summaries.getByArticle, {

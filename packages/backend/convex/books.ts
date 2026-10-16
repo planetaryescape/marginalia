@@ -143,6 +143,7 @@ export const get = query({
       summaries: await unitSummaries(ctx, ctx.readerId, article._id),
       finishedThrough: book.finishedThrough,
       furthestUnit: book.furthestUnit,
+      furthestScroll: book.furthestScroll,
       nextUnit: Math.min(
         nextUnitIndex(book),
         Math.max(0, article.bookOutline.length - 1),

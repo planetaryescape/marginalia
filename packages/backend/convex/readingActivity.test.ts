@@ -227,4 +227,36 @@ describe("reading checkpoints", () => {
       expect(all.every((r) => r.userId === "default_user")).toBe(true);
     });
   });
+
+  describe("furthest place", () => {
+    it("is the furthest any visit reached, and null for another reader's article", async () => {
+      const { t, articleId, checkpoint } = await fixture();
+      expect(await t.query(api.readingActivity.furthest, { articleId })).toBe(
+        0,
+      );
+      await t.mutation(api.readingActivity.checkpoint, checkpoint);
+      await t.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint,
+        visitId: "270d1ba0-28c2-44b1-9d97-c9f9bc9e944e",
+        maxScrollPercent: 65,
+      });
+      expect(await t.query(api.readingActivity.furthest, { articleId })).toBe(
+        65,
+      );
+      const other = await t.run((ctx) =>
+        ctx.db.insert("articles", {
+          userId: "someone_else",
+          guid: "theirs",
+          url: "https://example.com/theirs",
+          title: "Theirs",
+          extractionStatus: "extracted",
+          annotationStatus: "annotated",
+          createdAt: Date.now(),
+        }),
+      );
+      expect(
+        await t.query(api.readingActivity.furthest, { articleId: other }),
+      ).toBeNull();
+    });
+  });
 });
