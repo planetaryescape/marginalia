@@ -58,7 +58,7 @@ export const bookOverviewSchema = z.object({
     ),
 });
 
-export const SUMMARY_SYSTEM = `You summarise one part of a longer book for a reader's outline. You are given the book's title and the text of a single part. Write one or two plain sentences saying what this part covers and the point it makes. Describe only this part; do not guess at the rest of the book. No preamble, no "this chapter".`;
+export const SUMMARY_SYSTEM = `You summarise one part of a longer book for a reader's outline. You are given the book's title and the text of a single part. Write one or two plain sentences saying what this part covers and the point it makes. Describe only this part; do not guess at the rest of the book. Start with what it covers, never with the part itself ("this part", "this chapter"), and never say where it falls in the book ("final", "last", "opening"): the outline already shows its place.`;
 
 export const OVERVIEW_SYSTEM = `You write the main point of a book from the short summaries of its parts. You are given the book's title and its parts in order, each with a summary. Give the book's one point in a sentence, and a short gist of what it argues or covers. Use only what the summaries say.`;
 
