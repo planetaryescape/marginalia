@@ -73,7 +73,7 @@ import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { usePlaceRestore } from "@/lib/use-place-restore";
-import { useQuoteLanding } from "@/lib/use-quote-landing";
+import { openAfterLanding, useQuoteLanding } from "@/lib/use-quote-landing";
 import { useReadAlongside } from "@/lib/use-read-alongside";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import {
@@ -168,7 +168,7 @@ export default function ReadPage() {
   const paragraphs = useParagraphs(articleRef, Boolean(article));
   // A link from Notes names the passage to land on, e.g. `?quote=`.
   const landingParagraph = Number.parseInt(searchParams.get("p") ?? "", 10);
-  useQuoteLanding(
+  const landed = useQuoteLanding(
     articleRef,
     searchParams.get("quote"),
     paragraphs.version,
@@ -464,6 +464,25 @@ export default function ReadPage() {
     [savedThreads, companion.answers, companion.open, companion.openAnswer],
   );
   const answers = answerNotes(companion.answers, savedThreads);
+
+  // A link from Notes lands on its line, then opens the note or answer it was for, once.
+  const linkedNote = searchParams.get("note");
+  const linkedAnswer = searchParams.get("answer");
+  const openedLink = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${articleId}:${linkedNote ?? ""}:${linkedAnswer ?? ""}`;
+    if (openedLink.current === key) return;
+    const action = openAfterLanding({
+      landed,
+      note: linkedNote,
+      answer: linkedAnswer,
+      loadedAnswerIds: savedThreads?.map((t) => t._id),
+    });
+    if (!action) return;
+    openedLink.current = key;
+    if (action.open === "notes") setNotesPanelOpen(true);
+    else openAnswer(action.id);
+  }, [landed, linkedNote, linkedAnswer, savedThreads, articleId, openAnswer]);
 
   const toggleListen = useCallback(() => {
     if (listen.active) {

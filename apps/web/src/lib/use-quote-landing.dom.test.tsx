@@ -2,7 +2,7 @@
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useQuoteLanding } from "./use-quote-landing";
+import { openAfterLanding, useQuoteLanding } from "./use-quote-landing";
 
 let root: Root;
 let host: HTMLElement;
@@ -18,9 +18,9 @@ function Reader({
   last?: string;
 }) {
   const ref = useRef<HTMLElement>(null);
-  useQuoteLanding(ref, quote, version);
+  const landed = useQuoteLanding(ref, quote, version);
   return (
-    <article ref={ref}>
+    <article ref={ref} data-landed={landed}>
       <div data-article-body>
         <p>The first paragraph is about trains and their timetables.</p>
         <p>
@@ -83,5 +83,40 @@ describe("useQuoteLanding", () => {
     await render("The closing line is new.", 2, "The closing line is new.");
     expect(scrolled).toHaveLength(1);
     expect(scrolled[0].textContent).toBe("The closing line is new.");
+  });
+});
+
+describe("useQuoteLanding result", () => {
+  it("says whether the quote has landed", async () => {
+    await render("The closing line is new.", 1, "The old closing line.");
+    expect(host.querySelector("article")?.getAttribute("data-landed")).toBe(
+      "false",
+    );
+    await render("The closing line is new.", 2, "The closing line is new.");
+    expect(host.querySelector("article")?.getAttribute("data-landed")).toBe(
+      "true",
+    );
+  });
+});
+
+describe("openAfterLanding", () => {
+  const base = { landed: true, note: null, answer: null, loadedAnswerIds: [] };
+  it("opens the Notes panel for a note once its line has landed", () => {
+    expect(openAfterLanding({ ...base, note: "n1" })).toEqual({
+      open: "notes",
+    });
+    expect(openAfterLanding({ ...base, note: "n1", landed: false })).toBeNull();
+  });
+  it("opens a kept answer only once the reader has loaded it", () => {
+    expect(openAfterLanding({ ...base, answer: "t1" })).toBeNull();
+    expect(
+      openAfterLanding({ ...base, answer: "t1", loadedAnswerIds: ["t1"] }),
+    ).toEqual({ open: "answer", id: "t1" });
+    expect(
+      openAfterLanding({ ...base, answer: "t1", loadedAnswerIds: undefined }),
+    ).toBeNull();
+  });
+  it("opens nothing for a plain quote link", () => {
+    expect(openAfterLanding(base)).toBeNull();
   });
 });

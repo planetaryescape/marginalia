@@ -98,6 +98,14 @@ export function NotesList() {
   );
 }
 
+/** Where a row opens, and which note or answer the reader should open on arriving. */
+type LinkTo = (
+  quote?: string,
+  paragraphIndex?: number,
+  unitIndex?: number,
+  opens?: { note?: string; answer?: string },
+) => string | null;
+
 function ArticleNotesGroup({
   group,
   onDelete,
@@ -112,10 +120,10 @@ function ArticleNotesGroup({
   const article = useQuery(api.articles.getById, { articleId });
   const source = article ? sourceOf(article.url) : null;
   // Where a row opens: the reader at a quote, or nowhere once the article is gone.
-  const at = (quote?: string, paragraphIndex?: number, unitIndex?: number) =>
+  const at: LinkTo = (quote, paragraphIndex, unitIndex, opens) =>
     article === null
       ? null
-      : readLink(articleId, quote, paragraphIndex, unitIndex);
+      : readLink(articleId, quote, paragraphIndex, unitIndex, opens);
 
   return (
     <section className="mb-10">
@@ -162,11 +170,7 @@ function GroupRow({
   onDeleteAnswer,
 }: {
   item: GroupItem;
-  at: (
-    quote?: string,
-    paragraphIndex?: number,
-    unitIndex?: number,
-  ) => string | null;
+  at: LinkTo;
   onDelete: (noteId: Id<"userNotes">) => void;
   onDeleteAnswer: (threadId: Id<"companionThreads">) => void;
 }) {
@@ -195,17 +199,15 @@ function NoteRow({
   onDelete,
 }: {
   note: Doc<"userNotes">;
-  at: (
-    quote?: string,
-    paragraphIndex?: number,
-    unitIndex?: number,
-  ) => string | null;
+  at: LinkTo;
   onDelete: () => void;
 }) {
   return (
     <div className="group">
       <Opens
-        href={at(note.selectedText || undefined, undefined, note.unitIndex)}
+        href={at(note.selectedText || undefined, undefined, note.unitIndex, {
+          note: note._id,
+        })}
         className="block"
       >
         {note.selectedText && (
@@ -234,17 +236,7 @@ function NoteRow({
 }
 
 /** A highlight in the highlighter colour, or an underline in the pen colour. */
-function MarkRow({
-  mark,
-  at,
-}: {
-  mark: KeptMark;
-  at: (
-    quote?: string,
-    paragraphIndex?: number,
-    unitIndex?: number,
-  ) => string | null;
-}) {
+function MarkRow({ mark, at }: { mark: KeptMark; at: LinkTo }) {
   return (
     <Opens
       href={at(mark.text, mark.paragraphIndex, mark.unitIndex)}
@@ -276,11 +268,7 @@ function KeptAnswerRow({
   onDelete,
 }: {
   thread: KeptThread;
-  at: (
-    quote?: string,
-    paragraphIndex?: number,
-    unitIndex?: number,
-  ) => string | null;
+  at: LinkTo;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -309,7 +297,9 @@ function KeptAnswerRow({
         <div className="pb-3 pl-4">
           {thread.selection && (
             <Opens
-              href={at(thread.selection, undefined, thread.unitIndex)}
+              href={at(thread.selection, undefined, thread.unitIndex, {
+                answer: thread._id,
+              })}
               className="block mb-2"
             >
               <blockquote className="text-sm font-serif text-[var(--ink-muted)] border-l border-[var(--reader-border-strong)] pl-3 italic line-clamp-2">
@@ -324,6 +314,7 @@ function KeptAnswerRow({
                 thread.selection || undefined,
                 undefined,
                 thread.unitIndex,
+                { answer: thread._id },
               );
               if (href) router.push(href);
             }}

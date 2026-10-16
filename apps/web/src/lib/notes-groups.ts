@@ -86,6 +86,8 @@ export function readLink(
   paragraphIndex?: number,
   /** The part of a book the passage is in; the reader opens that part */
   unitIndex?: number,
+  /** The note or kept answer the link is for; the reader opens it once it has landed */
+  opens?: { note?: string; answer?: string },
 ): string {
   const base = `/read/${articleId}`;
   const params = new URLSearchParams();
@@ -94,6 +96,8 @@ export function readLink(
     params.set("quote", quote);
     // The paragraph picks the right occurrence when the quote appears more than once
     if (paragraphIndex !== undefined) params.set("p", String(paragraphIndex));
+    if (opens?.note) params.set("note", opens.note);
+    if (opens?.answer) params.set("answer", opens.answer);
   }
   return params.size ? `${base}?${params.toString()}` : base;
 }

@@ -72,5 +72,19 @@ describe("readLink", () => {
     expect(readLink("art1" as never)).toBe("/read/art1");
     expect(readLink("art1" as never, "")).toBe("/read/art1");
     expect(readLink("art1" as never, "a & b")).toBe("/read/art1?quote=a+%26+b");
+    expect(
+      readLink("art1" as never, "a line", 2, undefined, { note: "n1" }),
+    ).toBe("/read/art1?quote=a+line&p=2&note=n1");
+    expect(
+      readLink("art1" as never, "a line", undefined, undefined, {
+        answer: "t1",
+      }),
+    ).toBe("/read/art1?quote=a+line&answer=t1");
+    // Nothing to land on, nothing to open
+    expect(
+      readLink("art1" as never, undefined, undefined, undefined, {
+        note: "n1",
+      }),
+    ).toBe("/read/art1");
   });
 });

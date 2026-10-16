@@ -213,13 +213,20 @@ describe("the Notes page", () => {
     const hrefs = [...host.querySelectorAll("a")].map((a) =>
       a.getAttribute("href"),
     );
-    expect(hrefs).toContain("/read/art1?quote=the+passage");
+    expect(
+      hrefs.filter((h) => h?.startsWith("/read/art1?quote=the+passage")),
+    ).toHaveLength(1);
+    expect(
+      hrefs.find((h) => h?.startsWith("/read/art1?quote=the+passage")),
+    ).toMatch(/&note=/);
     expect(hrefs).toContain("/read/art1?quote=a+marked+line");
     await act(async () => lines()[0].click());
     const answerHrefs = [...host.querySelectorAll("a")].map((a) =>
       a.getAttribute("href"),
     );
-    expect(answerHrefs).toContain("/read/art1?quote=tarn");
+    expect(
+      answerHrefs.find((h) => h?.startsWith("/read/art1?quote=tarn")),
+    ).toMatch(/&answer=/);
   });
 
   it("loads the next page of marks on Show more, and hides it when there are none left", async () => {
