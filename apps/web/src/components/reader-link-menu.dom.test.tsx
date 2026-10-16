@@ -1,15 +1,35 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  vi,
+} from "vitest";
 import type { LeavingLink } from "@/lib/reader-links";
 import { ReaderLinkMenu } from "./reader-link-menu";
 
-const mocks = vi.hoisted(() => ({
-  found: undefined as unknown,
-  add: vi.fn(),
-  save: vi.fn(),
-}));
+type Lookup = {
+  _id: string;
+  title: string;
+  estimatedReadMinutes: number;
+  saved: boolean;
+} | null;
+
+type MenuMocks = { found: Lookup | undefined; add: Mock; save: Mock };
+
+const mocks = vi.hoisted(() => {
+  const state: MenuMocks = {
+    found: undefined,
+    add: vi.fn(),
+    save: vi.fn(),
+  };
+  return state;
+});
 
 vi.mock("convex/react", () => ({
   useQuery: () => mocks.found,
@@ -35,11 +55,15 @@ beforeEach(() => {
   mocks.add.mockReset();
   mocks.save.mockReset();
   document.body.innerHTML = '<div id="root"></div><a id="link" href="">x</a>';
-  anchor = document.getElementById("link") as HTMLAnchorElement;
+  const el = document.getElementById("link");
+  if (!(el instanceof HTMLAnchorElement)) throw new Error("no test link");
+  anchor = el;
   anchor.setAttribute("href", HREF);
   anchor.textContent = "the quiet hours essay";
   link = { href: HREF, text: "the quiet hours essay", anchor };
-  root = createRoot(document.getElementById("root") as HTMLElement);
+  const host = document.getElementById("root");
+  if (!host) throw new Error("no test root");
+  root = createRoot(host);
 });
 
 afterEach(async () => {
@@ -48,10 +72,13 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-const button = (name: RegExp) =>
-  [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+function button(name: RegExp): HTMLButtonElement {
+  const found = [...document.querySelectorAll("button")].find((b) =>
     name.test(b.textContent ?? ""),
-  ) as HTMLButtonElement;
+  );
+  if (!found) throw new Error(`no button matching ${name}`);
+  return found;
+}
 
 async function open(onClose = vi.fn()) {
   await act(async () =>

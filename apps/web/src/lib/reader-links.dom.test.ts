@@ -19,6 +19,12 @@ afterEach(() => {
   root?.remove();
 });
 
+function anchorIn(el: HTMLElement): HTMLAnchorElement {
+  const anchor = el.querySelector("a");
+  if (!anchor) throw new Error("expected a link in the test article");
+  return anchor;
+}
+
 function click(el: Element, init: MouseEventInit = {}): MouseEvent {
   const event = new MouseEvent("click", {
     bubbles: true,
@@ -37,7 +43,7 @@ describe("attachLeavingLinks", () => {
     );
     const onLink = vi.fn();
     detach = attachLeavingLinks(body, ARTICLE, onLink);
-    const event = click(body.querySelector("a") as HTMLAnchorElement);
+    const event = click(anchorIn(body));
     expect(event.defaultPrevented).toBe(true);
     expect(onLink).toHaveBeenCalledTimes(1);
     expect(onLink.mock.calls[0][0]).toMatchObject({
@@ -50,7 +56,7 @@ describe("attachLeavingLinks", () => {
     const body = mount('<a href="/notes/2024">older notes</a>');
     const onLink = vi.fn();
     detach = attachLeavingLinks(body, ARTICLE, onLink);
-    click(body.querySelector("a") as HTMLAnchorElement);
+    click(anchorIn(body));
     expect(onLink.mock.calls[0][0].href).toBe(
       "https://blog.example.org/notes/2024",
     );
@@ -66,7 +72,7 @@ describe("attachLeavingLinks", () => {
     const body = mount('<a href="https://other.example.com/">out</a>');
     const onLink = vi.fn();
     detach = attachLeavingLinks(body, ARTICLE, onLink);
-    const event = click(body.querySelector("a") as HTMLAnchorElement, init);
+    const event = click(anchorIn(body), init);
     expect(event.defaultPrevented).toBe(false);
     expect(onLink).not.toHaveBeenCalled();
   });
@@ -84,7 +90,7 @@ describe("attachLeavingLinks", () => {
     const body = mount(html);
     const onLink = vi.fn();
     detach = attachLeavingLinks(body, ARTICLE, onLink);
-    const event = click(body.querySelector("a") as HTMLAnchorElement);
+    const event = click(anchorIn(body));
     expect(event.defaultPrevented).toBe(false);
     expect(onLink).not.toHaveBeenCalled();
   });
@@ -96,7 +102,7 @@ describe("attachLeavingLinks", () => {
       capture: true,
     });
     detach = attachLeavingLinks(body, ARTICLE, onLink);
-    click(body.querySelector("a") as HTMLAnchorElement);
+    click(anchorIn(body));
     expect(onLink).not.toHaveBeenCalled();
   });
 
@@ -105,7 +111,7 @@ describe("attachLeavingLinks", () => {
     const onLink = vi.fn();
     const stop = attachLeavingLinks(body, ARTICLE, onLink);
     stop();
-    const event = click(body.querySelector("a") as HTMLAnchorElement);
+    const event = click(anchorIn(body));
     expect(event.defaultPrevented).toBe(false);
     expect(onLink).not.toHaveBeenCalled();
   });
