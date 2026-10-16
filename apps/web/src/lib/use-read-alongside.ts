@@ -2,7 +2,6 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import {
-  MAX_ARTICLE_CHARS,
   sectionRanges,
   sectionToQueueFrom,
 } from "@marginalia/backend/reading-sections";
@@ -31,10 +30,7 @@ export function useReadAlongside(input: {
 }): string | null {
   const { articleId, enabled, content, progress } = input;
   const request = useMutation(api.alongside.requestAhead);
-  const ranges = useMemo(
-    () => sectionRanges((content ?? "").slice(0, MAX_ARTICLE_CHARS)),
-    [content],
-  );
+  const ranges = useMemo(() => sectionRanges(content ?? ""), [content]);
   const asked = useRef<{ articleId: string; sections: Set<number> }>({
     articleId,
     sections: new Set(),

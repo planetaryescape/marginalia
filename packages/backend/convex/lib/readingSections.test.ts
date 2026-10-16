@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { sectionRanges, sectionToQueueFrom } from "./readingSections";
+import {
+  beyondImportPass,
+  MAX_ARTICLE_CHARS,
+  sectionRanges,
+  sectionToQueueFrom,
+} from "./readingSections";
 
 const text = Array.from(
   { length: 800 },
@@ -53,5 +58,41 @@ describe("sectionToQueueFrom", () => {
     expect(sectionToQueueFrom(ranges, 1, text.length)).toBeNull();
     const short = sectionRanges("A short piece.");
     expect(sectionToQueueFrom(short, 0.9, 14)).toBeNull();
+  });
+});
+
+describe("an article longer than the import pass reads", () => {
+  const long = Array.from(
+    { length: 6_200 },
+    (_, i) => `Claim ${i} holds in this setting.`,
+  ).join(" ");
+
+  it("is sectioned to its end, so the tail has sections of its own", () => {
+    expect(long.length).toBeGreaterThan(200_000);
+    const ranges = sectionRanges(long);
+    expect(ranges.at(-1)?.end).toBe(long.length);
+    expect(ranges.filter((s) => s.start >= MAX_ARTICLE_CHARS).length).toBe(5);
+    expect(
+      ranges.every(
+        (s) => beyondImportPass(s, null) === s.end > MAX_ARTICLE_CHARS,
+      ),
+    ).toBe(true);
+  });
+
+  it("queues each tail section as the reader nears it", () => {
+    const ranges = sectionRanges(long);
+    const tail = ranges.at(-2);
+    expect(tail).toBeDefined();
+    const at =
+      (tail?.start ?? 0) + ((tail?.end ?? 0) - (tail?.start ?? 0)) * 0.6;
+    expect(sectionToQueueFrom(ranges, at / long.length, long.length)).toBe(
+      ranges.length - 2,
+    );
+  });
+
+  it("treats a section a finished pass drew on as read", () => {
+    const [last] = sectionRanges(long).slice(-1);
+    expect(beyondImportPass(last, { contextHash: "h" })).toBe(false);
+    expect(beyondImportPass(last, {})).toBe(true);
   });
 });

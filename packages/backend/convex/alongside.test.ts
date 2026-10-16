@@ -46,7 +46,7 @@ afterEach(() => {
 
 type Fixture = Awaited<ReturnType<typeof secondReaderTest>>;
 
-async function fixture() {
+async function fixture(content = CONTENT) {
   const f = await secondReaderTest(modules);
   const articleId = await f.t.run((ctx) =>
     ctx.db.insert("articles", {
@@ -54,7 +54,7 @@ async function fixture() {
       guid: "a",
       url: "https://example.com/a",
       title: "A long piece",
-      content: CONTENT,
+      content,
       wordCount: 4_000,
       estimatedReadMinutes: 18,
       embedding: vector,
@@ -707,9 +707,10 @@ describe("the pass", () => {
     respond: () => unknown,
     options: {
       onEmbeddings?: (f: Awaited<ReturnType<typeof fixture>>) => Promise<void>;
+      content?: string;
     } = {},
   ) {
-    const f = await fixture();
+    const f = await fixture(options.content);
     await saveTestCredential(
       f.t,
       f.readerLibraryId,
@@ -828,6 +829,61 @@ describe("the pass", () => {
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining("nothing the margin draws on has changed"),
     );
+  });
+
+  describe("an article longer than the import pass reads", () => {
+    const LONG = Array.from(
+      { length: 6_200 },
+      (_, i) => `Claim ${i} holds in this setting.`,
+    ).join(" ");
+    const TAIL_ANCHOR = "Claim 6100 holds in this setting.";
+    const LONG_SECTIONS = sectionRanges(LONG);
+
+    it("gets a pass on its tail sections, though the library has not changed", async () => {
+      expect(LONG.length).toBeGreaterThan(200_000);
+      const last = LONG_SECTIONS.length - 1;
+      expect(LONG_SECTIONS[last].end).toBeGreaterThan(180_000);
+      const f = await run(
+        () => ({
+          annotations: [candidate(TAIL_ANCHOR, "A point from the end.")],
+        }),
+        { content: LONG },
+      );
+      // Nothing in the library has changed since the import pass
+      expect(await f.request(last - 1)).toBe("scheduled");
+      expect(f.prompts).toHaveLength(1);
+      const [note] = await f.notes();
+      expect(LONG.slice(note.anchorStartOffset, note.anchorEndOffset)).toBe(
+        TAIL_ANCHOR,
+      );
+      expect(note.anchorStartOffset).toBeGreaterThan(120_000);
+      expect(note.anchorStartOffset).toBeGreaterThanOrEqual(
+        LONG_SECTIONS[last].start,
+      );
+      // Once read, the section rests until something changes
+      expect(await f.request(last - 1)).toBe("unchanged");
+      expect(f.prompts).toHaveLength(1);
+    });
+
+    it("still skips a section the import pass read, when nothing has changed", async () => {
+      const f = await run(() => ({ annotations: [] }), { content: LONG });
+      expect(LONG_SECTIONS[1].end).toBeLessThan(120_000);
+      expect(await f.request(0)).toBe("unchanged");
+      expect(f.prompts).toHaveLength(0);
+    });
+
+    it("tries a tail section again after a pass that could not run", async () => {
+      const f = await run(() => ({ annotations: [] }), { content: LONG });
+      const last = LONG_SECTIONS.length - 1;
+      // Without a key the pass is skipped and settles with no context recorded
+      await f.t.run(async (ctx) => {
+        const keys = await ctx.db.query("providerCredentials").collect();
+        for (const key of keys) await ctx.db.delete(key._id);
+      });
+      expect(await f.request(last - 1)).toBe("scheduled");
+      expect((await rowFor(f, f.articleId, last))?.status).toBe("skipped");
+      expect(await f.request(last - 1)).toBe("scheduled");
+    });
   });
 
   it("skips the model when the fingerprint moved but this section's material did not", async () => {

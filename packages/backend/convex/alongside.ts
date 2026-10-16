@@ -14,7 +14,7 @@ import {
   computeFingerprint,
   sameFingerprint,
 } from "./lib/marginaliaFingerprint";
-import { MAX_ARTICLE_CHARS, sectionRanges } from "./lib/readingSections";
+import { beyondImportPass, sectionRanges } from "./lib/readingSections";
 import { refundReaderLimit, spendReaderLimit } from "./limits";
 
 /** Reading alongside (rung 2f): passes that annotate the section ahead of the reader. */
@@ -90,7 +90,7 @@ export const requestAhead = mutation({
       !(await libraryIsActive(ctx, userId))
     )
       return "ineligible" as const;
-    const sections = sectionRanges(article.content.slice(0, MAX_ARTICLE_CHARS));
+    const sections = sectionRanges(article.content);
     if (sectionIndex >= sections.length) return "ineligible" as const;
 
     const now = Date.now();
@@ -100,6 +100,9 @@ export const requestAhead = mutation({
 
     const current = await computeFingerprint(ctx, userId, now);
     const settled = row?.fingerprint ?? article.marginaliaFingerprint;
+    // Text past the import pass's cap was never annotated, so "nothing has
+    // changed" says nothing about it
+    const unread = beyondImportPass(sections[sectionIndex], row);
     if (!settled) {
       // Annotated before reading alongside existed: what is in the library now
       // is the starting point, so only later changes cost a call
@@ -111,7 +114,7 @@ export const requestAhead = mutation({
       );
       return "baseline" as const;
     }
-    if (sameFingerprint(settled, current)) {
+    if (!unread && sameFingerprint(settled, current)) {
       console.log(
         `Skipped reading pass for "${article.title}" (${article._id}) section ${sectionIndex + 1}: nothing the margin draws on has changed since ${new Date(settled.passAt).toISOString()}`,
       );

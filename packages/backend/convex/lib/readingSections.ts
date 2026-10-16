@@ -1,4 +1,7 @@
-/** How much of the article the marginalia model reads (~20k words). */
+/**
+ * How much of the article the import pass reads (~20k words). Reading
+ * alongside is not held to it: its sections cover the whole article.
+ */
 export const MAX_ARTICLE_CHARS = 120_000;
 
 // The article is searched section by section so a claim deep in the piece can
@@ -50,6 +53,19 @@ export function sectionRanges(text: string): SectionRange[] {
     .map((section, index) => ({ ...section, index }));
 }
 
+/**
+ * Whether the import pass never read some of this section, so nothing it
+ * drew on is a baseline to compare with. Such a section's first pass is made
+ * even if the library has not changed, and again after a pass that made no
+ * pass that skipped or failed (only a finished pass records what it drew on).
+ */
+export function beyondImportPass(
+  section: Pick<SectionRange, "end">,
+  pass: { contextHash?: string } | null | undefined,
+): boolean {
+  return section.end > MAX_ARTICLE_CHARS && !pass?.contextHash;
+}
+
 export function splitIntoSections(text: string): string[] {
   return sectionRanges(text).map((section) => section.text);
 }
@@ -57,8 +73,7 @@ export function splitIntoSections(text: string): string[] {
 /**
  * The section the reader has got far enough through to queue the one after
  * it, or null. `progress` is how far through the whole text they are (0 to 1),
- * and `textLength` the full length of that text (sections cover only the part
- * the model reads).
+ * and `textLength` the full length of the text the ranges were made from.
  */
 export function sectionToQueueFrom(
   ranges: readonly SectionRange[],

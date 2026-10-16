@@ -10,7 +10,7 @@ import { alreadySaid, buildAlongsidePrompt } from "../lib/alongsidePrompt";
 import { annotationBudget, gateNotes } from "../lib/annotationGate";
 import { buildMarginaliaContext } from "../lib/marginaliaContext";
 import { hashSources } from "../lib/marginaliaFingerprint";
-import { MAX_ARTICLE_CHARS, sectionRanges } from "../lib/readingSections";
+import { beyondImportPass, sectionRanges } from "../lib/readingSections";
 import { loadReaderAI } from "../lib/router";
 import {
   annotationCandidateSchema,
@@ -67,9 +67,8 @@ export const pass = internalAction({
       // The claim may have been replaced while this job waited to start
       if (!(await owns())) return;
       const content = article.content ?? "";
-      const section = sectionRanges(content.slice(0, MAX_ARTICLE_CHARS))[
-        args.sectionIndex
-      ];
+      const sections = sectionRanges(content);
+      const section = sections[args.sectionIndex];
       if (!section) {
         console.log(`Skipped reading pass for ${label}: no such section`);
         await settleWith("skipped");
@@ -96,7 +95,9 @@ export const pass = internalAction({
         ai.embedder(),
       );
       const contextHash = await hashSources(sources);
-      if (row.contextHash === contextHash) {
+      // Text the import pass never read has no earlier pass to compare with
+      const unread = beyondImportPass(section, row);
+      if (!unread && row.contextHash === contextHash) {
         console.log(
           `Skipped reading pass for ${label}: the material it would draw on is unchanged (${sources.length} items)`,
         );
@@ -107,7 +108,7 @@ export const pass = internalAction({
       // only something it retrieved that the import did not see is worth a call.
       // An article annotated before this was recorded has no baseline, so any
       // retrieved material counts.
-      if (!row.contextHash) {
+      if (!unread && !row.contextHash) {
         const known = new Set(article.marginaliaSources);
         const fresh = article.marginaliaSources
           ? sources.filter((source) => !known.has(source))
@@ -121,7 +122,6 @@ export const pass = internalAction({
         }
       }
 
-      const sections = sectionRanges(content.slice(0, MAX_ARTICLE_CHARS));
       // Retrieval can be slow: if another tab has taken the section since, stop
       if (!(await owns())) {
         console.log(
