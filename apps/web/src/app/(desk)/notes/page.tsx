@@ -3,11 +3,25 @@ import { useState } from "react";
 import { DeskPage } from "@/components/desk-page";
 import { NotesGraph } from "@/components/notes-graph";
 import { NotesList } from "@/components/notes-list";
+import { useShortcuts } from "@/lib/shortcuts";
 
 type View = "map" | "list";
 
 export default function NotesPage() {
   const [view, setView] = useState<View>("map");
+  useShortcuts(
+    { "[": () => setView("map"), "]": () => setView("list") },
+    true,
+    {
+      help: {
+        group: "Notes",
+        keys: [
+          ["[", "Map view"],
+          ["]", "List view"],
+        ],
+      },
+    },
+  );
   const toggle = <ViewToggle view={view} onChange={setView} />;
   if (view === "list")
     return (

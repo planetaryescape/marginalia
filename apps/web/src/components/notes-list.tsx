@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { KeptTranscript } from "@/components/kept-transcript";
+import { useListKeys } from "@/lib/list-nav";
 import { MODE_LABELS } from "@/lib/margin-answers";
 import {
   type ArticleGroup,
@@ -31,6 +32,7 @@ export function NotesList() {
   );
   const removeNote = useMutation(api.userNotes.remove);
   const removeThread = useMutation(api.companionThreads.remove);
+  useListKeys();
 
   const loading =
     notes === undefined ||
@@ -121,6 +123,7 @@ function ArticleNotesGroup({
         {article ? (
           <Link
             href={readLink(articleId)}
+            data-nav-item
             className="font-serif text-xl text-[var(--reader-fg)] hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4 transition-colors"
           >
             {article.title}
@@ -287,6 +290,7 @@ function KeptAnswerRow({
       <button
         type="button"
         aria-expanded={open}
+        data-nav-item
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-1.5 py-2 text-left text-[13px] text-[var(--pencil)]"
       >
@@ -350,7 +354,7 @@ function Opens({
   children: ReactNode;
 }) {
   return href ? (
-    <Link href={href} className={className}>
+    <Link href={href} data-nav-item className={className}>
       {children}
     </Link>
   ) : (

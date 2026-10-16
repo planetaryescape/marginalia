@@ -6,6 +6,7 @@ import { UpNextShelf } from "./up-next-shelf";
 
 const state = vi.hoisted(() => ({
   overview: undefined as unknown,
+  saved: [] as unknown[],
   calls: [] as { name: string; args: unknown }[],
   fail: false,
   toast: vi.fn(),
@@ -16,7 +17,10 @@ vi.mock("convex/react", async () => {
   const { getFunctionName } =
     await vi.importActual<typeof import("convex/server")>("convex/server");
   return {
-    useQuery: () => state.overview,
+    useQuery: (fn: unknown) =>
+      getFunctionName(fn as never) === "savedArticles:list"
+        ? state.saved
+        : state.overview,
     useMutation: (fn: unknown) => async (args: unknown) => {
       state.calls.push({ name: getFunctionName(fn as never), args });
       if (state.fail) throw new Error("no");
@@ -49,10 +53,16 @@ vi.mock("framer-motion", () => ({
     li: ({
       children,
       className,
+      ...rest
     }: {
       children: React.ReactNode;
       className?: string;
-    }) => <li className={className}>{children}</li>,
+      "data-nav-row"?: boolean;
+    }) => (
+      <li className={className} data-nav-row={rest["data-nav-row"]}>
+        {children}
+      </li>
+    ),
   },
 }));
 
@@ -69,6 +79,7 @@ beforeEach(() => {
       },
     ],
   };
+  state.saved = [];
   state.calls = [];
   state.fail = false;
   state.toast = vi.fn();
@@ -146,5 +157,80 @@ describe("Up next shelf", () => {
     state.overview = { upNext: [] };
     await render();
     expect(document.querySelector("section")).toBeNull();
+  });
+
+  describe("keyboard", () => {
+    const press = (key: string, target: Element = document.body) =>
+      act(async () => {
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    const links = () =>
+      Array.from(document.querySelectorAll<HTMLElement>("[data-nav-item]"));
+
+    it("j and k move focus between rows, and the arrows once a row has it", async () => {
+      await render();
+      await press("ArrowDown");
+      expect(document.activeElement).not.toBe(links()[0]);
+      await press("j");
+      expect(document.activeElement).toBe(links()[0]);
+      await press("j");
+      expect(document.activeElement).toBe(links()[1]);
+      await press("ArrowUp");
+      expect(document.activeElement).toBe(links()[0]);
+      await press("k");
+      expect(document.activeElement).toBe(links()[0]);
+    });
+
+    it("x archives the focused row, moves focus on, and u undoes it", async () => {
+      await render();
+      await press("j");
+      await press("x");
+      expect(state.calls).toEqual([
+        { name: "articles:archive", args: { articleId: "a" } },
+      ]);
+      expect(document.activeElement).toBe(links()[1]);
+      await press("u");
+      expect(state.calls[1]).toEqual({
+        name: "articles:restore",
+        args: { articleId: "a" },
+      });
+      // Nothing left to undo
+      await press("u");
+      expect(state.calls).toHaveLength(2);
+    });
+
+    it("s saves the focused row, and unsaves one already saved", async () => {
+      state.saved = [{ articleId: "b" }];
+      await render();
+      await press("j");
+      await press("s");
+      expect(state.calls.at(-1)).toEqual({
+        name: "savedArticles:save",
+        args: { articleId: "a" },
+      });
+      await press("j");
+      await press("s");
+      expect(state.calls.at(-1)).toEqual({
+        name: "savedArticles:unsave",
+        args: { articleId: "b" },
+      });
+    });
+
+    it("does nothing with no row focused, or while typing", async () => {
+      await render();
+      await press("x");
+      const input = document.body.appendChild(document.createElement("input"));
+      input.focus();
+      await press("j", input);
+      await press("x", input);
+      expect(state.calls).toEqual([]);
+      expect(document.activeElement).toBe(input);
+    });
   });
 });

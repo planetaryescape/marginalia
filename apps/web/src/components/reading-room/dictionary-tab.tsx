@@ -2,7 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DICTIONARY_CAP,
   type Entry,
@@ -14,6 +14,8 @@ import {
   thumbIndex,
   wordsThisMonth,
 } from "@/lib/dictionary";
+import { stepNav, useListKeys } from "@/lib/list-nav";
+import { useShortcuts } from "@/lib/shortcuts";
 import { useLocalToday } from "./use-local-today";
 
 const PAGE = 40;
@@ -57,6 +59,7 @@ function EntryView({ entry, anchor }: { entry: Entry; anchor: boolean }) {
               {sense.href ? (
                 <Link
                   href={sense.href}
+                  data-nav-item
                   className="underline decoration-[var(--pencil-rule)] underline-offset-[3px] hover:decoration-[var(--reader-fg)]"
                 >
                   {sense.articleTitle ?? "Open article"}
@@ -117,6 +120,11 @@ export function DictionaryTab() {
   }, [status, results.length, loadMore]);
 
   const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  useShortcuts({ "/": () => searchRef.current?.focus() }, true, {
+    help: { group: "Dictionary", keys: [["/", "Find a word"]] },
+  });
+  useListKeys();
   const rows: LookupRow[] = results;
   const all = useMemo(() => groupLookups(rows), [rows]);
   const shown = useMemo(() => searchEntries(all, query), [all, query]);
@@ -151,8 +159,19 @@ export function DictionaryTab() {
     <div>
       <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2">
         <input
+          ref={searchRef}
           type="search"
+          aria-keyshortcuts="/"
           aria-label="Find a word"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") e.currentTarget.blur();
+            // Down from the box goes into the entries
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              e.currentTarget.blur();
+              stepNav(1);
+            }
+          }}
           placeholder="Find a word"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

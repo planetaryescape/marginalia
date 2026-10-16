@@ -17,6 +17,7 @@ import {
   textControl,
 } from "@/components/settings-controls";
 import { SettingsPage, SettingsSection } from "@/components/settings-section";
+import { useListKeys } from "@/lib/list-nav";
 import { formatDate } from "@/lib/utils";
 
 export default function FeedsPage() {
@@ -33,6 +34,18 @@ export default function FeedsPage() {
   const [importing, setImporting] = useState(false);
   // One feed's removal is open at a time; touching another row closes it.
   const [removingId, setRemovingId] = useState<Id<"feeds"> | null>(null);
+  useListKeys(
+    {
+      p: { action: "toggle" },
+      x: { action: "remove" },
+    },
+    [
+      ["p", "Pause or resume the source"],
+      ["x", "Remove the source"],
+    ],
+    true,
+    "Sources",
+  );
 
   // A successful check shows itself: each feed it updated takes the change wash
   const checkNow = async () => {
@@ -187,12 +200,16 @@ export default function FeedsPage() {
         )}
         <div>
           {feeds?.map((feed) => (
-            <div key={feed._id}>
+            <div key={feed._id} data-nav-row>
               <ChangeWash
                 value={feed.lastFetchedAt}
                 className="change-wash group flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-[var(--reader-border)] py-3"
               >
-                <div className="min-w-0 flex-1 text-sm">
+                <div
+                  className="min-w-0 flex-1 text-sm"
+                  data-nav-item
+                  tabIndex={-1}
+                >
                   <p className="truncate font-medium">{feed.title}</p>
                   <p className="truncate text-[13px] text-[var(--reader-muted)]">
                     {feed.url}
@@ -214,9 +231,10 @@ export default function FeedsPage() {
                   )}
                 </div>
                 {/* Shown on hover and focus, and always on touch screens */}
-                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
                   <button
                     type="button"
+                    data-nav-action="toggle"
                     aria-pressed={feed.isActive}
                     aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
                     onClick={() => {
@@ -231,6 +249,7 @@ export default function FeedsPage() {
                   </button>
                   <button
                     type="button"
+                    data-nav-action="remove"
                     aria-label={`Remove ${feed.title}`}
                     onClick={() => setRemovingId(feed._id)}
                     className={destructiveControl}

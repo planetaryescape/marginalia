@@ -4,6 +4,7 @@ import { useAction, useQuery } from "convex/react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { GraphEdge, NodeKind } from "@/lib/idea-kinds";
 import { KIND_LABELS } from "@/lib/idea-kinds";
+import { useShortcuts } from "@/lib/shortcuts";
 import { IdeaGraphView } from "./idea-graph-view";
 import { Composer, EdgePanel, NodePanel } from "./idea-panel";
 
@@ -127,6 +128,18 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
       : Math.min(680, Math.max(440, stageWidth * 0.9)),
   );
   const panelOpen = panel.kind !== "closed";
+  // The map's own keys act on the focused idea; this only lists them in `?`
+  useShortcuts({}, Boolean(graph?.nodes.length), {
+    help: {
+      group: "Notes map",
+      keys: [
+        ["← ↑ ↓ →", "Move between ideas, once the map has focus"],
+        ["Enter", "Open the idea"],
+        ["Space", "Show why it connects"],
+        ["Esc", "Close the panel"],
+      ],
+    },
+  });
 
   return (
     <main
@@ -251,6 +264,10 @@ function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
     );
     return () => window.clearTimeout(timer);
   }, [text]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useShortcuts({ "/": () => inputRef.current?.focus() }, true, {
+    help: { group: "Notes map", keys: [["/", "Search your ideas"]] },
+  });
   const hits = useQuery(
     api.ideaGraph.search,
     term.length >= 2 ? { query: term } : "skip",
@@ -263,7 +280,9 @@ function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
   return (
     <div className="relative w-full max-w-[520px] flex-1">
       <input
+        ref={inputRef}
         type="search"
+        aria-keyshortcuts="/"
         role="combobox"
         aria-expanded={Boolean(hits?.length)}
         aria-controls="idea-search-results"
@@ -274,9 +293,11 @@ function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
         onKeyDown={(event) => {
           if (event.key === "Enter" && hits?.[0])
             pick(hits[0].key, hits[0].via);
-          if (event.key === "Escape" && text) {
-            event.stopPropagation();
-            setText("");
+          if (event.key === "Escape") {
+            if (text) {
+              event.stopPropagation();
+              setText("");
+            } else event.currentTarget.blur();
           }
         }}
         className="w-full rounded-lg border border-[var(--reader-border-strong)] bg-transparent px-3.5 py-2.5 text-[14.5px] text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)] focus:outline-none focus-visible:border-[var(--reader-focus)]"

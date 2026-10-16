@@ -22,6 +22,7 @@ import {
 } from "@/components/library-shelves";
 import { UpNextShelf } from "@/components/up-next-shelf";
 import { ReaderRequestError, streamFromConvex } from "@/lib/companion";
+import { useTabKeys } from "@/lib/list-nav";
 import { useShortcuts } from "@/lib/shortcuts";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -45,7 +46,9 @@ function Librarian() {
   const askedFromUrl = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  useShortcuts({ "/": () => inputRef.current?.focus() });
+  useShortcuts({ "/": () => inputRef.current?.focus() }, true, {
+    help: { group: "Library", keys: [["/", "Ask your library"]] },
+  });
 
   const ask = useCallback(
     async (question: string) => {
@@ -295,10 +298,13 @@ function Shelves() {
     },
   ];
 
+  useTabKeys(tabs, shelf);
+
   return (
     <>
       <nav
         aria-label="Shelves"
+        data-nav-tabs
         className="mt-10 flex flex-wrap gap-x-6 gap-y-1 border-b border-[var(--reader-border)] pb-2.5 text-[14.5px] text-[var(--reader-muted)]"
       >
         {tabs.map((tab) => {

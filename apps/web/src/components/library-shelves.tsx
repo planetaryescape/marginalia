@@ -5,6 +5,7 @@ import { Star } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { RATINGS } from "@/components/impression-panel";
+import { useListKeys } from "@/lib/list-nav";
 import { cn, formatReadTime } from "@/lib/utils";
 
 export type ShelfId = "saved" | "loved" | "finished";
@@ -52,6 +53,9 @@ function Loading() {
 export function SavedShelf() {
   const saved = useQuery(api.savedArticles.list);
   const unsave = useMutation(api.savedArticles.unsave);
+  useListKeys({ s: { action: "unsave", leaves: true } }, [
+    ["s", "Remove from saved"],
+  ]);
   if (saved === undefined) return <Loading />;
   if (saved.length === 0)
     return <p className={shelfEmpty}>No saved articles yet.</p>;
@@ -61,10 +65,11 @@ export function SavedShelf() {
         if (!item?.article) return null;
         const { article } = item;
         return (
-          <li key={item._id} className={rowClass}>
+          <li key={item._id} data-nav-row className={rowClass}>
             <div className="min-w-0 flex-1">
               <Link
                 href={`/read/${article._id}`}
+                data-nav-item
                 className={cn(titleClass, "line-clamp-2")}
               >
                 {article.title}
@@ -77,6 +82,7 @@ export function SavedShelf() {
             </div>
             <button
               type="button"
+              data-nav-action="unsave"
               aria-label={`Remove ${article.title} from saved articles`}
               onClick={() =>
                 unsave({ articleId: article._id }).catch(() =>
@@ -97,6 +103,7 @@ export function SavedShelf() {
 /** Loved shelf: articles you hearted, newest first as the query returns them. */
 export function LovedShelf() {
   const loved = useQuery(api.lovedArticles.listAll);
+  useListKeys();
   if (loved === undefined) return <Loading />;
   if (loved.length === 0)
     return <p className={shelfEmpty}>No loved articles yet.</p>;
@@ -107,7 +114,11 @@ export function LovedShelf() {
         return (
           <li key={item._id} className={rowClass}>
             <div className="min-w-0 flex-1">
-              <Link href={`/read/${item.article._id}`} className={titleClass}>
+              <Link
+                href={`/read/${item.article._id}`}
+                data-nav-item
+                className={titleClass}
+              >
                 {item.article.title}
               </Link>
               <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)]">
@@ -129,6 +140,7 @@ export function LovedShelf() {
 /** Finished shelf: your impressions, each with its stars, tags and what stayed with you. */
 export function FinishedShelf() {
   const impressions = useQuery(api.impressions.listRecent, {});
+  useListKeys();
   if (impressions === undefined) return <Loading />;
   if (impressions.length === 0)
     return (
@@ -142,7 +154,11 @@ export function FinishedShelf() {
     <ul className="border-t border-[var(--reader-border)]">
       {impressions.map((item) => (
         <li key={item._id} className={cn(rowClass, "flex-col gap-1.5")}>
-          <Link href={`/read/${item.articleId}`} className={titleClass}>
+          <Link
+            href={`/read/${item.articleId}`}
+            data-nav-item
+            className={titleClass}
+          >
             {item.title}
           </Link>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[var(--reader-muted)]">
