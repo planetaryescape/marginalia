@@ -94,7 +94,7 @@ export function KeyboardShortcuts() {
         setOpen(false);
       }}
       onClose={() => setOpen(false)}
-      className="m-auto w-[calc(100%-2rem)] max-w-[760px] max-h-[86dvh] overflow-y-auto rounded-2xl p-6 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)] backdrop:bg-black/40"
+      className="m-auto w-[calc(100%-2rem)] max-w-[760px] max-h-[86dvh] overflow-y-auto rounded-lg p-6 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)] backdrop:bg-black/40"
     >
       <div className="flex items-center justify-between">
         <h2 className="font-serif text-[24px] tracking-tight">

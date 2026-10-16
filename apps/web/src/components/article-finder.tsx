@@ -221,7 +221,7 @@ export function ArticleFinder({
         aria-expanded={open}
         aria-keyshortcuts="/"
         title="Ask, paste a link, or drop a PDF · press /"
-        className="flex w-full items-center gap-2.5 h-12 rounded-2xl px-4 bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] text-left text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
+        className="flex w-full items-center gap-2.5 h-12 rounded-lg px-4 bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] text-left text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
       >
         <Search size={16} className="shrink-0" />
         <span className="flex-1 min-w-0 truncate text-[15px]">

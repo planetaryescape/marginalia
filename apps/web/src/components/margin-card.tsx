@@ -190,7 +190,7 @@ export function MarginCard({
             "margin-card-raised rounded-[10px] border border-[var(--reader-border)]"
           : kind === "pinned"
             ? "rounded-r-xl rounded-l-[3px] border-l-2 border-l-[var(--card-accent)] max-h-[calc(100vh-96px)]"
-            : "rounded-2xl border-t-2 border-t-[var(--card-accent)] max-h-[calc(var(--app-viewport-height)-6rem)]",
+            : "rounded-lg border-t-2 border-t-[var(--card-accent)] max-h-[calc(var(--app-viewport-height)-6rem)]",
       )}
     >
       <div

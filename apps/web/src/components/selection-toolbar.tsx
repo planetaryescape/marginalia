@@ -415,7 +415,7 @@ export function SelectionToolbar({
                   className={cn(
                     "flex items-center gap-1 px-2 h-11 md:h-7 rounded-full text-[12px] transition-colors",
                     web
-                      ? "bg-parchment-50 text-ink-950"
+                      ? "bg-[var(--reader-fg)] text-[var(--reader-bg)]"
                       : "opacity-60 hover:opacity-100",
                   )}
                 >
@@ -431,7 +431,7 @@ export function SelectionToolbar({
                       className={cn(
                         "px-2.5 h-11 md:h-6 rounded-full capitalize transition-colors",
                         depth === d
-                          ? "bg-parchment-50 text-ink-950"
+                          ? "bg-[var(--reader-fg)] text-[var(--reader-bg)]"
                           : "opacity-60 hover:opacity-100",
                       )}
                     >
@@ -443,7 +443,7 @@ export function SelectionToolbar({
                   type="submit"
                   disabled={!question.trim()}
                   aria-label="Send question"
-                  className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 flex items-center justify-center rounded-full bg-parchment-50 text-ink-950 transition-opacity disabled:opacity-40"
+                  className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)] transition-opacity disabled:opacity-40"
                 >
                   <ArrowUp size={16} strokeWidth={2.5} />
                 </button>

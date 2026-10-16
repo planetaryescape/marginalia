@@ -279,7 +279,7 @@ export function NotesPanel({
                 <button
                   type="button"
                   onClick={() => setEditingNew(true)}
-                  className="min-h-11 sm:min-h-8 px-3 rounded-md border border-[var(--reader-border-strong)] text-xs font-sans text-[var(--ink-soft)] hover:text-[var(--ink)] hover:bg-[var(--reader-chip)] transition-colors"
+                  className="min-h-11 sm:min-h-8 px-3 rounded-md bg-[var(--reader-chip)] text-xs font-sans text-[var(--reader-fg-soft)] hover:text-[var(--reader-fg)] transition-colors"
                 >
                   + New
                 </button>

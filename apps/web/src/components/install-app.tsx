@@ -63,7 +63,7 @@ export function InstallAppContent({
         align="end"
         sideOffset={8}
         collisionPadding={12}
-        className="reader-popover z-50 w-80 max-w-[calc(100vw-24px)] rounded-2xl bg-[var(--reader-surface)] p-4 font-sans text-sm text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-xl"
+        className="reader-popover z-50 w-80 max-w-[calc(100vw-24px)] rounded-lg bg-[var(--reader-surface)] p-4 font-sans text-sm text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-xl"
       >
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-medium">Marginalia on your home screen</h2>

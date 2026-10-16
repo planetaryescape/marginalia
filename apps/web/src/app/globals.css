@@ -71,12 +71,10 @@
   }
 
   body {
-    @apply bg-parchment-50 text-ink-950 font-serif antialiased;
+    @apply font-serif antialiased;
+    background-color: var(--reader-bg);
+    color: var(--reader-fg);
     font-feature-settings: "liga" 1, "calt" 1, "kern" 1;
-  }
-
-  .dark body {
-    @apply bg-ink-950 text-parchment-100;
   }
 }
 
@@ -601,7 +599,7 @@ html {
   float: left;
   height: 0;
   pointer-events: none;
-  @apply text-ink-300 dark:text-ink-600;
+  color: color-mix(in srgb, var(--reader-fg) 35%, transparent);
 }
 
 .tiptap ul {
@@ -613,7 +611,8 @@ html {
 }
 
 .tiptap blockquote {
-  @apply border-l-2 border-ink-300 dark:border-ink-600 pl-3 italic;
+  @apply border-l-2 pl-3 italic;
+  border-left-color: var(--reader-border-strong);
 }
 
 .tiptap strong {
@@ -1177,7 +1176,8 @@ html.dark .reader-menu {
      themes a near-white pill was the brightest thing on screen, so it becomes
      a raised surface a step above the reader's panels instead. */
   .reader-float {
-    @apply bg-ink-950 text-parchment-50;
+    background-color: var(--reader-fg);
+    color: var(--reader-bg);
   }
   .dark .reader-float {
     background-color: color-mix(in srgb, var(--reader-surface) 82%, white);
