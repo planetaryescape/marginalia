@@ -44,8 +44,22 @@ const graph: Graph = {
       hop: 2,
       createdAt: 0,
     },
+    {
+      key: "article:q",
+      kind: "article",
+      label: "The quiet cost",
+      hop: 1,
+      createdAt: 0,
+    },
   ],
   edges: [
+    {
+      id: "f",
+      a: "note:c",
+      b: "article:q",
+      reasons: [{ type: "article", text: "From this article" }],
+      needsAi: false,
+    },
     {
       id: "a",
       a: "note:c",
@@ -130,7 +144,11 @@ describe("the idea map", () => {
   it("draws every idea as a focusable button, naming its kind and the centre", async () => {
     await render();
     const nodes = host.querySelectorAll("[data-node]");
-    expect(nodes).toHaveLength(6);
+    expect(nodes).toHaveLength(7);
+    expect(node("article:q").querySelector("rect")).not.toBeNull();
+    expect(node("article:q").getAttribute("aria-label")).toBe(
+      "Article: The quiet cost",
+    );
     for (const n of nodes) expect(n.getAttribute("tabindex")).toBe("0");
     expect(node("note:c").getAttribute("aria-label")).toBe(
       "Your note: Block whole mornings. At the centre",
@@ -151,7 +169,7 @@ describe("the idea map", () => {
       "shared tag: focus",
     ])
       expect(text).toContain(label);
-    expect(host.querySelectorAll("[aria-pressed]")).toHaveLength(5);
+    expect(host.querySelectorAll("[aria-pressed]")).toHaveLength(6);
   });
 
   it("moves between ideas with the arrow keys", async () => {

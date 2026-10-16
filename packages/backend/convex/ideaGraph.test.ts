@@ -265,7 +265,8 @@ describe("idea graph edges", () => {
     });
     const g = await owner.query(api.ideaGraph.graph, {});
     expect(g.nodes.length).toBeLessThanOrEqual(MAX_NODES);
-    expect(g.nodes.length).toBe(MAX_NODES);
+    // Two slots are held back for articles that tie several ideas together
+    expect(g.nodes.length).toBeGreaterThanOrEqual(MAX_NODES - 2);
     const keys = new Set(g.nodes.map((n) => n.key));
     for (const e of g.edges) {
       expect(keys.has(e.a)).toBe(true);
@@ -317,7 +318,11 @@ describe("idea graph edges", () => {
     });
     // A foreign centre falls back to the owner's own latest note
     expect(ownerGraph.centre).toBe(nodeKey("note", ids.mine));
-    expect(ownerGraph.nodes).toHaveLength(1);
+    // Only the owner's note and its own article, nothing of the other reader's
+    expect(ownerGraph.nodes.map((n) => n.kind).sort()).toEqual([
+      "article",
+      "note",
+    ]);
 
     const readerGraph = await reader.query(api.ideaGraph.graph, {});
     expect(readerGraph.centre).toBe(nodeKey("note", ids.theirs));
@@ -360,6 +365,80 @@ describe("idea graph edges", () => {
         key: nodeKey("vault", ids.vault),
       }),
     ).toMatchObject({ filePath: "vault/Loose.md", canWrite: false });
+  });
+
+  it("brings the centre's article onto the map, and opens it as its title and one point", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => {
+      const article = await addArticle(ctx, OWNER, "The quiet cost");
+      await ctx.db.insert("summaries", {
+        userId: OWNER,
+        articleId: article,
+        gist: "A gist.",
+        thesis: "Interruptions cost more than the minutes lost.",
+        model: "m",
+        createdAt: Date.now(),
+      } as never);
+      await addNote(ctx, OWNER, article, "centre");
+      return { article };
+    });
+    const g = await owner.query(api.ideaGraph.graph, {});
+    const key = nodeKey("article", ids.article);
+    expect(g.nodes.find((n) => n.key === key)).toMatchObject({
+      kind: "article",
+      label: "The quiet cost",
+      hop: 1,
+    });
+    expect(
+      g.edges.find((e) => e.b === key)?.reasons.map((r) => r.text),
+    ).toEqual(["From this article"]);
+    expect(await owner.query(api.ideaGraph.node, { key })).toMatchObject({
+      kind: "article",
+      text: "Interruptions cost more than the minutes lost.",
+      articleId: ids.article,
+      articleTitle: "The quiet cost",
+    });
+    // Opened as the centre, the article gathers the ideas written on it
+    const open = await owner.query(api.ideaGraph.graph, { centre: key });
+    expect(open.nodes.filter((n) => n.kind === "note")).toHaveLength(1);
+  });
+
+  it("joins a second article as the shared source of two ideas, and keeps the cap", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => {
+      const one = await addArticle(ctx, OWNER, "One");
+      const two = await addArticle(ctx, OWNER, "Two");
+      await addTag(ctx, OWNER, "focus", [one, two]);
+      for (let i = 0; i < 3; i++) await addNote(ctx, OWNER, two, `other ${i}`);
+      await addNote(ctx, OWNER, one, "centre");
+      return { two };
+    });
+    const g = await owner.query(api.ideaGraph.graph, {});
+    const hub = g.nodes.filter((n) => n.kind === "article");
+    expect(hub.map((n) => n.label).sort()).toEqual(["One", "Two"]);
+    expect(g.nodes.length).toBeLessThanOrEqual(MAX_NODES);
+    // The hub is wired to the ideas it is the source of
+    const hubKey = nodeKey("article", ids.two);
+    expect(
+      g.edges.filter((e) => e.b === hubKey || e.a === hubKey).length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("never lets articles push the map past the cap", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      for (let a = 0; a < 6; a++) {
+        const article = await addArticle(ctx, OWNER, `Article ${a}`);
+        for (let i = 0; i < 6; i++)
+          await addNote(ctx, OWNER, article, `n${a}${i}`);
+      }
+    });
+    const g = await owner.query(api.ideaGraph.graph, {});
+    expect(g.nodes.length).toBeLessThanOrEqual(MAX_NODES);
+    const keys = new Set(g.nodes.map((n) => n.key));
+    for (const e of g.edges) {
+      expect(keys.has(e.a) && keys.has(e.b)).toBe(true);
+    }
   });
 
   it("finds an idea to start from", async () => {
@@ -408,6 +487,22 @@ describe("links the reader makes", () => {
     expect(
       await t.run((ctx) => ctx.db.query("ideaLinks").collect()),
     ).toHaveLength(1);
+  });
+
+  it("drops a note's links, in both directions, when the note is deleted", async () => {
+    const { t, owner, a, b } = await setup();
+    const c = await t.run(async (ctx) => {
+      const article = await addArticle(ctx, OWNER, "Beta");
+      return nodeKey("note", await addNote(ctx, OWNER, article, "c"));
+    });
+    await owner.mutation(api.ideaLinks.link, { from: a, to: b });
+    await owner.mutation(api.ideaLinks.link, { from: c, to: a });
+    await owner.mutation(api.ideaLinks.link, { from: b, to: c });
+    await owner.mutation(api.userNotes.remove, {
+      noteId: a.slice("note:".length) as Id<"userNotes">,
+    });
+    const rows = await t.run((ctx) => ctx.db.query("ideaLinks").collect());
+    expect(rows.map((r) => [r.from, r.to])).toEqual([[b, c]]);
   });
 
   it("refuses a self-link, a missing idea and someone else's", async () => {

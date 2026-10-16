@@ -93,12 +93,31 @@ export function NodePanel({
           {node.text}
         </p>
       )}
+      {node.kind === "article" && node.articleId && (
+        <>
+          <h2 className="mb-2 font-serif text-xl leading-snug text-[var(--reader-fg)]">
+            {node.articleTitle}
+          </h2>
+          <p className="mb-3 text-[15px] leading-relaxed text-[var(--reader-fg-soft)]">
+            {node.text}
+          </p>
+          <Link
+            href={`/read/${node.articleId}`}
+            className="mb-4 inline-block text-[13.5px] text-[var(--reader-fg)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px]"
+          >
+            Open article
+          </Link>
+        </>
+      )}
       {node.kind === "vault" && (
         <p className="mb-3 whitespace-pre-wrap break-words border-l-2 border-[var(--vault)] pl-3 text-[15px] leading-relaxed text-[var(--reader-fg)]">
           {node.text}
         </p>
       )}
-      <p className="mb-4 text-[12.5px] text-[var(--reader-muted)]">
+      <p
+        className="mb-4 text-[12.5px] text-[var(--reader-muted)]"
+        hidden={node.kind === "article"}
+      >
         {node.articleId && node.articleTitle ? (
           <>
             From{" "}
@@ -116,13 +135,15 @@ export function NodePanel({
       </p>
       {node.canWrite ? (
         <div className="flex flex-wrap gap-2.5">
-          <button
-            type="button"
-            className={SECONDARY}
-            onClick={() => onWrite(node.text)}
-          >
-            Reply
-          </button>
+          {node.kind !== "article" && (
+            <button
+              type="button"
+              className={SECONDARY}
+              onClick={() => onWrite(node.text)}
+            >
+              Reply
+            </button>
+          )}
           <button type="button" className={SECONDARY} onClick={() => onWrite()}>
             New connected note
           </button>

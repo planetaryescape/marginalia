@@ -12,6 +12,7 @@ export const KIND_LABELS: Record<NodeKind, string> = {
   highlight: "Your highlight",
   answer: "Marginalia's answer, kept",
   vault: "From your vault",
+  article: "Article",
 };
 
 /** The short phrase written on a line between two ideas. */
@@ -21,7 +22,9 @@ export function edgeLabel(edge: GraphEdge): string {
   const text = {
     linked: "you linked these",
     connection: "Marginalia noticed",
-    article: "same article",
+    article: first.text.startsWith("From")
+      ? "from this article"
+      : "same article",
     similar: "close in meaning",
     tag: first.text.replace(/^Shared tag/, "shared tag"),
   }[first.type as "linked" | "connection" | "article" | "similar" | "tag"];

@@ -8,6 +8,7 @@ import {
   articleReason,
   Candidates,
   connectionReason,
+  fromArticleReason,
   linkedReason,
   nodeKey,
   type Reason,
@@ -150,12 +151,18 @@ export async function gatherCandidates(
   if (centre.articleId) {
     const articleId = centre.articleId;
     const title = await articleTitle(ctx, userId, articleId);
+    // A note on an article brings the article itself onto the map
+    if (centre.kind !== "article")
+      found.add(nodeKey("article", articleId), fromArticleReason(), 80);
     for (const key of await ideasOnArticle(ctx, userId, articleId, {
       notes: 8,
       highlights: 8,
       answers: 8,
     }))
-      found.add(key, articleReason(title));
+      found.add(
+        key,
+        centre.kind === "article" ? fromArticleReason() : articleReason(title),
+      );
 
     for (const row of await connectionsOnArticle(ctx, userId, articleId)) {
       if (row.noteChunkId)
@@ -235,7 +242,11 @@ export async function pairReasons(
   const reasons: Reason[] = [];
   if (await linkRow(ctx, userId, a.key, b.key)) reasons.push(linkedReason());
   if (a.articleId && a.articleId === b.articleId)
-    reasons.push(articleReason(await articleTitle(ctx, userId, a.articleId)));
+    reasons.push(
+      a.kind === "article" || b.kind === "article"
+        ? fromArticleReason()
+        : articleReason(await articleTitle(ctx, userId, a.articleId)),
+    );
   if (a.articleId && b.articleId && a.articleId !== b.articleId) {
     const [tagsA, tagsB] = await Promise.all([
       activeTags(ctx, userId, a.articleId),

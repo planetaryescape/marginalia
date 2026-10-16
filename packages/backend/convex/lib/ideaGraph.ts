@@ -2,11 +2,19 @@
 // and the text that explains each kind of connection. The reads live in
 // ideaGraph.ts; keeping these free of the database lets them be tested alone.
 
-export const NODE_KINDS = ["note", "highlight", "answer", "vault"] as const;
+export const NODE_KINDS = [
+  "note",
+  "highlight",
+  "answer",
+  "vault",
+  "article",
+] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
 
 /** The graph never shows more than this many ideas, centre included. */
 export const MAX_NODES = 15;
+/** Slots kept free in the graph for articles that tie several ideas together. */
+export const HUB_SLOTS = 2;
 /** Neighbours of the centre; the rest of the budget goes to the faint second ring. */
 export const FIRST_RING = 7;
 
@@ -72,6 +80,9 @@ export function articleReason(title: string | null): Reason {
     type: "article",
     text: title ? `Same article: ${snippet(title, 60)}` : "Same article",
   };
+}
+export function fromArticleReason(): Reason {
+  return { type: "article", text: "From this article" };
 }
 export function tagReason(name: string): Reason {
   return { type: "tag", text: `Shared tag: ${name}` };

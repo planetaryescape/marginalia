@@ -6,6 +6,8 @@ import { internalQuery, query } from "./functions";
 import {
   articleReason,
   FIRST_RING,
+  fromArticleReason,
+  HUB_SLOTS,
   linkedReason,
   MAX_NODES,
   type NodeKind,
@@ -142,7 +144,8 @@ export const graph = query({
           });
         }
       }
-      if (nodes.length >= MAX_NODES) continue;
+      // The last slots are kept for articles that tie several ideas together
+      if (nodes.length >= MAX_NODES - HUB_SLOTS) continue;
 
       const sameArticle = near.articleId
         ? await ideasOnArticle(ctx, userId, near.articleId, {
@@ -156,7 +159,13 @@ export const graph = query({
         : null;
       const options: { key: string; reason: Reason }[] = [
         ...nearLinks.map((key) => ({ key, reason: linkedReason() })),
-        ...sameArticle.map((key) => ({ key, reason: articleReason(title) })),
+        ...sameArticle.map((key) => ({
+          key,
+          reason:
+            near.kind === "article"
+              ? fromArticleReason()
+              : articleReason(title),
+        })),
       ];
       for (const option of options) {
         if (shown.has(option.key)) continue;
@@ -179,6 +188,40 @@ export const graph = query({
       }
     }
 
+    // An article that two or more ideas on the map come from joins as their common source
+    const byArticle = new Map<string, LoadedNode[]>();
+    for (const member of shown.values()) {
+      if (member.kind === "article" || !member.articleId) continue;
+      byArticle.set(member.articleId, [
+        ...(byArticle.get(member.articleId) ?? []),
+        member,
+      ]);
+    }
+    const hubs = [...byArticle.entries()]
+      .filter(([, members]) => members.length >= 2)
+      .sort((a, b) => b[1].length - a[1].length);
+    for (const [articleId, members] of hubs) {
+      const key = nodeKey("article", articleId);
+      if (nodes.length >= MAX_NODES || shown.has(key)) continue;
+      const hub = await loadNode(ctx, userId, key);
+      if (!hub) continue;
+      shown.set(key, hub);
+      nodes.push(view(hub, 2));
+      // Neighbours first, so the article hangs off one of them on the map
+      const first = members.sort(
+        (a, b) =>
+          (a.key === centre.key ? 1 : 0) - (b.key === centre.key ? 1 : 0),
+      );
+      for (const member of first)
+        edges.push({
+          id: pairKey(member.key, key),
+          a: member.key,
+          b: key,
+          reasons: [fromArticleReason()],
+          needsAi: false,
+        });
+    }
+
     const kept = nodes.slice(0, MAX_NODES);
     const keys = new Set(kept.map((n) => n.key));
     return {
@@ -195,7 +238,7 @@ export interface SearchHit {
   label: string;
 }
 
-/** Finds an idea to start from, across the four kinds. */
+/** Finds an idea to start from, across notes, highlights, kept answers and vault notes. */
 export const search = query({
   args: { query: v.string() },
   handler: async (ctx, args): Promise<SearchHit[]> => {
@@ -260,10 +303,21 @@ export const node = query({
       quote = note?.selectedText || undefined;
       prompt = note?.prompt || undefined;
     }
+    // An article reads as its one point, from the summary when there is one
+    let text = found.text;
+    if (found.kind === "article") {
+      const summary = await ctx.db
+        .query("summaries")
+        .withIndex("by_article", (q) =>
+          q.eq("articleId", found.id as Id<"articles">),
+        )
+        .first();
+      text = summary?.thesis || summary?.gist || text;
+    }
     return {
       key: found.key,
       kind: found.kind,
-      text: found.text.slice(0, 8000),
+      text: text.slice(0, 8000),
       quote,
       prompt,
       createdAt: found.createdAt,
@@ -302,6 +356,8 @@ export const embeddingOf = internalQuery({
             )
           )?.embedding ?? null
         );
+      case "article":
+        return null;
       case "vault":
         return (
           (await ctx.db.get("noteChunks", node.id as Id<"noteChunks">))

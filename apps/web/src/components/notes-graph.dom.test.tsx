@@ -138,6 +138,26 @@ describe("Notes as a map", () => {
     expect(host.textContent).toContain("Saved. Your note is on the map.");
   });
 
+  it("opens an article as its title and one point, with a link to read it", async () => {
+    mocks.node = {
+      key: "article:a",
+      kind: "article",
+      text: "Interruptions cost more than the minutes lost.",
+      createdAt: 1,
+      canWrite: true,
+      articleId: "art1",
+      articleTitle: "The quiet cost",
+    };
+    await render();
+    expect(host.textContent).toContain("The quiet cost");
+    expect(host.textContent).toContain("Interruptions cost more");
+    expect(host.querySelector('a[href="/read/art1"]')?.textContent).toBe(
+      "Open article",
+    );
+    expect(host.textContent).not.toContain("Reply");
+    expect(host.textContent).toContain("New connected note");
+  });
+
   it("offers no writing beside a vault note with no article", async () => {
     mocks.node = {
       ...detail,

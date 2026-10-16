@@ -17,7 +17,7 @@ describe("node keys", () => {
       kind: "vault",
       id: "abc:def",
     });
-    for (const bad of ["", "note", "note:", ":abc", "article:abc", "x"])
+    for (const bad of ["", "note", "note:", ":abc", "thing:abc", "x"])
       expect(parseKey(bad)).toBeNull();
   });
 

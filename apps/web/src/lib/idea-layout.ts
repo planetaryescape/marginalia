@@ -70,6 +70,8 @@ export function layoutGraph({
     let dx = from.x - cx;
     let dy = from.y - cy;
     const length = Math.hypot(dx, dy) || 1;
+    // Hung off the centre itself (an article its note came from): below it
+    if (length === 1 && dx === 0 && dy === 0) dy = length;
     dx /= length;
     dy /= length;
     placed.set(node.key, {

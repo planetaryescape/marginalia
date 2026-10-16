@@ -2,7 +2,7 @@
 // the graph shares. Everything checks the idea belongs to the reader.
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { type NodeKind, nodeKey, parseKey, snippet } from "./ideaGraph";
+import { type NodeKind, parseKey, snippet } from "./ideaGraph";
 
 export type Db = Pick<QueryCtx, "db">;
 
@@ -75,6 +75,20 @@ export async function loadNode(
         ),
         text: [row.selection, reply?.content].filter(Boolean).join("\n\n"),
         createdAt: row.keptAt,
+      };
+    }
+    case "article": {
+      const id = db.normalizeId("articles", ref.id);
+      const row = id && (await db.get("articles", id));
+      if (!row || row.userId !== userId) return null;
+      return {
+        key,
+        kind: "article",
+        id: row._id,
+        articleId: row._id,
+        label: snippet(row.title, 70),
+        text: row.excerpt ?? row.title,
+        createdAt: row.createdAt,
       };
     }
     case "vault": {

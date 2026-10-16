@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
+import { nodeKey } from "./lib/ideaGraph";
+import { deleteIdeaLinks } from "./lib/ideaLinkCleanup";
 
 export const create = mutation({
   args: {
@@ -76,6 +78,8 @@ export const remove = mutation({
     const note = await ctx.db.get("userNotes", args.noteId);
     if (note?.userId !== ctx.readerId) throw new Error("Note not found");
     await ctx.db.delete(args.noteId);
+    // Links to a note that's gone would only point at nothing
+    await deleteIdeaLinks(ctx, ctx.readerId, nodeKey("note", args.noteId));
   },
 });
 

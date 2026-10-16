@@ -32,6 +32,19 @@ function Shape({ node, r }: { node: GraphNode; r: number }) {
       return <circle r={r} fill="var(--highlighter)" />;
     case "vault":
       return <circle r={r} fill="var(--vault)" />;
+    case "article":
+      // Print: a small page, as in the comp
+      return (
+        <rect
+          x={-r}
+          y={-r * 0.7}
+          width={r * 2}
+          height={r * 1.4}
+          rx={4}
+          fill="var(--reader-surface)"
+          stroke="var(--reader-border-strong)"
+        />
+      );
     case "answer":
       return (
         <circle
