@@ -80,6 +80,7 @@ import type * as lib_library from "../lib/library.js";
 import type * as lib_librarySearch from "../lib/librarySearch.js";
 import type * as lib_marginaliaContext from "../lib/marginaliaContext.js";
 import type * as lib_marginaliaFingerprint from "../lib/marginaliaFingerprint.js";
+import type * as lib_markColours from "../lib/markColours.js";
 import type * as lib_ownerTransition from "../lib/ownerTransition.js";
 import type * as lib_pdf_extract from "../lib/pdf/extract.js";
 import type * as lib_pdf_sections from "../lib/pdf/sections.js";
@@ -212,6 +213,7 @@ declare const fullApi: ApiFromModules<{
   "lib/librarySearch": typeof lib_librarySearch;
   "lib/marginaliaContext": typeof lib_marginaliaContext;
   "lib/marginaliaFingerprint": typeof lib_marginaliaFingerprint;
+  "lib/markColours": typeof lib_markColours;
   "lib/ownerTransition": typeof lib_ownerTransition;
   "lib/pdf/extract": typeof lib_pdf_extract;
   "lib/pdf/sections": typeof lib_pdf_sections;
