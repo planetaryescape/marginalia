@@ -3,6 +3,7 @@ import {
   type Block,
   blocksToHtml,
   buildBlocks,
+  joinLines,
   looksScanned,
   MAX_HEADING_CHARS,
   type PdfPage,
@@ -164,6 +165,30 @@ describe("buildBlocks", () => {
     ]);
     expect(closed).toHaveLength(2);
     expect(closed[1].page).toBe(2);
+  });
+
+  it("keeps the hyphens of a compound broken across lines", () => {
+    const result = blocks([
+      page(1, [
+        "An English-",
+        "to-German dictionary, and the Anglo-",
+        "American way.",
+      ]),
+    ]);
+    expect(result[0].text).toBe(
+      "An English-to-German dictionary, and the Anglo-American way.",
+    );
+  });
+
+  it("joins a word hyphenated only by the line break", () => {
+    expect(blocks([page(1, ["the con-", "nection holds"])])[0].text).toBe(
+      "the connection holds",
+    );
+    expect(joinLines("the con-", "nection")).toBe("the connection");
+    expect(joinLines("English-", "to-German")).toBe("English-to-German");
+    expect(joinLines("Anglo-", "american")).toBe("Anglo-american");
+    expect(joinLines("well-", "Known")).toBe("well-Known");
+    expect(joinLines("plain text", "more")).toBe("plain text more");
   });
 
   it("drops running headers, footers and page numbers", () => {

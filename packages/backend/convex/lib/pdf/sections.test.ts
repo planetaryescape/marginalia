@@ -178,22 +178,30 @@ describe("groupSections", () => {
     expect(tokens(units[0])).toBeGreaterThanOrEqual(1500);
   });
 
-  it("never crosses a chapter", () => {
+  it("keeps chapters apart while each is big enough on its own", () => {
+    const units = groupSections([
+      section("a", 1600, "C1"),
+      section("b", 1600, "C2"),
+    ]);
+    expect(units.map((u) => u.chapter)).toEqual(["C1", "C2"]);
+  });
+
+  it("joins units under the minimum forward, even across chapters", () => {
     const units = groupSections([
       section("a", 1000, "C1"),
       section("b", 1000, "C2"),
     ]);
-    // each is too small to stand alone, and each is all that is left of its chapter
-    expect(units.map((u) => u.chapter)).toEqual(["C1", "C2"]);
+    expect(units).toHaveLength(1);
+    expect(tokens(units[0])).toBeGreaterThanOrEqual(1500);
   });
 
-  it("does not exceed 4,000 tokens by grouping", () => {
+  it("keeps grouped units under the cap that splitting uses", () => {
     const units = groupSections([
       section("a", 1400, "C"),
       section("b", 1400, "C"),
       section("c", 1400, "C"),
     ]);
-    for (const unit of units) expect(tokens(unit)).toBeLessThanOrEqual(4000);
+    for (const unit of units) expect(tokens(unit)).toBeLessThanOrEqual(6000);
   });
 
   it("joins a short remainder at the end of a chapter to the unit before it", () => {
@@ -348,5 +356,74 @@ describe("a block of any kind", () => {
       expect(p.length).toBeLessThanOrEqual(8000);
       expect(p.endsWith("word")).toBe(true);
     }
+  });
+});
+
+describe("a book shaped like Pro Git", () => {
+  // Front matter as separate depth 0 entries, then chapters, one far too long
+  const entries: { title: string; tokens: number; depth?: number }[] = [
+    { title: "Pro Git", tokens: 60 },
+    { title: "Table of Contents", tokens: 300 },
+    { title: "License", tokens: 700 },
+    { title: "Preface by Scott Chacon", tokens: 400 },
+    { title: "Preface by Ben Straub", tokens: 350 },
+    { title: "Dedications", tokens: 40 },
+    { title: "Introduction", tokens: 2200 },
+    { title: "Getting Started", tokens: 900 },
+    { title: "About Version Control", tokens: 900, depth: 1 },
+    { title: "A Short History of Git", tokens: 900, depth: 1 },
+    { title: "Git Tools", tokens: 14_000 },
+    { title: "Contributing to a Project", tokens: 6_200 },
+    { title: "Appendix", tokens: 120 },
+  ];
+  const blocks: Block[] = [];
+  const outline: OutlineEntry[] = [];
+  for (const [i, e] of entries.entries()) {
+    outline.push({ title: e.title, depth: e.depth ?? 0, page: i + 1 });
+    blocks.push(head(e.title, i + 1));
+    for (let left = e.tokens; left > 0; left -= 400)
+      blocks.push(para(Math.min(400, left), i + 1));
+  }
+  const { units } = readingUnitsOf(blocks, outline);
+  const unitTokens = (u: (typeof units)[number]) =>
+    Math.ceil(u.content.length / 4);
+
+  it("drops the table of contents", () => {
+    expect(units.some((u) => /contents/i.test(u.title))).toBe(false);
+    expect(units.some((u) => u.content.includes("Table of Contents"))).toBe(
+      false,
+    );
+  });
+
+  it("makes the front matter one unit, so the first part is substantive", () => {
+    expect(unitTokens(units[0])).toBeGreaterThanOrEqual(1500);
+    expect(units[0].content).toContain("License");
+    expect(units[0].content).toContain("Preface by Ben Straub");
+    expect(units[0].estimatedReadMinutes).toBeGreaterThan(3);
+  });
+
+  it("leaves no unit under the minimum", () => {
+    for (const u of units) expect(unitTokens(u)).toBeGreaterThanOrEqual(1500);
+  });
+
+  it("splits a long section into parts of about equal size, with no tail", () => {
+    const parts = units.filter((u) => u.title.startsWith("Git Tools"));
+    expect(parts.length).toBeGreaterThanOrEqual(4);
+    const sizes = parts.map(unitTokens);
+    // blocks are 400 tokens, so parts differ by about a block or two
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThan(1000);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(1500);
+    const others = units.filter((u) => u.title.startsWith("Contributing"));
+    for (const u of others) expect(unitTokens(u)).toBeLessThanOrEqual(6000);
+  });
+
+  it("folds a tail under the minimum into the part before it", () => {
+    const section: Section = {
+      title: "Long",
+      chapter: "C",
+      blocks: [...Array.from({ length: 15 }, () => para(400)), para(100)],
+    };
+    const parts = groupSections([section]);
+    for (const p of parts) expect(tokens(p)).toBeGreaterThanOrEqual(1500);
   });
 });

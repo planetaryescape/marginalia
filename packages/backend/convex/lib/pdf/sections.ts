@@ -253,24 +253,43 @@ function nameParts(
   }));
 }
 
-/** Cuts one section over the limit into parts at paragraph boundaries. */
+/**
+ * Cuts one section over the limit into parts of about equal size at paragraph
+ * boundaries. A block goes to the part its middle falls in, so no part is a
+ * remainder. A last part still under the minimum is folded into the one before
+ * it when that stays under the cap.
+ */
 function splitSection(section: Section): Section[] {
   const total = sectionTokens(section);
-  const per = total / Math.max(2, Math.ceil(total / SPLIT_TARGET_TOKENS));
-  const parts: Block[][] = [[]];
-  let tokens = 0;
+  const count = Math.max(2, Math.ceil(total / SPLIT_TARGET_TOKENS));
+  const per = total / count;
+  const parts: Block[][] = [];
+  let before = 0;
+  let last = -1;
   for (const block of section.blocks) {
     const size = blockTokens(block);
-    // No ceiling on the number of parts: a paragraph never joins a part that is already full
-    if (tokens + size > per && parts.at(-1)?.length) {
+    const slot = Math.min(count - 1, Math.floor((before + size / 2) / per));
+    if (slot !== last) {
       parts.push([]);
-      tokens = 0;
+      last = slot;
     }
     parts.at(-1)?.push(block);
-    tokens += size;
+    before += size;
   }
+  const tail = parts.at(-1);
+  const previous = parts.at(-2);
+  if (tail && previous && tokensOf(tail) < GROUP_MIN_TOKENS) {
+    if (tokensOf(previous) + tokensOf(tail) <= SPLIT_ABOVE_TOKENS) {
+      previous.push(...tail);
+      parts.pop();
+    }
+  }
+  if (parts.length === 1) return [{ ...section, blocks: parts[0] }];
   return nameParts(section.title, section.chapter, parts);
 }
+
+const tokensOf = (blocks: readonly Block[]) =>
+  blocks.reduce((sum, block) => sum + blockTokens(block), 0);
 
 const encoder = new TextEncoder();
 /** What a unit costs in its row: its text plus its HTML. */
@@ -310,7 +329,9 @@ export function enforceByteBound(units: readonly Section[]): Section[] {
  * 4,000 tokens, and splits any section over 6,000. A short remainder at the
  * end of a chapter joins the unit before it.
  */
-export function groupSections(sections: readonly Section[]): Section[] {
+export function groupSections(allSections: readonly Section[]): Section[] {
+  // A table of contents is not something to read
+  const sections = allSections.filter((s) => !CONTENTS_TITLE.test(s.title));
   const units: Section[] = [];
   // The unit being built, kept as plain state so no closure hides its type
   let title = "";
@@ -357,7 +378,46 @@ export function groupSections(sections: readonly Section[]): Section[] {
     if (tokens >= GROUP_MIN_TOKENS) emit();
   }
   endChapter();
-  return units;
+  return mergeSmallUnits(units);
+}
+
+const CONTENTS_TITLE = /^\s*(table of )?contents\s*$/i;
+
+/**
+ * Units under the minimum join the unit after them, across chapters, until
+ * the run is big enough: front matter (title page, licence, prefaces) becomes
+ * one unit, and the first part offered is substantive. The merged unit takes
+ * the name of its largest piece. A short unit at the very end joins the one
+ * before it.
+ */
+function mergeSmallUnits(units: readonly Section[]): Section[] {
+  const merged: Section[] = [];
+  let run: Section[] = [];
+  const flush = () => {
+    if (!run.length) return;
+    const biggest = run.reduce((a, b) =>
+      sectionTokens(b) > sectionTokens(a) ? b : a,
+    );
+    merged.push({
+      title: biggest.title,
+      chapter: biggest.chapter,
+      blocks: run.flatMap((u) => u.blocks),
+    });
+    run = [];
+  };
+  for (const unit of units) {
+    run.push(unit);
+    if (run.reduce((n, u) => n + sectionTokens(u), 0) >= GROUP_MIN_TOKENS)
+      flush();
+  }
+  if (run.length) {
+    const before = merged.at(-1);
+    const extra = run.flatMap((u) => u.blocks);
+    if (before && sectionTokens(before) + tokensOf(extra) <= SPLIT_ABOVE_TOKENS)
+      before.blocks = [...before.blocks, ...extra];
+    else flush();
+  }
+  return merged;
 }
 
 /** Reading units with their text, HTML and length, ready to store. */

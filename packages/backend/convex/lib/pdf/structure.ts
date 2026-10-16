@@ -164,6 +164,24 @@ function dropRunningHeadersAndFooters(
 }
 
 /**
+ * Joins a line to the text before it. A word broken at a hyphen is made whole
+ * only when the next line starts in lower case, carries on without another
+ * hyphen, and the part before the hyphen isn't capitalised: "con-|nection"
+ * becomes "connection", while "English-|to-German" keeps its hyphens, as does
+ * "Anglo-|American".
+ */
+export function joinLines(text: string, next: string): string {
+  const broken = /(\p{L}+)-$/u.exec(text);
+  if (!broken) return `${text} ${next}`;
+  const firstWord = /^\S+/.exec(next)?.[0] ?? "";
+  const wordContinues =
+    /^\p{Ll}/u.test(next) &&
+    !firstWord.includes("-") &&
+    !/^\p{Lu}/u.test(broken[1]);
+  return wordContinues ? text.slice(0, -1) + next : text + next;
+}
+
+/**
  * Headings and paragraphs from the lines of a whole document.
  * `pageCount` is the number of pages in the PDF, not only those with text.
  */
@@ -260,9 +278,7 @@ export function buildBlocks(
     } else {
       // Join a word broken across lines; a real compound at the break loses
       // its hyphen, which is the cheaper mistake
-      paragraph.text = /[a-z]-$/.test(paragraph.text)
-        ? paragraph.text.slice(0, -1) + line.text
-        : `${paragraph.text} ${line.text}`;
+      paragraph.text = joinLines(paragraph.text, line.text);
     }
     previous = line;
   }

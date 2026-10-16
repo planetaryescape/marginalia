@@ -824,7 +824,11 @@ export default function ReadPage() {
             settings.focus && "reader-focus",
             settings.align === "justify" && "reader-justify",
             settings.paragraphs === "indented" && "reader-indented",
-            settings.dropCap !== "off" && "reader-dropcap",
+            // A PDF's first block is often a licence line or an author list, so
+            // nothing in it is a lead worth a drop cap
+            settings.dropCap !== "off" &&
+              !article.uploadedFileName &&
+              "reader-dropcap",
           )}
           data-dropcap-style={settings.dropCap}
           data-margin={marginMode}
