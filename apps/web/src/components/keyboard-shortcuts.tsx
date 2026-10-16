@@ -11,11 +11,11 @@ import { useModalDialog } from "@/lib/use-modal-dialog";
 
 const NAVIGATION: [string, string][] = [
   ["g d", "Go to the desk"],
-  ["g h", "Go home (the desk)"],
+  ["g h", "Go home, the same as g d"],
   ["g l", "Go to your library"],
   ["g n", "Go to notes"],
   ["g r", "Go to your reading"],
-  ["g w", "Go to your reading"],
+  ["g w", "Go to your reading, the same as g r"],
   ["g s", "Go to your saved articles"],
 ];
 

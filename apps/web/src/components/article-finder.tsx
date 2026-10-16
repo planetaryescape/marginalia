@@ -269,7 +269,9 @@ export function ArticleFinder({
             aria-autocomplete="list"
             aria-expanded={Boolean(shown)}
             aria-controls={`${id}-results`}
-            aria-activedescendant={shown ? `${id}-option` : undefined}
+            aria-activedescendant={
+              shown ? `${id}-option-${shown.match.articleId}` : undefined
+            }
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing && e.key === "Enter")
                 e.preventDefault();
@@ -372,7 +374,11 @@ export function ArticleFinder({
                 role="listbox"
                 aria-label={`Results about ${text}`}
               >
-                <div id={`${id}-option`} role="option" aria-selected="true">
+                <div
+                  id={`${id}-option-${shown.match.articleId}`}
+                  role="option"
+                  aria-selected="true"
+                >
                   <p className={labelClass}>
                     About {text}
                     {limit !== null && `, within ${limit} min`}
