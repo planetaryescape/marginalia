@@ -177,7 +177,13 @@ export const getInProgress = query({
             .unique()
         : null;
       if (book) {
-        const index = Math.max(0, book.furthestUnit);
+        // A part read to its end hands on to the next one
+        const done = book.furthestUnit >= 0 && book.furthestScroll >= 95;
+        const next =
+          done && book.furthestUnit + 1 < book.unitCount
+            ? book.furthestUnit + 1
+            : null;
+        const index = next ?? Math.max(0, book.furthestUnit);
         const unit = await ctx.db
           .query("bookUnits")
           .withIndex("by_userId_and_articleId_and_index", (q) =>
@@ -187,7 +193,8 @@ export const getInProgress = query({
               .eq("index", index),
           )
           .unique();
-        const scroll = book.furthestUnit >= 0 ? book.furthestScroll : 0;
+        const scroll =
+          next !== null ? 0 : book.furthestUnit >= 0 ? book.furthestScroll : 0;
         return {
           article,
           scrollPercent: scroll,

@@ -126,3 +126,69 @@ describe("Continue in a book", () => {
     });
   });
 });
+
+describe("Continue past a finished part", () => {
+  it("offers the next part once the current one is read to its end", async () => {
+    const t = await ownerTest(modules);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const articleId = await ctx.db.insert("articles", {
+        userId: OWNER,
+        guid: "b2",
+        url: "https://example.com/b2",
+        title: "Another book",
+        extractionStatus: "extracted",
+        annotationStatus: "skipped",
+        estimatedReadMinutes: 60,
+        wordCount: 13_000,
+        bookUnitCount: 3,
+        createdAt: now,
+      });
+      await ctx.db.insert("books", {
+        userId: OWNER,
+        articleId,
+        unitCount: 3,
+        finishedThrough: 0,
+        furthestUnit: 0,
+        furthestScroll: 100,
+        finished: false,
+        createdAt: now,
+      });
+      for (const [index, title] of [
+        [0, "Licence"],
+        [1, "Getting started"],
+      ] as const)
+        await ctx.db.insert("bookUnits", {
+          userId: OWNER,
+          articleId,
+          index,
+          title,
+          content: "text",
+          contentHtml: "<p>text</p>",
+          wordCount: 2200,
+          estimatedReadMinutes: 8,
+          annotationStatus: "skipped",
+        });
+      const sessionId = await ctx.db.insert("sessions", {
+        userId: OWNER,
+        requestedMinutes: 10,
+        startedAt: now,
+        articleId,
+        readingStatus: "reading",
+      });
+      await ctx.db.insert("articleInteractions", {
+        userId: OWNER,
+        articleId,
+        sessionId,
+        action: "opened",
+        maxScrollPercent: 3,
+        createdAt: now,
+      });
+    });
+    expect(await t.query(api.sessions.getInProgress, {})).toMatchObject({
+      remainingMinutes: 8,
+      scrollPercent: 0,
+      part: { number: 2, title: "Getting started" },
+    });
+  });
+});
