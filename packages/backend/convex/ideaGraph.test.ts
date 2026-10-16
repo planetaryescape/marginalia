@@ -337,6 +337,31 @@ describe("idea graph edges", () => {
     ).toEqual([]);
   });
 
+  it("opens one idea in full, and says whether a note can be written beside it", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => ({
+      note: await addNote(
+        ctx,
+        OWNER,
+        await addArticle(ctx, OWNER, "Alpha"),
+        "protect whole mornings",
+      ),
+      vault: await addVault(ctx, OWNER, "Loose"),
+    }));
+    expect(
+      await owner.query(api.ideaGraph.node, { key: nodeKey("note", ids.note) }),
+    ).toMatchObject({
+      text: "protect whole mornings",
+      articleTitle: "Alpha",
+      canWrite: true,
+    });
+    expect(
+      await owner.query(api.ideaGraph.node, {
+        key: nodeKey("vault", ids.vault),
+      }),
+    ).toMatchObject({ filePath: "vault/Loose.md", canWrite: false });
+  });
+
   it("finds an idea to start from", async () => {
     const { t, owner } = await secondReaderTest(modules);
     const note = await t.run(async (ctx) =>

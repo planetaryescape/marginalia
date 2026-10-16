@@ -2,7 +2,7 @@
 import { act, type PropsWithChildren } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import NotesPage from "./page";
+import { NotesList } from "./notes-list";
 
 const mocks = vi.hoisted(() => ({
   listAll: [] as unknown[] | undefined,
@@ -48,9 +48,6 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
-vi.mock("@/components/desk-page", () => ({
-  DeskPage: ({ children }: PropsWithChildren) => <main>{children}</main>,
-}));
 
 const note = (over: object) => ({
   _id: "n1",
@@ -101,7 +98,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-const render = () => act(async () => root.render(<NotesPage />));
+const render = () => act(async () => root.render(<NotesList />));
 const lines = () => [
   ...host.querySelectorAll<HTMLElement>('[data-hand="pencil"] > button'),
 ];

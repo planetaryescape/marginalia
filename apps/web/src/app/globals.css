@@ -771,6 +771,7 @@ html[data-reader-theme="ink"] {
   --ink-soft: var(--reader-fg-soft);
   --ink-muted: var(--reader-muted);
   --pencil-rule: color-mix(in srgb, var(--reader-fg) 18%, transparent);
+  --vault: #5f7a52;
   --danger: #b0503a;
   --motion-press: 90ms ease-out;
   --motion-quick: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -783,6 +784,7 @@ html[data-reader-theme="night"],
 html[data-reader-theme="dusk"],
 html[data-reader-theme="ink"] {
   --pencil-rule: color-mix(in srgb, var(--reader-fg) 22%, transparent);
+  --vault: #93a888;
   --danger: #e07a5f;
 }
 
@@ -1243,4 +1245,16 @@ html.dark .reader-menu {
 @keyframes reader-return-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Ideas that join the map come in softly; users who ask for less motion see them at once */
+@media (prefers-reduced-motion: no-preference) {
+  .idea-enter {
+    animation: idea-enter var(--motion-move) both;
+  }
+}
+@keyframes idea-enter {
+  from {
+    opacity: 0;
+  }
 }

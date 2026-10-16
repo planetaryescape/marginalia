@@ -1,6 +1,7 @@
 import { type FunctionReference, getFunctionName } from "convex/server";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NotesList } from "@/components/notes-list";
 import FeedsPage from "./feeds/page";
 import DeskLayout from "./layout";
 import LibraryPage from "./library/page";
@@ -111,9 +112,11 @@ describe("Reading desk navigation", () => {
     expect(header).toContain('aria-current="page"');
     expect(header.match(/aria-current="page"/g)).toHaveLength(1);
     expect(applyTheme).toHaveBeenCalledWith({ theme: "ink" });
+    // Notes opens on the map; the list is one click away and keeps today's rows
     if (status === "populated") {
-      expect(html).toContain("My existing note");
-      expect(html).toContain('href="/read/article1"');
+      const list = renderToStaticMarkup(<NotesList />);
+      expect(list).toContain("My existing note");
+      expect(list).toContain('href="/read/article1"');
     }
   });
 

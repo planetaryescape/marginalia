@@ -564,6 +564,8 @@ export const node = query({
       prompt,
       createdAt: found.createdAt,
       filePath: found.filePath ?? null,
+      // Notes belong to an article, so a vault idea with none can't be written beside
+      canWrite: Boolean(await articleFor(ctx, ctx.readerId, found)),
       articleId: article?._id ?? null,
       articleTitle: article?.title ?? null,
     };
