@@ -82,6 +82,7 @@ import type * as noteChunks from "../noteChunks.js";
 import type * as providerCredentials from "../providerCredentials.js";
 import type * as readers from "../readers.js";
 import type * as readingActivity from "../readingActivity.js";
+import type * as readingRoomBackfill from "../readingRoomBackfill.js";
 import type * as readingQueue from "../readingQueue.js";
 import type * as readwise from "../readwise.js";
 import type * as readwiseSyncState from "../readwiseSyncState.js";
@@ -178,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   providerCredentials: typeof providerCredentials;
   readers: typeof readers;
   readingActivity: typeof readingActivity;
+  readingRoomBackfill: typeof readingRoomBackfill;
   readingQueue: typeof readingQueue;
   readwise: typeof readwise;
   readwiseSyncState: typeof readwiseSyncState;

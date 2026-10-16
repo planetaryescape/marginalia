@@ -7,8 +7,10 @@ export const DICTIONARY_CAP = 2000;
 export type LookupRow = {
   _id: string;
   articleId: Id<"articles">;
-  /** Null once the article has been deleted */
+  /** Null once the article is deleted, or when the server left it out to bound its reads */
   articleTitle: string | null;
+  /** True only once the article is known to be deleted */
+  articleGone: boolean;
   word: string;
   wordKey: string;
   sentence: string;
@@ -23,6 +25,8 @@ export type Sense = {
   text: string;
   sentence: string;
   articleTitle: string | null;
+  /** Whether the article is deleted, so there is nothing to open */
+  articleGone: boolean;
   /** Where the sentence lives in its article, or null when the article is gone */
   href: string | null;
   createdAt: number;
@@ -113,10 +117,10 @@ export function groupLookups(rows: LookupRow[]): Entry[] {
             ...splitSense(row.sense),
             sentence: row.sentence,
             articleTitle: row.articleTitle,
-            href:
-              row.articleTitle === null
-                ? null
-                : readLink(row.articleId, row.sentence, row.paragraphIndex),
+            articleGone: row.articleGone,
+            href: row.articleGone
+              ? null
+              : readLink(row.articleId, row.sentence, row.paragraphIndex),
             createdAt: row.createdAt,
           }),
         ),

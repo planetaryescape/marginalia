@@ -113,6 +113,18 @@ export async function deleteArticle(
   );
   for (const row of [...generated.flat(), ...marks.flat()])
     await ctx.db.delete(row._id);
+  // Looked-up words are the reader's own and stay; only their link goes
+  const lookups = await ctx.db
+    .query("lookups")
+    .withIndex("by_user_article", (q) =>
+      q.eq("userId", article.userId).eq("articleId", article._id),
+    )
+    .take(500);
+  for (const lookup of lookups)
+    await ctx.db.patch("lookups", lookup._id, {
+      articleGone: true,
+      articleTitle: undefined,
+    });
   await unlinkArticleTags(ctx, article._id);
   await removeFromQueueStats(ctx, article);
   await ctx.db.delete("articles", article._id);

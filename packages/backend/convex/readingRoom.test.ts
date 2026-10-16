@@ -283,3 +283,203 @@ describe("readingTopics", () => {
     ).toEqual([]);
   });
 });
+
+type Fixture = Awaited<ReturnType<typeof secondReaderTest>>;
+const visitRow = (
+  articleId: Awaited<ReturnType<typeof insertArticle>>,
+  startedAt: number,
+  extra: { estimatedReadMinutes?: number; day?: string } = {},
+) => ({
+  userId: OWNER,
+  visitId: `v-${articleId}-${startedAt}`,
+  day: extra.day ?? "2026-10-13",
+  articleId,
+  startedAt,
+  updatedAt: startedAt,
+  activeTimeMs: 10 * 60_000,
+  visibleTimeMs: 10 * 60_000,
+  timeSpentMs: 10 * 60_000,
+  maxScrollPercent: 10,
+  annotationsOpened: [],
+  estimatedReadMinutes: extra.estimatedReadMinutes,
+});
+const insertArticle = (
+  ctx: Parameters<Parameters<Fixture["t"]["run"]>[0]>[0],
+  guid: string,
+  minutes?: number,
+) =>
+  ctx.db.insert("articles", {
+    userId: OWNER,
+    guid,
+    url: `https://example.com/${guid}`,
+    title: guid,
+    estimatedReadMinutes: minutes,
+    extractionStatus: "extracted",
+    annotationStatus: "annotated",
+    createdAt: 1,
+  });
+
+describe("readingRoom article reads", () => {
+  it("uses the length stored on the visit and doesn't need the article", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const id = await insertArticle(ctx, "stored", 30);
+      await ctx.db.insert(
+        "readingActivity",
+        visitRow(id, Date.UTC(2026, 9, 13, 8), { estimatedReadMinutes: 30 }),
+      );
+      await ctx.db.delete("articles", id);
+    });
+    const room = await owner.query(api.stats.readingRoom, {
+      timeZone: "UTC",
+      period: "month",
+    });
+    expect(room.weekday.long).toBe(1);
+    expect(room.readsPartial).toBe(false);
+  });
+
+  it("reads at most 8 articles for old visits and says the rest are left out", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 10; i++) {
+        const id = await insertArticle(ctx, `old${i}`, 5);
+        await ctx.db.insert(
+          "readingActivity",
+          visitRow(id, Date.UTC(2026, 9, 13, 8, i)),
+        );
+      }
+    });
+    const room = await owner.query(api.stats.readingRoom, {
+      timeZone: "UTC",
+      period: "month",
+    });
+    expect(room.weekday.short).toBe(8);
+    expect(room.readsPartial).toBe(true);
+  });
+
+  it("counts reading days in the requested zone, not the day the device recorded", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const id = await insertArticle(ctx, "days", 5);
+      // 11:30 and 12:30 Auckland time on 14 October, but recorded as two days
+      await ctx.db.insert(
+        "readingActivity",
+        visitRow(id, Date.UTC(2026, 9, 13, 22, 30), { day: "2026-10-13" }),
+      );
+      await ctx.db.insert(
+        "readingActivity",
+        visitRow(id, Date.UTC(2026, 9, 13, 23, 30), { day: "2026-10-14" }),
+      );
+    });
+    const auckland = await owner.query(api.stats.readingRoom, {
+      timeZone: "Pacific/Auckland",
+      period: "month",
+    });
+    expect(auckland.readingDays).toBe(1);
+    const utc = await owner.query(api.stats.readingRoom, {
+      timeZone: "UTC",
+      period: "month",
+    });
+    expect(utc.readingDays).toBe(1);
+    const la = await owner.query(api.stats.readingRoom, {
+      timeZone: "America/Los_Angeles",
+      period: "month",
+    });
+    expect(la.readingDays).toBe(1);
+    // Straddling local midnight in UTC: 23:30 and 00:30 are two days there
+    await t.run(async (ctx) => {
+      const id = await insertArticle(ctx, "days2", 5);
+      await ctx.db.insert(
+        "readingActivity",
+        visitRow(id, Date.UTC(2026, 9, 11, 23, 30), { day: "2026-10-11" }),
+      );
+      await ctx.db.insert(
+        "readingActivity",
+        visitRow(id, Date.UTC(2026, 9, 12, 0, 30), { day: "2026-10-11" }),
+      );
+    });
+    const split = await owner.query(api.stats.readingRoom, {
+      timeZone: "UTC",
+      period: "month",
+    });
+    expect(split.readingDays).toBe(3);
+  });
+
+  it("accepts the optional today argument", async () => {
+    const { owner } = await secondReaderTest(modules);
+    const args = {
+      timeZone: "UTC",
+      period: "month" as const,
+      today: "2026-10-16",
+    };
+    expect((await owner.query(api.stats.readingRoom, args)).activeTimeMs).toBe(
+      0,
+    );
+    expect(await owner.query(api.stats.readingTopics, args)).toEqual([]);
+  });
+});
+
+describe("readingTopics with many candidates", () => {
+  it("keeps scanning past candidate tags to find the active one", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const lightArticle = await insertArticle(ctx, "light");
+      await ctx.db.insert("readingActivity", {
+        ...visitRow(lightArticle, Date.UTC(2026, 9, 13, 8)),
+        activeTimeMs: 60_000,
+      });
+      const active = await ctx.db.insert("tags", {
+        userId: OWNER,
+        name: "quiet topic",
+        key: "quiet",
+        status: "active",
+        count: 1,
+        aliases: [],
+        createdAt: 1,
+      });
+      await ctx.db.insert("articleTags", {
+        userId: OWNER,
+        articleId: lightArticle,
+        tagId: active,
+        createdAt: 1,
+      });
+      // 100 candidates, each on a heavier-read article than the active tag's
+      for (let i = 0; i < 100; i++) {
+        const id = await insertArticle(ctx, `heavy${i}`);
+        await ctx.db.insert("readingActivity", {
+          ...visitRow(id, Date.UTC(2026, 9, 13, 9, i)),
+          activeTimeMs: (30 + i) * 60_000,
+        });
+        const candidate = await ctx.db.insert("tags", {
+          userId: OWNER,
+          name: `c${i}`,
+          key: `c${i}`,
+          status: "candidate",
+          count: 1,
+          aliases: [],
+          createdAt: 1,
+        });
+        await ctx.db.insert("articleTags", {
+          userId: OWNER,
+          articleId: id,
+          tagId: candidate,
+          createdAt: 1,
+        });
+      }
+    });
+    expect(
+      await owner.query(api.stats.readingTopics, {
+        timeZone: "UTC",
+        period: "month",
+      }),
+    ).toEqual([{ name: "quiet topic", minutes: 1, articles: 1 }]);
+  });
+});

@@ -6,6 +6,7 @@ import {
   skipsMostOf,
   slotter,
   splitReads,
+  startOfLocalDay,
 } from "./readingRoom";
 
 // Saturday 10 October 2026, 23:30 UTC
@@ -111,5 +112,26 @@ describe("roomPeriod", () => {
     const p = roomPeriod(Date.UTC(2026, 9, 16, 12, 0), "UTC", "30days");
     expect(p.start).toBe(Date.UTC(2026, 8, 17));
     expect(p.days).toBe(30);
+  });
+});
+
+describe("startOfLocalDay", () => {
+  it("steps past a midnight that doesn't exist", () => {
+    // Santiago skips 00:00 to 01:00 on 6 September 2026 (UTC-4 becomes UTC-3)
+    const p = roomPeriod(
+      Date.UTC(2026, 9, 5, 16, 0),
+      "America/Santiago",
+      "30days",
+    );
+    expect(p.start).toBe(Date.UTC(2026, 8, 6, 4, 0));
+  });
+
+  it("still returns local midnight where it exists", () => {
+    expect(startOfLocalDay(Date.UTC(2026, 8, 6), "UTC")).toBe(
+      Date.UTC(2026, 8, 6),
+    );
+    expect(startOfLocalDay(Date.UTC(2026, 8, 6), "America/Los_Angeles")).toBe(
+      Date.UTC(2026, 8, 6, 7),
+    );
   });
 });

@@ -32,7 +32,7 @@ export const record = mutation({
     sense: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    const article = await requireArticle(ctx, args.articleId, ctx.readerId);
     const word = clip(collapse(args.word), MAX_WORD);
     const wordKey = wordKeyOf(word);
     const sense = clip(collapse(args.sense), MAX_SENSE);
@@ -54,7 +54,10 @@ export const record = mutation({
         row.sentence === sentence,
     );
     if (repeat) {
-      await ctx.db.patch("lookups", repeat._id, { sense });
+      await ctx.db.patch("lookups", repeat._id, {
+        sense,
+        articleTitle: article.title,
+      });
       return repeat._id;
     }
     return ctx.db.insert("lookups", {
@@ -66,6 +69,7 @@ export const record = mutation({
       paragraphIndex: args.paragraphIndex,
       occurrence: args.occurrence,
       sense,
+      articleTitle: article.title,
       createdAt: Date.now(),
     });
   },

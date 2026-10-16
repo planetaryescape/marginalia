@@ -5,6 +5,7 @@ import { ownedArticle } from "./access";
 import { query } from "./functions";
 import {
   bucketActiveMinutes,
+  localDayKeyer,
   MIN_READ_MS,
   type RoomPeriod,
   roomPeriod,
@@ -361,15 +362,20 @@ export const getWeeklyStats = query({
 
 const roomArgs = {
   timeZone: v.string(),
+  // The reader's local date. The server ignores it: a query that reads the
+  // clock is not re-run by the clock, so the client changes this at local
+  // midnight to make Convex compute the period again. Optional so a client
+  // loaded before it existed still works.
+  today: v.optional(v.string()),
   period: v.union(v.literal("month"), v.literal("30days"), v.literal("90days")),
 };
 // Visits read for the room, newest first. At roughly 1 KB a row this stays
 // well under Convex's per-function read limit; past it the room says so.
 const ROOM_VISITS = 4000;
-// Articles whose length is looked up. Convex reads a whole document, body and
-// embedding included, so this is the budget that matters. A copy of
-// `estimatedReadMinutes` on each readingActivity row would remove it.
-const ROOM_ARTICLES = 120;
+// Rows written before `estimatedReadMinutes` was copied onto them fall back to
+// reading the article, whose document can be close to a megabyte. This many
+// such reads per query; the backfill removes the need.
+const ARTICLE_FALLBACKS = 8;
 const ARTICLE_BATCH = 20;
 const ROOM_FEEDS = 200;
 const FEEDS_SHOWN = 30;
@@ -415,13 +421,19 @@ export const readingRoom = query({
       periodName,
     );
 
-    // `day` is the reader's local day as the client recorded it
+    // Days in the requested zone, not the `day` the device recorded, so the
+    // count agrees with the heatmap when the reader's zone has changed
+    const dayOf = localDayKeyer(timeZone);
     const readingDays = new Set(
-      rows.filter((r) => r.activeTimeMs > 0).map((r) => r.day),
+      rows.filter((r) => r.activeTimeMs > 0).map((r) => dayOf(r.startedAt)),
     ).size;
     const perArticle = new Map<
       Id<"articles">,
-      { activeTimeMs: number; startedAt: number }
+      {
+        activeTimeMs: number;
+        startedAt: number;
+        estimatedReadMinutes: number | undefined;
+      }
     >();
     for (const row of rows) {
       const seen = perArticle.get(row.articleId);
@@ -429,24 +441,32 @@ export const readingRoom = query({
         activeTimeMs: (seen?.activeTimeMs ?? 0) + row.activeTimeMs,
         // Rows are newest first, so the last one seen is the first visit
         startedAt: row.startedAt,
+        estimatedReadMinutes:
+          seen?.estimatedReadMinutes ?? row.estimatedReadMinutes,
       });
     }
     const reads = [...perArticle.entries()].filter(
       ([, a]) => a.activeTimeMs >= MIN_READ_MS,
     );
-    const looked = reads.slice(0, ROOM_ARTICLES);
-    const minutes = new Map<Id<"articles">, number | undefined>();
-    for (let i = 0; i < looked.length; i += ARTICLE_BATCH)
-      await Promise.all(
-        looked.slice(i, i + ARTICLE_BATCH).map(async ([id]) => {
-          const article = await ownedArticle(ctx, id, ctx.readerId);
-          if (article) minutes.set(id, article.estimatedReadMinutes);
-        }),
+    let unplaced = 0;
+    let fallbacks = 0;
+    const lengths = new Map<Id<"articles">, number | undefined>();
+    for (const [id, read] of reads) {
+      if (read.estimatedReadMinutes !== undefined) continue;
+      if (fallbacks >= ARTICLE_FALLBACKS) {
+        unplaced++;
+        continue;
+      }
+      fallbacks++;
+      lengths.set(
+        id,
+        (await ownedArticle(ctx, id, ctx.readerId))?.estimatedReadMinutes,
       );
+    }
     const split = splitReads(
-      looked.map(([id, a]) => ({
+      reads.map(([id, a]) => ({
         startedAt: a.startedAt,
-        estimatedReadMinutes: minutes.get(id),
+        estimatedReadMinutes: a.estimatedReadMinutes ?? lengths.get(id),
       })),
       timeZone,
     );
@@ -479,7 +499,7 @@ export const readingRoom = query({
     return {
       period,
       partial,
-      readsPartial: reads.length > ROOM_ARTICLES,
+      readsPartial: unplaced > 0,
       activeTimeMs: rows.reduce((n, r) => n + r.activeTimeMs, 0),
       readingDays,
       heat: bucketActiveMinutes(rows, timeZone),
@@ -496,7 +516,7 @@ const TAGS_PER_ARTICLE = 20;
 // Tag documents carry an embedding, so they are fetched in small batches and
 // only as far down the minutes ranking as 30 active topics need
 const TOPICS_SHOWN = 30;
-const TOPIC_EXAMINED = 100;
+const TOPIC_EXAMINED = 300;
 const TAG_BATCH = 20;
 
 /**

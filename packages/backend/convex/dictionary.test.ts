@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { readerTest, secondReaderTest } from "../test/owner";
 import { api } from "./_generated/api";
+import { deleteArticle } from "./lib/feedRemoval";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -68,6 +69,7 @@ describe("dictionary.page", () => {
     expect(Object.keys(result.page[0]).sort()).toEqual(
       [
         "_id",
+        "articleGone",
         "articleId",
         "articleTitle",
         "createdAt",
@@ -120,5 +122,111 @@ describe("dictionary.page", () => {
     await expect(
       readerTest(modules).query(api.dictionary.page, { paginationOpts: first }),
     ).rejects.toThrow();
+  });
+});
+
+describe("dictionary titles", () => {
+  const article = (userId: string, guid: string, title: string) => ({
+    userId,
+    guid,
+    url: `https://example.com/${guid}`,
+    title,
+    extractionStatus: "extracted" as const,
+    annotationStatus: "annotated" as const,
+    createdAt: 1,
+  });
+
+  it("uses the title stored on the lookup without reading the article", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const articleId = await ctx.db.insert(
+        "articles",
+        article(OWNER, "x", "Live title"),
+      );
+      await ctx.db.insert("lookups", {
+        userId: OWNER,
+        articleId,
+        word: "w",
+        wordKey: "w",
+        sentence: "s",
+        sense: "n. x",
+        articleTitle: "Stored title",
+        createdAt: 1,
+      });
+    });
+    const { page } = await owner.query(api.dictionary.page, {
+      paginationOpts: first,
+    });
+    expect(page[0]).toMatchObject({
+      articleTitle: "Stored title",
+      articleGone: false,
+    });
+  });
+
+  it("marks lookups of a deleted article as gone and keeps the rest", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const keep = await ctx.db.insert(
+        "articles",
+        article(OWNER, "keep", "Kept"),
+      );
+      const drop = await ctx.db.insert(
+        "articles",
+        article(OWNER, "drop", "Dropped"),
+      );
+      for (const [articleId, word] of [
+        [keep, "kept"],
+        [drop, "dropped"],
+      ] as const)
+        await ctx.db.insert("lookups", {
+          userId: OWNER,
+          articleId,
+          word,
+          wordKey: word,
+          sentence: "s",
+          sense: "n. x",
+          articleTitle: word,
+          createdAt: word === "kept" ? 1 : 2,
+        });
+      const doc = await ctx.db.get("articles", drop);
+      if (doc) await deleteArticle(ctx, doc);
+    });
+    const { page } = await owner.query(api.dictionary.page, {
+      paginationOpts: first,
+    });
+    expect(
+      page.map((r) => [r.wordKey, r.articleGone, r.articleTitle === null]),
+    ).toEqual([
+      ["dropped", true, true],
+      ["kept", false, false],
+    ]);
+  });
+
+  it("reads at most 8 articles for lookups without a title, leaving the rest unknown rather than gone", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 10; i++) {
+        const articleId = await ctx.db.insert(
+          "articles",
+          article(OWNER, `a${i}`, `Title ${i}`),
+        );
+        await ctx.db.insert("lookups", {
+          userId: OWNER,
+          articleId,
+          word: `w${i}`,
+          wordKey: `w${i}`,
+          sentence: "s",
+          sense: "n. x",
+          createdAt: i,
+        });
+      }
+    });
+    const { page } = await owner.query(api.dictionary.page, {
+      paginationOpts: first,
+    });
+    expect(page.filter((r) => r.articleTitle !== null)).toHaveLength(8);
+    const unknown = page.filter((r) => r.articleTitle === null);
+    expect(unknown).toHaveLength(2);
+    expect(unknown.every((r) => !r.articleGone)).toBe(true);
   });
 });

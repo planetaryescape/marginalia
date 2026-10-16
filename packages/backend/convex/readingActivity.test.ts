@@ -37,6 +37,16 @@ async function fixture() {
   };
 }
 describe("reading checkpoints", () => {
+  it("copies the article's length onto the visit", async () => {
+    const { t, articleId, checkpoint } = await fixture();
+    await t.run((ctx) =>
+      ctx.db.patch("articles", articleId, { estimatedReadMinutes: 12 }),
+    );
+    await t.mutation(api.readingActivity.checkpoint, checkpoint);
+    const rows = await t.run((ctx) => ctx.db.query("readingActivity").take(5));
+    expect(rows.map((r) => r.estimatedReadMinutes)).toEqual([12]);
+  });
+
   it("counts unfinished reading once across duplicate and out-of-order checkpoints", async () => {
     const { t, checkpoint } = await fixture();
     await t.mutation(api.readingActivity.checkpoint, checkpoint);

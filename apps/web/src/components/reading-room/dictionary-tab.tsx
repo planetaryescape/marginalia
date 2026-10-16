@@ -14,6 +14,7 @@ import {
   thumbIndex,
   wordsThisMonth,
 } from "@/lib/dictionary";
+import { useLocalToday } from "./use-local-today";
 
 const PAGE = 40;
 
@@ -53,12 +54,12 @@ function EntryView({ entry, anchor }: { entry: Entry; anchor: boolean }) {
             “{sense.sentence}”
             <span className="not-italic font-sans text-xs text-[var(--reader-fg-soft)]">
               {" · "}
-              {sense.href && sense.articleTitle ? (
+              {sense.href ? (
                 <Link
                   href={sense.href}
                   className="underline decoration-[var(--pencil-rule)] underline-offset-[3px] hover:decoration-[var(--reader-fg)]"
                 >
-                  {sense.articleTitle}
+                  {sense.articleTitle ?? "Open article"}
                 </Link>
               ) : (
                 <span>Article no longer in your library</span>
@@ -125,7 +126,10 @@ export function DictionaryTab() {
     for (const e of shown) if (!first.has(e.letter)) first.set(e.letter, e.key);
     return first;
   }, [shown]);
-  const month = useMemo(() => wordsThisMonth(rows, new Date()), [rows]);
+  // `today` is a dependency so the count moves on at month end
+  const today = useLocalToday();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `today` is what makes this recompute at midnight
+  const month = useMemo(() => wordsThisMonth(rows, new Date()), [rows, today]);
 
   if (status === "LoadingFirstPage")
     return (

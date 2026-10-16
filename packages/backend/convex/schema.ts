@@ -319,6 +319,9 @@ export default defineSchema({
     maxScrollPercent: v.number(),
     annotationsOpened: v.array(v.string()),
     finishedAt: v.optional(v.number()),
+    // Copied from the article when the visit is recorded, so statistics can
+    // tell a short read from a long one without reading the article
+    estimatedReadMinutes: v.optional(v.number()),
   })
     .index("by_user_visit_day", ["userId", "visitId", "day"])
     .index("by_user_started", ["userId", "startedAt"])
@@ -518,10 +521,16 @@ export default defineSchema({
     // Which match of the word in its paragraph was looked up
     occurrence: v.optional(v.number()),
     sense: v.string(),
+    // Copied from the article when the lookup is recorded, so the dictionary
+    // lists titles without reading articles
+    articleTitle: v.optional(v.string()),
+    // Set when the article is deleted: the entry stays, its link goes
+    articleGone: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_user_created", ["userId", "createdAt"])
-    .index("by_user_word", ["userId", "wordKey"]),
+    .index("by_user_word", ["userId", "wordKey"])
+    .index("by_user_article", ["userId", "articleId"]),
 
   // Highlighter and pen marks, re-anchored by text when the article renders.
   // Colours come from reader settings, so they follow the user's palette.

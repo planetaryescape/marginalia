@@ -50,6 +50,7 @@ describe("lookups", () => {
       word: "Elastic,",
       wordKey: "elastic",
       paragraphIndex: 3,
+      articleTitle: "Markets",
     });
   });
 

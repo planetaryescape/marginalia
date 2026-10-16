@@ -6,6 +6,7 @@ import ReadingPage from "./page";
 
 const mocks = vi.hoisted(() => ({
   tab: null as string | null,
+  todays: [] as (string | undefined)[],
   room: undefined as unknown,
   topics: undefined as unknown,
   lookups: {
@@ -16,7 +17,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: (ref: string) => (mocks as never)[ref],
+  useQuery: (ref: string, args?: { today?: string }) => {
+    if (ref === "room") mocks.todays.push(args?.today);
+    return (mocks as never)[ref];
+  },
   usePaginatedQuery: () => mocks.lookups,
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
@@ -69,6 +73,7 @@ beforeEach(() => {
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.tab = null;
+  mocks.todays = [];
   mocks.room = undefined;
   mocks.topics = undefined;
   mocks.lookups = { results: [], status: "Exhausted", loadMore: vi.fn() };
@@ -157,6 +162,7 @@ const lookup = (over: object) => ({
   _id: `l-${Math.random()}`,
   articleId: "art1",
   articleTitle: "On boring infrastructure",
+  articleGone: false,
   word: "elastic",
   wordKey: "elastic",
   sentence: "the queue stays elastic under load",
@@ -164,6 +170,34 @@ const lookup = (over: object) => ({
   sense: "adj. able to stretch to meet demand",
   createdAt: new Date(2026, 0, 3).getTime(),
   ...over,
+});
+
+describe("Your reading at midnight", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("asks again with the new date when the day rolls over while the room is open", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(2026, 9, 31, 23, 59, 30));
+    mocks.room = room();
+    mocks.topics = [];
+    await render();
+    expect(mocks.todays.at(-1)).toBe("2026-10-31");
+    await act(async () => vi.advanceTimersByTime(40_000));
+    expect(mocks.todays.at(-1)).toBe("2026-11-01");
+  });
+
+  it("refreshes the date when the tab becomes visible again", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(2026, 9, 30, 12));
+    mocks.room = room();
+    mocks.topics = [];
+    await render();
+    vi.setSystemTime(new Date(2026, 10, 2, 8));
+    await act(async () =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    expect(mocks.todays.at(-1)).toBe("2026-11-02");
+  });
 });
 
 describe("Dictionary", () => {
@@ -197,6 +231,7 @@ describe("Dictionary", () => {
         word: "ergodic",
         wordKey: "ergodic",
         articleTitle: null,
+        articleGone: true,
         sense: "adj. averaged over time",
       }),
     ];
@@ -230,6 +265,14 @@ describe("Dictionary", () => {
     expect(container.querySelector("h2")?.textContent).toContain(
       "elastic — ergodic",
     );
+  });
+
+  it("links an entry whose title the server left out, without calling it deleted", async () => {
+    mocks.lookups.results = [lookup({ _id: "u", articleTitle: null })];
+    await render();
+    const link = container.querySelector("article a");
+    expect(link?.textContent).toBe("Open article");
+    expect(container.textContent).not.toContain("no longer in your library");
   });
 
   it("jumps to a letter", async () => {

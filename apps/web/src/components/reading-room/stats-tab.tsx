@@ -10,6 +10,7 @@ import {
 } from "@/lib/reading-sentence";
 import { ShortAndLong } from "./short-and-long";
 import { TopicMap } from "./topic-map";
+import { useLocalToday } from "./use-local-today";
 import { WhenYouRead } from "./when-you-read";
 import { YourSources } from "./your-sources";
 
@@ -19,8 +20,13 @@ export function StatsTab() {
   const [timeZone] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
-  const room = useQuery(api.stats.readingRoom, { timeZone, period });
-  const topics = useQuery(api.stats.readingTopics, { timeZone, period });
+  const today = useLocalToday();
+  const room = useQuery(api.stats.readingRoom, { timeZone, period, today });
+  const topics = useQuery(api.stats.readingTopics, {
+    timeZone,
+    period,
+    today,
+  });
 
   return (
     <div>

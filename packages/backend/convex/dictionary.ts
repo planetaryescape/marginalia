@@ -2,13 +2,18 @@ import { paginationOptsValidator } from "convex/server";
 import { ownedArticle } from "./access";
 import { query } from "./functions";
 
-/** Lookups per page; each page reads one document per distinct article in it. */
+/** Lookups per page. */
 export const DICTIONARY_PAGE = 40;
+// Lookups recorded before `articleTitle` was copied onto them read their
+// article, whose document can be close to a megabyte. This many per page; the
+// backfill removes the need.
+const TITLE_FALLBACKS = 8;
 
 /**
  * The reader's lookups, newest first, a page at a time, each with its
- * article's title. Only the title leaves the server: article bodies never do.
- * The room loads pages up to a cap of 2,000 lookups and sorts them itself.
+ * article's title. The title comes from the lookup itself; article bodies
+ * never leave the server. The room loads pages up to a cap of 2,000 lookups
+ * and sorts them itself.
  */
 export const page = query({
   args: { paginationOpts: paginationOptsValidator },
@@ -21,33 +26,38 @@ export const page = query({
         ...paginationOpts,
         numItems: Math.min(paginationOpts.numItems, DICTIONARY_PAGE),
       });
-    const titles = new Map<string, Promise<string | null>>();
-    const titleOf = (id: (typeof result.page)[number]["articleId"]) => {
-      let title = titles.get(id);
-      if (!title) {
-        title = ownedArticle(ctx, id, ctx.readerId).then(
-          (a) => a?.title ?? null,
-        );
-        titles.set(id, title);
+    const fetched = new Map<string, string | null>();
+    const rows = [];
+    for (const row of result.page) {
+      let articleTitle = row.articleTitle ?? null;
+      let articleGone = row.articleGone === true;
+      if (articleTitle === null && !articleGone) {
+        if (!fetched.has(row.articleId) && fetched.size < TITLE_FALLBACKS)
+          fetched.set(
+            row.articleId,
+            (await ownedArticle(ctx, row.articleId, ctx.readerId))?.title ??
+              null,
+          );
+        const looked = fetched.get(row.articleId);
+        // Past the limit the title is unknown, not gone
+        if (looked !== undefined) {
+          articleTitle = looked;
+          articleGone = looked === null;
+        }
       }
-      return title;
-    };
-    return {
-      ...result,
-      page: await Promise.all(
-        result.page.map(async (row) => ({
-          _id: row._id,
-          articleId: row.articleId,
-          // Null once the article is deleted: the entry stays, the link goes
-          articleTitle: await titleOf(row.articleId),
-          word: row.word,
-          wordKey: row.wordKey,
-          sentence: row.sentence,
-          paragraphIndex: row.paragraphIndex,
-          sense: row.sense,
-          createdAt: row.createdAt,
-        })),
-      ),
-    };
+      rows.push({
+        _id: row._id,
+        articleId: row.articleId,
+        articleTitle,
+        articleGone,
+        word: row.word,
+        wordKey: row.wordKey,
+        sentence: row.sentence,
+        paragraphIndex: row.paragraphIndex,
+        sense: row.sense,
+        createdAt: row.createdAt,
+      });
+    }
+    return { ...result, page: rows };
   },
 });

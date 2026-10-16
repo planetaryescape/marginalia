@@ -124,6 +124,7 @@ async function saveCheckpoint(
     maxScrollPercent,
     annotationsOpened,
     finishedAt: old?.finishedAt ?? (finishing ? s.updatedAt : undefined),
+    estimatedReadMinutes: article.estimatedReadMinutes,
   };
   if (old) await ctx.db.patch(old._id, data);
   else await ctx.db.insert("readingActivity", data);

@@ -20,8 +20,33 @@ export function roomPeriod(now: number, timeZone: string, period: RoomPeriod) {
   const p = localParts(now, timeZone); // Invalid zones throw rather than using the server's
   const today = Date.UTC(p.year, p.month - 1, p.day);
   const days = period === "month" ? p.day : period === "30days" ? 30 : 90;
-  const start = localToUtc(today - (days - 1) * 86_400_000, timeZone);
+  const start = startOfLocalDay(today - (days - 1) * 86_400_000, timeZone);
   return { start, end: now + 1, timeZone, period, days };
+}
+
+/**
+ * The first instant of a local date, given as that date at UTC midnight. A
+ * zone whose clocks skip midnight (Santiago on 6 September) has no 00:00;
+ * `localToUtc` then lands in the previous day, so step forward to the day's
+ * first real instant.
+ */
+export function startOfLocalDay(dateAsUtc: number, timeZone: string) {
+  const target = new Date(dateAsUtc).toISOString().slice(0, 10);
+  const dayOf = localDayKeyer(timeZone);
+  let at = localToUtc(dateAsUtc, timeZone);
+  for (let i = 0; i < 16 && dayOf(at) < target; i++) at += 15 * 60_000;
+  return at;
+}
+
+/** The local date (YYYY-MM-DD) of an instant. The formatter is built once. */
+export function localDayKeyer(timeZone: string) {
+  const format = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return (at: number) => format.format(at);
 }
 
 /**

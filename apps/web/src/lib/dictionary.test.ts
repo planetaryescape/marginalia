@@ -18,6 +18,7 @@ const row = (over: Partial<LookupRow> & { wordKey: string }): LookupRow => {
     _id: `l${n}`,
     articleId: "art1" as Id<"articles">,
     articleTitle: "On boring infrastructure",
+    articleGone: false,
     word: over.wordKey,
     sentence: `A sentence with ${over.wordKey}.`,
     paragraphIndex: 2,
@@ -105,12 +106,21 @@ describe("groupLookups", () => {
   it("links a sentence to its line, and drops the link for a deleted article", () => {
     const [live, gone] = groupLookups([
       row({ wordKey: "alpha", sentence: "the quick fox", paragraphIndex: 3 }),
-      row({ wordKey: "beta", articleTitle: null }),
+      row({ wordKey: "beta", articleTitle: null, articleGone: true }),
     ]);
     expect(live.senses[0].href).toBe("/read/art1?quote=the+quick+fox&p=3");
     expect(gone.senses[0].href).toBeNull();
     expect(gone.senses[0].articleTitle).toBeNull();
     expect(gone.senses[0].sentence).toBeTruthy();
+  });
+
+  it("keeps the link when the title is unknown but the article isn't gone", () => {
+    const [entry] = groupLookups([
+      row({ wordKey: "alpha", articleTitle: null }),
+    ]);
+    expect(entry.senses[0].href).toBe(
+      "/read/art1?quote=A+sentence+with+alpha.&p=2",
+    );
   });
 
   it("leaves out a row without a word key and handles an empty library", () => {
