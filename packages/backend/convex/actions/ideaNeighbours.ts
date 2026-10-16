@@ -1,3 +1,5 @@
+"use node";
+
 // Vector search only runs in actions, so the embedding signal for the idea
 // graph is fetched here and handed back to the graph query as keys (which that
 // query re-checks as the reader's own).
