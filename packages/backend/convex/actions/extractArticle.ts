@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { EXTRACT_PAGE, WORDS_PER_MINUTE } from "../lib/constants";
+import { excerptOf } from "../lib/ingest";
 import { embedForLibrary } from "../lib/router";
 
 export const extractPending = internalAction({
@@ -72,8 +73,10 @@ async function extractSingle(ctx: any, article: any) {
     return;
   }
 
+  // Saved pages can carry broken emoji, which Convex refuses to store
+  const contentHtml = result.content.toWellFormed();
   // Strip HTML tags for plain text content
-  const plainText = result.content
+  const plainText = contentHtml
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -96,13 +99,13 @@ async function extractSingle(ctx: any, article: any) {
   await ctx.runMutation(internal.articles.updateExtracted, {
     articleId: article._id,
     content: plainText,
-    contentHtml: result.content,
-    excerpt: plainText.slice(0, 300),
+    contentHtml,
+    excerpt: excerptOf(plainText),
     wordCount,
     estimatedReadMinutes,
-    imageUrl: result.image || article.imageUrl,
-    title: result.title || article.title,
-    author: result.author || article.author,
+    imageUrl: (result.image || article.imageUrl)?.toWellFormed(),
+    title: (result.title || article.title).toWellFormed(),
+    author: (result.author || article.author)?.toWellFormed(),
     embedding,
   });
 

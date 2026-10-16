@@ -20,6 +20,14 @@ export function fitsInStorage(html: string, text: string): boolean {
   return Buffer.byteLength(html) + Buffer.byteLength(text) < MAX_STORED_BYTES;
 }
 
+/**
+ * The first 300 characters, without a half emoji at the cut. Convex rejects
+ * strings holding an unpaired surrogate with "Invalid arguments provided".
+ */
+export function excerptOf(plainText: string): string {
+  return plainText.slice(0, 300).replace(/[\uD800-\uDBFF]$/, "");
+}
+
 export function htmlToPlainText(html: string): string {
   return html
     .replace(/<[^>]*>/g, " ")
@@ -47,7 +55,8 @@ export async function ingestArticle(
   },
   options: { annotateAfterMs?: number } = {},
 ): Promise<Id<"articles"> | null> {
-  const html = slimHtml(article.html);
+  // Saved pages can carry broken emoji, which Convex refuses to store
+  const html = slimHtml(article.html.toWellFormed());
   const plainText = htmlToPlainText(html);
   if (!fitsInStorage(html, plainText)) {
     console.warn(
@@ -72,16 +81,16 @@ export async function ingestArticle(
     {
       userId,
       guid: article.guid ?? article.url,
-      url: article.url,
-      title: article.title || article.url,
-      author: article.author,
+      url: article.url.toWellFormed(),
+      title: (article.title || article.url).toWellFormed(),
+      author: article.author?.toWellFormed(),
       publishedAt: article.publishedAt,
       content: plainText,
       contentHtml: html,
-      excerpt: plainText.slice(0, 300),
+      excerpt: excerptOf(plainText),
       wordCount,
       estimatedReadMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
-      imageUrl: article.imageUrl,
+      imageUrl: article.imageUrl?.toWellFormed(),
       embedding,
       readerDocumentId: article.readerDocumentId,
       annotateAfterMs: options.annotateAfterMs,
