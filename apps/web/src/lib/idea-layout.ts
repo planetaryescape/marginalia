@@ -208,8 +208,10 @@ export function ideaBoxes(
   lines: readonly string[],
   fontSize: number,
 ): Box[] {
+  // The mark plus room for the centre's ring and the focus ring around it
+  const ring = p.r + 11;
   const boxes: Box[] = [
-    { x0: p.x - p.r, y0: p.y - p.r, x1: p.x + p.r, y1: p.y + p.r },
+    { x0: p.x - ring, y0: p.y - ring, x1: p.x + ring, y1: p.y + ring },
   ];
   if (lines.length) {
     const half =

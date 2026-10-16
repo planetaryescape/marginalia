@@ -111,7 +111,6 @@ export function CompanionAnswer({
               {list.head && <p>{renderInline(list.head, onJump)}</p>}
               <ul className="mt-1 list-disc space-y-1 pl-5 marker:text-[var(--reader-muted)]">
                 {list.items.map((item, j) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: items are positional text
                   <li key={j}>{renderInline(item, onJump)}</li>
                 ))}
               </ul>
