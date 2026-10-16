@@ -73,8 +73,17 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
           )}
         </p>
         <span className="mt-2 flex items-baseline justify-between gap-6">
-          <span className="min-w-0 font-serif text-[24px] lg:text-[30px] leading-tight group-hover:underline group-hover:decoration-[var(--pencil-rule)] underline-offset-4">
-            {inProgress.article.title}
+          <span className="min-w-0">
+            <span className="block font-serif text-[24px] lg:text-[30px] leading-tight group-hover:underline group-hover:decoration-[var(--pencil-rule)] underline-offset-4">
+              {inProgress.article.title}
+            </span>
+            {/* A book continues in a part, so name it */}
+            {inProgress.part && (
+              <span className="mt-1 block text-[13.5px] text-[var(--ink-muted)]">
+                Part {inProgress.part.number} of {inProgress.part.count} ·{" "}
+                {inProgress.part.title}
+              </span>
+            )}
           </span>
           <span className="shrink-0 text-[13.5px] text-[var(--ink-muted)]">
             {left ? `${left} min left` : `${inProgress.scrollPercent}% read`}

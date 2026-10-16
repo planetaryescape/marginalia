@@ -167,6 +167,42 @@ export const getInProgress = query({
       // "finished", so the article's own state decides, not the log order
       if (article.finishedAt !== undefined) continue;
 
+      // A book continues in the part being read: its minutes, not the book's
+      const book = article.bookUnitCount
+        ? await ctx.db
+            .query("books")
+            .withIndex("by_userId_and_articleId", (q) =>
+              q.eq("userId", ctx.readerId).eq("articleId", article._id),
+            )
+            .unique()
+        : null;
+      if (book) {
+        const index = Math.max(0, book.furthestUnit);
+        const unit = await ctx.db
+          .query("bookUnits")
+          .withIndex("by_userId_and_articleId_and_index", (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("articleId", article._id)
+              .eq("index", index),
+          )
+          .unique();
+        const scroll = book.furthestUnit >= 0 ? book.furthestScroll : 0;
+        return {
+          article,
+          scrollPercent: scroll,
+          remainingMinutes: unit
+            ? Math.max(
+                1,
+                Math.round(unit.estimatedReadMinutes * (1 - scroll / 100)),
+              )
+            : null,
+          part: unit
+            ? { number: index + 1, count: book.unitCount, title: unit.title }
+            : undefined,
+        };
+      }
+
       const remainingMin = article.estimatedReadMinutes
         ? Math.max(
             1,
