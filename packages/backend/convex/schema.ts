@@ -95,6 +95,13 @@ export default defineSchema({
     lastError: v.optional(v.string()),
     // Posts published before this are skipped; set by the feed's first poll
     importAfter: v.optional(v.number()),
+    // Articles of this feed in the library, kept by the mutations that insert
+    // and delete them so the Sources page never reads article rows to count.
+    // Unset until feeds.backfillArticleCounts has run for the feed.
+    articleCount: v.optional(v.number()),
+    // Set when a check starts and cleared when this feed finishes, so the page
+    // can show a check in progress after a reload or a scheduled poll
+    checkingSince: v.optional(v.number()),
     isActive: v.boolean(),
     createdAt: v.number(),
   })
@@ -174,6 +181,7 @@ export default defineSchema({
   })
     .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_feed", ["feedId"])
+    .index("by_user_feed", ["userId", "feedId"])
     .index("by_reader_document", ["readerDocumentId"])
     .index("by_userId_and_readerDocumentId", ["userId", "readerDocumentId"])
     .index("by_user", ["userId"])

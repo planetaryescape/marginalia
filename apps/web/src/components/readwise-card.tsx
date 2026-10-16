@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import { RefreshCw } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
+import { InlineError } from "./in-place";
 import { ConfirmAction } from "./settings-confirm";
 import {
   fieldControl,
@@ -31,6 +32,7 @@ export function ReadwiseCard() {
   const syncNow = useAction(api.readwise.syncNow);
   const disconnect = useMutation(api.readwise.disconnect);
   const [syncing, setSyncing] = useState(false);
+  const [startFailed, setStartFailed] = useState(false);
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 
   if (!status) return null;
@@ -54,21 +56,26 @@ export function ReadwiseCard() {
 
   const sync = async () => {
     setSyncing(true);
+    setStartFailed(false);
     try {
       await syncNow({});
-      toast.success(
-        "Syncing from Reader… new articles appear as they're imported.",
-      );
     } catch {
-      toast.error("Couldn't start the sync");
+      setStartFailed(true);
     }
     setSyncing(false);
   };
+
+  // The server's flag covers scheduled syncs and a reload; a sync that stopped
+  // on an error is not running.
+  const running =
+    status.connected &&
+    (syncing || (!!status.progress?.active && !status.error));
 
   return (
     <SettingsSection
       title="Readwise Reader"
       status={sectionStatus}
+      syncing={running}
       description={
         !status.connected
           ? "Connect Readwise to import your Inbox, Later and Shortlist. Finishing an article archives it in Reader, and highlights sync both ways."
@@ -94,6 +101,13 @@ export function ReadwiseCard() {
         ) : undefined
       }
     >
+      {startFailed && (
+        <InlineError
+          message="Couldn't start the sync."
+          onRetry={() => void sync()}
+          busy={syncing}
+        />
+      )}
       {status.connected && (
         <div className="flex flex-wrap items-center gap-2">
           {status.error ? (

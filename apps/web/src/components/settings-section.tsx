@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { SyncBar } from "./sync-bar";
 
 export type SettingsStatus = {
   tone: "quiet" | "progress" | "failed";
@@ -57,6 +58,7 @@ export function SettingsSection({
   description,
   action,
   details,
+  syncing = false,
   children,
   className,
 }: {
@@ -66,6 +68,8 @@ export function SettingsSection({
   action?: ReactNode;
   description?: ReactNode;
   details?: ReactNode;
+  /** A sync or check is running: an indeterminate bar sits under the heading. */
+  syncing?: boolean;
   children?: ReactNode;
   className?: string;
 }) {
@@ -85,6 +89,7 @@ export function SettingsSection({
           {action}
         </div>
       </div>
+      {syncing && <SyncBar label={`${title}: syncing`} />}
       {description && (
         <div className="mb-4 text-[15px] leading-relaxed text-[var(--reader-fg-soft)]">
           {description}

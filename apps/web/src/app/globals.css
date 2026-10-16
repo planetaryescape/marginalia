@@ -1069,6 +1069,46 @@ html ::highlight(user-underline) {
   animation: companion-shimmer 1.4s linear infinite;
 }
 
+/* Settings: an indeterminate bar for a sync or check in progress. Ink at low
+   alpha with a soft highlight moving across; never the pen colour. */
+.sync-bar {
+  position: relative;
+  overflow: hidden;
+  height: 2px;
+  margin-bottom: 0.75rem;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.sync-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--ink) 55%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: sync-bar-sweep 1.4s linear infinite;
+}
+@keyframes sync-bar-sweep {
+  from { background-position: -100% 0; }
+  to { background-position: 200% 0; }
+}
+.sync-bar-text { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .sync-bar { background: color-mix(in srgb, var(--ink) 40%, transparent); }
+  .sync-bar::after { display: none; animation: none; }
+  .sync-bar-text {
+    display: block;
+    margin: -0.25rem 0 0.75rem;
+    font-size: 13px;
+    color: var(--reader-muted);
+  }
+}
+
 /* ───────────────────────── Reader: controls ───────────────────────── */
 
 @keyframes popover-in {

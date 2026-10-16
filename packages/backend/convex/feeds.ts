@@ -50,6 +50,7 @@ export const add = mutation({
       title: args.title,
       siteUrl: args.siteUrl,
       description: args.description,
+      articleCount: 0,
       isActive: true,
       createdAt: Date.now(),
     });
@@ -186,6 +187,7 @@ export const updateLastFetched = internalMutation({
   args: { feedId: v.id("feeds"), importAfter: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.feedId, {
+      checkingSince: undefined,
       lastFetchedAt: Date.now(),
       lastError: undefined,
       importAfter: args.importAfter,
@@ -193,9 +195,27 @@ export const updateLastFetched = internalMutation({
   },
 });
 
+/** Flags the reader's active feeds as being checked, until each finishes. */
+export const markChecking = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const feeds = await ctx.db
+      .query("feeds")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+    for (const feed of feeds)
+      if (feed.isActive) await ctx.db.patch(feed._id, { checkingSince: now });
+  },
+});
+
 export const pollNow = action({
   args: {},
   handler: async (ctx) => {
+    // Flagged before the poll is queued, so the page shows it at once
+    await ctx.runMutation(internal.feeds.markChecking, {
+      userId: ctx.readerId,
+    });
     await ctx.scheduler.runAfter(0, internal.actions.pollFeeds.pollAllFeeds, {
       userId: ctx.readerId,
     });
@@ -205,6 +225,73 @@ export const pollNow = action({
 export const updateError = internalMutation({
   args: { feedId: v.id("feeds"), error: v.string() },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.feedId, { lastError: args.error });
+    await ctx.db.patch(args.feedId, {
+      checkingSince: undefined,
+      lastError: args.error,
+    });
+  },
+});
+
+// Articles can be about 900 KB each and a page reads whole rows
+const COUNT_PAGE = 10;
+
+/**
+ * Sets each feed's articleCount from its articles, ten rows at a time, then
+ * moves to the next feed. A feed's count stays unset until its last page, which
+ * sets it in the same transaction that read the last rows, so articles inserted
+ * while it runs are either scanned or counted live. Rerunning is safe. An
+ * article deleted after its page was scanned and before the feed finished is
+ * still in the count; a rerun corrects it.
+ *
+ * Run: bunx convex run feeds:backfillArticleCounts '{"userId":"<id>"}'
+ */
+export const backfillArticleCounts = internalMutation({
+  args: {
+    userId: v.string(),
+    remaining: v.optional(v.array(v.id("feeds"))),
+    cursor: v.optional(v.string()),
+    counted: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const remaining =
+      args.remaining ??
+      (
+        await ctx.db
+          .query("feeds")
+          .withIndex("by_user", (q) => q.eq("userId", args.userId))
+          .collect()
+      ).map((f) => f._id);
+    const [feedId, ...rest] = remaining;
+    if (!feedId) return;
+    const feed = await ctx.db.get(feedId);
+    if (feed?.userId !== args.userId) {
+      await ctx.scheduler.runAfter(0, internal.feeds.backfillArticleCounts, {
+        userId: args.userId,
+        remaining: rest,
+      });
+      return;
+    }
+    const page = await ctx.db
+      .query("articles")
+      .withIndex("by_user_feed", (q) =>
+        q.eq("userId", args.userId).eq("feedId", feedId),
+      )
+      .paginate({ cursor: args.cursor ?? null, numItems: COUNT_PAGE });
+    const counted = (args.counted ?? 0) + page.page.length;
+    if (page.isDone) {
+      await ctx.db.patch(feedId, { articleCount: counted });
+      if (rest.length)
+        await ctx.scheduler.runAfter(0, internal.feeds.backfillArticleCounts, {
+          userId: args.userId,
+          remaining: rest,
+        });
+      return;
+    }
+    await ctx.scheduler.runAfter(0, internal.feeds.backfillArticleCounts, {
+      userId: args.userId,
+      remaining,
+      cursor: page.continueCursor,
+      counted,
+    });
   },
 });

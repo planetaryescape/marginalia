@@ -12,6 +12,8 @@ export const pollAllFeeds = internalAction({
       userId: args.userId,
     });
 
+    // The cron polls without pollNow, so the flag is set here too
+    await ctx.runMutation(internal.feeds.markChecking, args);
     let added = 0;
     for (const feed of feeds) {
       try {

@@ -4,6 +4,7 @@ import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { removeFromQueueStats } from "../readingQueue";
 import { unlinkArticleTags } from "../tags";
+import { bumpFeedArticleCount } from "./feedArticleCount";
 
 /** What happens to a feed's articles when the reader unsubscribes. */
 export const feedArticlesChoice = v.union(
@@ -124,6 +125,7 @@ export async function deleteArticle(
   await unlinkArticleTags(ctx, article._id);
   await removeFromQueueStats(ctx, article);
   await ctx.db.delete("articles", article._id);
+  await bumpFeedArticleCount(ctx, article.feedId, article.userId, -1);
   // A deleted article only removes a candidate connection, which adds nothing
   // for the margin to read, so it deliberately doesn't move the fingerprint.
 }

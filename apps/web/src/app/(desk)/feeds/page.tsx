@@ -2,7 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ApiTokens } from "@/components/api-tokens";
 import { FeedSuggestion } from "@/components/feed-suggestion";
@@ -20,6 +20,8 @@ import { SettingsPage, SettingsSection } from "@/components/settings-section";
 import { useListKeys } from "@/lib/list-nav";
 import { formatDate } from "@/lib/utils";
 
+const CHECK_FLAG_TTL_MS = 10 * 60_000;
+
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
   const suggestions = useQuery(api.feedSuggestions.list);
@@ -28,6 +30,25 @@ export default function FeedsPage() {
   const pollNow = useAction(api.feeds.pollNow);
   const [polling, setPolling] = useState(false);
   const [pollFailed, setPollFailed] = useState(false);
+  // The server flags feeds while they are checked, so a scheduled check and a
+  // reload show it too. A check that died leaves the flag behind: ignore it
+  // once it is this old.
+  const [, expire] = useState(0);
+  const checkingSince = Math.max(
+    0,
+    ...(feeds ?? []).map((f) => f.checkingSince ?? 0),
+  );
+  const serverChecking =
+    checkingSince > 0 && Date.now() - checkingSince < CHECK_FLAG_TTL_MS;
+  useEffect(() => {
+    if (!serverChecking) return;
+    const timer = setTimeout(
+      () => expire((n) => n + 1),
+      checkingSince + CHECK_FLAG_TTL_MS - Date.now(),
+    );
+    return () => clearTimeout(timer);
+  }, [serverChecking, checkingSince]);
+  const checking = polling || serverChecking;
 
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
@@ -88,15 +109,16 @@ export default function FeedsPage() {
 
       <SettingsSection
         title="Feeds"
+        syncing={checking}
         description="Add a feed URL, or import an OPML file from another reader. New posts arrive in your library."
         action={
           <button
             type="button"
             onClick={checkNow}
-            disabled={polling || !feeds?.length}
+            disabled={checking || !feeds?.length}
             className={quietControl}
           >
-            {polling ? "Checking…" : "Check now"}
+            {checking ? "Checking…" : "Check now"}
           </button>
         }
       >
@@ -104,7 +126,7 @@ export default function FeedsPage() {
           <InlineError
             message="Couldn't check your feeds."
             onRetry={() => void checkNow()}
-            busy={polling}
+            busy={checking}
           />
         )}
         <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
@@ -214,9 +236,16 @@ export default function FeedsPage() {
                   <p className="truncate text-[13px] text-[var(--reader-muted)]">
                     {feed.url}
                   </p>
-                  {feed.lastFetchedAt && (
+                  {(feed.lastFetchedAt || feed.articleCount !== undefined) && (
                     <p className="text-[13px] text-[var(--reader-muted)]">
-                      Fetched {formatDate(feed.lastFetchedAt)}
+                      {[
+                        feed.lastFetchedAt &&
+                          `Fetched ${formatDate(feed.lastFetchedAt)}`,
+                        feed.articleCount !== undefined &&
+                          `${feed.articleCount} in your library`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
                   )}
                   {!feed.isActive && (

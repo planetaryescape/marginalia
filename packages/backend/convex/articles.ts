@@ -19,6 +19,7 @@ import {
 } from "./lib/annotationPolicy";
 import { articleUrlVariants } from "./lib/articleUrl";
 import { EXTRACT_PAGE } from "./lib/constants";
+import { bumpFeedArticleCount } from "./lib/feedArticleCount";
 import { unreadQueue } from "./lib/unreadQueue";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
@@ -168,6 +169,7 @@ export const insert = internalMutation({
   },
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("articles", args);
+    await bumpFeedArticleCount(ctx, args.feedId, args.userId, 1);
     const article = await ctx.db.get(id);
     if (article) await updateQueueStats(ctx, null, article);
     return id;
