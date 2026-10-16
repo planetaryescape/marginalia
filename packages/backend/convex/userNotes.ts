@@ -10,6 +10,7 @@ export const create = mutation({
     selectedText: v.string(),
     selectedStartOffset: v.optional(v.number()),
     selectedEndOffset: v.optional(v.number()),
+    unitIndex: v.optional(v.number()),
     annotationId: v.optional(v.id("annotations")),
     prompt: v.optional(v.string()),
     content: v.string(),
@@ -34,6 +35,7 @@ export const create = mutation({
       selectedText: args.selectedText,
       selectedStartOffset: args.selectedStartOffset,
       selectedEndOffset: args.selectedEndOffset,
+      unitIndex: args.unitIndex,
       annotationId,
       prompt: args.prompt,
       content: args.content,
@@ -87,14 +89,27 @@ export const remove = mutation({
 });
 
 export const listByArticle = query({
-  args: { articleId: v.id("articles") },
+  args: {
+    articleId: v.id("articles"),
+    // For a book: only the notes written in this part
+    unitIndex: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
-    return ctx.db
-      .query("userNotes")
-      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
-      .order("desc")
-      .collect();
+    const unitIndex = args.unitIndex;
+    return unitIndex === undefined
+      ? ctx.db
+          .query("userNotes")
+          .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+          .order("desc")
+          .collect()
+      : ctx.db
+          .query("userNotes")
+          .withIndex("by_article_and_unitIndex", (q) =>
+            q.eq("articleId", args.articleId).eq("unitIndex", unitIndex),
+          )
+          .order("desc")
+          .collect();
   },
 });
 

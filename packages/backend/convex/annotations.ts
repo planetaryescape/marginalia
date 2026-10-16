@@ -1,14 +1,26 @@
 import { v } from "convex/values";
-import { ownedArticle } from "./access";
+import { libraryIsActive, ownedArticle } from "./access";
 import { setAnnotationStatus } from "./articles";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { CURRENT_ANNOTATION_VERSION } from "./lib/annotationGate";
 import { annotationType } from "./lib/annotationKinds";
 
 export const listByArticle = query({
-  args: { articleId: v.id("articles") },
+  args: {
+    articleId: v.id("articles"),
+    // For a book: only the notes written for the unit being read
+    unitIndex: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
+    const unitIndex = args.unitIndex;
+    if (unitIndex !== undefined)
+      return ctx.db
+        .query("annotations")
+        .withIndex("by_article_and_unitIndex", (q) =>
+          q.eq("articleId", args.articleId).eq("unitIndex", unitIndex),
+        )
+        .collect();
     return ctx.db
       .query("annotations")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -221,5 +233,93 @@ export const replaceForArticle = internalMutation({
       annotationVersion: CURRENT_ANNOTATION_VERSION,
     });
     await setAnnotationStatus(ctx, args.articleId, "annotated");
+  },
+});
+
+/**
+ * Writes one unit's margin in one transaction, as replaceForArticle does for an
+ * article: notes the reader has answered stay, the rest are replaced, and the
+ * unit is marked annotated. A book has no reflection; that belongs to a piece
+ * read whole.
+ */
+export const replaceForUnit = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    unitIndex: v.number(),
+    notes: v.array(noteFields),
+  },
+  handler: async (ctx, args) => {
+    // A margin written while the account was being deleted must not outlive the purge
+    if (!(await libraryIsActive(ctx, args.userId)))
+      throw new Error("This library is no longer active.");
+    const article = await ownedArticle(ctx, args.articleId, args.userId);
+    if (!article) throw new Error("Article not found");
+    const unit = await ctx.db
+      .query("bookUnits")
+      .withIndex("by_userId_and_articleId_and_index", (q) =>
+        q
+          .eq("userId", args.userId)
+          .eq("articleId", args.articleId)
+          .eq("index", args.unitIndex),
+      )
+      .unique();
+    if (!unit) throw new Error("Unit not found");
+
+    const existing = await ctx.db
+      .query("annotations")
+      .withIndex("by_article_and_unitIndex", (q) =>
+        q.eq("articleId", args.articleId).eq("unitIndex", args.unitIndex),
+      )
+      .collect();
+    const answeredNotes = await ctx.db
+      .query("userNotes")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .collect();
+    const answered = new Set<string>(
+      answeredNotes.flatMap((note) =>
+        note.annotationId ? [note.annotationId] : [],
+      ),
+    );
+    const kept = existing.filter((row) => answered.has(row._id));
+    for (const row of existing)
+      if (!answered.has(row._id)) await ctx.db.delete(row._id);
+
+    const refs = new Map<string, boolean>();
+    const now = Date.now();
+    for (const note of args.notes) {
+      let articleRefId = note.articleRefId;
+      if (articleRefId) {
+        if (!refs.has(articleRefId))
+          refs.set(
+            articleRefId,
+            Boolean(await ownedArticle(ctx, articleRefId, args.userId)),
+          );
+        if (!refs.get(articleRefId) || articleRefId === args.articleId)
+          articleRefId = undefined;
+      }
+      if (note.articleRefId && !articleRefId && !note.notePath) continue;
+      if (
+        kept.some(
+          (row) =>
+            note.anchorStartOffset < row.anchorEndOffset &&
+            note.anchorEndOffset > row.anchorStartOffset,
+        )
+      )
+        continue;
+      await ctx.db.insert("annotations", {
+        ...note,
+        articleRefId,
+        articleId: args.articleId,
+        userId: args.userId,
+        unitIndex: args.unitIndex,
+        wasViewed: false,
+        wasDismissed: false,
+        createdAt: now,
+      });
+    }
+    await ctx.db.patch("bookUnits", unit._id, {
+      annotationStatus: "annotated",
+    });
   },
 });

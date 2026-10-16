@@ -198,6 +198,41 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  // A book's units carry its text, like articles do
+  rows((ctx, u) =>
+    ctx.db
+      .query("bookUnits")
+      .withIndex("by_userId_and_articleId_and_index", (q) => q.eq("userId", u))
+      .take(ARTICLE_BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("books")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  // An import still reading owns an uploaded file, which goes with it
+  async (ctx, { userId }) => {
+    const imports = await ctx.db
+      .query("documentImports")
+      .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", userId))
+      .take(BATCH);
+    for (const row of imports) {
+      try {
+        await ctx.storage.delete(row.storageId);
+      } catch {
+        // Already deleted when the import finished or failed
+      }
+      await ctx.db.delete(row._id);
+    }
+    return imports.length;
+  },
+  rows((ctx, u) =>
+    ctx.db
+      .query("uploadGrants")
+      .withIndex("by_userId_and_issuedAt", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
   rows((ctx, u) =>
     ctx.db
       .query("articles")

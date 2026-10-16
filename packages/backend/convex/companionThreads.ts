@@ -17,13 +17,25 @@ const modeValidator = v.union(
 );
 
 export const listByArticle = query({
-  args: { articleId: v.id("articles") },
+  args: {
+    articleId: v.id("articles"),
+    // For a book: only the answers about this part
+    unitIndex: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
-    return ctx.db
-      .query("companionThreads")
-      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
-      .take(200);
+    const unitIndex = args.unitIndex;
+    return unitIndex === undefined
+      ? ctx.db
+          .query("companionThreads")
+          .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+          .take(200)
+      : ctx.db
+          .query("companionThreads")
+          .withIndex("by_article_and_unitIndex", (q) =>
+            q.eq("articleId", args.articleId).eq("unitIndex", unitIndex),
+          )
+          .take(200);
   },
 });
 
@@ -62,6 +74,7 @@ export const create = mutation({
     selection: v.string(),
     question: v.optional(v.string()),
     paragraphIndex: v.optional(v.number()),
+    unitIndex: v.optional(v.number()),
     turns: v.array(turnValidator),
     model: v.optional(v.string()),
   },
@@ -103,16 +116,27 @@ export const keep = mutation({
     selection: v.string(),
     question: v.optional(v.string()),
     paragraphIndex: v.optional(v.number()),
+    unitIndex: v.optional(v.number()),
     turns: v.array(turnValidator),
     model: v.optional(v.string()),
   },
   handler: async (ctx, { legacyId, ...args }) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
     const now = Date.now();
-    const threads = await ctx.db
-      .query("companionThreads")
-      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
-      .take(200);
+    const unitIndex = args.unitIndex;
+    // A book's answers are looked up within their part
+    const threads =
+      unitIndex === undefined
+        ? await ctx.db
+            .query("companionThreads")
+            .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+            .take(200)
+        : await ctx.db
+            .query("companionThreads")
+            .withIndex("by_article_and_unitIndex", (q) =>
+              q.eq("articleId", args.articleId).eq("unitIndex", unitIndex),
+            )
+            .take(200);
     const legacy = legacyId
       ? threads.find(
           (t) =>

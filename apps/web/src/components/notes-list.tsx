@@ -110,8 +110,10 @@ function ArticleNotesGroup({
   const article = useQuery(api.articles.getById, { articleId });
   const source = article ? sourceOf(article.url) : null;
   // Where a row opens: the reader at a quote, or nowhere once the article is gone.
-  const at = (quote?: string, paragraphIndex?: number) =>
-    article === null ? null : readLink(articleId, quote, paragraphIndex);
+  const at = (quote?: string, paragraphIndex?: number, unitIndex?: number) =>
+    article === null
+      ? null
+      : readLink(articleId, quote, paragraphIndex, unitIndex);
 
   return (
     <section className="mb-10">
@@ -157,7 +159,11 @@ function GroupRow({
   onDeleteAnswer,
 }: {
   item: GroupItem;
-  at: (quote?: string) => string | null;
+  at: (
+    quote?: string,
+    paragraphIndex?: number,
+    unitIndex?: number,
+  ) => string | null;
   onDelete: (noteId: Id<"userNotes">) => void;
   onDeleteAnswer: (threadId: Id<"companionThreads">) => void;
 }) {
@@ -186,12 +192,19 @@ function NoteRow({
   onDelete,
 }: {
   note: Doc<"userNotes">;
-  at: (quote?: string) => string | null;
+  at: (
+    quote?: string,
+    paragraphIndex?: number,
+    unitIndex?: number,
+  ) => string | null;
   onDelete: () => void;
 }) {
   return (
     <div className="group">
-      <Opens href={at(note.selectedText || undefined)} className="block">
+      <Opens
+        href={at(note.selectedText || undefined, undefined, note.unitIndex)}
+        className="block"
+      >
         {note.selectedText && (
           <blockquote className="mb-1 line-clamp-2 font-serif text-sm italic text-[var(--ink-muted)]">
             {note.selectedText}
@@ -223,10 +236,17 @@ function MarkRow({
   at,
 }: {
   mark: KeptMark;
-  at: (quote?: string, paragraphIndex?: number) => string | null;
+  at: (
+    quote?: string,
+    paragraphIndex?: number,
+    unitIndex?: number,
+  ) => string | null;
 }) {
   return (
-    <Opens href={at(mark.text, mark.paragraphIndex)} className="block">
+    <Opens
+      href={at(mark.text, mark.paragraphIndex, mark.unitIndex)}
+      className="block"
+    >
       <p className="font-serif text-[16px] leading-relaxed text-[var(--reader-fg)]">
         {mark.kind === "highlight" ? (
           <span className="rounded-sm bg-[var(--highlighter)]">
@@ -253,7 +273,11 @@ function KeptAnswerRow({
   onDelete,
 }: {
   thread: KeptThread;
-  at: (quote?: string) => string | null;
+  at: (
+    quote?: string,
+    paragraphIndex?: number,
+    unitIndex?: number,
+  ) => string | null;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -272,7 +296,10 @@ function KeptAnswerRow({
       {open && (
         <div className="pb-3 pl-4">
           {thread.selection && (
-            <Opens href={at(thread.selection)} className="block mb-2">
+            <Opens
+              href={at(thread.selection, undefined, thread.unitIndex)}
+              className="block mb-2"
+            >
               <blockquote className="text-sm font-serif text-[var(--ink-muted)] border-l border-[var(--reader-border-strong)] pl-3 italic line-clamp-2">
                 {thread.selection}
               </blockquote>
@@ -281,7 +308,11 @@ function KeptAnswerRow({
           <KeptTranscript
             thread={thread}
             onJump={() => {
-              const href = at(thread.selection || undefined);
+              const href = at(
+                thread.selection || undefined,
+                undefined,
+                thread.unitIndex,
+              );
               if (href) router.push(href);
             }}
           />

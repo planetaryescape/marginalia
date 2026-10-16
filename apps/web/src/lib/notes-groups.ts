@@ -6,7 +6,13 @@ export type KeptThread = Omit<Doc<"companionThreads">, "embedding">;
 /** A highlight or underline as the Notes page receives it, from `highlights.listMine`. */
 export type KeptMark = Pick<
   Doc<"highlights">,
-  "_id" | "articleId" | "kind" | "text" | "createdAt" | "paragraphIndex"
+  | "_id"
+  | "articleId"
+  | "kind"
+  | "text"
+  | "createdAt"
+  | "paragraphIndex"
+  | "unitIndex"
 >;
 
 export type GroupItem =
@@ -78,11 +84,16 @@ export function readLink(
   articleId: Id<"articles">,
   quote?: string,
   paragraphIndex?: number,
+  /** The part of a book the passage is in; the reader opens that part */
+  unitIndex?: number,
 ): string {
   const base = `/read/${articleId}`;
-  if (!quote) return base;
-  const params = new URLSearchParams({ quote });
-  // The paragraph picks the right occurrence when the quote appears more than once
-  if (paragraphIndex !== undefined) params.set("p", String(paragraphIndex));
-  return `${base}?${params.toString()}`;
+  const params = new URLSearchParams();
+  if (unitIndex !== undefined) params.set("unit", String(unitIndex));
+  if (quote) {
+    params.set("quote", quote);
+    // The paragraph picks the right occurrence when the quote appears more than once
+    if (paragraphIndex !== undefined) params.set("p", String(paragraphIndex));
+  }
+  return params.size ? `${base}?${params.toString()}` : base;
 }

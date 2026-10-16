@@ -7,11 +7,14 @@ import { Suspense, useRef, useState } from "react";
 import { ArticleFinder } from "@/components/article-finder";
 import { DeskPick } from "@/components/desk/desk-pick";
 import { ContinueShortcut, DeskRest } from "@/components/desk/desk-rest";
+import { ImportSlot } from "@/components/desk/import-slot";
+import { PdfDrop } from "@/components/desk/pdf-drop";
 import { QueryBoundary } from "@/components/desk/query-boundary";
 import { type Fits, TimeChoices } from "@/components/desk/time-choices";
 import { parseDeskLink } from "@/lib/desk-link";
 import { useShortcuts } from "@/lib/shortcuts";
 import { useAltHint } from "@/lib/use-alt-hint";
+import { usePdfImport } from "@/lib/use-pdf-import";
 
 // A repeat of the same choice this soon is a double click, not a toggle off
 export const DOUBLE_CHOICE_MS = 400;
@@ -40,6 +43,7 @@ function Desk() {
   const params = useSearchParams();
   const showKeys = useAltHint();
   const link = parseDeskLink(params);
+  const pdf = usePdfImport();
   const keyCounter = useRef(0);
   const lastChoice = useRef<{ minutes: number; at: number } | null>(null);
 
@@ -112,6 +116,7 @@ function Desk() {
           <TimesWithFits {...timeProps} />
         </QueryBoundary>
         <ArticleFinder
+          onPdf={pdf.start}
           showKey={showKeys}
           windowMinutes={chosen?.minutes ?? null}
           onClearWindow={() => setChosen(null)}
@@ -134,10 +139,19 @@ function Desk() {
           />
         ) : (
           <QueryBoundary fallback={(retry) => <SlotFailure retry={retry} />}>
-            <DeskRest showKeys={showKeys} />
+            <ImportSlot
+              upload={pdf.upload}
+              problem={pdf.problem}
+              onFile={pdf.start}
+              onClearProblem={pdf.clearProblem}
+              onDismiss={pdf.dismiss}
+            >
+              <DeskRest showKeys={showKeys} />
+            </ImportSlot>
           </QueryBoundary>
         )}
       </section>
+      <PdfDrop onFile={pdf.start} />
     </main>
   );
 }

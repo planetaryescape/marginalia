@@ -5,13 +5,26 @@ import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 
 export const listByArticle = query({
-  args: { articleId: v.id("articles") },
+  args: {
+    articleId: v.id("articles"),
+    // For a book: only the marks in this part
+    unitIndex: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
-    return ctx.db
-      .query("highlights")
-      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
-      .take(500);
+    const unitIndex = args.unitIndex;
+    // The part is part of the index, so the cap applies within it
+    return unitIndex === undefined
+      ? ctx.db
+          .query("highlights")
+          .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+          .take(500)
+      : ctx.db
+          .query("highlights")
+          .withIndex("by_article_and_unitIndex", (q) =>
+            q.eq("articleId", args.articleId).eq("unitIndex", unitIndex),
+          )
+          .take(500);
   },
 });
 
@@ -42,6 +55,7 @@ export const listMine = query({
         kind: row.kind,
         text: row.text,
         paragraphIndex: row.paragraphIndex,
+        unitIndex: row.unitIndex,
         createdAt: row.createdAt,
       })),
     };
@@ -63,6 +77,7 @@ export const create = mutation({
     kind: v.union(v.literal("highlight"), v.literal("underline")),
     text: v.string(),
     paragraphIndex: v.optional(v.number()),
+    unitIndex: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);

@@ -56,6 +56,17 @@ describe("groupByArticle", () => {
   });
 });
 
+describe("readLink for a book", () => {
+  it("opens the part the passage is in", () => {
+    expect(readLink("art1" as never, undefined, undefined, 3)).toBe(
+      "/read/art1?unit=3",
+    );
+    expect(readLink("art1" as never, "a quote", 2, 3)).toBe(
+      "/read/art1?unit=3&quote=a+quote&p=2",
+    );
+  });
+});
+
 describe("readLink", () => {
   it("opens the article, at a quote when there is one", () => {
     expect(readLink("art1" as never)).toBe("/read/art1");

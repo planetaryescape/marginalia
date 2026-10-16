@@ -16,6 +16,7 @@ import { AnnotationCard } from "@/components/annotation-card";
 import { ArticleAsk } from "@/components/article-ask";
 import { ArticleRenderer } from "@/components/article-renderer";
 import { ArticleTags } from "@/components/article-tags";
+import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
 import {
   ImpressionPanel,
@@ -58,10 +59,12 @@ import {
   useReaderSettings,
   webSearchEnabled,
 } from "@/lib/reader-settings";
+import { articleProgress } from "@/lib/reading-clock";
 import { useListen, useReadingPosition } from "@/lib/reading-modes";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { findTextRange } from "@/lib/text-range";
+import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
@@ -80,14 +83,22 @@ export default function ReadPage() {
   const sessionId = searchParams.get("session");
   const router = useRouter();
 
-  const article = useQuery(api.articles.getById, {
-    articleId: articleId as any,
-  });
+  // A book is read a part at a time: `article` carries the part on screen
+  const { article, isBook, unitIndex, unitKey, outline, missingUnit } =
+    useReadable(articleId as Id<"articles">, searchParams.get("unit"));
+  // What a book's marks, notes and kept answers are filed under; absent for an article
+  const unit = unitIndex ?? undefined;
   // SAFETY: the route segment is an article id, as the queries below assume
-  useStartAnnotation(articleId as Id<"articles">, article?.annotationStatus);
-  const annotations = useQuery(api.annotations.listByArticle, {
-    articleId: articleId as any,
-  });
+  useStartAnnotation(
+    articleId as Id<"articles">,
+    isBook ? undefined : article?.annotationStatus,
+  );
+  const annotations = useQuery(
+    api.annotations.listByArticle,
+    isBook && unitIndex === null
+      ? "skip"
+      : { articleId: articleId as any, unitIndex: unitIndex ?? undefined },
+  );
   const reflection = useQuery(api.reflections.getByArticle, {
     articleId: articleId as any,
   });
@@ -102,6 +113,7 @@ export default function ReadPage() {
   const reannotate = useAction(api.articles.requestReannotate);
   const articleNotes = useQuery(api.userNotes.listByArticle, {
     articleId: articleId as any,
+    unitIndex: unit,
   });
 
   const [finishing, setFinishing] = useState(false);
@@ -153,9 +165,11 @@ export default function ReadPage() {
   });
   const savedThreads = useQuery(api.companionThreads.listByArticle, {
     articleId: articleId as any,
+    unitIndex: unit,
   });
   const companion = useCompanion({
     articleId: articleId as any,
+    unitIndex: unitIndex,
     containerRef: articleRef,
     title: article?.title ?? "",
     settings,
@@ -175,6 +189,21 @@ export default function ReadPage() {
     listening: listen.active,
     paragraphVersion: paragraphs.version,
   });
+  useBookProgress(
+    articleId as Id<"articles">,
+    unitIndex,
+    unitKey,
+    useCallback(() => {
+      const body = getArticleBody(articleRef.current);
+      if (!body) return null;
+      const rect = body.getBoundingClientRect();
+      return articleProgress(rect.top, rect.height, window.innerHeight);
+    }, []),
+  );
+  // A link to a part the book doesn't have opens its first
+  useEffect(() => {
+    if (missingUnit) router.replace(`/read/${articleId}?unit=0`);
+  }, [missingUnit, router, articleId]);
   // The open answer's passage, found again by its text so a refresh can restore it.
   const [openRange, setOpenRange] = useState<Range | null>(null);
   const openThread = companion.thread;
@@ -255,6 +284,7 @@ export default function ReadPage() {
   // Highlighter and pen marks (registered after saved passages so those win on click)
   const highlightDocs = useQuery(api.highlights.listByArticle, {
     articleId: articleId as any,
+    unitIndex: unit,
   });
   const createHighlight = useMutation(api.highlights.create);
   const removeHighlight = useMutation(api.highlights.remove);
@@ -281,13 +311,14 @@ export default function ReadPage() {
             kind,
             text: range.toString().replace(/\s+/g, " ").trim(),
             paragraphIndex: paragraphIndexOf(range.startContainer) ?? undefined,
+            unitIndex: unit,
           });
         }
       } catch {
         toast.error("Couldn't save that");
       }
     },
-    [marks, createHighlight, removeHighlight, articleId],
+    [marks, createHighlight, removeHighlight, articleId, unit],
   );
 
   const startCompanion = useCallback(
@@ -577,6 +608,7 @@ export default function ReadPage() {
           annotationId: openAnnotation._id as any,
           prompt: openAnnotation.content,
           selectedText: openAnnotation.anchorText,
+          unitIndex: unit,
           // Keep the prompt with the reflection so the note reads on its own in the Notes panel
           content: `<blockquote><p>${escapeHtml(openAnnotation.content)}</p></blockquote>${paragraphs}`,
           contentPlain: text,
@@ -586,7 +618,7 @@ export default function ReadPage() {
         throw new Error("save failed");
       }
     },
-    [openAnnotation, createNote, articleId],
+    [openAnnotation, createNote, articleId, unit],
   );
 
   const handleAddNote = useCallback(
@@ -645,7 +677,7 @@ export default function ReadPage() {
 
       <ReaderToolbar
         title={article.title}
-        originalUrl={article.url}
+        originalUrl={article.uploadedFileName ? undefined : article.url}
         backHref={back.href}
         backLabel={back.label}
         maxWidth={`max(${MAX_WIDTHS[settings.width]}, 42rem)`}
@@ -667,14 +699,18 @@ export default function ReadPage() {
         onToggleListen={toggleListen}
         onToggleSummary={() => emitCommand("toggle-summary")}
         onMarkUnread={article.finishedAt === undefined ? null : handleRestore}
-        onReannotate={async () => {
-          try {
-            await reannotate({ articleId: articleId as any });
-            toast.success("Re-annotating with latest vault…");
-          } catch {
-            toast.error("Couldn't re-annotate");
-          }
-        }}
+        onReannotate={
+          isBook
+            ? null
+            : async () => {
+                try {
+                  await reannotate({ articleId: articleId as any });
+                  toast.success("Re-annotating with latest vault…");
+                } catch {
+                  toast.error("Couldn't re-annotate");
+                }
+              }
+        }
         settings={{
           settings,
           update: updateSettings,
@@ -688,21 +724,23 @@ export default function ReadPage() {
         aria-label="Reading controls"
         className="mobile-reader-bar sm:hidden"
       >
-        <button
-          aria-label="Ask about this article"
-          aria-expanded={articleAskOpen}
-          aria-controls={articleAskOpen ? "article-question" : undefined}
-          disabled={listen.active || Boolean(saveError)}
-          onClick={() => {
-            setNotesPanelOpen(false);
-            setActiveAnnotation(null);
-            companion.collapse();
-            setArticleAskOpen((open) => !open);
-          }}
-        >
-          <MessagesSquare size={19} />
-          Ask
-        </button>
+        {!isBook && (
+          <button
+            aria-label="Ask about this article"
+            aria-expanded={articleAskOpen}
+            aria-controls={articleAskOpen ? "article-question" : undefined}
+            disabled={listen.active || Boolean(saveError)}
+            onClick={() => {
+              setNotesPanelOpen(false);
+              setActiveAnnotation(null);
+              companion.collapse();
+              setArticleAskOpen((open) => !open);
+            }}
+          >
+            <MessagesSquare size={19} />
+            Ask
+          </button>
+        )}
         <button onClick={() => setNotesPanelOpen(true)}>
           <NotebookPen size={19} />
           Notes{noteCount ? ` · ${noteCount}` : ""}
@@ -812,6 +850,11 @@ export default function ReadPage() {
               {article.title}
             </h1>
             <div className="flex flex-wrap gap-3 text-sm font-sans text-ink-400 dark:text-ink-500">
+              {isBook && outline && unitIndex !== null && (
+                <span>
+                  Part {unitIndex + 1} of {outline.length}
+                </span>
+              )}
               {article.author && <span>{article.author}</span>}
               {article.estimatedReadMinutes && (
                 <>
@@ -824,14 +867,17 @@ export default function ReadPage() {
             {impression && <ImpressionSummary impression={impression} />}
           </header>
 
-          <SummaryPanel
-            articleId={articleId as any}
-            title={article.title}
-            wordCount={article.wordCount}
-            summary={summary}
-            containerRef={articleRef}
-            onJump={jumpToParagraph}
-          />
+          {(!isBook || summary) && (
+            <SummaryPanel
+              articleId={articleId as any}
+              title={article.title}
+              wordCount={article.wordCount}
+              summary={summary}
+              containerRef={articleRef}
+              onJump={jumpToParagraph}
+              canGenerate={!isBook}
+            />
+          )}
           <ArticleRenderer
             content={article.content ?? ""}
             contentHtml={article.contentHtml ?? ""}
@@ -842,21 +888,30 @@ export default function ReadPage() {
 
           {/* Back matter: the Ask pill steps aside while it is in view */}
           <div ref={setBackMatter}>
-            <section
-              ref={impressionRef}
-              aria-label="Your impression"
-              className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
-            >
-              <ImpressionPanel articleId={articleId as any} />
-            </section>
+            {isBook && outline && unitIndex !== null && (
+              <BookUnitNav
+                articleId={articleId}
+                unitIndex={unitIndex}
+                outline={outline}
+              />
+            )}
+            {!isBook && (
+              <section
+                ref={impressionRef}
+                aria-label="Your impression"
+                className="mt-16 rounded-2xl bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] p-5"
+              >
+                <ImpressionPanel articleId={articleId as any} />
+              </section>
+            )}
 
-            {reflection && (
+            {!isBook && reflection && (
               <div className="mt-10">
                 <ReflectionBox reflection={reflection} onDone={handleDone} />
               </div>
             )}
 
-            {!reflection && (
+            {!isBook && !reflection && (
               <div className="mt-10 text-center">
                 <button
                   onClick={handleDone}
@@ -867,16 +922,18 @@ export default function ReadPage() {
               </div>
             )}
 
-            <FinishedLine
-              finished={article.finishedAt !== undefined}
-              onMarkUnread={handleRestore}
-            />
+            {!isBook && (
+              <FinishedLine
+                finished={article.finishedAt !== undefined}
+                onMarkUnread={handleRestore}
+              />
+            )}
           </div>
         </article>
       </div>
 
       <Sidenotes
-        key={articleId}
+        key={`${articleId}:${unitIndex ?? ""}`}
         containerRef={articleRef}
         mode={marginMode}
         version={paragraphs.version}
@@ -976,30 +1033,33 @@ export default function ReadPage() {
           />
         )}
 
-      <ArticleAsk
-        open={articleAskOpen}
-        onOpenChange={setArticleAskOpen}
-        hidden={Boolean(
-          companion.thread ||
-            activeAnnotation ||
-            notesPanelOpen ||
-            backMatterInView ||
-            listen.active ||
-            saveError,
-        )}
-        onAsk={(question) => {
-          setActiveAnnotation(null);
-          companion.startArticle(question);
-        }}
-        depth={settings.answerDepth}
-        onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
-        web={webSearchEnabled(settings)}
-        onWebChange={(on) =>
-          updateSettings({ webSearch: on ? "always" : "off" })
-        }
-        history={articleHistory(companion.answers, savedThreads)}
-        onOpen={openAnswer}
-      />
+      {/* Questions about the whole piece need the whole book indexed; passage tools work on the part on screen */}
+      {!isBook && (
+        <ArticleAsk
+          open={articleAskOpen}
+          onOpenChange={setArticleAskOpen}
+          hidden={Boolean(
+            companion.thread ||
+              activeAnnotation ||
+              notesPanelOpen ||
+              backMatterInView ||
+              listen.active ||
+              saveError,
+          )}
+          onAsk={(question) => {
+            setActiveAnnotation(null);
+            companion.startArticle(question);
+          }}
+          depth={settings.answerDepth}
+          onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
+          web={webSearchEnabled(settings)}
+          onWebChange={(on) =>
+            updateSettings({ webSearch: on ? "always" : "off" })
+          }
+          history={articleHistory(companion.answers, savedThreads)}
+          onOpen={openAnswer}
+        />
+      )}
 
       <ReaderReturnChip entry={returnTo} onBack={backToParagraph} />
       {leavingLink ? (
@@ -1024,6 +1084,7 @@ export default function ReadPage() {
       {/* Notes side panel */}
       <NotesPanel
         articleId={articleId}
+        unitIndex={unit}
         isOpen={notesPanelOpen}
         onClose={() => setNotesPanelOpen(false)}
         pendingSelection={pendingSelection}

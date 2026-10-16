@@ -34,4 +34,12 @@ crons.interval(
   {},
 );
 
+// Uploads nobody imported (documentImports.ts)
+crons.interval(
+  "remove abandoned uploads",
+  { minutes: 60 },
+  internal.documentImports.sweepUploads,
+  {},
+);
+
 export default crons;

@@ -435,7 +435,7 @@ async function annotateArticle(
   }
 }
 
-async function assignTags(
+export async function assignTags(
   ctx: ActionCtx,
   input: {
     userId: string;

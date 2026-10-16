@@ -54,6 +54,12 @@ export const READER_LIMITS = {
     windowMs: 60 * 60_000,
     message: "Too many API tokens created in the last hour. Try again later.",
   },
+  // PDF uploads and the imports started from them (documentImports.ts)
+  pdfImport: {
+    max: 20,
+    windowMs: 60 * 60_000,
+    message: "Too many PDFs in the last hour. Try again later.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -67,6 +73,7 @@ const bucket = v.union(
   v.literal("api"),
   v.literal("annotateAhead"),
   v.literal("apiTokenCreate"),
+  v.literal("pdfImport"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */

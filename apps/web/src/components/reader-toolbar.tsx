@@ -28,7 +28,8 @@ function Kbd({ children }: { children: string }) {
 
 export interface ReaderToolbarProps {
   title: string;
-  originalUrl: string;
+  /** Absent for a PDF the reader uploaded, which has no page to open. */
+  originalUrl?: string;
   /** Where Back returns to, and the room it names (Desk, Library or Notes). */
   backHref: string;
   backLabel: string;
@@ -47,7 +48,8 @@ export interface ReaderToolbarProps {
   onToggleSummary: () => void;
   /** Only an article that was finished can be marked unread. */
   onMarkUnread: (() => void) | null;
-  onReannotate: () => void;
+  /** Absent for a book, whose margin is written a part at a time. */
+  onReannotate: (() => void) | null;
   settings: Omit<ReaderSettingsPanelProps, "onOpenChange">;
 }
 
@@ -206,11 +208,13 @@ export function ReaderToolbar({
                 <DropdownMenu.Item className={MENU_ITEM} onSelect={copyLink}>
                   Copy link
                 </DropdownMenu.Item>
-                <DropdownMenu.Item className={MENU_ITEM} asChild>
-                  <a href={originalUrl} target="_blank" rel="noreferrer">
-                    Open original
-                  </a>
-                </DropdownMenu.Item>
+                {originalUrl && (
+                  <DropdownMenu.Item className={MENU_ITEM} asChild>
+                    <a href={originalUrl} target="_blank" rel="noreferrer">
+                      Open original
+                    </a>
+                  </DropdownMenu.Item>
+                )}
                 {onMarkUnread && (
                   <DropdownMenu.Item
                     className={MENU_ITEM}
@@ -219,13 +223,17 @@ export function ReaderToolbar({
                     Mark unread
                   </DropdownMenu.Item>
                 )}
-                <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
-                <DropdownMenu.Item
-                  className={cn(MENU_ITEM, "text-[var(--ink-soft)]")}
-                  onSelect={onReannotate}
-                >
-                  Re-annotate with latest vault
-                </DropdownMenu.Item>
+                {onReannotate && (
+                  <>
+                    <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
+                    <DropdownMenu.Item
+                      className={cn(MENU_ITEM, "text-[var(--ink-soft)]")}
+                      onSelect={onReannotate}
+                    >
+                      Re-annotate with latest vault
+                    </DropdownMenu.Item>
+                  </>
+                )}
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>

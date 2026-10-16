@@ -1,7 +1,9 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type ObjectType, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ownedArticle, requireArticle } from "./access";
+import { syncBookFinished } from "./books";
+import { liveImport, markImportReady } from "./documentImports";
 import {
   action,
   internalMutation,
@@ -72,6 +74,8 @@ export const archive = mutation({
     await ctx.db.patch(before._id, { finishedAt: Date.now() });
     const after = await ctx.db.get(before._id);
     if (after) await updateQueueStats(ctx, before, after);
+    if (before.bookUnitCount !== undefined)
+      await syncBookFinished(ctx, ctx.readerId, before._id, true);
     await ctx.scheduler.runAfter(
       0,
       internal.actions.readwiseSync.archiveArticle,
@@ -89,6 +93,8 @@ export const restore = mutation({
     await ctx.db.patch(before._id, { finishedAt: undefined });
     const after = await ctx.db.get(before._id);
     if (after) await updateQueueStats(ctx, before, after);
+    if (before.bookUnitCount !== undefined)
+      await syncBookFinished(ctx, ctx.readerId, before._id, false);
     await ctx.scheduler.runAfter(
       0,
       internal.actions.readwiseSync.unarchiveArticle,
@@ -304,6 +310,9 @@ export const requestReannotate = action({
       { articleId: args.articleId, userId: ctx.readerId },
     );
     if (!article) throw new Error("Article not found");
+    // A book's notes belong to its parts; clearing the article would delete them all
+    if (article.bookUnitCount !== undefined)
+      throw new ConvexError("A book is annotated a part at a time.");
     // The bulk re-annotation already has this article; a second job would race it
     if (
       article.reannotateClaimedAt !== undefined &&
@@ -333,59 +342,88 @@ export const requestReannotate = action({
   },
 });
 
+const insertExtractedArgs = {
+  userId: v.string(),
+  guid: v.string(),
+  url: v.string(),
+  title: v.string(),
+  author: v.optional(v.string()),
+  publishedAt: v.optional(v.number()),
+  content: v.string(),
+  contentHtml: v.string(),
+  excerpt: v.string(),
+  wordCount: v.number(),
+  estimatedReadMinutes: v.number(),
+  imageUrl: v.optional(v.string()),
+  embedding: v.optional(v.array(v.float64())),
+  readerDocumentId: v.optional(v.string()),
+  uploadedFileName: v.optional(v.string()),
+  pageCount: v.optional(v.number()),
+  annotateAfterMs: v.optional(v.number()),
+};
+
 export const insertExtracted = internalMutation({
-  args: {
-    userId: v.string(),
-    guid: v.string(),
-    url: v.string(),
-    title: v.string(),
-    author: v.optional(v.string()),
-    publishedAt: v.optional(v.number()),
-    content: v.string(),
-    contentHtml: v.string(),
-    excerpt: v.string(),
-    wordCount: v.number(),
-    estimatedReadMinutes: v.number(),
-    imageUrl: v.optional(v.string()),
-    embedding: v.optional(v.array(v.float64())),
-    readerDocumentId: v.optional(v.string()),
-    annotateAfterMs: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("articles")
-      .withIndex("by_user_guid", (q) =>
-        q.eq("userId", args.userId).eq("guid", args.guid),
-      )
-      .first();
-    if (existing) {
-      if (args.readerDocumentId && !existing.readerDocumentId) {
-        await ctx.db.patch(existing._id, {
-          readerDocumentId: args.readerDocumentId,
-        });
-      }
-      return existing._id;
-    }
-    const { annotateAfterMs, ...article } = args;
-    const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
-    const id = await ctx.db.insert("articles", {
-      ...article,
-      extractionStatus: "extracted",
-      annotationStatus: annotateNow ? "pending" : "deferred",
-      createdAt: Date.now(),
+  args: insertExtractedArgs,
+  handler: (ctx, args) => insertExtractedRow(ctx, args),
+});
+
+/**
+ * The article of an uploaded PDF, written only while its import is still live:
+ * the row exists and the library is active, checked in this transaction.
+ */
+export const insertImported = internalMutation({
+  args: { ...insertExtractedArgs, importId: v.id("documentImports") },
+  handler: async (ctx, { importId, ...args }) => {
+    const row = await liveImport(ctx, importId);
+    if (!row || row.userId !== args.userId) return null;
+    const articleId = await insertExtractedRow(ctx, args);
+    // Published and ready in one commit
+    await markImportReady(ctx, row, {
+      articleId,
+      title: args.title,
+      pages: args.pageCount ?? 0,
     });
-    const inserted = await ctx.db.get(id);
-    if (inserted) await updateQueueStats(ctx, null, inserted);
-    if (annotateNow) {
-      await ctx.scheduler.runAfter(
-        annotateAfterMs ?? 500,
-        internal.actions.generateAnnotations.generateForArticle,
-        { articleId: id },
-      );
-    }
-    return id;
+    return articleId;
   },
 });
+
+async function insertExtractedRow(
+  ctx: MutationCtx,
+  args: ObjectType<typeof insertExtractedArgs>,
+): Promise<Id<"articles">> {
+  const existing = await ctx.db
+    .query("articles")
+    .withIndex("by_user_guid", (q) =>
+      q.eq("userId", args.userId).eq("guid", args.guid),
+    )
+    .first();
+  if (existing) {
+    if (args.readerDocumentId && !existing.readerDocumentId) {
+      await ctx.db.patch(existing._id, {
+        readerDocumentId: args.readerDocumentId,
+      });
+    }
+    return existing._id;
+  }
+  const { annotateAfterMs, ...article } = args;
+  const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
+  const id = await ctx.db.insert("articles", {
+    ...article,
+    extractionStatus: "extracted",
+    annotationStatus: annotateNow ? "pending" : "deferred",
+    createdAt: Date.now(),
+  });
+  const inserted = await ctx.db.get(id);
+  if (inserted) await updateQueueStats(ctx, null, inserted);
+  if (annotateNow) {
+    await ctx.scheduler.runAfter(
+      annotateAfterMs ?? 500,
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId: id },
+    );
+  }
+  return id;
+}
 
 /**
  * Starts marginalia for the deferred articles the desk is about to offer.

@@ -128,6 +128,7 @@ export function SummaryPanel({
   summary,
   containerRef,
   onJump,
+  canGenerate = true,
 }: {
   articleId: Id<"articles">;
   title: string;
@@ -135,6 +136,8 @@ export function SummaryPanel({
   summary: Doc<"summaries"> | null | undefined;
   containerRef: React.RefObject<HTMLElement | null>;
   onJump: (index: number) => void;
+  /** False for a book: its one point is written once, and a map of the part on screen would replace it. */
+  canGenerate?: boolean;
 }) {
   const generate = useAction(api.actions.summarize.generate);
   const [loading, setLoading] = useState(false);
@@ -178,7 +181,7 @@ export function SummaryPanel({
   // "u" on the reading page: summarise, or fold and unfold an existing summary
   useCommand("toggle-summary", () => {
     if (state === "ready") setExpanded((e) => !e);
-    else if (state === "idle") run();
+    else if (state === "idle" && canGenerate) run();
   });
 
   return (
@@ -193,7 +196,7 @@ export function SummaryPanel({
       )}
     >
       <AnimatePresence mode="popLayout" initial={false}>
-        {state === "idle" && (
+        {state === "idle" && canGenerate && (
           <motion.button
             key="idle"
             type="button"
@@ -411,14 +414,16 @@ export function SummaryPanel({
                       </span>
                       <span>·</span>
                       <span>{words.toLocaleString()} words</span>
-                      <button
-                        type="button"
-                        onClick={run}
-                        className="ml-auto flex items-center gap-1 hover:text-[var(--reader-fg)] transition-colors"
-                      >
-                        <RotateCcw size={11} />{" "}
-                        {summary.thesis ? "Redo" : "Refresh summary"}
-                      </button>
+                      {canGenerate && (
+                        <button
+                          type="button"
+                          onClick={run}
+                          className="ml-auto flex items-center gap-1 hover:text-[var(--reader-fg)] transition-colors"
+                        >
+                          <RotateCcw size={11} />{" "}
+                          {summary.thesis ? "Redo" : "Refresh summary"}
+                        </button>
+                      )}
                     </motion.div>
                   </motion.div>
                 </motion.div>

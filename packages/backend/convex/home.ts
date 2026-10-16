@@ -1,6 +1,9 @@
 import { ownedArticle } from "./access";
 import { query } from "./functions";
+import { unfinishedBooks } from "./lib/unfinishedBooks";
 import { unreadQueue } from "./lib/unreadQueue";
+
+const BOOKS_ON_THE_SHELF = 5;
 
 function hostOf(url: string) {
   try {
@@ -14,7 +17,7 @@ function hostOf(url: string) {
 export const overview = query({
   args: {},
   handler: async (ctx) => {
-    const [unread, stats, notes] = await Promise.all([
+    const [unread, stats, notes, books] = await Promise.all([
       unreadQueue(ctx, 10),
       ctx.db
         .query("readingQueueStats")
@@ -25,7 +28,19 @@ export const overview = query({
         .withIndex("by_user_recent", (q) => q.eq("userId", ctx.readerId))
         .order("desc")
         .take(1),
+      unfinishedBooks(ctx, BOOKS_ON_THE_SHELF),
     ]);
+    // A book keeps no text on its article row and isn't in the unread queue,
+    // so the shelf lists it from its own row
+    const bookEntries = books.map(({ article: a }) => ({
+      _id: a._id,
+      title: a.title,
+      author: a.author,
+      source: `Book · ${a.bookUnitCount ?? 0} parts`,
+      minutes: undefined,
+      excerpt: a.excerpt?.slice(0, 180),
+      fromReader: false,
+    }));
 
     const latest = notes[0];
     const latestNoteArticle = latest
@@ -43,15 +58,18 @@ export const overview = query({
         20: stats?.ready ? stats.fits20 : null,
         30: stats?.ready ? stats.waiting : null,
       },
-      upNext: unread.slice(0, 10).map((a) => ({
-        _id: a._id,
-        title: a.title,
-        author: a.author,
-        source: hostOf(a.url),
-        minutes: a.estimatedReadMinutes,
-        excerpt: a.excerpt?.slice(0, 180),
-        fromReader: Boolean(a.readerDocumentId),
-      })),
+      upNext: [
+        ...bookEntries,
+        ...unread.map((a) => ({
+          _id: a._id,
+          title: a.title,
+          author: a.author,
+          source: a.uploadedFileName ? "PDF" : hostOf(a.url),
+          minutes: a.estimatedReadMinutes,
+          excerpt: a.excerpt?.slice(0, 180),
+          fromReader: Boolean(a.readerDocumentId),
+        })),
+      ].slice(0, 10),
       latestNote: latest
         ? {
             articleId: latest.articleId,

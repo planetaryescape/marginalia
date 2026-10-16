@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { PdfPickerButton } from "@/components/desk/pdf-picker";
 import { useCommand, useShortcuts } from "@/lib/shortcuts";
 import {
   nextPosition,
@@ -47,10 +48,13 @@ function metaLine(match: TopicMatch) {
 export function ArticleFinder({
   windowMinutes = null,
   onClearWindow,
+  onPdf,
   showKey = false,
 }: {
   windowMinutes?: number | null;
   onClearWindow?: () => void;
+  /** A PDF chosen from the picker; the desk reads it in. */
+  onPdf?: (file: File) => void;
   /** The desk's hold-Alt overlay: show the `/` key on the trigger. */
   showKey?: boolean;
 }) {
@@ -179,12 +183,12 @@ export function ArticleFinder({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-keyshortcuts="/"
-        title="Ask, or paste a link · press /"
+        title="Ask, paste a link, or drop a PDF · press /"
         className="flex w-full items-center gap-2.5 h-12 rounded-2xl px-4 bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] text-left text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
       >
         <Search size={16} className="shrink-0" />
         <span className="flex-1 min-w-0 truncate text-[15px]">
-          Ask, or paste a link
+          Ask, paste a link, or drop a PDF
         </span>
         {showKey && (
           <kbd className="reader-kbd hidden md:inline-block" aria-hidden>
@@ -266,9 +270,24 @@ export function ArticleFinder({
         </form>
         <div className="max-h-[min(calc(var(--app-viewport-height)-10rem),480px)] overflow-y-auto overscroll-contain">
           {!text && (
-            <p className="px-5 py-6 text-[14px] text-[var(--reader-muted)]">
-              Say what you feel like reading about, or paste a link.
-            </p>
+            <div className="px-5 py-6 text-[14px] text-[var(--reader-muted)]">
+              <p>Say what you feel like reading about, or paste a link.</p>
+              {onPdf && (
+                <p className="mt-3">
+                  Or{" "}
+                  <PdfPickerButton
+                    className="text-[var(--reader-fg-soft)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px] hover:text-[var(--reader-fg)]"
+                    onFile={(file) => {
+                      setOpen(false);
+                      onPdf(file);
+                    }}
+                  >
+                    choose a PDF
+                  </PdfPickerButton>{" "}
+                  to read.
+                </p>
+              )}
+            </div>
           )}
           {text && text.length < 2 && !isLink && (
             <p className="px-5 py-6 text-[14px] text-[var(--reader-muted)]">

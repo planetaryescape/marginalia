@@ -103,7 +103,10 @@ async function saveCheckpoint(
     old?.maxScrollPercent ?? 0,
     s.maxScrollPercent,
   );
+  // A book is finished by reading its last unit (books.recordProgress), not by
+  // the time spent on any one visit
   const finishing =
+    article.bookUnitCount === undefined &&
     !old?.finishedAt &&
     (Boolean(s.finished) ||
       (await readToTheEnd(ctx, article, old, {

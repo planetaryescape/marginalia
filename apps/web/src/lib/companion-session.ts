@@ -74,10 +74,10 @@ export function isRefreshOf(
   entry: Pick<PerformanceNavigationTiming, "type" | "name"> | undefined,
 ): boolean {
   if (entry?.type !== "reload") return false;
+  // A book's answers are filed under "id:part"; the address holds only the id
+  const [id] = articleId.split(":");
   try {
-    return (
-      new URL(entry.name).pathname.replace(/\/$/, "") === `/read/${articleId}`
-    );
+    return new URL(entry.name).pathname.replace(/\/$/, "") === `/read/${id}`;
   } catch {
     return false;
   }

@@ -33,6 +33,7 @@
     "convex-helpers": "0.1.126",
     "jose": "^6.2.12",
     "rss-parser": "^3.13.0",
+    "unpdf": "1.8.1",
     "zod": "^4"
   },
   "devDependencies": {

@@ -5,7 +5,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { query } from "./functions";
 import { needsAnnotationStart } from "./lib/annotationPolicy";
+import { type BookCandidate, bookCandidate, bookReason } from "./lib/bookPicks";
 import { WORDS_PER_MINUTE } from "./lib/constants";
+import { unfinishedBooks } from "./lib/unfinishedBooks";
 
 // Nearest articles on each side of the window. Scoring weighs closeness at two
 // points a minute against at most ten for recency, so anything further out than
@@ -32,7 +34,65 @@ const DEFERRED_NEIGHBOURS = 4;
 // statuses, which keeps it under the 16 MiB read limit.
 const FAILED_NEIGHBOURS = 2;
 
+// A book in progress is the reader's own choice, so it earns the same lift as a
+// saved article when its next part fits
+const BOOK_BOOST = SAVED_BOOST;
+// Unfinished books considered per request, newest first. Each is read with its
+// whole outline (one entry per part, up to 3,200 parts of about 90 bytes, so
+// about 0.9 MB), and a query may read 16 MiB: five books are about 4.5 MB, and
+// twenty were 17.7 MB.
+const BOOKS_CONSIDERED = 5;
+
 type Reader = { db: DatabaseReader; readerId: string };
+
+/**
+ * Each unfinished book's next part, when it fits the window (D-DES-055). A part
+ * further on is never offered in its place, so a book has at most one pick.
+ */
+async function bookPicks(ctx: Reader, minutes: number) {
+  const picks: {
+    article: Doc<"articles">;
+    candidate: BookCandidate;
+    reason: string;
+    started: boolean;
+  }[] = [];
+  for (const { book, article } of await unfinishedBooks(
+    ctx,
+    BOOKS_CONSIDERED,
+  )) {
+    const candidate = bookCandidate(book, article.bookOutline ?? [], minutes);
+    if (candidate)
+      picks.push({
+        article,
+        candidate,
+        reason: bookReason(book, candidate.unitIndex),
+        started: book.furthestUnit >= 0 || book.finishedThrough >= 0,
+      });
+  }
+  return picks;
+}
+
+function toBookSuggestion(pick: Awaited<ReturnType<typeof bookPicks>>[number]) {
+  const { article, candidate, reason, started } = pick;
+  return {
+    _id: article._id,
+    title: `${article.title} · Part ${candidate.unitIndex + 1} of ${candidate.of}`,
+    author: article.author,
+    url: article.url,
+    imageUrl: article.imageUrl,
+    estimatedReadMinutes: candidate.minutes,
+    publishedAt: undefined,
+    excerpt: undefined,
+    feedId: undefined,
+    deferred: false,
+    reason,
+    book: {
+      unitIndex: candidate.unitIndex,
+      unitTitle: candidate.title,
+      started,
+    },
+  };
+}
 
 function shorterOrEqual(
   ctx: Reader,
@@ -92,7 +152,11 @@ export const forWindow = query({
     );
     // Articles without an estimate sort below every number, so the shorter
     // side still reaches them in a library that has nothing else
-    const candidates: Doc<"articles">[] = reads.flat();
+    // A book's row holds no text and sits outside these indexes' ranges, but
+    // one with an old estimate must never come through as an ordinary article
+    const candidates: Doc<"articles">[] = reads
+      .flat()
+      .filter((a) => a.bookUnitCount === undefined);
 
     const saved = await savedAmong(ctx, candidates);
 
@@ -117,15 +181,22 @@ export const forWindow = query({
     });
     // Equal scores fall back to the id, so the pick never depends on which
     // range or storage order an article was read from
-    scored.sort(
-      (a, b) => b.score - a.score || a.article._id.localeCompare(b.article._id),
-    );
+    const offers = [
+      ...scored.map(({ article, readMin, fitsWindow, score }) => ({
+        score,
+        id: article._id as string,
+        suggestion: toSuggestion(article, readMin, targetMinutes, fitsWindow),
+      })),
+      ...(await bookPicks(ctx, targetMinutes)).map((pick) => ({
+        score:
+          -Math.abs(pick.candidate.minutes - targetMinutes) * 2 + BOOK_BOOST,
+        id: pick.article._id as string,
+        suggestion: toBookSuggestion(pick),
+      })),
+    ];
+    offers.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 
-    return scored
-      .slice(0, 3)
-      .map(({ article, readMin, fitsWindow }) =>
-        toSuggestion(article, readMin, targetMinutes, fitsWindow),
-      );
+    return offers.slice(0, 3).map((offer) => offer.suggestion);
   },
 });
 
@@ -189,6 +260,11 @@ export const moreForWindow = query({
     // measured by word count here, so it can still be too long for the window.
     // Filtering the page keeps the cursor and isDone: an empty page is a
     // normal result and the client asks for the next one.
+    // A book's next part rides on the first page; the deck drops repeats
+    const books =
+      status === "annotated" && !args.paginationOpts.cursor
+        ? (await bookPicks(ctx, targetMinutes)).map(toBookSuggestion)
+        : [];
     return {
       ...page,
       isDone: following ? false : page.isDone,
@@ -196,12 +272,16 @@ export const moreForWindow = query({
       splitCursor: page.splitCursor
         ? writeCursor(status, page.splitCursor)
         : page.splitCursor,
-      page: page.page
-        .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
-        .filter(({ readMin }) => readMin <= targetMinutes)
-        .map(({ article, readMin }) =>
-          toSuggestion(article, readMin, targetMinutes, true),
-        ),
+      page: [
+        ...page.page
+          .filter((a) => a.bookUnitCount === undefined)
+          .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
+          .filter(({ readMin }) => readMin <= targetMinutes)
+          .map(({ article, readMin }) =>
+            toSuggestion(article, readMin, targetMinutes, true),
+          ),
+        ...books,
+      ],
     };
   },
 });
@@ -326,6 +406,11 @@ function toSuggestion(
     // marginalia ahead of time
     deferred: needsAnnotationStart(a),
     reason: generateReason(readMin, targetMinutes, fitsWindow),
+    book: null as {
+      unitIndex: number;
+      unitTitle: string;
+      started: boolean;
+    } | null,
   };
 }
 

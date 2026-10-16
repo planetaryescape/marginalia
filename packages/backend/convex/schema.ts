@@ -135,6 +135,22 @@ export default defineSchema({
     embedding: v.optional(v.array(v.float64())),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
+    // Set for a PDF the reader uploaded (documentImports.ts)
+    uploadedFileName: v.optional(v.string()),
+    pageCount: v.optional(v.number()),
+    // A book is too big for one row: its text lives in bookUnits and this row
+    // keeps only the outline (rung 3b). Its own annotationStatus stays
+    // "skipped", because notes are written per unit as the reader gets there.
+    bookUnitCount: v.optional(v.number()),
+    bookOutline: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          minutes: v.number(),
+          chapter: v.optional(v.string()),
+        }),
+      ),
+    ),
     finishedAt: v.optional(v.number()),
     queueCounted: v.optional(v.boolean()),
     createdAt: v.number(),
@@ -188,12 +204,110 @@ export default defineSchema({
     relevanceScore: v.number(),
     wasViewed: v.boolean(),
     wasDismissed: v.boolean(),
+    // The reading unit the anchor offsets belong to, for a note on a book
+    unitIndex: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_article", ["articleId"])
+    .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_user", ["userId"])
     // Which annotations point at a vault note, by its file so reindexing keeps them (idea graph)
     .index("by_user_note_path", ["userId", "notePath"]),
+
+  // A PDF on its way in: the desk shows its steps, and a failure keeps its
+  // reason here so nothing else is left half-imported (documentImports.ts).
+  documentImports: defineTable({
+    userId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    status: v.union(
+      v.literal("reading"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
+    step: v.union(v.literal("text"), v.literal("sections"), v.literal("point")),
+    pages: v.optional(v.number()),
+    units: v.optional(v.number()),
+    articleId: v.optional(v.id("articles")),
+    // A book's article while it is still being written: the cleanup after a
+    // timeout removes it, since the action that made it can no longer
+    partialArticleId: v.optional(v.id("articles")),
+    title: v.optional(v.string()),
+    firstUnitTitle: v.optional(v.string()),
+    firstUnitMinutes: v.optional(v.number()),
+    failure: v.optional(
+      v.union(
+        v.literal("scanned"),
+        v.literal("too_long"),
+        v.literal("unreadable"),
+        v.literal("empty"),
+        v.literal("too_slow"),
+      ),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_storageId", ["storageId"])
+    .index("by_userId_and_status", ["userId", "status"])
+    .index("by_userId_and_createdAt", ["userId", "createdAt"]),
+
+  // One row per upload URL a reader was given. `start` spends one, so a
+  // storage file can only be imported by a reader who asked to upload.
+  uploadGrants: defineTable({
+    userId: v.string(),
+    issuedAt: v.number(),
+    usedAt: v.optional(v.number()),
+  }).index("by_userId_and_issuedAt", ["userId", "issuedAt"]),
+
+  // One row per book: where the reader is, so the desk can offer only the
+  // next unit (lib/bookPicks.ts). Units counted from 0.
+  books: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    unitCount: v.number(),
+    // The last unit read to its end, or -1
+    finishedThrough: v.number(),
+    // The furthest unit the reader has got into, and how far, or -1
+    furthestUnit: v.number(),
+    furthestScroll: v.number(),
+    // Read to the end, or archived: kept here so unfinished books can be found
+    // without reading their articles. The article's finishedAt is the truth;
+    // every change to it moves this too (books.syncFinished).
+    finished: v.optional(v.boolean()),
+    lastReadAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId", ["userId"])
+    .index("by_userId_and_finished", ["userId", "finished"]),
+
+  // A book's text, one reading unit per row (a unit is a few thousand words)
+  bookUnits: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    index: v.number(),
+    title: v.string(),
+    chapter: v.optional(v.string()),
+    content: v.string(),
+    contentHtml: v.string(),
+    wordCount: v.number(),
+    estimatedReadMinutes: v.number(),
+    annotationStatus: v.union(
+      v.literal("pending"),
+      v.literal("annotated"),
+      v.literal("failed"),
+      v.literal("skipped"),
+      v.literal("deferred"),
+    ),
+    // Why a "skipped" unit was skipped; re-started once a provider is saved
+    skipReason: v.optional(v.literal("no_provider")),
+    // Retries started for a failed unit, capped like an article's
+    annotationRetries: v.optional(v.number()),
+  }).index("by_userId_and_articleId_and_index", [
+    "userId",
+    "articleId",
+    "index",
+  ]),
 
   // The reader's topic vocabulary (blueprint 02, Tags). A candidate stays
   // hidden until it recurs on enough articles.
@@ -466,6 +580,8 @@ export default defineSchema({
     selectedText: v.string(),
     selectedStartOffset: v.optional(v.number()),
     selectedEndOffset: v.optional(v.number()),
+    // The part of a book the passage is in; the offsets are within it
+    unitIndex: v.optional(v.number()),
     // Set when the note is a reflection on an auto annotation (e.g. answering a Question).
     // Not a hard reference: re-annotating deletes annotations but keeps the note.
     annotationId: v.optional(v.id("annotations")),
@@ -484,6 +600,7 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
+    .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_user_recent", ["userId", "updatedAt"])
     .searchIndex("search_content", {
       searchField: "contentPlain",
@@ -523,6 +640,8 @@ export default defineSchema({
     selection: v.string(),
     question: v.optional(v.string()),
     paragraphIndex: v.optional(v.number()),
+    // The part of a book the passage is in; paragraphIndex counts within it
+    unitIndex: v.optional(v.number()),
     turns: v.array(
       v.object({
         role: v.union(v.literal("user"), v.literal("assistant")),
@@ -541,6 +660,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_article", ["articleId"])
+    .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_user", ["userId"])
     .index("by_user_kept", ["userId", "keptAt"])
     .searchIndex("search_selection", {
@@ -586,6 +706,8 @@ export default defineSchema({
     kind: v.union(v.literal("highlight"), v.literal("underline")),
     text: v.string(),
     paragraphIndex: v.optional(v.number()),
+    // The part of a book the mark is in; paragraphIndex counts within it
+    unitIndex: v.optional(v.number()),
     embedding: v.optional(v.array(v.float64())),
     // Readwise Reader sync: where the mark came from, and its Reader id
     source: v.optional(v.union(v.literal("marginalia"), v.literal("reader"))),
@@ -593,6 +715,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_article", ["articleId"])
+    .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_userId", ["userId"])
     .index("by_reader_highlight", ["readerHighlightId"])
     .index("by_userId_and_readerHighlightId", ["userId", "readerHighlightId"])

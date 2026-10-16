@@ -22,6 +22,9 @@ describe("isRefreshOf", () => {
     ({ type, name: `https://example.com${path}?session=s1` }) as never;
   it("is true only for a reload of that article's own address", () => {
     expect(isRefreshOf("a1", entry("reload", "/read/a1"))).toBe(true);
+    // A book's answers are filed under its id and part, the address by id alone
+    expect(isRefreshOf("a1:3", entry("reload", "/read/a1?unit=3"))).toBe(true);
+    expect(isRefreshOf("a1:3", entry("reload", "/read/b2?unit=3"))).toBe(false);
     expect(isRefreshOf("a1", entry("reload", "/read/a1/"))).toBe(true);
   });
   it("is false for any other way of arriving, or another address", () => {

@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
     loadMore: vi.fn(),
   },
   shortest: null as unknown,
+  latestImport: null as unknown,
   failOverview: false,
   search: "",
   push: vi.fn(),
@@ -60,6 +61,8 @@ vi.mock("convex/react", async () => {
           ];
         case "suggestions:shortestUnread":
           return state.shortest;
+        case "documentImports:latest":
+          return state.latestImport;
       }
       throw new Error(`unexpected query ${name}`);
     },
@@ -133,6 +136,7 @@ const card = (id: string, minutes = 2) => ({
   url: `https://www.example.com/${id}`,
   estimatedReadMinutes: minutes,
   reason: "Fits your window",
+  book: null,
 });
 const overview = (extra: Record<string, unknown> = {}) => ({
   annotatedTotal: 12,
@@ -157,6 +161,7 @@ beforeEach(() => {
   };
   state.paged = { results: [], status: "CanLoadMore", loadMore: vi.fn() };
   state.shortest = null;
+  state.latestImport = null;
   state.failOverview = false;
   state.search = "";
   state.push = vi.fn();
@@ -310,6 +315,98 @@ describe("desk at rest", () => {
     state.failOverview = false;
     await act(async () => button("Retry").click());
     expect(text()).not.toContain("Couldn't load your desk");
+  });
+});
+
+describe("bringing a PDF", () => {
+  const row = (extra: Record<string, unknown>) => ({
+    _id: "imp1",
+    fileName: "Thinking in Systems.pdf",
+    status: "reading",
+    step: "text",
+    ...extra,
+  });
+
+  it("shows the steps as the book is read in, in the slot", async () => {
+    state.latestImport = row({ step: "point", pages: 412, units: 58 });
+    await render();
+    expect(text()).toContain("Reading in your PDF");
+    expect(text()).toContain("Thinking in Systems");
+    expect(text()).toContain("Text from all 412 pages");
+    expect(text()).toContain("58 reading parts from its chapters");
+    expect(text()).toContain("Opening it for reading…");
+    expect(document.querySelector('[role="progressbar"]')).not.toBeNull();
+    // Nothing of the resting desk competes with it
+    expect(text()).not.toContain("You've read everything");
+  });
+
+  it("opens the book from Ready, naming the first part", async () => {
+    state.latestImport = row({
+      status: "ready",
+      step: "point",
+      title: "Thinking in Systems",
+      articleId: "book1",
+      pages: 412,
+      units: 58,
+      minutes: 406,
+      firstUnitTitle: "A brief visit to the systems zoo",
+      firstUnitMinutes: 6,
+    });
+    await render();
+    expect(text()).toContain("Ready to read");
+    expect(text()).toContain("412 pages · 58 parts of about 7 min");
+    expect(text()).toContain(
+      "Starts with “A brief visit to the systems zoo”, 6 min.",
+    );
+    const start = [...document.querySelectorAll("a")].find(
+      (a) => a.textContent === "Start reading",
+    );
+    expect(start?.getAttribute("href")).toBe("/read/book1");
+    await act(async () => start?.click());
+    expect(calls("documentImports:dismiss")).toHaveLength(1);
+  });
+
+  it("refuses a scanned PDF in one plain sentence and says nothing was added", async () => {
+    state.latestImport = row({ status: "failed", failure: "scanned" });
+    await render();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "This PDF is scanned pages, with no text to read.",
+    );
+    expect(text()).toContain("Nothing was added to your library.");
+    expect(button("Choose another file")).toBeTruthy();
+  });
+
+  it("gives a chosen time the pick, and the import waits for the rest state", async () => {
+    state.latestImport = row({ status: "failed", failure: "scanned" });
+    await render();
+    await act(async () => time("10").click());
+    expect(text()).toContain("For 10 minutes");
+    expect(text()).not.toContain("scanned pages");
+  });
+});
+
+describe("a book in the pick", () => {
+  it("names the part, its title and where the reader left off", async () => {
+    state.heads[10] = [
+      {
+        ...card("book1", 9),
+        title: "Thinking in Systems · Part 12 of 58",
+        url: "upload:abc",
+        reason: "You finished part 11. This picks up where you left off.",
+        book: {
+          unitIndex: 11,
+          unitTitle: "Why systems surprise us",
+          started: true,
+        },
+      },
+    ];
+    await render();
+    await act(async () => time("10").click());
+    expect(text()).toContain("Thinking in Systems · Part 12 of 58");
+    expect(text()).toContain(
+      "“Why systems surprise us” · 9 min · the next part after where you stopped",
+    );
+    expect(text()).toContain("This picks up where you left off.");
   });
 });
 

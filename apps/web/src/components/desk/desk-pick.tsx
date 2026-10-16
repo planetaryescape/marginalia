@@ -23,7 +23,8 @@ const LABEL =
 
 function sourceOf(card: Card) {
   try {
-    return new URL(card.url).hostname.replace(/^www\./, "");
+    // An uploaded PDF's address has no host
+    return new URL(card.url).hostname.replace(/^www\./, "") || "PDF";
   } catch {
     return card.author ?? "Unknown source";
   }
@@ -188,10 +189,19 @@ export function DeskPick({
     );
   }
 
-  const meta = [
-    sourceOf(card),
-    card.estimatedReadMinutes ? `${card.estimatedReadMinutes} min` : null,
-  ]
+  // A book is offered by its next part, named for what the reader will read
+  const meta = (
+    card.book
+      ? [
+          `“${card.book.unitTitle}”`,
+          `${card.estimatedReadMinutes} min`,
+          card.book.started ? "the next part after where you stopped" : null,
+        ]
+      : [
+          sourceOf(card),
+          card.estimatedReadMinutes ? `${card.estimatedReadMinutes} min` : null,
+        ]
+  )
     .filter(Boolean)
     .join(" · ");
 

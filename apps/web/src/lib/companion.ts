@@ -191,8 +191,11 @@ export function useCompanion({
   containerRef,
   title,
   settings,
+  unitIndex = null,
 }: {
   articleId: Id<"articles">;
+  /** The part of a book on screen. Answers belong to it: their paragraph numbers are its own. */
+  unitIndex?: number | null;
   containerRef: React.RefObject<HTMLElement | null>;
   title: string;
   settings: ReaderSettings;
@@ -208,6 +211,8 @@ export function useCompanion({
     setOpenState(next);
   }, []);
   const controllers = useRef(new Map<string, AbortController>());
+  // What this visit's answers are filed under in session storage
+  const scope = unitIndex === null ? articleId : `${articleId}:${unitIndex}`;
   // The article whose answers may be written to session storage; null once left.
   const live = useRef<string | null>(null);
   const latest = useRef({ title, settings });
@@ -242,25 +247,25 @@ export function useCompanion({
   // Arriving on an article restores a refresh's answers; leaving it clears them.
   // Cleanup does not run on a refresh, so a refresh never clears.
   useEffect(() => {
-    live.current = articleId;
-    stayOnArticle(articleId);
-    set(restoreAnswers(articleId).map(fromStored));
+    live.current = scope;
+    stayOnArticle(scope);
+    set(restoreAnswers(scope).map(fromStored));
     setOpenId(null);
     const running = controllers.current;
     return () => {
       live.current = null;
-      leaveArticle(articleId);
+      leaveArticle(scope);
       for (const controller of running.values()) controller.abort();
       running.clear();
     };
-  }, [articleId, set, setOpenId]);
+  }, [scope, set, setOpenId]);
 
   // Coming back from the back/forward cache restores the page as it was, but
   // the reader left the article: its unkept answers are gone, as after any leave.
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
-      clearAnswers(articleId);
+      clearAnswers(scope);
       for (const a of answersRef.current)
         if (!a.savedId) controllers.current.get(a.id)?.abort();
       set(answersRef.current.filter((a) => a.savedId));
@@ -269,7 +274,7 @@ export function useCompanion({
     };
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
-  }, [articleId, set, setOpenId]);
+  }, [scope, set, setOpenId]);
 
   const run = useCallback(
     async (base: CompanionThread, history: CompanionTurn[]) => {
@@ -505,6 +510,7 @@ export function useCompanion({
       try {
         const savedId = await keepThread({
           articleId,
+          unitIndex: unitIndex ?? undefined,
           answerId: current.id,
           legacyId: current.legacyId,
           mode: current.mode,
@@ -526,7 +532,7 @@ export function useCompanion({
         return false;
       }
     },
-    [articleId, keepThread, patch],
+    [articleId, unitIndex, keepThread, patch],
   );
 
   /** Folds the open answer back into the margin; it stays for the visit. */

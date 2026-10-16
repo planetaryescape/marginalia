@@ -34,6 +34,8 @@ const isPhone = () => window.matchMedia("(max-width: 639px)").matches;
 
 interface NotesPanelProps {
   articleId: string;
+  /** The part of a book on screen: its notes are the ones listed and written here. */
+  unitIndex?: number;
   isOpen: boolean;
   onClose: () => void;
   pendingSelection: Selection | null;
@@ -64,6 +66,7 @@ function KeptAnswerBody({
 
 export function NotesPanel({
   articleId,
+  unitIndex,
   isOpen,
   onClose,
   pendingSelection,
@@ -74,10 +77,12 @@ export function NotesPanel({
   const notes = useQuery(api.userNotes.listByArticle, {
     // SAFETY: the caller passes an article route ID; Convex's v.id validator enforces the table at the boundary.
     articleId: articleId as Id<"articles">,
+    unitIndex,
   });
   const threads = useQuery(api.companionThreads.listByArticle, {
     // SAFETY: same article route ID, validated by the Convex query's v.id argument.
     articleId: articleId as Id<"articles">,
+    unitIndex,
   });
   const removeThread = useMutation(api.companionThreads.remove);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -187,6 +192,7 @@ export function NotesPanel({
           selectedText: selection?.text ?? "",
           selectedStartOffset: selection?.startOffset,
           selectedEndOffset: selection?.endOffset,
+          unitIndex,
           content,
           contentPlain: plainText,
         });

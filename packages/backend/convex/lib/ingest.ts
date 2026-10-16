@@ -52,6 +52,11 @@ export async function ingestArticle(
     publishedAt?: number;
     imageUrl?: string;
     readerDocumentId?: string;
+    /** Set for a PDF the reader uploaded */
+    uploadedFileName?: string;
+    pageCount?: number;
+    /** The import this article comes from; the write is refused if it is gone. */
+    importId?: Id<"documentImports">;
   },
   options: { annotateAfterMs?: number } = {},
 ): Promise<Id<"articles"> | null> {
@@ -76,26 +81,32 @@ export async function ingestArticle(
     console.error("Embedding failed, continuing without:", error);
   }
 
-  const articleId: Id<"articles"> = await ctx.runMutation(
-    internal.articles.insertExtracted,
-    {
-      userId,
-      guid: article.guid ?? article.url,
-      url: article.url.toWellFormed(),
-      title: (article.title || article.url).toWellFormed(),
-      author: article.author?.toWellFormed(),
-      publishedAt: article.publishedAt,
-      content: plainText,
-      contentHtml: html,
-      excerpt: excerptOf(plainText),
-      wordCount,
-      estimatedReadMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
-      imageUrl: article.imageUrl?.toWellFormed(),
-      embedding,
-      readerDocumentId: article.readerDocumentId,
-      annotateAfterMs: options.annotateAfterMs,
-    },
-  );
+  const row = {
+    userId,
+    guid: article.guid ?? article.url,
+    url: article.url.toWellFormed(),
+    title: (article.title || article.url).toWellFormed(),
+    author: article.author?.toWellFormed(),
+    publishedAt: article.publishedAt,
+    content: plainText,
+    contentHtml: html,
+    excerpt: excerptOf(plainText),
+    wordCount,
+    estimatedReadMinutes: Math.ceil(wordCount / WORDS_PER_MINUTE),
+    imageUrl: article.imageUrl?.toWellFormed(),
+    embedding,
+    readerDocumentId: article.readerDocumentId,
+    uploadedFileName: article.uploadedFileName?.toWellFormed(),
+    pageCount: article.pageCount,
+    annotateAfterMs: options.annotateAfterMs,
+  };
+  // An uploaded PDF is written only while its import is live (documentImports.liveImport)
+  const articleId: Id<"articles"> | null = article.importId
+    ? await ctx.runMutation(internal.articles.insertImported, {
+        ...row,
+        importId: article.importId,
+      })
+    : await ctx.runMutation(internal.articles.insertExtracted, row);
 
   return articleId;
 }
