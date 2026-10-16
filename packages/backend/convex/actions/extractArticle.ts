@@ -96,7 +96,7 @@ async function extractSingle(ctx: any, article: any) {
     console.error("Embedding failed, continuing without:", error);
   }
 
-  await ctx.runMutation(internal.articles.updateExtracted, {
+  const annotateNow = await ctx.runMutation(internal.articles.updateExtracted, {
     articleId: article._id,
     content: plainText,
     contentHtml,
@@ -109,10 +109,12 @@ async function extractSingle(ctx: any, article: any) {
     embedding,
   });
 
-  // Schedule annotation generation
-  await ctx.scheduler.runAfter(
-    1000,
-    internal.actions.generateAnnotations.generateForArticle,
-    { articleId: article._id },
-  );
+  // Long articles are deferred by updateExtracted until the desk offers them
+  if (annotateNow) {
+    await ctx.scheduler.runAfter(
+      1000,
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId: article._id },
+    );
+  }
 }

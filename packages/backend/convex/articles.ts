@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ownedArticle, requireArticle } from "./access";
@@ -10,8 +10,10 @@ import {
   mutation,
   query,
 } from "./functions";
+import { annotatesAtImport, LOOKAHEAD_COUNT } from "./lib/annotationPolicy";
 import { articleUrlVariants } from "./lib/articleUrl";
 import { EXTRACT_PAGE } from "./lib/constants";
+import { READER_LIMITS, spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
 
 export const getById = query({
@@ -208,15 +210,23 @@ export const updateExtracted = internalMutation({
     author: v.optional(v.string()),
     embedding: v.optional(v.array(v.float64())),
   },
+  // Whether the caller should schedule annotation: long articles are deferred
+  // here, in the same transaction that records their length.
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const { articleId, ...updates } = args;
     const before = await ctx.db.get(articleId);
+    const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
     await ctx.db.patch(articleId, {
       ...updates,
       extractionStatus: "extracted" as const,
     });
+    // Only a fresh import waits; an article already annotated keeps its status
+    if (!annotateNow && before?.annotationStatus === "pending")
+      await ctx.db.patch(articleId, { annotationStatus: "deferred" });
     const after = await ctx.db.get(articleId);
     if (after) await updateQueueStats(ctx, before, after);
+    return annotateNow;
   },
 });
 
@@ -344,20 +354,54 @@ export const insertExtracted = internalMutation({
       return existing._id;
     }
     const { annotateAfterMs, ...article } = args;
+    const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
     const id = await ctx.db.insert("articles", {
       ...article,
       extractionStatus: "extracted",
-      annotationStatus: "pending",
+      annotationStatus: annotateNow ? "pending" : "deferred",
       createdAt: Date.now(),
     });
     const inserted = await ctx.db.get(id);
     if (inserted) await updateQueueStats(ctx, null, inserted);
-    await ctx.scheduler.runAfter(
-      annotateAfterMs ?? 500,
-      internal.actions.generateAnnotations.generateForArticle,
-      { articleId: id },
-    );
+    if (annotateNow) {
+      await ctx.scheduler.runAfter(
+        annotateAfterMs ?? 500,
+        internal.actions.generateAnnotations.generateForArticle,
+        { articleId: id },
+      );
+    }
     return id;
+  },
+});
+
+/**
+ * Starts marginalia for the deferred articles the desk is about to offer.
+ * Only a deferred article of this reader moves to pending, and the status
+ * change and the schedule share one transaction, so concurrent calls can't
+ * start the same article twice. Anything else is left alone.
+ */
+export const annotateAhead = mutation({
+  args: { articleIds: v.array(v.id("articles")) },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const ids = [...new Set(args.articleIds)].slice(0, LOOKAHEAD_COUNT);
+    const deferred: Doc<"articles">[] = [];
+    for (const id of ids) {
+      const article = await ownedArticle(ctx, id, ctx.readerId);
+      if (article?.annotationStatus === "deferred") deferred.push(article);
+    }
+    if (!deferred.length) return 0;
+    if (!(await spendReaderLimit(ctx, ctx.readerId, "annotateAhead")))
+      throw new ConvexError(READER_LIMITS.annotateAhead.message);
+    for (const article of deferred) {
+      await setAnnotationStatus(ctx, article._id, "pending");
+      await ctx.scheduler.runAfter(
+        0,
+        internal.actions.generateAnnotations.generateForArticle,
+        { articleId: article._id },
+      );
+    }
+    return deferred.length;
   },
 });
 

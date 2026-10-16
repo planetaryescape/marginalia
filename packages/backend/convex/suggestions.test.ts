@@ -253,7 +253,8 @@ describe("paged time-window suggestions", () => {
     const t = await library([{ title: "long", minutes: 40 }]);
     const { all, pages } = await pageAll(t, 5, 10);
     expect(all).toEqual([]);
-    expect(pages).toBe(1);
+    // The annotated range, then the deferred one
+    expect(pages).toBe(2);
   });
 });
 
@@ -352,9 +353,16 @@ describe("shortest unread article", () => {
     it("returns an empty, finished page when only over-long articles remain", async () => {
       const t = await library([]);
       await insertUnestimated(t, "long", 2200);
-      const page = await t.query(api.suggestions.moreForWindow, {
+      const first = await t.query(api.suggestions.moreForWindow, {
         requestedMinutes: 5,
         paginationOpts: { numItems: 10, cursor: null },
+      });
+      expect(first.page).toEqual([]);
+      // The deferred range is still to read
+      expect(first.isDone).toBe(false);
+      const page = await t.query(api.suggestions.moreForWindow, {
+        requestedMinutes: 5,
+        paginationOpts: { numItems: 10, cursor: first.continueCursor },
       });
       expect(page.page).toEqual([]);
       expect(page.isDone).toBe(true);

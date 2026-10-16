@@ -1,5 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import { z } from "zod";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { query } from "./functions";
@@ -16,6 +17,49 @@ const NEIGHBOURS = 12;
 // minutes closer. Recency can still outweigh it, as it should for new articles.
 const SAVED_BOOST = 4;
 
+// Annotated articles come first, then the long ones still waiting for their
+// marginalia (D-DES-056): the desk can offer both.
+const OFFERED = ["annotated", "deferred"] as const;
+type Offered = (typeof OFFERED)[number];
+
+// Deferred articles are long and each read is a whole document with its body,
+// so fewer of them are read per side.
+const DEFERRED_NEIGHBOURS = 6;
+
+type Reader = { db: DatabaseReader; readerId: string };
+
+function shorterOrEqual(
+  ctx: Reader,
+  status: Offered,
+  minutes: number,
+  limit: number,
+) {
+  return ctx.db
+    .query("articles")
+    .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+      q
+        .eq("userId", ctx.readerId)
+        .eq("annotationStatus", status)
+        .eq("finishedAt", undefined)
+        .lte("estimatedReadMinutes", minutes),
+    )
+    .order("desc")
+    .take(limit);
+}
+
+function longer(ctx: Reader, status: Offered, minutes: number, limit: number) {
+  return ctx.db
+    .query("articles")
+    .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+      q
+        .eq("userId", ctx.readerId)
+        .eq("annotationStatus", status)
+        .eq("finishedAt", undefined)
+        .gt("estimatedReadMinutes", minutes),
+    )
+    .take(limit);
+}
+
 /**
  * The best three unread articles for a reading window. A query rather than an
  * action: it stays in the database's runtime, reads only the articles nearest
@@ -26,32 +70,18 @@ export const forWindow = query({
   handler: async (ctx, args) => {
     const targetMinutes = args.requestedMinutes;
     assertWindow(targetMinutes);
-    const [shorter, longer] = await Promise.all([
-      ctx.db
-        .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined)
-            .lte("estimatedReadMinutes", targetMinutes),
-        )
-        .order("desc")
-        .take(NEIGHBOURS),
-      ctx.db
-        .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined)
-            .gt("estimatedReadMinutes", targetMinutes),
-        )
-        .take(NEIGHBOURS),
-    ]);
+    const reads = await Promise.all(
+      OFFERED.flatMap((status) => {
+        const limit = status === "annotated" ? NEIGHBOURS : DEFERRED_NEIGHBOURS;
+        return [
+          shorterOrEqual(ctx, status, targetMinutes, limit),
+          longer(ctx, status, targetMinutes, limit),
+        ];
+      }),
+    );
     // Articles without an estimate sort below every number, so the shorter
     // side still reaches them in a library that has nothing else
-    const candidates: Doc<"articles">[] = [...shorter, ...longer];
+    const candidates: Doc<"articles">[] = reads.flat();
 
     const saved = await savedAmong(ctx, candidates);
 
@@ -74,7 +104,11 @@ export const forWindow = query({
         fitsWindow: readMin <= targetMinutes * 1.3,
       };
     });
-    scored.sort((a, b) => b.score - a.score);
+    // Equal scores fall back to the id, so the pick never depends on which
+    // range or storage order an article was read from
+    scored.sort(
+      (a, b) => b.score - a.score || a.article._id.localeCompare(b.article._id),
+    );
 
     return scored
       .slice(0, 3)
@@ -84,11 +118,30 @@ export const forWindow = query({
   },
 });
 
+// One page is one status's index range. A cursor says which status it is in,
+// so the annotated articles page first and the deferred ones follow, in an
+// order that never shifts under a client appending pages.
+const pageCursor = z.tuple([z.enum(OFFERED), z.string().nullable()]);
+
+function readCursor(cursor: string | null | undefined) {
+  if (!cursor) {
+    const status: Offered = "annotated";
+    return { status, inner: null };
+  }
+  const [status, inner] = pageCursor.parse(JSON.parse(cursor));
+  return { status, inner };
+}
+
+function writeCursor(status: Offered, inner: string | null | undefined) {
+  return JSON.stringify([status, inner ?? null]);
+}
+
 /**
  * Every unread article that fits the window, closest length first, one page at
- * a time. The client appends pages to the list it already shows, so the order
- * must not shift between pages. Articles of equal length are ordered by the
- * index key; the paging test checks that no page repeats or skips one.
+ * a time: annotated articles, then the deferred ones. The client appends pages
+ * to the list it already shows, so the order must not shift between pages.
+ * Articles of equal length are ordered by the index key; the paging test checks
+ * that no page repeats or skips one.
  */
 export const moreForWindow = query({
   args: {
@@ -98,23 +151,39 @@ export const moreForWindow = query({
   handler: async (ctx, args) => {
     const targetMinutes = args.requestedMinutes;
     assertWindow(targetMinutes);
+    const { status, inner } = readCursor(args.paginationOpts.cursor);
+    const end = readCursor(args.paginationOpts.endCursor);
     const page = await ctx.db
       .query("articles")
       .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
         q
           .eq("userId", ctx.readerId)
-          .eq("annotationStatus", "annotated")
+          .eq("annotationStatus", status)
           .eq("finishedAt", undefined)
           .lte("estimatedReadMinutes", targetMinutes),
       )
       .order("desc")
-      .paginate(args.paginationOpts);
+      .paginate({
+        ...args.paginationOpts,
+        cursor: inner,
+        // A page pinned to the hand-over into the next status has no end here
+        endCursor: end.status === status ? end.inner : null,
+      });
+    const next =
+      status === "annotated" && page.isDone
+        ? writeCursor("deferred", null)
+        : writeCursor(status, page.continueCursor);
     // The index only bounds articles that have an estimate. One without it is
     // measured by word count here, so it can still be too long for the window.
     // Filtering the page keeps the cursor and isDone: an empty page is a
     // normal result and the client asks for the next one.
     return {
       ...page,
+      isDone: status === "annotated" ? false : page.isDone,
+      continueCursor: next,
+      splitCursor: page.splitCursor
+        ? writeCursor(status, page.splitCursor)
+        : page.splitCursor,
       page: page.page
         .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
         .filter(({ readMin }) => readMin <= targetMinutes)
@@ -141,35 +210,42 @@ const UNESTIMATED_SCAN = 100;
 export const shortestUnread = query({
   args: {},
   handler: async (ctx) => {
-    const [unestimated, shortestEstimated] = await Promise.all([
-      ctx.db
-        .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined)
-            .lt("estimatedReadMinutes", 0),
-        )
-        .take(UNESTIMATED_SCAN),
-      ctx.db
-        .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined)
-            .gte("estimatedReadMinutes", 0),
-        )
-        .order("asc")
-        .first(),
-    ]);
+    const reads = await Promise.all(
+      OFFERED.flatMap((status) => [
+        ctx.db
+          .query("articles")
+          .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("annotationStatus", status)
+              .eq("finishedAt", undefined)
+              .lt("estimatedReadMinutes", 0),
+          )
+          .take(UNESTIMATED_SCAN),
+        ctx.db
+          .query("articles")
+          .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("annotationStatus", status)
+              .eq("finishedAt", undefined)
+              .gte("estimatedReadMinutes", 0),
+          )
+          .order("asc")
+          .first()
+          .then((article) => (article ? [article] : [])),
+      ]),
+    );
     let best: { article: Doc<"articles">; readMin: number } | undefined;
-    for (const article of shortestEstimated
-      ? [...unestimated, shortestEstimated]
-      : unestimated) {
+    for (const article of reads.flat()) {
       const readMin = readMinutesOf(article);
-      if (!best || readMin < best.readMin) best = { article, readMin };
+      // A tie keeps the lower id, so storage order never decides it
+      if (
+        !best ||
+        readMin < best.readMin ||
+        (readMin === best.readMin && article._id < best.article._id)
+      )
+        best = { article, readMin };
     }
     if (!best) return null;
     return {
@@ -234,6 +310,8 @@ function toSuggestion(
     publishedAt: a.publishedAt,
     excerpt: a.excerpt,
     feedId: a.feedId,
+    // Long and not annotated yet; the desk asks for its marginalia ahead of time
+    deferred: a.annotationStatus === "deferred",
     reason: generateReason(readMin, targetMinutes, fitsWindow),
   };
 }

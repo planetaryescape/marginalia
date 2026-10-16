@@ -1,9 +1,10 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import { usePaginatedQuery, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  annotateAheadIds,
   appendFitting,
   type DeckView,
   deckView,
@@ -64,6 +65,21 @@ export function useSuggestionDeck(requestedMinutes: number): SuggestionDeck {
       loadMore(PAGE_SIZE);
     }
   }, [head, results, deck, index, canLoadMore, loadMore, requestedMinutes]);
+
+  // Long articles are annotated only when they are about to be offered: the
+  // card shown and the next two. Each id is asked for once per deck; one that
+  // fails (a backend without the mutation, or the rate limit) is retried on
+  // the next card.
+  const annotateAhead = useMutation(api.articles.annotateAhead);
+  const requested = useRef(new Set<string>());
+  useEffect(() => {
+    const ids = annotateAheadIds(deck, index, requested.current);
+    if (!ids.length) return;
+    for (const id of ids) requested.current.add(id);
+    annotateAhead({ articleIds: ids }).catch(() => {
+      for (const id of ids) requested.current.delete(id);
+    });
+  }, [deck, index, annotateAhead]);
 
   const view =
     head === undefined

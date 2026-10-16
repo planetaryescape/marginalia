@@ -76,3 +76,22 @@ export function shouldLoadMore(input: {
 }): boolean {
   return input.canLoadMore && input.length - input.index - 1 <= LOAD_AHEAD;
 }
+
+// How many cards ahead of the reader get their marginalia started (D-DES-056)
+export const ANNOTATE_AHEAD = 3;
+
+/**
+ * The deferred cards, among the one shown and the next two, that have not been
+ * asked for yet. Asking again would be harmless but would spend the reader's
+ * request budget on articles already on their way.
+ */
+export function annotateAheadIds<T extends { _id: string; deferred?: boolean }>(
+  deck: readonly T[],
+  index: number,
+  requested: ReadonlySet<string>,
+): T["_id"][] {
+  return deck
+    .slice(index, index + ANNOTATE_AHEAD)
+    .filter((card) => card.deferred && !requested.has(card._id))
+    .map((card) => card._id);
+}

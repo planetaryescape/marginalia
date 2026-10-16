@@ -616,6 +616,56 @@ describe("choosing a time", () => {
   });
 });
 
+describe("annotating ahead", () => {
+  const deferred = (id: string) => ({ ...card(id, 25), deferred: true });
+  const asked = () =>
+    calls("articles:annotateAhead").map((m) => m.args.articleIds);
+  // Unlike settle(), keeps the lookahead requests in view
+  const another = async () => {
+    await act(async () => button("Another").click());
+    await act(async () => {
+      for (const m of calls("sessions:create")) m.resolve("s1");
+      await vi.advanceTimersByTimeAsync(SETTLE_MS + 1);
+    });
+  };
+
+  it("asks for the card shown and the next two, then tops up on Another", async () => {
+    state.heads[30] = [deferred("a"), deferred("b"), card("c", 5)];
+    state.paged = {
+      results: [deferred("d"), deferred("e")],
+      status: "Exhausted",
+      loadMore: vi.fn(),
+    };
+    await render();
+    await press("4");
+    // c is already annotated, so only the deferred two are asked for
+    expect(asked()).toEqual([["a", "b"]]);
+    await another();
+    expect(asked()).toEqual([["a", "b"], ["d"]]);
+    await another();
+    expect(asked()).toEqual([["a", "b"], ["d"], ["e"]]);
+  });
+
+  it("asks again for a card whose request failed, on the next card", async () => {
+    state.heads[30] = [deferred("a"), deferred("b")];
+    state.paged = { results: [], status: "Exhausted", loadMore: vi.fn() };
+    await render();
+    await press("4");
+    await act(async () => {
+      calls("articles:annotateAhead")[0].reject(new Error("paused"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await another();
+    expect(asked()).toEqual([["a", "b"], ["b"]]);
+  });
+
+  it("asks for nothing when no card is deferred", async () => {
+    await render();
+    await act(async () => time("10").click());
+    expect(calls("articles:annotateAhead")).toHaveLength(0);
+  });
+});
+
 describe("deep link", () => {
   it("renders the chosen state for an existing session without creating another", async () => {
     state.search = "m=10&session=s9";

@@ -43,6 +43,12 @@ export const READER_LIMITS = {
     windowMs: 60_000,
     message: "Too many API requests in the last minute. Try again shortly.",
   },
+  // Lookahead annotation requests from the desk (articles.annotateAhead)
+  annotateAhead: {
+    max: 30,
+    windowMs: 60_000,
+    message: "Annotating ahead is paused for a minute.",
+  },
   apiTokenCreate: {
     max: 10,
     windowMs: 60 * 60_000,
@@ -59,6 +65,7 @@ const bucket = v.union(
   v.literal("chatgptConnect"),
   v.literal("catchUp"),
   v.literal("api"),
+  v.literal("annotateAhead"),
   v.literal("apiTokenCreate"),
 );
 

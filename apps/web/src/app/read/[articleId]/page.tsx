@@ -1,5 +1,6 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Check,
@@ -67,6 +68,10 @@ import { useMarginMode } from "@/lib/use-margin-mode";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { useQuoteLanding } from "@/lib/use-quote-landing";
 import { useReaderTheme } from "@/lib/use-reader-theme";
+import {
+  marginNotesPending,
+  useStartAnnotation,
+} from "@/lib/use-start-annotation";
 import { cn, formatReadTime } from "@/lib/utils";
 
 export default function ReadPage() {
@@ -78,6 +83,8 @@ export default function ReadPage() {
   const article = useQuery(api.articles.getById, {
     articleId: articleId as any,
   });
+  // SAFETY: the route segment is an article id, as the queries below assume
+  useStartAnnotation(articleId as Id<"articles">, article?.annotationStatus);
   const annotations = useQuery(api.annotations.listByArticle, {
     articleId: articleId as any,
   });
@@ -877,10 +884,7 @@ export default function ReadPage() {
         annotations={annotations}
         userNotes={articleNotes}
         marks={marks}
-        waiting={
-          article.annotationStatus === "pending" &&
-          article.extractionStatus === "extracted"
-        }
+        waiting={marginNotesPending(article)}
         openId={activeAnnotationId}
         answers={answers}
         openAnswerId={companion.openId}

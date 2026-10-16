@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ANNOTATE_AHEAD,
+  annotateAheadIds,
   appendFitting,
   appendUnseen,
   createSingleFlight,
@@ -135,5 +137,25 @@ describe("createSingleFlight", () => {
     const next = vi.fn(async () => {});
     await run(next);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("annotateAheadIds", () => {
+  const deck = [
+    { _id: "a", deferred: true },
+    { _id: "b" },
+    { _id: "c", deferred: true },
+    { _id: "d", deferred: true },
+  ];
+
+  it("takes the deferred cards among the one shown and the next two", () => {
+    expect(ANNOTATE_AHEAD).toBe(3);
+    expect(annotateAheadIds(deck, 0, new Set())).toEqual(["a", "c"]);
+    expect(annotateAheadIds(deck, 1, new Set())).toEqual(["c", "d"]);
+  });
+
+  it("skips cards already asked for and cards behind the reader", () => {
+    expect(annotateAheadIds(deck, 1, new Set(["c"]))).toEqual(["d"]);
+    expect(annotateAheadIds(deck, 3, new Set(["d"]))).toEqual([]);
   });
 });

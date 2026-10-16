@@ -116,6 +116,7 @@ export default defineSchema({
       v.literal("annotated"),
       v.literal("failed"),
       v.literal("skipped"),
+      v.literal("deferred"),
     ),
     // Why a "skipped" article was skipped. "no_provider" articles are
     // re-annotated once the library saves a key (catchUp.ts); older skipped
