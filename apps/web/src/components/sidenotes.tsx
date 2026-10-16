@@ -1,6 +1,6 @@
+"use client";
 import type { ReaderSettings } from "@/lib/reader-settings";
 
-("use client");
 
 import {
   useCallback,

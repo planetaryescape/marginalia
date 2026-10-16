@@ -1,6 +1,6 @@
+"use client";
 import type { ReaderSettings } from "@/lib/reader-settings";
 
-("use client");
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { type MarginMode, marginModeFor, measureGutter } from "./margin-mode";
