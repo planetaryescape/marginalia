@@ -14,6 +14,8 @@ The avatar sits at the right of the header. Its menu is a raised surface:
  Readers                    2 waiting      ← owner only; count only when non-zero
  Account
  ───────────────────────────────────
+ Theme   Auto Paper Sepia Snow Dusk Night Ink   ← swatches, live (D-DES-065)
+ ───────────────────────────────────
  Install app
  Keyboard shortcuts                 ?
  About Marginalia                          ← includes the source link (D-DES-022)

@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 import { InstallAppContent, useInstallPrompt } from "@/components/install-app";
 import { ago } from "@/components/readwise-card";
 import { SOURCE_URL } from "@/components/source-link";
+import { useReaderSettings } from "@/lib/reader-settings";
+import { THEMES } from "@/lib/reader-themes";
 import { emitCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +26,72 @@ interface ReadwiseStatus {
 interface FeedStatus {
   title: string;
   lastError?: string;
+}
+
+/**
+ * Seven swatches that change the theme live. They are menu items so arrow keys
+ * reach them, and selecting one keeps the menu open so the change can be seen.
+ * The desk layout and the reader both apply the stored theme to the page.
+ */
+function ThemeRow() {
+  const { settings, update } = useReaderSettings();
+  return (
+    <div role="group" aria-label="Theme" className="px-1 pb-1.5 pt-1">
+      <p className="px-1.5 pb-1.5 text-xs text-[var(--reader-muted)]">Theme</p>
+      <div className="grid grid-cols-7 gap-0.5">
+        {THEMES.map((theme) => {
+          const active = settings.theme === theme.id;
+          return (
+            <DropdownMenu.Item
+              key={theme.id}
+              aria-pressed={active}
+              onSelect={(event) => {
+                event.preventDefault();
+                update({ theme: theme.id });
+              }}
+              className="flex min-h-11 sm:min-h-0 cursor-default flex-col items-center gap-1 rounded-md px-0.5 py-1 outline-none data-[highlighted]:bg-[var(--reader-chip)]"
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full font-serif text-[13px] leading-none ring-1 ring-black/15",
+                  active && "ring-2 ring-[var(--reader-fg)]",
+                )}
+                style={{ background: theme.bg, color: theme.fg }}
+              >
+                {theme.id === "auto" && (
+                  <span
+                    className="absolute inset-y-0 right-0 w-1/2"
+                    style={{ background: "#201d1b" }}
+                  />
+                )}
+                <span
+                  className="relative"
+                  style={
+                    theme.id === "auto"
+                      ? { mixBlendMode: "difference", color: "#faf8f5" }
+                      : undefined
+                  }
+                >
+                  Aa
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "text-[10.5px] leading-none",
+                  active
+                    ? "font-semibold text-[var(--reader-fg)]"
+                    : "text-[var(--reader-muted)]",
+                )}
+              >
+                {theme.label}
+              </span>
+            </DropdownMenu.Item>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -163,6 +231,8 @@ export function AccountMenu() {
             <DropdownMenu.Item className={MENU_ITEM} asChild>
               <Link href="/account">Account</Link>
             </DropdownMenu.Item>
+            <DropdownMenu.Separator className={HAIRLINE} />
+            <ThemeRow />
             <DropdownMenu.Separator className={HAIRLINE} />
             {!installed && (
               <DropdownMenu.Item

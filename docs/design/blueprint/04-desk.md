@@ -4,19 +4,20 @@ The desk is the home screen, `apps/web/src/app/(desk)/page.tsx`. It asks one que
 
 ## Hierarchy
 
-Above the fold there are at most six things, in this order of weight:
+The desk is one column, about 760 px wide and centred, read top to bottom (D-DES-064). Above the fold there are at most six things, in this order:
 
-1. The question, "How much time do you have?", in `--type-display`.
-2. The main slot: Continue, or the pick for the chosen time, or the best pick for no particular time.
-3. The time choices.
-4. The search field ("Ask, or paste a link").
-5. ~~Up next~~: removed from the desk; it's a Library shelf (D-DES-035).
-6. The date line in `--type-meta`. No backlog count: showing the size of the pile is the overwhelm the desk exists to remove (D-DES-034).
-7. The header.
+1. The date line in `--type-meta`. No backlog count: showing the size of the pile is the overwhelm the desk exists to remove (D-DES-034).
+2. The question, "How much time do you have?", in `--type-display`.
+3. The time choices, directly under the question.
+4. The main slot, directly under the times: Continue, or the pick for the chosen time, or the best pick for no particular time. Choosing a time puts the pick right below the numeral that was clicked.
+5. The search field ("Ask, or paste a link").
+6. ~~Up next~~: removed from the desk; it's a Library shelf (D-DES-035).
+
+The header sits above all of it. The phone order is the same.
 
 Off the desk (D-DES-021, D-DES-024):
 
-- **The right-hand column** (From your notes, Recently rated, Where it comes from) is removed. Notes and ratings live in Notes and Library, and source status lives in the avatar menu ([06](06-sources-and-settings.md)). The desk uses the full 1180 px width, with the question and slot on the left two-thirds and the time choices and search beside the question on wide screens (see the mockup in [02](02-design-concept.md#desk)).
+- **The right-hand column** (From your notes, Recently rated, Where it comes from) is removed. Notes and ratings live in Notes and Library, and source status lives in the avatar menu ([06](06-sources-and-settings.md)). The desk is one column (D-DES-064).
 - **Keycaps:** removed from the surface. The keys still work (`1`–`4`, `c`, `j`/`k`, `/`).
 - **Per-window counts** ("30 fit"): shown in a time choice's tooltip only.
 - **"Worth revisiting"** shares the main slot instead of taking a second card. It shows only when there's no article in progress and no time chosen, as "Worth revisiting · loved 6 months ago", with "Not now" as a quiet text button.

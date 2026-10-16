@@ -277,3 +277,13 @@ Change a decision only by adding a new entry that replaces the old one.
   - **Rung 5b:** the approved comp's opening view replaces the "Your week" rhythm bars and kept-note rows ([05](05-library-notes-week.md#your-week-inside-your-reading)).
   - **Failed annotations:** an article whose first annotation failed is retried when picked or opened, at most twice, and the backfill retries short unread ones (a bulk import on 2026-10-12 failed 213 at once).
 - **BK corrects afterwards;** destructive and outward-facing actions still need him.
+
+### D-DES-064: The desk is one column: question, times, slot, search. (BK; layout by Claude, delegated)
+- **BK, 2026-10-16:** "it's weird for me to click the time on the right and then select the article on the otherside of the screen on the right. For me that mouse movement across feels weird and wasteful".
+- **Decision (Claude):** one centred column about 760 px wide, in this order: date, question, time choices, the slot, the search bar. The pick appears directly below the times just clicked. The phone order is the same.
+- **Replaces** the two-column layout in D-DES-021, where the time choices and search sat to the right of the question and slot.
+- **Why:** the pointer stays in one place from choosing to picking. A 760 px measure keeps the 4.5 rem question and the 620 px pick text on one axis at 1440.
+
+### D-DES-065: The avatar menu has a theme row. (BK; design by Claude, delegated)
+- **BK, 2026-10-16:** "there's no way to change the colro theme on the home page or any other page that's not the reader page".
+- **Decision (Claude):** Paper, Sepia, Snow, Dusk, Night, Ink and Auto as swatches in the avatar menu, the same themes and storage as the reader's settings. Choosing one changes the page at once and keeps the menu open.

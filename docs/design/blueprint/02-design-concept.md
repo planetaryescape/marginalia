@@ -72,7 +72,7 @@ Margin notes come in nine kinds in three families (D-DES-038, [Note kinds](#note
                       └───────────────────────────┘        └──────────────┘
 
   Your reading (header, after Notes): stats · dictionary. Never linked from the reader (D-DES-060).
-  Account menu (avatar, top right): Sources · Readers (owner) · Account · Install app · Keyboard · About
+  Account menu (avatar, top right): Sources · Readers (owner) · Account · Theme · Install app · Keyboard · About
 ```
 
 - **Always present on desk-frame pages:** the header with the wordmark, three rooms (Desk is the wordmark) and the avatar menu. On a phone, a four-slot bottom bar: Desk, Library, Notes, and a search button that opens the picker.
@@ -90,7 +90,7 @@ Margin notes come in nine kinds in three families (D-DES-038, [Note kinds](#note
    - Margin notes are already in the margin.
    - At the end, back matter offers an impression. Done lays the article down: it's finished, and the desk offers the next pick.
    - *What carries over:* the time chosen (the pick's length), the article's place, and where you came from.
-2. **"Pick up where I left off."** The desk shows the article in progress in the main slot, above the time choices, as "Continue". Opening it restores the exact paragraph, and the paragraph map shows the place.
+2. **"Pick up where I left off."** The desk shows the article in progress in the main slot, below the time choices, as "Continue". Opening it restores the exact paragraph, and the paragraph map shows the place.
 3. **"What did I think about X?"**
    - `/` opens the picker from anywhere. The reader types a half-memory.
    - Results explain why they match (D-DES-003). An article opens in the reader. A note opens in Notes, scrolled to that note, with its article one click away.

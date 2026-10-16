@@ -121,8 +121,8 @@ function Desk() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3.5rem)] pb-[clamp(1rem,3vh,2rem)] grid gap-y-[clamp(1rem,3vh,1.75rem)] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-x-[60px]">
-      <div className="lg:col-start-1 lg:row-start-1">
+    <main className="mx-auto w-full max-w-[760px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3.5rem)] pb-[clamp(1rem,3vh,2rem)] flex flex-col gap-y-[clamp(1rem,3vh,1.75rem)]">
+      <div>
         <p className="text-[13px] text-[var(--ink-muted)] [@media(max-height:699px)]:hidden">
           {today}
         </p>
@@ -132,21 +132,13 @@ function Desk() {
         </h1>
       </div>
 
-      <div className="flex flex-col gap-5 lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:pt-[clamp(4rem,16vh,9rem)]">
-        <QueryBoundary fallback={() => <TimeChoices {...timeProps} />}>
-          <TimesWithFits {...timeProps} />
-        </QueryBoundary>
-        <ArticleFinder
-          onPdf={pdf.start}
-          showKey={showKeys}
-          windowMinutes={chosen?.minutes ?? null}
-          onClearWindow={() => setChosen(null)}
-        />
-      </div>
+      <QueryBoundary fallback={() => <TimeChoices {...timeProps} />}>
+        <TimesWithFits {...timeProps} />
+      </QueryBoundary>
 
       <section
         aria-label="Your pick"
-        className="min-h-[7rem] border-t border-[var(--reader-border)] pt-[22px] lg:col-start-1 lg:row-start-2"
+        className="min-h-[7rem] border-t border-[var(--reader-border)] pt-[22px]"
         data-arrival={arrival}
       >
         <QueryBoundary fallback={() => null}>
@@ -174,6 +166,13 @@ function Desk() {
           </QueryBoundary>
         )}
       </section>
+
+      <ArticleFinder
+        onPdf={pdf.start}
+        showKey={showKeys}
+        windowMinutes={chosen?.minutes ?? null}
+        onClearWindow={() => setChosen(null)}
+      />
       <PdfDrop onFile={pdf.start} />
     </main>
   );

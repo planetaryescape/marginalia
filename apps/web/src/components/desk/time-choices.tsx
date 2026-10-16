@@ -32,7 +32,7 @@ export function TimeChoices({
     <div
       role="group"
       aria-label="How much time do you have?"
-      className="flex items-baseline justify-between lg:justify-start lg:gap-5"
+      className="flex items-baseline justify-between sm:justify-start sm:gap-5"
     >
       {TIMES.map((time) => {
         const count = fits?.[time.minutes];

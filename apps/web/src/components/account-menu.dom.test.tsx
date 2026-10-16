@@ -57,6 +57,13 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  // happy-dom's localStorage is unavailable under this Node; the reader settings live there
+  const stored = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => stored.get(k) ?? null,
+    setItem: (k: string, v: string) => void stored.set(k, v),
+    removeItem: (k: string) => void stored.delete(k),
+  });
   // Install detection reads the display mode; happy-dom has no matchMedia
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -91,7 +98,13 @@ const trigger = () =>
     "button[aria-label^='Account']",
   ) as HTMLButtonElement;
 const menuItems = () =>
-  [...document.querySelectorAll("[role=menuitem]")] as HTMLElement[];
+  [
+    ...document.querySelectorAll("[role=menuitem]:not([aria-pressed])"),
+  ] as HTMLElement[];
+const swatches = () =>
+  [
+    ...document.querySelectorAll("[role=menuitem][aria-pressed]"),
+  ] as HTMLElement[];
 const labels = () => menuItems().map((el) => el.textContent ?? "");
 const key = (el: Element, k: string) =>
   act(async () => {
@@ -187,6 +200,36 @@ describe("AccountMenu", () => {
     data.feeds = [{ title: "Example" }];
     await render();
     expect(container.querySelector("[data-source-status=failed]")).toBeNull();
+  });
+
+  it("offers the six themes and Auto, and changes the stored theme live", async () => {
+    await render();
+    await key(trigger(), "Enter");
+    expect(swatches().map((el) => el.textContent)).toEqual([
+      "AaAuto",
+      "AaPaper",
+      "AaSepia",
+      "AaSnow",
+      "AaDusk",
+      "AaNight",
+      "AaInk",
+    ]);
+    const pressed = () =>
+      swatches()
+        .filter((el) => el.getAttribute("aria-pressed") === "true")
+        .map((el) => el.textContent);
+    expect(pressed()).toEqual(["AaAuto"]);
+    const night = swatches().find((el) => el.textContent === "AaNight");
+    await act(async () => {
+      night?.focus();
+      await key(night as HTMLElement, "Enter");
+    });
+    expect(pressed()).toEqual(["AaNight"]);
+    expect(localStorage.getItem("marginalia:reader-settings")).toContain(
+      '"theme":"night"',
+    );
+    // The menu stays open so the change can be seen
+    expect(document.querySelector("[role=menu]")).not.toBeNull();
   });
 
   it("opens with Enter, moves with arrows and closes on Escape", async () => {
