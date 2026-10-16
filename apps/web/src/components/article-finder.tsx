@@ -55,12 +55,15 @@ export function ArticleFinder({
   windowMinutes = null,
   onClearWindow,
   onPdf,
+  onType,
   showKey = false,
 }: {
   windowMinutes?: number | null;
   onClearWindow?: () => void;
   /** A PDF chosen from the picker; the desk reads it in. */
   onPdf?: (file: File) => void;
+  /** Called when the reader types in the bar. */
+  onType?: () => void;
   /** The desk's hold-Alt overlay: show the `/` key on the trigger. */
   showKey?: boolean;
 }) {
@@ -264,6 +267,7 @@ export function ArticleFinder({
             onChange={(e) => {
               setQuery(e.target.value);
               setPosition(0);
+              onType?.();
             }}
             role="combobox"
             aria-autocomplete="list"

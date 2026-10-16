@@ -45,6 +45,14 @@ function Desk() {
   const showKeys = useAltHint();
   const link = parseDeskLink(params);
   const pdf = usePdfImport();
+  // Armed by a file dropped or picked here; anything else the reader starts
+  // (a time, a typed ask, a new link) disarms it, so a PDF never snatches them
+  // away from what they chose since.
+  const [armed, setArmed] = useState(false);
+  const startPdf = (file: File) => {
+    setArmed(true);
+    void pdf.start(file);
+  };
   // Done brought us here: the slot slides its next pick in (globals.css)
   const [arrival] = useState(() =>
     !arrivedFromFinish()
@@ -64,6 +72,7 @@ function Desk() {
   if (seenUrl !== params.toString()) {
     setSeenUrl(params.toString());
     setChosen(fromLink());
+    setArmed(false);
   }
 
   const choose = (minutes: number) => {
@@ -71,6 +80,7 @@ function Desk() {
     const last = lastChoice.current;
     if (last?.minutes === minutes && now - last.at < DOUBLE_CHOICE_MS) return;
     lastChoice.current = { minutes, at: now };
+    setArmed(false);
     setChosen(
       chosen?.minutes === minutes
         ? null
@@ -155,9 +165,10 @@ function Desk() {
         ) : (
           <QueryBoundary fallback={(retry) => <SlotFailure retry={retry} />}>
             <ImportSlot
+              armed={armed}
               upload={pdf.upload}
               problem={pdf.problem}
-              onFile={pdf.start}
+              onFile={startPdf}
               onClearProblem={pdf.clearProblem}
               onDismiss={pdf.dismiss}
             >
@@ -168,12 +179,13 @@ function Desk() {
       </section>
 
       <ArticleFinder
-        onPdf={pdf.start}
+        onPdf={startPdf}
+        onType={() => setArmed(false)}
         showKey={showKeys}
         windowMinutes={chosen?.minutes ?? null}
         onClearWindow={() => setChosen(null)}
       />
-      <PdfDrop onFile={pdf.start} />
+      <PdfDrop onFile={startPdf} />
     </main>
   );
 }

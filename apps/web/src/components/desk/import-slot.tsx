@@ -4,14 +4,17 @@ import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { Check } from "lucide-react";
 import Link from "next/link";
-import { type ReactNode, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { InlineError, SavedMark } from "@/components/in-place";
+import { OPEN_ARTICLE, ViewTransition } from "@/components/view-transition";
 import {
   FAILURE_COPY,
   type ImportFailure,
   importSteps,
 } from "@/lib/pdf-import";
 import { isOnControl, useShortcuts } from "@/lib/shortcuts";
+import { articleTitleName, rememberTitle } from "@/lib/title-handoff";
 import type { UploadState } from "@/lib/use-pdf-import";
 import { PdfPickerButton } from "./pdf-picker";
 
@@ -86,7 +89,17 @@ function Refusal({
   );
 }
 
-function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
+function Ready({
+  row,
+  autoOpen,
+  onDismiss,
+}: {
+  row: Latest;
+  autoOpen: boolean;
+  onDismiss: () => void;
+}) {
+  const router = useRouter();
+  const opened = useRef(false);
   const save = useMutation(api.savedArticles.save);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -115,6 +128,15 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
       },
     },
   );
+  const { articleId: readyId, title } = row;
+  // The card renders first, so the title morph has its source on screen
+  useEffect(() => {
+    if (!autoOpen || !readyId || opened.current) return;
+    opened.current = true;
+    rememberTitle(readyId, title ?? "");
+    onDismiss();
+    router.push(`/read/${readyId}`, { transitionTypes: [OPEN_ARTICLE] });
+  }, [autoOpen, readyId, title, onDismiss, router]);
   if (!row.articleId) return null;
   const articleId = row.articleId;
   const isBook = row.units !== undefined;
@@ -146,9 +168,15 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
   return (
     <div className="max-w-[620px]">
       <p className={LABEL}>Ready to read</p>
-      <h2 className="mt-2 font-serif text-[24px] leading-tight lg:text-[30px]">
-        {row.title}
-      </h2>
+      <ViewTransition
+        name={articleTitleName(articleId)}
+        share="article-title"
+        default="none"
+      >
+        <h2 className="mt-2 font-serif text-[24px] leading-tight lg:text-[30px]">
+          {row.title}
+        </h2>
+      </ViewTransition>
       <p className="mt-1.5 text-[13.5px] text-[var(--ink-muted)]">{meta}</p>
       <p className="mt-3 text-[15px] text-[var(--pencil)]">
         {isBook && row.firstUnitTitle
@@ -202,13 +230,31 @@ type Latest = NonNullable<
  * the moment it is ready, or the plain sentence saying why it was refused.
  * With no import to show it renders `children`, the desk's resting slot.
  */
-export function ImportSlot(props: Omit<ImportViewProps, "latest">) {
+export function ImportSlot({
+  armed,
+  ...props
+}: Omit<ImportViewProps, "latest" | "autoOpen"> & { armed: boolean }) {
   const latest = useQuery(api.documentImports.latest, {});
-  return <ImportView {...props} latest={latest} />;
+  // The import that was already there when the file was dropped is not the one
+  // to open; `undefined` means no baseline has been taken yet.
+  const baseline = useRef<Id<"documentImports"> | null | undefined>(undefined);
+  useEffect(() => {
+    if (!armed) baseline.current = undefined;
+    else if (baseline.current === undefined && latest !== undefined)
+      baseline.current = latest?._id ?? null;
+  }, [armed, latest]);
+  const autoOpen =
+    armed &&
+    baseline.current !== undefined &&
+    latest != null &&
+    latest._id !== baseline.current;
+  return <ImportView {...props} latest={latest} autoOpen={autoOpen} />;
 }
 
 type ImportViewProps = {
   latest: Latest | null | undefined;
+  /** Open the import as soon as it is readable, instead of waiting at the Ready card. */
+  autoOpen: boolean;
   upload: UploadState | null;
   problem: string | null;
   onFile: (file: File) => void;
@@ -220,6 +266,7 @@ type ImportViewProps = {
 /** The slot's states, given the latest import; kept apart from the query so each can be shown on its own. */
 export function ImportView({
   latest,
+  autoOpen,
   upload,
   problem,
   onFile,
@@ -262,7 +309,7 @@ export function ImportView({
     );
   }
   if (latest.status === "ready")
-    return <Ready row={latest} onDismiss={dismiss} />;
+    return <Ready row={latest} autoOpen={autoOpen} onDismiss={dismiss} />;
 
   const steps = importSteps(latest);
   return (
