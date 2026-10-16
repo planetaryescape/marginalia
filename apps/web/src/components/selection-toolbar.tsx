@@ -377,7 +377,7 @@ export function SelectionToolbar({
                 : { type: "spring", damping: 30, stiffness: 420 }
             }
             className={cn(
-              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-2xl md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
+              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-lg md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
               holding && "block",
             )}
           >
