@@ -18,6 +18,45 @@ export const HUB_SLOTS = 2;
 /** Neighbours of the centre; the rest of the budget goes to the faint second ring. */
 export const FIRST_RING = 7;
 
+/**
+ * Documents one graph query may read in all. Every read in the graph asks the
+ * budget first, so a busy library can't push a query towards Convex's 16MiB
+ * limit (each note, highlight and answer carries a ~12KB embedding).
+ */
+export const GRAPH_READ_BUDGET = 160;
+
+export class ReadBudget {
+  private left: number;
+  constructor(total = GRAPH_READ_BUDGET) {
+    this.left = total;
+  }
+  get remaining() {
+    return this.left;
+  }
+  /** The most documents the next read may take: what it wants, capped by what is left. */
+  allow(want: number): number {
+    return Math.max(0, Math.min(want, this.left));
+  }
+  /** Runs a read of up to `want` documents if any budget is left, and charges what it returned. */
+  async take<T>(
+    want: number,
+    read: (limit: number) => Promise<T[]>,
+  ): Promise<T[]> {
+    const limit = this.allow(want);
+    if (limit === 0) return [];
+    const rows = await read(limit);
+    this.spend(rows.length);
+    return rows;
+  }
+  /** Even an empty read costs one, so the number of queries is bounded too. */
+  spend(read: number) {
+    this.left -= Math.max(1, read);
+  }
+}
+
+/** For reads outside the graph query, which have their own small fixed bounds. */
+export const UNLIMITED = new ReadBudget(Number.POSITIVE_INFINITY);
+
 export type ReasonType =
   | "linked"
   | "connection"

@@ -4,12 +4,14 @@ import { ownerWithKey, secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { MAX_NODES, nodeKey } from "./lib/ideaGraph";
+import { buildGraph } from "./ideaGraph";
+import { GRAPH_READ_BUDGET, MAX_NODES, nodeKey } from "./lib/ideaGraph";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -109,6 +111,96 @@ const reasonsOf = (
   g.edges
     .filter((e) => e.a === key || e.b === key)
     .flatMap((e) => e.reasons.map((r) => r.type));
+
+/** Wraps a db so every document a read returns is counted, however the query is built. */
+function countingDb(db: MutationCtx["db"]) {
+  const reads = { documents: 0 };
+  const wrap = (target: object): never =>
+    new Proxy(target, {
+      get(obj, prop) {
+        const value = (obj as Record<string | symbol, unknown>)[prop];
+        if (typeof value !== "function") return value;
+        return (...args: unknown[]) => {
+          const result = value.apply(obj, args);
+          if (result && typeof result.then === "function")
+            return result.then((rows: unknown) => {
+              reads.documents += Array.isArray(rows)
+                ? rows.length
+                : rows
+                  ? 1
+                  : 0;
+              return rows;
+            });
+          return result && typeof result === "object" ? wrap(result) : result;
+        };
+      },
+    }) as never;
+  return { reads, db: wrap(db) as MutationCtx["db"] };
+}
+
+describe("idea graph read budget", () => {
+  it("reads no more documents than the budget, from a library full of links, tags and notes", async () => {
+    const { t } = await secondReaderTest(modules);
+    const centre = await t.run(async (ctx) => {
+      const articles: Id<"articles">[] = [];
+      for (let a = 0; a < 12; a++) {
+        const article = await addArticle(ctx, OWNER, `Article ${a}`);
+        articles.push(article);
+        for (let i = 0; i < 12; i++) {
+          await addNote(ctx, OWNER, article, `note ${a}.${i}`);
+          await addMark(ctx, OWNER, article, `mark ${a}.${i}`);
+          await ctx.db.insert("companionThreads", {
+            userId: OWNER,
+            articleId: article,
+            mode: "ask",
+            selection: `passage ${a}.${i}`,
+            turns: [{ role: "assistant", content: "An answer." }],
+            keptAt: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          });
+        }
+      }
+      for (const tag of ["one", "two", "three", "four"])
+        await addTag(ctx, OWNER, tag, articles);
+      return nodeKey("article", articles[0]);
+    });
+    for (const args of [{}, { centre }]) {
+      const counted = await t.run(async (ctx) => {
+        const { reads, db } = countingDb(ctx.db);
+        const g = await buildGraph({ db }, OWNER, args);
+        return { documents: reads.documents, nodes: g.nodes.length };
+      });
+      expect(counted.documents).toBeLessThanOrEqual(GRAPH_READ_BUDGET);
+      expect(counted.documents).toBeGreaterThan(20);
+      expect(counted.nodes).toBeLessThanOrEqual(MAX_NODES);
+    }
+  });
+
+  it("asks for only as many of each kind as an article's expansion needs", async () => {
+    const { t } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => {
+      const article = await addArticle(ctx, OWNER, "Alpha");
+      for (let i = 0; i < 30; i++) {
+        await addNote(ctx, OWNER, article, `n${i}`);
+        await addMark(ctx, OWNER, article, `m${i}`);
+      }
+      return { article };
+    });
+    const { listed } = await t.run(async (ctx) => {
+      const { reads, db } = countingDb(ctx.db);
+      const { ideasOnArticle } = await import("./lib/ideaSignals");
+      const keys = await ideasOnArticle({ db }, OWNER, ids.article, {
+        notes: 2,
+        highlights: 1,
+        answers: 0,
+      });
+      return { listed: { keys, documents: reads.documents } };
+    });
+    expect(listed.documents).toBe(3);
+    expect(listed.keys).toHaveLength(3);
+  });
+});
 
 describe("idea graph edges", () => {
   it("is empty without notes and centres on the latest note by default", async () => {
@@ -265,8 +357,8 @@ describe("idea graph edges", () => {
     });
     const g = await owner.query(api.ideaGraph.graph, {});
     expect(g.nodes.length).toBeLessThanOrEqual(MAX_NODES);
-    // Two slots are held back for articles that tie several ideas together
-    expect(g.nodes.length).toBeGreaterThanOrEqual(MAX_NODES - 2);
+    // Two slots are held back for articles, and the read budget may stop the second ring short
+    expect(g.nodes.length).toBeGreaterThanOrEqual(MAX_NODES - 4);
     const keys = new Set(g.nodes.map((n) => n.key));
     for (const e of g.edges) {
       expect(keys.has(e.a)).toBe(true);
@@ -490,6 +582,7 @@ describe("links the reader makes", () => {
   });
 
   it("drops a note's links, in both directions, when the note is deleted", async () => {
+    vi.useFakeTimers();
     const { t, owner, a, b } = await setup();
     const c = await t.run(async (ctx) => {
       const article = await addArticle(ctx, OWNER, "Beta");
@@ -501,8 +594,42 @@ describe("links the reader makes", () => {
     await owner.mutation(api.userNotes.remove, {
       noteId: a.slice("note:".length) as Id<"userNotes">,
     });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
     const rows = await t.run((ctx) => ctx.db.query("ideaLinks").collect());
     expect(rows.map((r) => [r.from, r.to])).toEqual([[b, c]]);
+  });
+
+  it("deletes a heavily linked note first and sweeps its links in bounded batches", async () => {
+    vi.useFakeTimers();
+    const { t, owner, a } = await setup();
+    const noteId = a.slice("note:".length) as Id<"userNotes">;
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 230; i++)
+        await ctx.db.insert("ideaLinks", {
+          userId: OWNER,
+          from: i % 2 ? a : `note:other${i}`,
+          to: i % 2 ? `note:other${i}` : a,
+          createdAt: i,
+        });
+    });
+    await owner.mutation(api.userNotes.remove, { noteId });
+    // The note is gone at once; the links follow in batches of at most 100
+    expect(await t.run((ctx) => ctx.db.get("userNotes", noteId))).toBeNull();
+    expect(
+      await t.run((ctx) => ctx.db.query("ideaLinks").collect()),
+    ).toHaveLength(230);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    expect(
+      await t.run((ctx) => ctx.db.query("ideaLinks").collect()),
+    ).toHaveLength(0);
+    const sweeps = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").take(50)).filter((j) =>
+        j.name.includes("sweep"),
+      ),
+    );
+    expect(sweeps).toHaveLength(3);
   });
 
   it("refuses a self-link, a missing idea and someone else's", async () => {
@@ -673,6 +800,23 @@ describe("edge reasons", () => {
     await expect(
       t.action(api.actions.explainIdeaEdge.explain, { a, b: "note:bogus" }),
     ).rejects.toThrow(/aren't in your notes/);
+  });
+
+  it("won't write a reason for a library that is being deleted", async () => {
+    const { t, owner, reader, readerLibraryId } =
+      await secondReaderTest(modules);
+    void owner;
+    await reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
+    await t.mutation(internal.ideaEdgeReasons.saveReason, {
+      userId: readerLibraryId,
+      pair: "note:a|note:b",
+      fingerprint: "f",
+      reason: "late",
+      model: "m",
+    });
+    expect(await t.run((ctx) => ctx.db.query("edgeReasons").collect())).toEqual(
+      [],
+    );
   });
 
   it("keeps the cache per reader", async () => {

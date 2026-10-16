@@ -181,6 +181,20 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       model: "fixture",
       createdAt: now,
     });
+    await ctx.db.insert("ideaLinks", {
+      userId,
+      from: "note:a",
+      to: "note:b",
+      createdAt: now,
+    });
+    await ctx.db.insert("edgeReasons", {
+      userId,
+      pair: "note:a|note:b",
+      fingerprint: "f",
+      reason: "Both are about focus.",
+      model: "fixture",
+      createdAt: now,
+    });
     await ctx.db.insert("impressions", {
       userId,
       articleId,

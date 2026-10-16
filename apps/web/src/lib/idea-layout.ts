@@ -74,15 +74,61 @@ export function layoutGraph({
     if (length === 1 && dx === 0 && dy === 0) dy = length;
     dx /= length;
     dy /= length;
+    const at = clearSpot(placed, from, dx, dy, RADIUS[2], width, height);
     placed.set(node.key, {
       ...node,
-      x: clamp(from.x + dx * REACH, MARGIN, width - MARGIN),
-      y: clamp(from.y + dy * REACH, MARGIN, height - MARGIN),
+      ...at,
       r: RADIUS[2],
       parent: parent?.key,
     });
   }
   return nodes.flatMap((node) => placed.get(node.key) ?? []);
+}
+
+// Tried in order: straight out from the parent, then fanning to either side, then further out
+const FAN = [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, Math.PI];
+const REACHES = [REACH, REACH * 1.4, REACH * 1.8];
+const GAP = 8;
+
+/**
+ * Where a second-ring idea goes: out from its parent, but not on top of an
+ * idea already placed. Siblings of one parent therefore fan out beside each other.
+ */
+function clearSpot(
+  placed: Map<string, Placed>,
+  from: Placed,
+  dx: number,
+  dy: number,
+  r: number,
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  let best = { x: from.x, y: from.y, room: Number.NEGATIVE_INFINITY };
+  for (const reach of REACHES)
+    for (const turn of FAN) {
+      const cos = Math.cos(turn);
+      const sin = Math.sin(turn);
+      const x = clamp(
+        from.x + (dx * cos - dy * sin) * reach,
+        MARGIN,
+        width - MARGIN,
+      );
+      const y = clamp(
+        from.y + (dx * sin + dy * cos) * reach,
+        MARGIN,
+        height - MARGIN,
+      );
+      // Room is the gap to the nearest idea already there; positive means clear
+      let room = Number.POSITIVE_INFINITY;
+      for (const other of placed.values())
+        room = Math.min(
+          room,
+          Math.hypot(x - other.x, y - other.y) - other.r - r - GAP,
+        );
+      if (room >= 0) return { x, y };
+      if (room > best.room) best = { x, y, room };
+    }
+  return best;
 }
 
 function clamp(value: number, min: number, max: number) {

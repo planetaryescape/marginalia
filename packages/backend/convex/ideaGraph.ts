@@ -13,6 +13,7 @@ import {
   type NodeKind,
   nodeKey,
   pairKey,
+  ReadBudget,
   type Reason,
 } from "./lib/ideaGraph";
 import {
@@ -31,13 +32,14 @@ import {
 const HINTS_USED = 12;
 const CANDIDATES_LOADED = FIRST_RING * 2;
 
-async function latestNode(ctx: Db, userId: string) {
+async function latestNode(ctx: Db, userId: string, budget: ReadBudget) {
   const row = await ctx.db
     .query("userNotes")
     .withIndex("by_user_recent", (q) => q.eq("userId", userId))
     .order("desc")
     .first();
-  return row ? loadNode(ctx, userId, nodeKey("note", row._id)) : null;
+  budget.spend(1);
+  return row ? loadNode(ctx, userId, nodeKey("note", row._id), budget) : null;
 }
 
 export interface GraphNode {
@@ -74,6 +76,157 @@ const view = (node: LoadedNode, hop: 0 | 1 | 2): GraphNode => ({
   createdAt: node.createdAt,
 });
 
+export async function buildGraph(
+  ctx: Db,
+  userId: string,
+  args: { centre?: string; similar?: string[] },
+  budget: ReadBudget = new ReadBudget(),
+): Promise<Graph> {
+  const centre =
+    (args.centre ? await loadNode(ctx, userId, args.centre, budget) : null) ??
+    (await latestNode(ctx, userId, budget));
+  if (!centre) return EMPTY;
+
+  const found = await gatherCandidates(
+    ctx,
+    userId,
+    centre,
+    (args.similar ?? []).slice(0, HINTS_USED),
+    budget,
+  );
+
+  const nodes: GraphNode[] = [view(centre, 0)];
+  const edges: GraphEdge[] = [];
+  const shown = new Map<string, LoadedNode>([[centre.key, centre]]);
+  const files = new Set<string>(centre.filePath ? [centre.filePath] : []);
+  const ring: LoadedNode[] = [];
+
+  for (const candidate of found.ranked(CANDIDATES_LOADED)) {
+    if (ring.length >= FIRST_RING) break;
+    const node = await loadNode(ctx, userId, candidate.key, budget);
+    if (!node) continue;
+    // Several chunks of one vault file are one idea
+    if (node.filePath) {
+      if (files.has(node.filePath)) continue;
+      files.add(node.filePath);
+    }
+    ring.push(node);
+    shown.set(node.key, node);
+    nodes.push(view(node, 1));
+    edges.push({
+      id: pairKey(centre.key, node.key),
+      a: centre.key,
+      b: node.key,
+      reasons: candidate.reasons,
+      needsAi: candidate.reasons.every((r) => r.type === "similar"),
+    });
+  }
+
+  // One idea further out from each neighbour, by the cheap signals only
+  const edgeIds = new Set(edges.map((edge) => edge.id));
+  for (const near of ring) {
+    const nearLinks = await linkedKeys(ctx, userId, near.key, 4, budget);
+    // A link between two ideas already on the map is a line worth drawing
+    for (const key of nearLinks) {
+      const id = pairKey(near.key, key);
+      if (shown.has(key) && key !== centre.key && !edgeIds.has(id)) {
+        edgeIds.add(id);
+        edges.push({
+          id,
+          a: near.key,
+          b: key,
+          reasons: [linkedReason()],
+          needsAi: false,
+        });
+      }
+    }
+    // The last slots are kept for articles that tie several ideas together
+    if (nodes.length >= MAX_NODES - HUB_SLOTS) continue;
+
+    const sameArticle = near.articleId
+      ? // Up to seven of an article's ideas may already be on the ring, so ask for one more
+        await ideasOnArticle(
+          ctx,
+          userId,
+          near.articleId,
+          { notes: 6, highlights: 3, answers: 1 },
+          budget,
+        )
+      : [];
+    const title = near.articleId
+      ? await articleTitle(ctx, userId, near.articleId, budget)
+      : null;
+    const options: { key: string; reason: Reason }[] = [
+      ...nearLinks.map((key) => ({ key, reason: linkedReason() })),
+      ...sameArticle.map((key) => ({
+        key,
+        reason:
+          near.kind === "article" ? fromArticleReason() : articleReason(title),
+      })),
+    ];
+    for (const option of options) {
+      if (shown.has(option.key)) continue;
+      const node = await loadNode(ctx, userId, option.key, budget);
+      if (!node) continue;
+      if (node.filePath) {
+        if (files.has(node.filePath)) continue;
+        files.add(node.filePath);
+      }
+      shown.set(node.key, node);
+      nodes.push(view(node, 2));
+      edges.push({
+        id: pairKey(near.key, node.key),
+        a: near.key,
+        b: node.key,
+        reasons: [option.reason],
+        needsAi: false,
+      });
+      break;
+    }
+  }
+
+  // An article that two or more ideas on the map come from joins as their common source
+  const byArticle = new Map<string, LoadedNode[]>();
+  for (const member of shown.values()) {
+    if (member.kind === "article" || !member.articleId) continue;
+    byArticle.set(member.articleId, [
+      ...(byArticle.get(member.articleId) ?? []),
+      member,
+    ]);
+  }
+  const hubs = [...byArticle.entries()]
+    .filter(([, members]) => members.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length);
+  for (const [articleId, members] of hubs) {
+    const key = nodeKey("article", articleId);
+    if (nodes.length >= MAX_NODES || shown.has(key)) continue;
+    const hub = await loadNode(ctx, userId, key, budget);
+    if (!hub) continue;
+    shown.set(key, hub);
+    nodes.push(view(hub, 2));
+    // Neighbours first, so the article hangs off one of them on the map
+    const first = members.sort(
+      (a, b) => (a.key === centre.key ? 1 : 0) - (b.key === centre.key ? 1 : 0),
+    );
+    for (const member of first)
+      edges.push({
+        id: pairKey(member.key, key),
+        a: member.key,
+        b: key,
+        reasons: [fromArticleReason()],
+        needsAi: false,
+      });
+  }
+
+  const kept = nodes.slice(0, MAX_NODES);
+  const keys = new Set(kept.map((n) => n.key));
+  return {
+    centre: centre.key,
+    nodes: kept,
+    edges: edges.filter((e) => keys.has(e.a) && keys.has(e.b)),
+  };
+}
+
 /**
  * The centre, its best neighbours and a few second-ring ideas. `similar` is
  * the embedding signal: vector search only runs in actions, so the client asks
@@ -85,151 +238,7 @@ export const graph = query({
     centre: v.optional(v.string()),
     similar: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, args): Promise<Graph> => {
-    const userId = ctx.readerId;
-    const centre =
-      (args.centre ? await loadNode(ctx, userId, args.centre) : null) ??
-      (await latestNode(ctx, userId));
-    if (!centre) return EMPTY;
-
-    const found = await gatherCandidates(
-      ctx,
-      userId,
-      centre,
-      (args.similar ?? []).slice(0, HINTS_USED),
-    );
-
-    const nodes: GraphNode[] = [view(centre, 0)];
-    const edges: GraphEdge[] = [];
-    const shown = new Map<string, LoadedNode>([[centre.key, centre]]);
-    const files = new Set<string>(centre.filePath ? [centre.filePath] : []);
-    const ring: LoadedNode[] = [];
-
-    for (const candidate of found.ranked(CANDIDATES_LOADED)) {
-      if (ring.length >= FIRST_RING) break;
-      const node = await loadNode(ctx, userId, candidate.key);
-      if (!node) continue;
-      // Several chunks of one vault file are one idea
-      if (node.filePath) {
-        if (files.has(node.filePath)) continue;
-        files.add(node.filePath);
-      }
-      ring.push(node);
-      shown.set(node.key, node);
-      nodes.push(view(node, 1));
-      edges.push({
-        id: pairKey(centre.key, node.key),
-        a: centre.key,
-        b: node.key,
-        reasons: candidate.reasons,
-        needsAi: candidate.reasons.every((r) => r.type === "similar"),
-      });
-    }
-
-    // One idea further out from each neighbour, by the cheap signals only
-    const edgeIds = new Set(edges.map((edge) => edge.id));
-    for (const near of ring) {
-      const nearLinks = await linkedKeys(ctx, userId, near.key, 4);
-      // A link between two ideas already on the map is a line worth drawing
-      for (const key of nearLinks) {
-        const id = pairKey(near.key, key);
-        if (shown.has(key) && key !== centre.key && !edgeIds.has(id)) {
-          edgeIds.add(id);
-          edges.push({
-            id,
-            a: near.key,
-            b: key,
-            reasons: [linkedReason()],
-            needsAi: false,
-          });
-        }
-      }
-      // The last slots are kept for articles that tie several ideas together
-      if (nodes.length >= MAX_NODES - HUB_SLOTS) continue;
-
-      const sameArticle = near.articleId
-        ? await ideasOnArticle(ctx, userId, near.articleId, {
-            notes: 8,
-            highlights: 8,
-            answers: 2,
-          })
-        : [];
-      const title = near.articleId
-        ? await articleTitle(ctx, userId, near.articleId)
-        : null;
-      const options: { key: string; reason: Reason }[] = [
-        ...nearLinks.map((key) => ({ key, reason: linkedReason() })),
-        ...sameArticle.map((key) => ({
-          key,
-          reason:
-            near.kind === "article"
-              ? fromArticleReason()
-              : articleReason(title),
-        })),
-      ];
-      for (const option of options) {
-        if (shown.has(option.key)) continue;
-        const node = await loadNode(ctx, userId, option.key);
-        if (!node) continue;
-        if (node.filePath) {
-          if (files.has(node.filePath)) continue;
-          files.add(node.filePath);
-        }
-        shown.set(node.key, node);
-        nodes.push(view(node, 2));
-        edges.push({
-          id: pairKey(near.key, node.key),
-          a: near.key,
-          b: node.key,
-          reasons: [option.reason],
-          needsAi: false,
-        });
-        break;
-      }
-    }
-
-    // An article that two or more ideas on the map come from joins as their common source
-    const byArticle = new Map<string, LoadedNode[]>();
-    for (const member of shown.values()) {
-      if (member.kind === "article" || !member.articleId) continue;
-      byArticle.set(member.articleId, [
-        ...(byArticle.get(member.articleId) ?? []),
-        member,
-      ]);
-    }
-    const hubs = [...byArticle.entries()]
-      .filter(([, members]) => members.length >= 2)
-      .sort((a, b) => b[1].length - a[1].length);
-    for (const [articleId, members] of hubs) {
-      const key = nodeKey("article", articleId);
-      if (nodes.length >= MAX_NODES || shown.has(key)) continue;
-      const hub = await loadNode(ctx, userId, key);
-      if (!hub) continue;
-      shown.set(key, hub);
-      nodes.push(view(hub, 2));
-      // Neighbours first, so the article hangs off one of them on the map
-      const first = members.sort(
-        (a, b) =>
-          (a.key === centre.key ? 1 : 0) - (b.key === centre.key ? 1 : 0),
-      );
-      for (const member of first)
-        edges.push({
-          id: pairKey(member.key, key),
-          a: member.key,
-          b: key,
-          reasons: [fromArticleReason()],
-          needsAi: false,
-        });
-    }
-
-    const kept = nodes.slice(0, MAX_NODES);
-    const keys = new Set(kept.map((n) => n.key));
-    return {
-      centre: centre.key,
-      nodes: kept,
-      edges: edges.filter((e) => keys.has(e.a) && keys.has(e.b)),
-    };
-  },
+  handler: (ctx, args) => buildGraph(ctx, ctx.readerId, args),
 });
 
 export interface SearchHit {

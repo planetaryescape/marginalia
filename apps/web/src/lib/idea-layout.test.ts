@@ -56,6 +56,38 @@ describe("layoutGraph", () => {
     ).toBeGreaterThan(Math.hypot((near?.x ?? 0) - 385, (near?.y ?? 0) - 350));
   });
 
+  it("gives siblings that share a parent, and a hub with several members, their own places", () => {
+    const nodes = [
+      { key: "c", hop: 0 as const },
+      ...ring(7),
+      ...Array.from({ length: 7 }, (_, i) => ({
+        key: `s${i}`,
+        hop: 2 as const,
+      })),
+    ];
+    // Every second-ring idea hangs off the same neighbour; the last is a hub also tied to the centre
+    const edges = [
+      ...ring(7).map((r) => ({ a: "c", b: r.key })),
+      ...Array.from({ length: 7 }, (_, i) => ({ a: "n0", b: `s${i}` })),
+      { a: "c", b: "s6" },
+    ];
+    for (const [width, height] of [
+      [770, 700],
+      [350, 560],
+    ]) {
+      const placed = layoutGraph({ nodes, edges, width, height });
+      expect(placed).toHaveLength(15);
+      const points = new Set(
+        placed.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`),
+      );
+      expect(points.size).toBe(15);
+      for (const a of placed)
+        for (const b of placed)
+          if (a.key < b.key)
+            expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(a.r + b.r);
+    }
+  });
+
   it("lays out a lone centre", () => {
     expect(layoutGraph(input(0))).toHaveLength(1);
   });

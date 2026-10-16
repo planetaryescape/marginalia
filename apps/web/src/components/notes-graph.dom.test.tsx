@@ -158,6 +158,31 @@ describe("Notes as a map", () => {
     expect(host.textContent).toContain("New connected note");
   });
 
+  it("sizes the map to its container once it appears, so a phone gets a phone-sized map", async () => {
+    const watchers: ((entries: unknown[]) => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: (entries: unknown[]) => void) {
+          watchers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    // The map isn't there on the first render: the notes are still loading
+    mocks.graph = undefined;
+    await render();
+    expect(host.querySelector("svg")).toBeNull();
+    mocks.graph = { centre: "note:c", nodes: [note], edges: [] };
+    await render();
+    expect(host.querySelector("svg")?.getAttribute("width")).toBe("770");
+    await act(async () => {
+      for (const watch of watchers) watch([{ contentRect: { width: 350 } }]);
+    });
+    expect(host.querySelector("svg")?.getAttribute("width")).toBe("350");
+  });
+
   it("offers no writing beside a vault note with no article", async () => {
     mocks.node = {
       ...detail,

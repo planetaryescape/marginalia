@@ -3,7 +3,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
-import { mutation } from "./functions";
+import { internalMutation, mutation } from "./functions";
 import { nodeKey, snippet } from "./lib/ideaGraph";
 import { articleFor, linkRow, loadNode } from "./lib/ideaNodes";
 
@@ -88,5 +88,33 @@ export const writeConnected = mutation({
       noteId,
     });
     return key;
+  },
+});
+
+const SWEEP_BATCH = 100;
+
+/**
+ * Deletes the links to and from an idea that is gone, a bounded batch at a
+ * time, and schedules itself again until none are left.
+ */
+export const sweep = internalMutation({
+  args: { userId: v.string(), key: v.string() },
+  handler: async (ctx, args) => {
+    const from = await ctx.db
+      .query("ideaLinks")
+      .withIndex("by_user_from_to", (q) =>
+        q.eq("userId", args.userId).eq("from", args.key),
+      )
+      .take(SWEEP_BATCH);
+    const to = await ctx.db
+      .query("ideaLinks")
+      .withIndex("by_user_to", (q) =>
+        q.eq("userId", args.userId).eq("to", args.key),
+      )
+      .take(SWEEP_BATCH - from.length);
+    for (const row of [...from, ...to])
+      await ctx.db.delete("ideaLinks", row._id);
+    if (from.length + to.length >= SWEEP_BATCH)
+      await ctx.scheduler.runAfter(0, internal.ideaLinks.sweep, args);
   },
 });

@@ -22,21 +22,24 @@ function useLatest<T>(value: T | undefined): T | undefined {
   return last.current;
 }
 
-/** The measured width of an element, with a fallback before it is measured. */
+/**
+ * The measured width of an element, with a fallback before it is measured.
+ * The element mounts only once there is a map to draw, so it is found through
+ * a callback ref: an effect on a plain ref would run before it exists.
+ */
 function useWidth(fallback: number) {
-  const ref = useRef<HTMLDivElement>(null);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(fallback);
   useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!element || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) =>
       setWidth(Math.floor(entry.contentRect.width) || fallback),
     );
-    observer.observe(el);
-    setWidth(Math.floor(el.getBoundingClientRect().width) || fallback);
+    observer.observe(element);
+    setWidth(Math.floor(element.getBoundingClientRect().width) || fallback);
     return () => observer.disconnect();
-  }, [fallback]);
-  return [ref, width] as const;
+  }, [element, fallback]);
+  return [setElement, width] as const;
 }
 
 /**

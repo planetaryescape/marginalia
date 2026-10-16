@@ -128,6 +128,18 @@ const STEPS: Step[] = [
   ),
   rows((ctx, u) =>
     ctx.db
+      .query("ideaLinks")
+      .withIndex("by_user_to", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("edgeReasons")
+      .withIndex("by_user_pair", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
       .query("reflections")
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),

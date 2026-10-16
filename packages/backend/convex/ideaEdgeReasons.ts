@@ -57,6 +57,12 @@ export const saveReason = internalMutation({
     model: v.string(),
   },
   handler: async (ctx, args) => {
+    // The action runs for a while: a library deleted meanwhile must stay empty
+    const reader = await ctx.db
+      .query("readers")
+      .withIndex("by_libraryId", (q) => q.eq("libraryId", args.userId))
+      .first();
+    if (reader && (reader.status !== "active" || reader.deletingAt)) return;
     const existing = await ctx.db
       .query("edgeReasons")
       .withIndex("by_user_pair", (q) =>

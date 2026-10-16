@@ -2,7 +2,13 @@
 // the graph shares. Everything checks the idea belongs to the reader.
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { type NodeKind, parseKey, snippet } from "./ideaGraph";
+import {
+  type NodeKind,
+  parseKey,
+  type ReadBudget,
+  snippet,
+  UNLIMITED,
+} from "./ideaGraph";
 
 export type Db = Pick<QueryCtx, "db">;
 
@@ -23,9 +29,11 @@ export async function loadNode(
   ctx: Db,
   userId: string,
   key: string,
+  budget: ReadBudget = UNLIMITED,
 ): Promise<LoadedNode | null> {
   const ref = parseKey(key);
-  if (!ref) return null;
+  if (!ref || budget.allow(1) === 0) return null;
+  budget.spend(1);
   const { db } = ctx;
   switch (ref.kind) {
     case "note": {
@@ -112,7 +120,10 @@ export async function articleTitle(
   ctx: Db,
   userId: string,
   articleId: Id<"articles">,
+  budget: ReadBudget = UNLIMITED,
 ): Promise<string | null> {
+  if (budget.allow(1) === 0) return null;
+  budget.spend(1);
   const article = await ctx.db.get("articles", articleId);
   return article && article.userId === userId ? article.title : null;
 }
