@@ -18,11 +18,11 @@
 | 2 | The margin talks | Done: live at `67798dc`, accordion open notes at `de6f560` (D-DES-049) |
 | 2a | The reader finishes its own redesign | Done: live at `fac7694` (notes-pane split moved to 2b) |
 | 2b | Answers beside the text, kept only on purpose | Deployed at `6471b14` (backend and frontend); BK's hand journey pending. Edge cases in `docs/issues/companion-keep-edge-cases.md` |
-| 2g | It remembers how I read | Planned |
-| 3 | The desk asks one question and answers it | Building (comp approved 2026-10-16) |
-| 3c | Ask by topic, one at a time, fast | Planned (S5 first) |
-| 2d | Links wait for me, and saved things come back | Planned |
-| 2e | The summary reads in layers | Planned |
+| 2g | It remembers how I read | Building |
+| 3 | The desk asks one question and answers it | Done: live at `8741fbd`; warm pick in 121 ms |
+| 3c | Ask by topic, one at a time, fast | Deployed at `9a90018`: first card ~1.05 s warm (was 6.7–8.8 s) |
+| 2d | Links wait for me, and saved things come back | Building |
+| 2e | The summary reads in layers | Done: live at `4c46980` |
 | 2c | A critical friend in the margin | Planned |
 | 2f | It reads alongside me, and doesn't repeat itself | Planned (S6 first) |
 | 3b | I bring my own (PDF) | Planned (S7 first) |
