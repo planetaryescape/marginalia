@@ -164,10 +164,15 @@ export function IdeaGraphView({
           const selected = edge.id === edgeId;
           // On a phone the lines would crowd each other; the panel says why instead
           const label = faint || narrow ? "" : edgeLabel(edge);
+          // Nearer the inner end than the middle, so the label clears the
+          // outer idea's own label
+          const [inner, outer] = a.hop <= b.hop ? [a, b] : [b, a];
+          const labelX = inner.x + (outer.x - inner.x) * 0.42;
+          const labelY = inner.y + (outer.y - inner.y) * 0.42;
           return (
             <g
               key={edge.id}
-              className="idea-enter cursor-pointer"
+              className="idea-enter group/edge cursor-pointer outline-none"
               role="button"
               tabIndex={-1}
               aria-label={`Why “${nodeByKey.get(edge.a)?.label}” and “${nodeByKey.get(edge.b)?.label}” connect`}
@@ -184,6 +189,8 @@ export function IdeaGraphView({
                 }
                 strokeWidth={selected ? 2 : 1.2}
                 strokeDasharray={faint ? "3 4" : undefined}
+                // Focus shows on the line itself, not as a box around it
+                className="group-focus-visible/edge:stroke-[var(--reader-focus)]"
               />
               {/* A wider invisible stroke so a thin line is easy to hit */}
               <line
@@ -196,8 +203,8 @@ export function IdeaGraphView({
               />
               {label && (
                 <text
-                  x={(a.x + b.x) / 2}
-                  y={(a.y + b.y) / 2 - 6}
+                  x={labelX}
+                  y={labelY - 6}
                   textAnchor="middle"
                   fontSize={11}
                   fill="var(--reader-muted)"
