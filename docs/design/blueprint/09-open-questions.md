@@ -22,8 +22,8 @@ For each spike, record what was tried, the result, the date and the conclusion u
 |---|---|---|
 | Q1 | Is "Print, pencil and pen" the concept? The author speaks in print, Marginalia in pencil, you in your own pen. Or is there a different idea of what Marginalia is to you? | Answered by BK 2026-10-16: yes, "Print, pencil and pen" (D-DES-029) |
 | Q2 | Which reading products or physical objects do you admire, and for what? No references were recorded. | Answered by BK 2026-10-16: Tufte / gwern.net sidenotes, iA Writer and Things 3. Readwise Reader stays the dense counterexample (D-DES-029) |
-| Q3 | Navigation: three rooms (Desk, Library, Notes), with Saved as a Library shelf and This week as Notes → Your week? | Open; blueprint assumes yes (D-DES-024) |
-| Q4 | Sources, Account and Readers grouped as Settings behind the account menu? | Open; blueprint assumes yes (D-DES-025) |
+| Q3 | Navigation: three rooms (Desk, Library, Notes), with Saved as a Library shelf and This week as Notes → Your week? | Answered by BK 2026-10-16: yes, four rooms, Desk, Library, Notes and Your reading (D-DES-061) |
+| Q4 | Sources, Account and Readers grouped as Settings behind the account menu? | Answered by BK 2026-10-16: yes, behind the avatar (D-DES-061) |
 | Q5 | On a phone, should a margin note unfold under its paragraph instead of opening a bottom sheet? | Answered by BK 2026-10-16: unfold under the paragraph (D-DES-030) |
 | Q6 | On wide screens, should margin notes always show as quiet sidenotes, or stay hidden behind markers until you click? | Answered by BK 2026-10-16: always shown, quietly (D-DES-030) |
 | Q7 | Should the interface stop using your pen colour for links, buttons, drop caps and progress, so the pen colour only marks your own highlights and notes? | Answered by BK 2026-10-16: yes (D-DES-029) |

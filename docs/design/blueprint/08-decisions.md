@@ -256,3 +256,7 @@ Change a decision only by adding a new entry that replaces the old one.
 ### D-DES-060: Stats and the dictionary live in their own room, Your reading, outside the reading path. (BK)
 - **BK, 2026-10-16:** "if you put stats and dictionary in the reader even in the notes tab they become a source of distraction."
 - **Replaces** D-DES-024's "This week becomes Notes → Your week": Your reading is a fourth room in the header, never linked from the reader or the notes pane.
+
+### D-DES-061: Four rooms in the header; settings behind the avatar. (BK)
+- **BK, 2026-10-16, answering Q3 and Q4:** yes to four rooms (Desk as the wordmark, Library with Up next, Saved, Loved and Finished shelves, Notes, Your reading) and yes to Sources, Account and Readers behind the avatar menu.
+- **Consequence:** D-DES-024 and D-DES-025 are now BK's decisions, with Your reading as the fourth room (D-DES-060). Until rung 5b builds the room, its header link opens today's `/reading` page.
