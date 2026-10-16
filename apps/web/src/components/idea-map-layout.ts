@@ -93,10 +93,7 @@ export function layoutIdeaMap(ideas: Idea[], links: Link[]): MapLayout {
       h: n.height,
     };
   });
-  const edges = links.map((link) => ({
-    link,
-    points: g.edge(link.from, link.to).points,
-  }));
+  const edges = attachToPorts(nodes, links, g, direction);
   return {
     direction,
     width: graph.width ?? 0,
@@ -127,4 +124,84 @@ export function edgeCurve(points: Point[], direction: Direction): string {
     prev = p;
   }
   return d;
+}
+
+// How far apart edges sharing a side of a box sit, at most, and how much of
+// the side they may spread over
+const PORT_GAP = 28;
+const PORT_SPAN = 0.6;
+// Routing points this close to a box's side are dropped: a curve squeezed into
+// a few pixels before the arrowhead is what makes an edge look kinked
+const MIN_LEG = 16;
+
+type Side = "out" | "in";
+
+/**
+ * Edges leave the far side of their source and arrive square-on to the near
+ * side of their target (bottom to top top-down, right to left side-on), each
+ * at its own port when several share a side, ordered by where the other end
+ * is so they don't cross. Edges that skip a rank keep dagre's routing points
+ * around the boxes in between.
+ */
+function attachToPorts(
+  nodes: PlacedIdea[],
+  links: Link[],
+  g: dagre.graphlib.Graph,
+  direction: Direction,
+): PlacedLink[] {
+  const byId = new Map(nodes.map((n) => [n.idea.id, n]));
+  const across = (n: PlacedIdea) =>
+    direction === "TB" ? n.x + n.w / 2 : n.y + n.h / 2;
+  const portOffsets = new Map<string, number>();
+  const assign = (side: Side) => {
+    const groups = new Map<string, Link[]>();
+    for (const link of links) {
+      const id = side === "out" ? link.from : link.to;
+      groups.set(id, [...(groups.get(id) ?? []), link]);
+    }
+    for (const [id, group] of groups) {
+      const node = byId.get(id);
+      if (!node) continue;
+      const length = direction === "TB" ? node.w : node.h;
+      const other = (l: Link) => byId.get(side === "out" ? l.to : l.from);
+      const sorted = [...group].sort(
+        (a, b) => across(other(a) ?? node) - across(other(b) ?? node),
+      );
+      const gap = Math.min(PORT_GAP, (length * PORT_SPAN) / sorted.length);
+      for (const [i, link] of sorted.entries())
+        portOffsets.set(
+          `${side}:${link.from}>${link.to}`,
+          (i - (sorted.length - 1) / 2) * gap,
+        );
+    }
+  };
+  assign("out");
+  assign("in");
+
+  return links.map((link) => {
+    const from = byId.get(link.from);
+    const to = byId.get(link.to);
+    const raw = g.edge(link.from, link.to)?.points ?? [];
+    if (!from || !to) return { link, points: raw };
+    const outOffset = portOffsets.get(`out:${link.from}>${link.to}`) ?? 0;
+    const inOffset = portOffsets.get(`in:${link.from}>${link.to}`) ?? 0;
+    const start: Point =
+      direction === "TB"
+        ? { x: from.x + from.w / 2 + outOffset, y: from.y + from.h }
+        : { x: from.x + from.w, y: from.y + from.h / 2 + outOffset };
+    const end: Point =
+      direction === "TB"
+        ? { x: to.x + to.w / 2 + inOffset, y: to.y }
+        : { x: to.x, y: to.y + to.h / 2 + inOffset };
+    const along = (p: Point) => (direction === "TB" ? p.y : p.x);
+    // dagre's own end points sit on the box edges; keep only the bends between
+    const middle = raw
+      .slice(1, -1)
+      .filter(
+        (p) =>
+          along(p) - along(start) >= MIN_LEG &&
+          along(end) - along(p) >= MIN_LEG,
+      );
+    return { link, points: [start, ...middle, end] };
+  });
 }

@@ -167,3 +167,56 @@ describe("edgeCurve", () => {
     ).toBe("M 0 0 C 5 0, 5 20, 10 20");
   });
 });
+
+describe("edges meet boxes square-on", () => {
+  const layout = layoutIdeaMap(fixtureIdeas, fixtureLinks);
+  const node = (id: string) => {
+    const n = layout.nodes.find((p) => p.idea.id === id);
+    if (!n) throw new Error(id);
+    return n;
+  };
+
+  it("leaves the far side of the source and lands on the near side of the target", () => {
+    for (const { link: l, points } of layout.edges) {
+      const from = node(l.from);
+      const to = node(l.to);
+      const first = points[0];
+      const last = points[points.length - 1];
+      if (layout.direction === "TB") {
+        expect(first.y).toBeCloseTo(from.y + from.h);
+        expect(last.y).toBeCloseTo(to.y);
+        expect(last.x).toBeGreaterThan(to.x + to.w * 0.15);
+        expect(last.x).toBeLessThan(to.x + to.w * 0.85);
+      } else {
+        expect(first.x).toBeCloseTo(from.x + from.w);
+        expect(last.x).toBeCloseTo(to.x);
+      }
+    }
+  });
+
+  it("keeps no bend squeezed against a box", () => {
+    for (const { points } of layout.edges) {
+      for (const p of points.slice(1, -1)) {
+        const along = (q: Point) => (layout.direction === "TB" ? q.y : q.x);
+        expect(along(p) - along(points[0])).toBeGreaterThanOrEqual(16);
+        expect(
+          along(points[points.length - 1]) - along(p),
+        ).toBeGreaterThanOrEqual(16);
+      }
+    }
+  });
+
+  it("gives edges arriving at the same box their own ports", () => {
+    const into = (id: string) =>
+      layout.edges
+        .filter((e) => e.link.to === id)
+        .map((e) => e.points[e.points.length - 1]);
+    for (const id of ["e", "g"]) {
+      const ends = into(id);
+      const keys = new Set(
+        ends.map((p) => `${Math.round(p.x)},${Math.round(p.y)}`),
+      );
+      expect(keys.size).toBe(ends.length);
+    }
+  });
+});
