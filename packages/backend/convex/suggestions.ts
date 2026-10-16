@@ -1,6 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { DatabaseReader } from "./_generated/server";
 import { query } from "./functions";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 
@@ -8,6 +9,12 @@ import { WORDS_PER_MINUTE } from "./lib/constants";
 // points a minute against at most ten for recency, so anything further out than
 // this rarely wins, and every article read here is a whole document with its body.
 const NEIGHBOURS = 12;
+
+// A saved article that fits scores as if it were this much closer to the window.
+// Closeness is worth two points a minute, so four points is two minutes: a saved
+// article beats an unsaved one one or two minutes closer, and not one three
+// minutes closer. Recency can still outweigh it, as it should for new articles.
+const SAVED_BOOST = 4;
 
 /**
  * The best three unread articles for a reading window. A query rather than an
@@ -46,6 +53,8 @@ export const forWindow = query({
     // side still reaches them in a library that has nothing else
     const candidates: Doc<"articles">[] = [...shorter, ...longer];
 
+    const saved = await savedAmong(ctx, candidates);
+
     const now = Date.now();
     const scored = candidates.map((a) => {
       const readMin = readMinutesOf(a);
@@ -55,10 +64,13 @@ export const forWindow = query({
         const daysOld = (now - a.publishedAt) / (1000 * 60 * 60 * 24);
         recency = Math.max(0, 10 - daysOld * 0.1);
       }
+      // Only an article that fits gets the boost, so it never lifts one past the window
+      const boost =
+        readMin <= targetMinutes && saved.has(a._id) ? SAVED_BOOST : 0;
       return {
         article: a,
         readMin,
-        score: timeFit * 2 + recency,
+        score: timeFit * 2 + recency + boost,
         fitsWindow: readMin <= targetMinutes * 1.3,
       };
     });
@@ -167,6 +179,26 @@ export const shortestUnread = query({
     };
   },
 });
+
+/** The candidates the reader has saved. Each lookup is scoped to the reader, so another reader's saves never count. */
+async function savedAmong(
+  ctx: { db: DatabaseReader; readerId: string },
+  candidates: Doc<"articles">[],
+): Promise<Set<Id<"articles">>> {
+  const rows = await Promise.all(
+    candidates.map((a) =>
+      ctx.db
+        .query("savedArticles")
+        .withIndex("by_user_article", (q) =>
+          q.eq("userId", ctx.readerId).eq("articleId", a._id),
+        )
+        .first(),
+    ),
+  );
+  return new Set(
+    candidates.filter((_, i) => rows[i] !== null).map((a) => a._id),
+  );
+}
 
 function assertWindow(targetMinutes: number) {
   if (

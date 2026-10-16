@@ -231,6 +231,37 @@ export const getByUrl = internalQuery({
   },
 });
 
+/**
+ * The reader's own copy of a web address, if it is in the library. The link menu
+ * reads its title and length, and whether it is already saved, without fetching
+ * the page. Matches the key `addArticleByUrl` checks, so the two agree on what
+ * "already in the library" means.
+ */
+export const findByUrl = query({
+  args: { url: v.string() },
+  handler: async (ctx, args) => {
+    const article = await ctx.db
+      .query("articles")
+      .withIndex("by_user_guid", (q) =>
+        q.eq("userId", ctx.readerId).eq("guid", args.url),
+      )
+      .first();
+    if (!article) return null;
+    const saved = await ctx.db
+      .query("savedArticles")
+      .withIndex("by_user_article", (q) =>
+        q.eq("userId", ctx.readerId).eq("articleId", article._id),
+      )
+      .first();
+    return {
+      _id: article._id,
+      title: article.title,
+      estimatedReadMinutes: article.estimatedReadMinutes ?? null,
+      saved: saved !== null,
+    };
+  },
+});
+
 export const requestReannotate = action({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {

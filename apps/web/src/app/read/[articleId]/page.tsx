@@ -27,6 +27,7 @@ import {
 } from "@/components/note-unfold";
 import { NotesPanel } from "@/components/notes-panel";
 import { FinishedLine } from "@/components/reader-finished-line";
+import { ReaderLinkMenu } from "@/components/reader-link-menu";
 import { ReaderMap } from "@/components/reader-map";
 import { ReaderReturnChip } from "@/components/reader-return-chip";
 import { ReaderToolbar } from "@/components/reader-toolbar";
@@ -45,6 +46,7 @@ import {
 } from "@/lib/paragraphs";
 import { escapeGoesBack } from "@/lib/reader-escape";
 import { revealImpression } from "@/lib/reader-impression";
+import { attachLeavingLinks, type LeavingLink } from "@/lib/reader-links";
 import { backTarget, originRoom } from "@/lib/reader-return";
 import {
   DROP_CAP_FAMILIES,
@@ -118,6 +120,8 @@ export default function ReadPage() {
     endOffset?: number;
   } | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
+  const [leavingLink, setLeavingLink] = useState<LeavingLink | null>(null);
+  const closeLeavingLink = useCallback(() => setLeavingLink(null), []);
   const [backMatter, setBackMatter] = useState<HTMLElement | null>(null);
   const backMatterInView = useIsIntersecting(backMatter);
 
@@ -313,6 +317,21 @@ export default function ReadPage() {
     jump: jumpToParagraph,
     back: backToParagraph,
   } = useParagraphReturn(articleRef);
+
+  // A plain click on a link to another page opens the link menu rather than navigating
+  const articleUrl = article?.url;
+  const articleReady = Boolean(article);
+  // articleReady and articleId say when the article element exists and when the reader has moved on
+  // biome-ignore lint/correctness/useExhaustiveDependencies: those two are re-run triggers, not read inside
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el || !articleUrl) return;
+    const detach = attachLeavingLinks(el, articleUrl, setLeavingLink);
+    return () => {
+      detach();
+      setLeavingLink(null);
+    };
+  }, [articleUrl, articleReady, articleId]);
 
   const keepAnswer = useCallback(
     async (id: string) => {
@@ -965,6 +984,13 @@ export default function ReadPage() {
       />
 
       <ReaderReturnChip entry={returnTo} onBack={backToParagraph} />
+      {leavingLink ? (
+        <ReaderLinkMenu
+          key={leavingLink.href}
+          link={leavingLink}
+          onClose={closeLeavingLink}
+        />
+      ) : null}
 
       <ListenBar
         index={listen.index}

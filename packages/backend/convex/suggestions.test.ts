@@ -90,6 +90,78 @@ describe("time-window suggestions", () => {
   });
 });
 
+/** Saves each titled article for `userId`; returns nothing, the test reads picks through the query. */
+async function saveTitles(
+  t: Awaited<ReturnType<typeof library>>,
+  titlesToSave: string[],
+  userId = "default_user",
+) {
+  await t.run(async (ctx) => {
+    for (const title of titlesToSave) {
+      const article = await ctx.db
+        .query("articles")
+        .filter((q) => q.eq(q.field("title"), title))
+        .first();
+      if (!article) throw new Error(`no article ${title}`);
+      await ctx.db.insert("savedArticles", {
+        userId,
+        articleId: article._id,
+        savedAt: Date.now(),
+      });
+    }
+  });
+}
+
+describe("saved articles in picks", () => {
+  it("puts a saved article ahead of an unsaved one a minute or two closer", async () => {
+    const t = await library([
+      { title: "closer, unsaved", minutes: 9 },
+      { title: "saved", minutes: 8 },
+    ]);
+    await saveTitles(t, ["saved"]);
+    const picks = await t.query(api.suggestions.forWindow, {
+      requestedMinutes: 10,
+    });
+    expect(titles(picks)[0]).toBe("saved");
+  });
+
+  it("keeps an unsaved article three minutes closer ahead of a saved one", async () => {
+    const t = await library([
+      { title: "much closer, unsaved", minutes: 10 },
+      { title: "saved", minutes: 7 },
+    ]);
+    await saveTitles(t, ["saved"]);
+    const picks = await t.query(api.suggestions.forWindow, {
+      requestedMinutes: 10,
+    });
+    expect(titles(picks)[0]).toBe("much closer, unsaved");
+  });
+
+  it("never lifts an article longer than the window ahead of a fitting one", async () => {
+    const t = await library([
+      { title: "fits, unsaved", minutes: 9 },
+      { title: "too long, saved", minutes: 12 },
+    ]);
+    await saveTitles(t, ["too long, saved"]);
+    const picks = await t.query(api.suggestions.forWindow, {
+      requestedMinutes: 10,
+    });
+    expect(titles(picks)[0]).toBe("fits, unsaved");
+  });
+
+  it("ignores saves made by another reader", async () => {
+    const t = await library([
+      { title: "closer, unsaved", minutes: 9 },
+      { title: "someone else's save", minutes: 8 },
+    ]);
+    await saveTitles(t, ["someone else's save"], "another_reader");
+    const picks = await t.query(api.suggestions.forWindow, {
+      requestedMinutes: 10,
+    });
+    expect(titles(picks)[0]).toBe("closer, unsaved");
+  });
+});
+
 async function pageAll(
   t: Awaited<ReturnType<typeof library>>,
   requestedMinutes: number,
