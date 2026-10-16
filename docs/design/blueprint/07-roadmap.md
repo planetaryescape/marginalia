@@ -29,10 +29,10 @@
 | 4 | Four rooms | Done: live at `27cce50` |
 | 5 | Notes is my commonplace book | Done: live at `6730c0b` |
 | 5b | Your reading: stats and dictionary | Done: live at `efea4a4` |
-| 5c | It learns what I'd read | Comp awaiting approval |
+| 5c | It learns what I'd read | Built; in review |
 | 5d | My ideas, connected | Done: live at `09a1e2c`, edge polish `0f4c280` |
 | 6 | Settings are quiet | Done: live at `e1c0e30` |
-| 7 | It flies | S1 done; comp awaiting approval |
+| 7 | It flies | Live at `a4e3fb7`: title morph seen live (320 ms). Finishing and the sweep checked only in a harness; Safari and the installed PWA untested |
 
 Build in the order of the table (D-DES-052). Letters keep the numbers already cited; the order, not the number, is the sequence. The product questions that gated rungs are all answered except Q3 and Q4, which BK answers before rung 4. Spikes: S6 before 2f, S9 before 2c, S3 before 3, S5 before 3c, S7 and S8 before 3b, S1 before 7. S3 and S5 are done.
 
