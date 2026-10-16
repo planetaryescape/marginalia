@@ -6,7 +6,7 @@ Use the app as a reading desk: choose a piece, read it with context, and keep th
 
 On Home, pick **5, 10, 20 or 30+ minutes**, resume your current piece, or open an **Up next** suggestion. Click the search pill or press `/` to open the floating picker. Type a title, author or description of what you want to read. Results include reasons for their fit; use arrows and Enter or click a result. Escape returns to Home.
 
-Suggestions never include something you've read. An article leaves Up next and the time windows when you press **Finish**, when you reach the end after reading for at least 40% of its estimated time, or when you archive it in Readwise Reader. To dismiss one without reading it, use the archive button on its Up next row; the toast offers Undo. Open a read or archived article from search and press **Mark unread** to put it back.
+Suggestions never include something you've read. An article leaves Up next and the time windows when you press **Done**, when you reach the end after reading for at least 40% of its estimated time, or when you archive it in Readwise Reader. To dismiss one without reading it, use the archive button on its Up next row; the toast offers Undo. Open a read or archived article from search and press **Mark unread** to put it back.
 
 Paste an `http`/`https` article URL into the same picker to import it. Extraction and annotation can take time; importing a URL does not guarantee its publisher exposes readable content.
 

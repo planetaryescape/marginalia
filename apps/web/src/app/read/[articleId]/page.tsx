@@ -848,7 +848,7 @@ export default function ReadPage() {
         {article?.finishedAt === undefined ? (
           <button disabled={finishing} onClick={handleDone}>
             <Check size={19} />
-            {finishing ? "Saving…" : "Finish"}
+            {finishing ? "Saving…" : "Done"}
           </button>
         ) : (
           <button onClick={handleRestore}>

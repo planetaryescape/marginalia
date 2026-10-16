@@ -21,7 +21,7 @@ While reading:
 - Tap **Notes** in the reader's bottom controls, then **+ New** to write an article note. The editor focuses immediately. Wait for **Saved** before leaving it.
 - Select a passage using your phone's text selection. Phone passage actions form a labelled two-column context menu beside the selection, rather than a desktop pill at the bottom of the screen. Ask, Explain, Simplify, Define, Highlight, Underline, Note and Copy remain available. Native selection handles and menus vary by browser and still need physical-phone verification.
 - Tap **Ask about this article** for a whole-article question. The question field has its own row on phones; **×** closes it without requiring an Escape key.
-- Use **More reading actions** for rating, love and other actions. Reading settings remain in the header; panels scroll on short screens. **Listen** and **Finish** stay in the bottom controls.
+- Use **More reading actions** for rating, love and other actions. Reading settings remain in the header; panels scroll on short screens. **Listen** and **Done** stay in the bottom controls.
 
 Home remains a one-screen desk. On very short displays, its optional Up next list may have no room; use the search picker to reach those articles. Library and the other desk pages scroll within the shared navigation.
 
