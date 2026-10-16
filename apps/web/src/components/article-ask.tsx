@@ -65,6 +65,9 @@ export function ArticleAsk({
       },
     },
     !hidden,
+    {
+      help: { group: "Reading", keys: [["/", "Ask about the whole article"]] },
+    },
   );
 
   useEffect(() => {

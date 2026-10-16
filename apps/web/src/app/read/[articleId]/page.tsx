@@ -525,6 +525,22 @@ export default function ReadPage() {
       },
     },
     Boolean(article),
+    {
+      help: {
+        group: "Reading",
+        keys: [
+          ["j  k", "Next and previous paragraph"],
+          ["o", "Open the note or conversation on this paragraph"],
+          ["r", "Rate the article"],
+          ["u", "Show or hide the summary"],
+          ["n", "Open notes"],
+          [",", "Reading settings"],
+          ["l", "Listen"],
+          ["Backspace", "Back to where you were"],
+          ["Esc", "Back to the room you came from"],
+        ],
+      },
+    },
   );
 
   // ★ and `r` take the reader to the impression at the end, not a popover over the text.

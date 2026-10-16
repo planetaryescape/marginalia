@@ -283,6 +283,19 @@ export function SelectionToolbar({
       ]),
     ),
     !asking,
+    {
+      help: {
+        group: "Reading",
+        keys: [
+          ["e", "Explain the selection or paragraph"],
+          ["s", "Simplify it"],
+          ["d", "Define a word or phrase in context"],
+          ["a", "Ask about it"],
+          ["h", "Highlight it"],
+          ["p", "Pen-mark it"],
+        ],
+      },
+    },
   );
 
   useShortcuts({ Escape: () => finish() }, Boolean(range) && !asking);
