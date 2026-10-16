@@ -37,6 +37,7 @@ For each spike, record what was tried, the result, the date and the conclusion u
 | Q15 | When no article on a topic fits the time, should it say so and offer the shortest on that topic? | Decided by Claude, delegated by BK 2026-10-16: yes (D-DES-052) |
 | Q16 | Should Library keep the full list of topic matches for deliberate browsing? | Decided by Claude, delegated by BK 2026-10-16: yes (D-DES-052) |
 | Q17 | In the link menu, are "bookmark" and "add to reader" one action, Save for later into Marginalia's library? | Decided by Claude, delegated by BK 2026-10-16: one action, Save for later (D-DES-052) |
+| Q18 | Where does the Notes graph start when nothing is selected: the most recent note, or a search asking what BK is thinking about? | Open; blueprint assumes the most recent note, with search beside it (D-DES-062) |
 
 ### S4 result (2026-10-16)
 

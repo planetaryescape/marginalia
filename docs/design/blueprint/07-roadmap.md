@@ -18,18 +18,21 @@
 | 2 | The margin talks | Done: live at `67798dc`, accordion open notes at `de6f560` (D-DES-049) |
 | 2a | The reader finishes its own redesign | Done: live at `fac7694` (notes-pane split moved to 2b) |
 | 2b | Answers beside the text, kept only on purpose | Deployed at `6471b14` (backend and frontend); BK's hand journey pending. Edge cases in `docs/issues/companion-keep-edge-cases.md` |
-| 2g | It remembers how I read | Building |
+| 2g | It remembers how I read | Done: live at `82fba7d`; feed history backfilled |
 | 3 | The desk asks one question and answers it | Done: live at `8741fbd`; warm pick in 121 ms |
 | 3c | Ask by topic, one at a time, fast | Deployed at `9a90018`: first card ~1.05 s warm (was 6.7–8.8 s) |
 | 2d | Links wait for me, and saved things come back | Done: live; link menu verified |
 | 2e | The summary reads in layers | Done: live at `4c46980` |
 | 2c | A critical friend in the margin | Planned |
 | 2f | It reads alongside me, and doesn't repeat itself | Planned (S6 first) |
-| 3b | I bring my own (PDF) | Planned (S7 first) |
-| 4–5 | Three rooms; Notes | Planned |
+| 3b | I bring my own (PDF) | Comp approved; S7 and S8 done |
+| 4 | Four rooms | Done: live at `27cce50` |
+| 5 | Notes is my commonplace book | Done: live at `6730c0b` |
 | 5b | Your reading: stats and dictionary | Planned |
 | 5c | It learns what I'd read | Planned |
-| 6–7 | Quiet settings; it flies | Planned |
+| 5d | My ideas, connected | Planned (comp next) |
+| 6 | Settings are quiet | Done: live at `e1c0e30` |
+| 7 | It flies | Planned (S1 first) |
 
 Build in the order of the table (D-DES-052). Letters keep the numbers already cited; the order, not the number, is the sequence. The product questions that gated rungs are all answered except Q3 and Q4, which BK answers before rung 4. Spikes: S6 before 2f, S9 before 2c, S3 before 3, S5 before 3c, S7 and S8 before 3b, S1 before 7. S3 and S5 are done.
 
@@ -327,6 +330,21 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 **Done when:** pre-annotated articles are opened at a measurably higher rate than a random sample; no suggestion acts without BK.
 
 **Tier:** Full (ranking and cost behaviour).
+
+## Rung 5d: "My ideas, connected"
+
+**Previously:** Notes is a list grouped by article, which grows into a pile.
+**Now:** Notes opens on a small local graph around one idea, with search; the list is one click away (D-DES-062).
+
+**Promise:** "I can see how my ideas connect, follow one to the next, and think by writing right there."
+
+**Build:** an edges query from what exists (embedding nearness over notes, highlights, kept answers and vault chunks; shared tags; same article; Marginalia connections; BK's own links, a new additive table). A local layout of about 15 nodes (d3-force or the dagre setup from rung 2e, whichever reads better). Edge reasons generated on selection only. A side panel to read, reply and create a connected note. Search to recentre. The list as a toggle. Backend snapshot and deploy.
+
+**Design:** comp of the graph centred on a note, an edge selected with its reason, and a new connected note, in Night and Paper at both widths.
+
+**Done when:** the graph never shows more than about 15 nodes; every edge can say why; a note written from the graph appears in it at once; keyboard users can move between nodes; the design gate passes.
+
+**Tier:** Full (new persisted links, new queries).
 
 ## Rung 6: "Settings are quiet"
 
