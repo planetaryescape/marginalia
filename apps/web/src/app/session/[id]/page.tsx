@@ -1,28 +1,26 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { appendFitting, deckView, shouldLoadMore } from "@/lib/suggestion-deck";
 import { formatDate, formatReadTime } from "@/lib/utils";
+
+// Cards fetched per page once the first three are used up
+const PAGE_SIZE = 10;
+type Card = FunctionReturnType<typeof api.suggestions.forWindow>[number];
 
 export default function SessionPage() {
   const { id } = useParams<{ id: string }>();
   // SAFETY: session links come from stored IDs; Convex validates this route parameter with v.id("sessions").
   const sessionId = id as Id<"sessions">;
-  const router = useRouter();
   const session = useQuery(api.sessions.getById, {
     sessionId,
   });
-  const recordInteraction = useMutation(api.sessions.recordInteraction);
-  const saveArticle = useMutation(api.savedArticles.save);
-  const updateSession = useMutation(api.sessions.updateStatus);
-
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [direction, setDirection] = useState(0);
 
   // Home passes the window in the URL so suggestions load alongside the session
   const fromUrl = Number(useSearchParams().get("m"));
@@ -30,20 +28,94 @@ export default function SessionPage() {
     Number.isFinite(fromUrl) && fromUrl > 0 && fromUrl <= 180
       ? fromUrl
       : session?.requestedMinutes;
+
+  if (session === null) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+        <p>This session isn't here.</p>
+        <Link href="/">Back to Home</Link>
+      </div>
+    );
+  }
+  // A different session or window starts a fresh head and deck, so nothing
+  // from the previous browse leaks into this one
+  return (
+    <SessionDeck
+      key={`${sessionId}:${requestedMinutes}`}
+      sessionId={sessionId}
+      requestedMinutes={requestedMinutes}
+    />
+  );
+}
+
+function SessionDeck({
+  sessionId,
+  requestedMinutes,
+}: {
+  sessionId: Id<"sessions">;
+  requestedMinutes: number | undefined;
+}) {
+  const router = useRouter();
+  const recordInteraction = useMutation(api.sessions.recordInteraction);
+  const saveArticle = useMutation(api.savedArticles.save);
+  const updateSession = useMutation(api.sessions.updateStatus);
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [direction, setDirection] = useState(0);
+
   const live = useQuery(
     api.suggestions.forWindow,
     requestedMinutes === undefined ? "skip" : { requestedMinutes },
   );
   // Keep the first answer: a live update mustn't reshuffle cards mid-browse
-  const [candidates, setCandidates] = useState<
-    FunctionReturnType<typeof api.suggestions.forWindow> | undefined
-  >();
+  const [head, setHead] = useState<Card[] | undefined>();
   useEffect(() => {
-    if (live && !candidates) setCandidates(live);
-  }, [live, candidates]);
-  const loading = candidates === undefined;
+    if (live && !head) setHead(live);
+  }, [live, head]);
+  const loading = head === undefined;
 
-  const current = candidates?.[currentIndex];
+  // The rest of the window, one page at a time. The deck only ever grows, so
+  // a live update can't move a card the reader has already been shown.
+  const more = usePaginatedQuery(
+    api.suggestions.moreForWindow,
+    requestedMinutes === undefined ? "skip" : { requestedMinutes },
+    { initialNumItems: PAGE_SIZE },
+  );
+  const { results, status, loadMore } = more;
+  const [deck, setDeck] = useState<Card[]>([]);
+  const canLoadMore = status === "CanLoadMore";
+  const exhausted = status === "Exhausted";
+  useEffect(() => {
+    if (!head || requestedMinutes === undefined) return;
+    const next = appendFitting(deck, [...head, ...results], requestedMinutes);
+    if (next.length !== deck.length) setDeck(next);
+    // Judged on the deck after this merge, so one page doesn't trigger a second fetch
+    if (
+      shouldLoadMore({ length: next.length, index: currentIndex, canLoadMore })
+    ) {
+      loadMore(PAGE_SIZE);
+    }
+  }, [
+    head,
+    results,
+    deck,
+    currentIndex,
+    canLoadMore,
+    loadMore,
+    requestedMinutes,
+  ]);
+
+  const current = deck[currentIndex];
+  const view = deckView({
+    length: deck.length,
+    index: currentIndex,
+    exhausted,
+  });
+  // Only asked for once nothing in the window fits
+  const shortest = useQuery(
+    api.suggestions.shortestUnread,
+    view === "empty" ? {} : "skip",
+  );
 
   const handleRead = async () => {
     if (!current) return;
@@ -57,7 +129,7 @@ export default function SessionPage() {
       readingStatus: "reading",
       articleId: current._id,
     });
-    router.push(`/read/${current._id}?session=${id}`);
+    router.push(`/read/${current._id}?session=${sessionId}`);
   };
 
   const handleSkip = async () => {
@@ -68,9 +140,7 @@ export default function SessionPage() {
       action: "skipped",
     });
     setDirection(1);
-    if (candidates && currentIndex < candidates.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    }
+    setCurrentIndex((i) => i + 1);
   };
 
   const handleSave = async () => {
@@ -83,20 +153,10 @@ export default function SessionPage() {
     });
     // Move to next
     setDirection(1);
-    if (candidates && currentIndex < candidates.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    }
+    setCurrentIndex((i) => i + 1);
   };
 
-  if (session === null) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-        <p>This session isn't here.</p>
-        <Link href="/">Back to Home</Link>
-      </div>
-    );
-  }
-  if (loading) {
+  if (loading || view === "loading") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6">
         <div className="animate-pulse text-center">
@@ -111,11 +171,11 @@ export default function SessionPage() {
     );
   }
 
-  if (!current) {
+  if (view === "end") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center">
         <p className="text-ink-600 dark:text-ink-400 text-lg mb-4">
-          No articles match your {requestedMinutes}-minute window right now.
+          That's everything that fits in {requestedMinutes} minutes.
         </p>
         <Link
           href="/"
@@ -127,7 +187,32 @@ export default function SessionPage() {
     );
   }
 
-  const isLast = currentIndex >= candidates.length - 1;
+  if (view === "empty" || !current) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center">
+        <p className="text-ink-600 dark:text-ink-400 text-lg mb-4">
+          Nothing fits in {requestedMinutes} minutes.
+        </p>
+        {shortest && (
+          <p className="text-ink-500 font-sans text-sm mb-4">
+            The shortest is {shortest.estimatedReadMinutes} min:{" "}
+            <Link
+              href={`/read/${shortest._id}`}
+              className="text-annotation-crossref hover:underline"
+            >
+              {shortest.title}
+            </Link>
+          </p>
+        )}
+        <Link
+          href="/"
+          className="text-annotation-crossref hover:underline font-sans text-sm"
+        >
+          Try a different time
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6 py-12">
@@ -143,7 +228,8 @@ export default function SessionPage() {
 
       {/* Card counter */}
       <p className="text-ink-400 font-sans text-xs mb-8 tracking-wide">
-        {currentIndex + 1} of {candidates.length}
+        {currentIndex + 1} of {deck.length}
+        {exhausted ? "" : "+"}
       </p>
 
       {/* Article card */}
@@ -203,7 +289,6 @@ export default function SessionPage() {
             </button>
             <button
               onClick={handleSkip}
-              disabled={isLast}
               className="px-6 py-3 border border-ink-200 dark:border-ink-700 rounded-xl font-sans text-sm text-ink-600 dark:text-ink-400 hover:border-ink-400 transition-colors disabled:opacity-30"
             >
               Skip

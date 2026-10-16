@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { query } from "./functions";
@@ -17,13 +18,7 @@ export const forWindow = query({
   args: { requestedMinutes: v.number() },
   handler: async (ctx, args) => {
     const targetMinutes = args.requestedMinutes;
-    if (
-      !Number.isFinite(targetMinutes) ||
-      targetMinutes <= 0 ||
-      targetMinutes > 180
-    ) {
-      throw new Error("Choose a reading window between 1 and 180 minutes.");
-    }
+    assertWindow(targetMinutes);
     const [shorter, longer] = await Promise.all([
       ctx.db
         .query("articles")
@@ -53,9 +48,7 @@ export const forWindow = query({
 
     const now = Date.now();
     const scored = candidates.map((a) => {
-      const readMin =
-        a.estimatedReadMinutes ??
-        (Math.ceil((a.wordCount ?? 0) / WORDS_PER_MINUTE) || 1);
+      const readMin = readMinutesOf(a);
       const timeFit = -Math.abs(readMin - targetMinutes);
       let recency = 0;
       if (a.publishedAt) {
@@ -71,20 +64,120 @@ export const forWindow = query({
     });
     scored.sort((a, b) => b.score - a.score);
 
-    return scored.slice(0, 3).map(({ article: a, readMin, fitsWindow }) => ({
-      _id: a._id,
-      title: a.title,
-      author: a.author,
-      url: a.url,
-      imageUrl: a.imageUrl,
-      estimatedReadMinutes: readMin,
-      publishedAt: a.publishedAt,
-      excerpt: a.excerpt,
-      feedId: a.feedId,
-      reason: generateReason(readMin, targetMinutes, fitsWindow),
-    }));
+    return scored
+      .slice(0, 3)
+      .map(({ article, readMin, fitsWindow }) =>
+        toSuggestion(article, readMin, targetMinutes, fitsWindow),
+      );
   },
 });
+
+/**
+ * Every unread article that fits the window, closest length first, one page at
+ * a time. The client appends pages to the list it already shows, so the order
+ * must not shift between pages. Articles of equal length are ordered by the
+ * index key; the paging test checks that no page repeats or skips one.
+ */
+export const moreForWindow = query({
+  args: {
+    requestedMinutes: v.number(),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const targetMinutes = args.requestedMinutes;
+    assertWindow(targetMinutes);
+    const page = await ctx.db
+      .query("articles")
+      .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .eq("annotationStatus", "annotated")
+          .eq("finishedAt", undefined)
+          .lte("estimatedReadMinutes", targetMinutes),
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+    return {
+      ...page,
+      page: page.page.map((a) => {
+        const readMin = readMinutesOf(a);
+        return toSuggestion(
+          a,
+          readMin,
+          targetMinutes,
+          readMin <= targetMinutes * 1.3,
+        );
+      }),
+    };
+  },
+});
+
+/**
+ * The single shortest unread article with a read-time estimate, offered when
+ * nothing fits the reader's window. Articles without an estimate are left out:
+ * their length is a guess, so calling one the shortest would be a claim we
+ * cannot back.
+ */
+export const shortestUnread = query({
+  args: {},
+  handler: async (ctx) => {
+    const a = await ctx.db
+      .query("articles")
+      .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .eq("annotationStatus", "annotated")
+          .eq("finishedAt", undefined)
+          .gte("estimatedReadMinutes", 0),
+      )
+      .order("asc")
+      .first();
+    if (!a) return null;
+    return {
+      _id: a._id,
+      title: a.title,
+      estimatedReadMinutes: readMinutesOf(a),
+    };
+  },
+});
+
+function assertWindow(targetMinutes: number) {
+  if (
+    !Number.isFinite(targetMinutes) ||
+    targetMinutes <= 0 ||
+    targetMinutes > 180
+  ) {
+    throw new Error("Choose a reading window between 1 and 180 minutes.");
+  }
+}
+
+// Articles without an estimate fall back to their word count, as scoring does
+function readMinutesOf(a: Doc<"articles">): number {
+  return (
+    a.estimatedReadMinutes ??
+    (Math.ceil((a.wordCount ?? 0) / WORDS_PER_MINUTE) || 1)
+  );
+}
+
+function toSuggestion(
+  a: Doc<"articles">,
+  readMin: number,
+  targetMinutes: number,
+  fitsWindow: boolean,
+) {
+  return {
+    _id: a._id,
+    title: a.title,
+    author: a.author,
+    url: a.url,
+    imageUrl: a.imageUrl,
+    estimatedReadMinutes: readMin,
+    publishedAt: a.publishedAt,
+    excerpt: a.excerpt,
+    feedId: a.feedId,
+    reason: generateReason(readMin, targetMinutes, fitsWindow),
+  };
+}
 
 function generateReason(
   readMin: number,

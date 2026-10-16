@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import type { PaginationResult } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { ownerTest } from "../test/owner";
 import { api } from "./_generated/api";
@@ -76,5 +77,142 @@ describe("time-window suggestions", () => {
     await expect(
       t.query(api.suggestions.forWindow, { requestedMinutes: 0 }),
     ).rejects.toThrow("between 1 and 180");
+  });
+
+  it("rejects a window outside 1–180 minutes for the paged list too", async () => {
+    const t = await library([]);
+    await expect(
+      t.query(api.suggestions.moreForWindow, {
+        requestedMinutes: 181,
+        paginationOpts: { numItems: 10, cursor: null },
+      }),
+    ).rejects.toThrow("between 1 and 180");
+  });
+});
+
+async function pageAll(
+  t: Awaited<ReturnType<typeof library>>,
+  requestedMinutes: number,
+  numItems: number,
+) {
+  type Row = { _id: string; title: string; estimatedReadMinutes: number };
+  const all: Row[] = [];
+  let cursor: string | null = null;
+  let pages = 0;
+  for (;;) {
+    const page: PaginationResult<Row> = await t.query(
+      api.suggestions.moreForWindow,
+      { requestedMinutes, paginationOpts: { numItems, cursor } },
+    );
+    all.push(...page.page);
+    pages += 1;
+    if (page.isDone) break;
+    cursor = page.continueCursor;
+  }
+  return { all, pages };
+}
+
+describe("paged time-window suggestions", () => {
+  it("pages through every unread article that fits, closest length first", async () => {
+    const t = await library([
+      ...Array.from({ length: 25 }, (_, i) => ({
+        title: `fits ${i}`,
+        minutes: 1 + (i % 10),
+      })),
+      { title: "too long", minutes: 11 },
+      { title: "way too long", minutes: 90 },
+      { title: "finished", minutes: 4, finished: true },
+      { title: "no estimate" },
+    ]);
+    const { all, pages } = await pageAll(t, 10, 7);
+    expect(pages).toBeGreaterThan(3);
+    const ids = all.map((a) => a._id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(all).toHaveLength(26);
+    expect(titles(all)).not.toContain("too long");
+    expect(titles(all)).not.toContain("way too long");
+    expect(titles(all)).not.toContain("finished");
+    expect(all[0]).toMatchObject({
+      estimatedReadMinutes: 10,
+      reason: "Fits your 10-minute window",
+    });
+    const minutes = all.map((a) => a.estimatedReadMinutes);
+    expect(minutes).toEqual([...minutes].sort((a, b) => b - a));
+    expect(titles(all).at(-1)).toBe("no estimate");
+  });
+
+  it("keeps paging exact when many articles share a length", async () => {
+    const t = await library(
+      Array.from({ length: 12 }, (_, i) => ({
+        title: `same ${i}`,
+        minutes: 5,
+      })),
+    );
+    const { all } = await pageAll(t, 5, 5);
+    expect(all).toHaveLength(12);
+    expect(new Set(all.map((a) => a._id)).size).toBe(12);
+  });
+
+  it("never returns another reader's articles", async () => {
+    const t = await library([{ title: "mine", minutes: 5 }]);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("articles", {
+        userId: "someone_else",
+        guid: "theirs",
+        url: "https://example.com/theirs",
+        title: "theirs",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        estimatedReadMinutes: 5,
+        createdAt: Date.now(),
+      });
+    });
+    const { all } = await pageAll(t, 5, 10);
+    expect(titles(all)).toEqual(["mine"]);
+  });
+
+  it("includes the 180-minute window's upper bound", async () => {
+    const t = await library([{ title: "epic", minutes: 180 }]);
+    const { all } = await pageAll(t, 180, 10);
+    expect(titles(all)).toEqual(["epic"]);
+  });
+
+  it("returns nothing when no unread article fits the window", async () => {
+    const t = await library([{ title: "long", minutes: 40 }]);
+    const { all, pages } = await pageAll(t, 5, 10);
+    expect(all).toEqual([]);
+    expect(pages).toBe(1);
+  });
+});
+
+describe("shortest unread article", () => {
+  it("offers the shortest estimated unread article, ignoring finished, other readers', and unestimated ones", async () => {
+    const t = await library([
+      { title: "finished short", minutes: 1, finished: true },
+      { title: "unknown length" },
+      { title: "seven", minutes: 7 },
+      { title: "three", minutes: 3 },
+    ]);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("articles", {
+        userId: "someone_else",
+        guid: "theirs-short",
+        url: "https://example.com/theirs-short",
+        title: "theirs short",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        estimatedReadMinutes: 1,
+        createdAt: Date.now(),
+      });
+    });
+    expect(await t.query(api.suggestions.shortestUnread, {})).toMatchObject({
+      title: "three",
+      estimatedReadMinutes: 3,
+    });
+  });
+
+  it("returns null when the reader has nothing unread with an estimate", async () => {
+    const t = await library([{ title: "unknown length" }]);
+    expect(await t.query(api.suggestions.shortestUnread, {})).toBeNull();
   });
 });
