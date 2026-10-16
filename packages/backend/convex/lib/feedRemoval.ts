@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { removeFromQueueStats } from "../readingQueue";
+import { unlinkArticleTags } from "../tags";
 
 /** What happens to a feed's articles when the reader unsubscribes. */
 export const feedArticlesChoice = v.union(
@@ -112,6 +113,7 @@ export async function deleteArticle(
   );
   for (const row of [...generated.flat(), ...marks.flat()])
     await ctx.db.delete(row._id);
+  await unlinkArticleTags(ctx, article._id);
   await removeFromQueueStats(ctx, article);
   await ctx.db.delete("articles", article._id);
 }

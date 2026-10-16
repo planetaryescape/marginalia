@@ -259,6 +259,24 @@ const STEPS: Step[] = [
   },
   rows((ctx, u) =>
     ctx.db
+      .query("articleTags")
+      .withIndex("by_user", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("reannotateState")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
       .query("catchUpState")
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(BATCH),

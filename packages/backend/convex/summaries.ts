@@ -65,6 +65,50 @@ export const save = internalMutation({
 });
 
 /**
+ * The one point and short summary written by the import annotation call
+ * (D-DES-054). It fills a gap and never replaces anything fuller: with no
+ * summary it creates one; with one that has no thesis it adds the thesis (and
+ * the gist only if there is no idea map or claims to contradict it); with a
+ * thesis it does nothing. Mutations are serial, so racing an on-demand summary
+ * leaves one or the other, never a mix.
+ */
+export const saveOverview = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    thesis: v.string(),
+    gist: v.string(),
+    model: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireArticle(ctx, args.articleId, args.userId);
+    const thesis = args.thesis.trim();
+    const gist = args.gist.trim();
+    if (!thesis || !gist) return null;
+    const existing = await ctx.db
+      .query("summaries")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .first();
+    if (!existing)
+      return ctx.db.insert("summaries", {
+        userId: args.userId,
+        articleId: args.articleId,
+        thesis,
+        gist,
+        model: args.model,
+        createdAt: Date.now(),
+      });
+    if (existing.thesis?.trim()) return null;
+    const hasMap = Boolean(existing.ideas?.length || existing.claims?.length);
+    await ctx.db.patch("summaries", existing._id, {
+      thesis,
+      ...(hasMap && existing.gist.trim() ? {} : { gist }),
+    });
+    return existing._id;
+  },
+});
+
+/**
  * The background the reading companion sends with every answer. The article ID
  * arrives as text from the browser, so it is checked here against the reader.
  */

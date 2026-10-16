@@ -18,11 +18,17 @@ const MIN_SECTION_CHARS = 3_000;
 const MIN_VAULT_SIMILARITY = 0.5;
 const MIN_ACTIVITY_SIMILARITY = 0.45;
 
+// Other articles in the library, by embedding. Uncalibrated: set from the vault
+// floor, and worth revisiting once connections have been read in use.
+const MIN_LIBRARY_SIMILARITY = 0.45;
+const MAX_LIBRARY_CANDIDATES = 6;
+
 const MAX_VAULT_CHUNKS = 12;
 const MAX_CHUNKS_PER_NOTE = 2;
 const MAX_ACTIVITY_ITEMS = 5;
 
 type Searchable =
+  | "articles"
   | "noteChunks"
   | "userNotes"
   | "highlights"
@@ -33,6 +39,14 @@ interface Match<T extends Searchable> {
   score: number;
   /** Opening words of the article sections this matched. */
   sections: Set<string>;
+}
+
+/** A library article the model may connect a passage to, cited by `id`. */
+export interface LibraryCandidate {
+  id: string;
+  title: string;
+  minutes: number | null;
+  excerpt: string;
 }
 
 export function splitIntoSections(text: string): string[] {
@@ -136,7 +150,12 @@ export async function buildMarginaliaContext(
   article: Doc<"articles"> & { content: string },
   /** Without one, the marginalia are written from the article alone. */
   embedder: EmbeddingTarget | null,
-): Promise<{ articleText: string; contextText: string; vaultPaths: string[] }> {
+): Promise<{
+  articleText: string;
+  contextText: string;
+  vaultPaths: string[];
+  libraryCandidates: LibraryCandidate[];
+}> {
   // Everything recalled here comes from the article's own library
   const userId = article.userId;
   const articleText = article.content.slice(0, MAX_ARTICLE_CHARS);
@@ -201,6 +220,40 @@ export async function buildMarginaliaContext(
   parts.push(
     `## The reader's vault notes\n\n${vaultBlocks.length ? vaultBlocks.join("\n\n") : "None are closely related."}`,
   );
+
+  // Other articles in the library, read or unread, as discovery (D-DES-040)
+  const articleMatches = await searchBySection(
+    ctx,
+    userId,
+    "articles",
+    vectors,
+    labels,
+    5,
+    MIN_LIBRARY_SIMILARITY,
+  );
+  const nearest = articleMatches
+    .filter((match) => match.id !== article._id)
+    .slice(0, MAX_LIBRARY_CANDIDATES);
+  const found: LibraryCandidate[] = nearest.length
+    ? await ctx.runQuery(internal.annotations.libraryCandidates, {
+        userId,
+        articleIds: nearest.map((match) => match.id),
+      })
+    : [];
+  // The query drops anything outside this library; keep the similarity order
+  const rank = new Map(nearest.map((match, i) => [match.id as string, i]));
+  const libraryCandidates = found
+    .filter((candidate) => candidate.id !== article._id)
+    .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+  if (libraryCandidates.length)
+    parts.push(
+      `## Other articles in the reader's library\n\nA connection may cite one of these by its id, only when the link is specific.\n\n${libraryCandidates
+        .map(
+          (c) =>
+            `--- Library article, id ${c.id}${c.minutes ? `, ${c.minutes} min` : ""} ---\n${c.title}\n${c.excerpt}`,
+        )
+        .join("\n\n")}`,
+    );
 
   // Reader activity on other articles: notes and reflections, highlights, questions
   const isElsewhere = (row: { userId: string; articleId: Id<"articles"> }) =>
@@ -337,7 +390,12 @@ export async function buildMarginaliaContext(
     );
   }
 
-  return { articleText, contextText: parts.join("\n\n"), vaultPaths };
+  return {
+    articleText,
+    contextText: parts.join("\n\n"),
+    vaultPaths,
+    libraryCandidates,
+  };
 }
 
 async function formatThread(

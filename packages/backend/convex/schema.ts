@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { annotationType } from "./lib/annotationKinds";
 
 export default defineSchema({
   // Fixed-window budgets for unauthenticated endpoints: "password" (global),
@@ -120,6 +121,10 @@ export default defineSchema({
     // re-annotated once the library saves a key (catchUp.ts); older skipped
     // rows have no reason and are re-annotated only by hand.
     skipReason: v.optional(v.literal("no_provider")),
+    // The marginalia generation that wrote this article's notes; below
+    // CURRENT_ANNOTATION_VERSION (lib/annotationGate.ts) it is re-annotated by
+    // the one-off backfill (reannotateBackfill.ts). Absent on older rows.
+    annotationVersion: v.optional(v.number()),
     embedding: v.optional(v.array(v.float64())),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
@@ -161,12 +166,11 @@ export default defineSchema({
   annotations: defineTable({
     articleId: v.id("articles"),
     userId: v.string(),
-    type: v.union(
-      v.literal("cross_reference"),
-      v.literal("context"),
-      v.literal("tension"),
-      v.literal("question"),
-    ),
+    type: annotationType,
+    // A named fallacy, for type "fallacy" ("false dilemma")
+    fallacyName: v.optional(v.string()),
+    // A connection to another article in the same library, instead of a vault note
+    articleRefId: v.optional(v.id("articles")),
     anchorText: v.string(),
     anchorStartOffset: v.number(),
     anchorEndOffset: v.number(),
@@ -181,6 +185,52 @@ export default defineSchema({
   })
     .index("by_article", ["articleId"])
     .index("by_user", ["userId"]),
+
+  // The reader's topic vocabulary (blueprint 02, Tags). A candidate stays
+  // hidden until it recurs on enough articles.
+  tags: defineTable({
+    userId: v.string(),
+    name: v.string(),
+    // Normalised name (lib/tagMatching.ts), unique per reader
+    key: v.string(),
+    description: v.optional(v.string()),
+    // Embedding of name plus description; absent until embedded
+    embedding: v.optional(v.array(v.float64())),
+    status: v.union(v.literal("candidate"), v.literal("active")),
+    // Articles carrying the tag
+    count: v.number(),
+    // Other normalised names that mean this tag
+    aliases: v.array(v.string()),
+    // For a candidate in the near-match band: the tag it almost was
+    nearestTagId: v.optional(v.id("tags")),
+    createdAt: v.number(),
+  })
+    .index("by_user_key", ["userId", "key"])
+    .index("by_user_status", ["userId", "status"]),
+
+  articleTags: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    tagId: v.id("tags"),
+    createdAt: v.number(),
+  })
+    .index("by_article", ["articleId"])
+    .index("by_tag", ["tagId"])
+    .index("by_article_tag", ["articleId", "tagId"])
+    .index("by_user", ["userId"]),
+
+  // Progress of the one-off re-annotation (reannotateBackfill.ts)
+  reannotateState: defineTable({
+    userId: v.string(),
+    running: v.boolean(),
+    runId: v.number(),
+    // _creationTime of the last article checked
+    cursor: v.optional(v.number()),
+    queued: v.number(),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
 
   reflections: defineTable({
     articleId: v.id("articles"),
