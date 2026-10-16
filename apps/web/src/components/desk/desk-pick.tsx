@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 import { InlineError, SavedMark } from "@/components/in-place";
 import { OPEN_ARTICLE, ViewTransition } from "@/components/view-transition";
+import { pickTransition } from "@/lib/pick-motion";
 import { isOnControl, useShortcuts } from "@/lib/shortcuts";
 import { createSingleFlight } from "@/lib/suggestion-deck";
 import { articleTitleName, rememberTitle } from "@/lib/title-handoff";
@@ -21,7 +22,6 @@ export const SKELETON_DELAY_MS = 150;
 /** Long enough for the card to finish sliding, so a double click moves one card. */
 export const SETTLE_MS = 300;
 
-const MOVE = { duration: 0.24, ease: [0.2, 0.8, 0.2, 1] } as const;
 const LABEL =
   "text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--ink-muted)]";
 
@@ -274,13 +274,14 @@ export function DeskPick({
   return (
     <div className="max-w-[620px]">
       {label}
-      <AnimatePresence mode="wait" initial={false}>
+      {/* The first pick fades in; with nothing before it, it has nowhere to slide from */}
+      <AnimatePresence mode="wait">
         <motion.div
           key={card._id}
           initial={{ opacity: 0, x: reduced ? 0 : direction * 24 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: reduced ? 0 : -24 }}
-          transition={MOVE}
+          transition={pickTransition(direction, reduced)}
         >
           <ViewTransition
             name={articleTitleName(card._id)}
