@@ -1,6 +1,22 @@
 import Link from "next/link";
 
-export type Topic = { name: string; minutes: number; articles: number };
+export type Topic = {
+  name: string;
+  minutes: number;
+  articles: number;
+  finished: number;
+  skipped: number;
+};
+
+/** "3 finished · 1 skipped"; a figure of nothing is left out. */
+export function outcomes(topic: Pick<Topic, "finished" | "skipped">) {
+  return [
+    topic.finished > 0 && `${topic.finished} finished`,
+    topic.skipped > 0 && `${topic.skipped} skipped`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 function spent(minutes: number) {
   return minutes >= 60
@@ -52,6 +68,11 @@ export function TopicMap({
               {spent(topic.minutes)} · {topic.articles}{" "}
               {topic.articles === 1 ? "article" : "articles"}
             </span>
+            {outcomes(topic) && (
+              <span className="block font-sans text-[11px] text-[var(--reader-muted)]">
+                {outcomes(topic)}
+              </span>
+            )}
           </li>
         ))}
       </ul>
