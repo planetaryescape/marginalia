@@ -8,9 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { MIN_GUTTER, measureGutter } from "@/lib/margin-mode";
 import { cn } from "@/lib/utils";
-
-const MIN_GUTTER = 300;
 
 type Layout =
   | {
@@ -31,13 +30,7 @@ function computeLayout(
 ): Layout {
   const article = container.getBoundingClientRect();
   // The docked notes pane owns the right edge while it is open.
-  const notesInset =
-    Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue(
-        "--notes-inset",
-      ),
-    ) || 0;
-  const gutter = window.innerWidth - notesInset - article.right;
+  const gutter = measureGutter(container);
   if (gutter < MIN_GUTTER) return { kind: "sheet" };
   if (pinned) {
     return {
@@ -57,8 +50,8 @@ function computeLayout(
   return {
     kind: "margin",
     top,
-    left: article.right + window.scrollX + 8,
-    width: Math.min(380, gutter - 40),
+    left: article.right + window.scrollX + 16,
+    width: Math.min(340, gutter - 32),
     lineFrom: article.right + window.scrollX - 20,
   };
 }
@@ -185,9 +178,11 @@ export function MarginCard({
       style={{ "--card-accent": accent } as React.CSSProperties}
       className={cn(
         "relative font-sans flex flex-col bg-[var(--reader-surface)] text-[var(--reader-fg)]",
-        "ring-1 ring-[var(--reader-border)] shadow-[0_18px_50px_-20px_rgba(0,0,0,0.35)]",
+        layout.kind !== "margin" &&
+          "ring-1 ring-[var(--reader-border)] shadow-[0_18px_50px_-20px_rgba(0,0,0,0.35)]",
         layout.kind === "margin"
-          ? "rounded-r-xl rounded-l-[3px] border-l-2 border-l-[var(--card-accent)]"
+          ? // Raised like .reader-menu: a hairline, and a shadow only on light themes.
+            "margin-card-raised rounded-[10px] border border-[var(--reader-border)]"
           : layout.kind === "pinned"
             ? "rounded-r-xl rounded-l-[3px] border-l-2 border-l-[var(--card-accent)] max-h-[calc(100vh-96px)]"
             : "rounded-2xl border-t-2 border-t-[var(--card-accent)] max-h-[calc(var(--app-viewport-height)-6rem)]",
@@ -265,8 +260,7 @@ export function MarginCard({
         }
         aria-hidden
       >
-        <span className="w-[5px] h-[5px] -ml-[2px] rounded-full bg-[var(--card-accent)]" />
-        <span className="flex-1 h-px bg-[var(--card-accent)] opacity-50" />
+        <span className="flex-1 h-[1.5px] bg-[var(--pencil)]" />
       </div>
       <div
         className="absolute"

@@ -121,6 +121,290 @@
   opacity: 0.5;
 }
 
+/* Margin notes. Where the margin shows sidenotes (wide) or a kind dot (phone),
+   the underline and number that used to mark annotated lines go away. */
+.annotation-mark[data-type="cross_reference"] { --kind-color: var(--kind-connection); }
+.annotation-mark[data-type="context"] { --kind-color: var(--kind-context); }
+.annotation-mark[data-type="tension"] { --kind-color: var(--kind-tension); }
+.annotation-mark[data-type="question"] { --kind-color: var(--kind-question); }
+
+article[data-margin="sidenotes"] .annotation-mark,
+article[data-margin="phone"] .annotation-mark {
+  border-bottom-width: 0;
+  padding-bottom: 0;
+  opacity: 1;
+  border-radius: 2px;
+}
+
+article[data-margin="sidenotes"] .annotation-mark sup,
+article[data-margin="phone"] .annotation-mark sup {
+  display: none;
+}
+
+article[data-margin="sidenotes"] .annotation-mark:focus-visible,
+article[data-margin="phone"] .annotation-mark:focus-visible {
+  outline: 1px solid var(--pencil);
+  outline-offset: 3px;
+}
+
+/* The open note's line gets a soft wash, not the kind colour. */
+article[data-margin="sidenotes"] .annotation-mark[data-active][data-type] {
+  background: var(--reader-chip) !important;
+  box-shadow: 0 0 0 3px var(--reader-chip);
+}
+
+article[data-margin="phone"] .annotation-mark::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--kind-color);
+  vertical-align: 0.1em;
+  user-select: none;
+}
+
+.sidenote-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.sidenote {
+  position: absolute;
+  left: var(--sidenote-left);
+  width: var(--sidenote-width);
+  color: var(--pencil);
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  pointer-events: auto;
+}
+
+.sidenote[data-placed="false"] {
+  visibility: hidden;
+}
+
+.sidenote[data-hand="pen"] {
+  --sidenote-rule: var(--pen);
+  color: var(--ink-soft);
+}
+
+.sidenote[data-hand="pen"] .sidenote-kind {
+  color: var(--pen);
+}
+
+/* An open note is the card now; the collapsed note keeps its slot so neighbours stay put. */
+.sidenote[data-open="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidenote-hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: opacity var(--motion-quick) 240ms;
+}
+
+.sidenote-hit:focus-visible {
+  outline: 1px solid var(--pencil);
+  outline-offset: 3px;
+}
+
+.sidenote-body {
+  display: block;
+}
+
+.sidenote-kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidenote-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kind-color, var(--ink-muted));
+}
+
+.sidenote-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.sidenote-line {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Collapsed: the full body stays measurable (scrollHeight) but unseen. */
+.sidenote[data-collapsed="true"] .sidenote-body {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.sidenote[data-collapsed="true"] .sidenote-line {
+  display: flex;
+}
+
+.sidenote-connector {
+  position: absolute;
+  top: 6px;
+  left: -28px;
+  width: 24px;
+  height: 0;
+  border-top: 1px solid var(--sidenote-rule, var(--pencil-rule));
+  transform-origin: left center;
+  transition: transform var(--motion-move);
+  pointer-events: none;
+}
+
+/* A displaced note keeps pointing at its line: down the column edge, then across. */
+.sidenote-connector[data-bent="true"] {
+  top: calc(6px - var(--elbow));
+  height: var(--elbow);
+  border-top: 0;
+  border-left: 1px solid var(--sidenote-rule, var(--pencil-rule));
+  border-bottom: 1px solid var(--sidenote-rule, var(--pencil-rule));
+}
+
+/* Arrival: the connector draws, then the text fades in. */
+.sidenote[data-arrived="false"] .sidenote-connector {
+  transform: scaleX(0);
+}
+
+.sidenote[data-arrived="false"] .sidenote-hit {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidenote-tick {
+  position: absolute;
+  left: calc(var(--sidenote-left) - 28px);
+  width: 6px;
+  height: 2px;
+  background: var(--pen);
+}
+
+.sidenote-waiting {
+  pointer-events: none;
+}
+
+.sidenote-pencil {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.sidenote-pencil path {
+  fill: none;
+  stroke: var(--pencil);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  animation: sidenote-write 2.4s ease-in-out infinite;
+}
+
+.sidenote-waiting-text {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+@keyframes sidenote-write {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidenote-connector,
+  .sidenote-hit {
+    transition: none;
+  }
+
+  .sidenote-pencil path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Phone: the note unfolds under its paragraph. */
+.note-unfold-host {
+  margin: -0.75rem 0 1.5rem;
+}
+
+.note-unfold {
+  margin-left: 15px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--pencil-rule);
+  color: var(--pencil);
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.note-unfold-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.note-unfold-actions button {
+  min-height: 36px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+
+/* Open sidenote card: raised like a menu, shadow only on light themes. */
+html:not(.dark) .margin-card-raised {
+  box-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.25);
+}
+
+html.dark .margin-card-raised {
+  border-color: var(--reader-border-strong);
+}
+
 /* Reading progress bar */
 .reading-progress {
   @apply fixed top-0 left-0 h-0.5 z-50 transition-all duration-150;

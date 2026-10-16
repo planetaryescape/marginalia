@@ -20,11 +20,13 @@ import {
   ImpressionSummary,
 } from "@/components/impression-panel";
 import { ListenBar } from "@/components/listen-bar";
+import { NoteUnfold } from "@/components/note-unfold";
 import { NotesPanel } from "@/components/notes-panel";
 import { ReaderMap } from "@/components/reader-map";
 import { ReaderToolbar } from "@/components/reader-toolbar";
 import { ReflectionBox } from "@/components/reflection-box";
 import { SelectionToolbar } from "@/components/selection-toolbar";
+import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
@@ -48,6 +50,7 @@ import { useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
+import { useMarginMode } from "@/lib/use-margin-mode";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import { cn, formatReadTime } from "@/lib/utils";
 
@@ -193,6 +196,16 @@ export default function ReadPage() {
   );
 
   useReaderTheme(settings);
+  const marginMode = useMarginMode(articleRef, Boolean(article), settings);
+  // On a phone the note unfolds in the text; the sheet only opens for its sources and follow-up.
+  const [phoneSheet, setPhoneSheet] = useState(false);
+  const activeAnnotationId = activeAnnotation?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a different note starts folded
+  useEffect(() => setPhoneSheet(false), [activeAnnotationId]);
+  const closeAnnotation = useCallback(() => {
+    if (marginMode === "phone" && phoneSheet) setPhoneSheet(false);
+    else setActiveAnnotation(null);
+  }, [marginMode, phoneSheet]);
 
   // Focus mode keeps the passage under discussion lit
   const companionParagraph =
@@ -571,6 +584,7 @@ export default function ReadPage() {
             settings.dropCap !== "off" && "reader-dropcap",
           )}
           data-dropcap-style={settings.dropCap}
+          data-margin={marginMode}
           style={
             {
               maxWidth: MAX_WIDTHS[settings.width],
@@ -664,22 +678,58 @@ export default function ReadPage() {
         />
       )}
 
-      {openAnnotation && activeAnnotation && (
-        <AnnotationCard
-          key={openAnnotation._id}
-          annotation={openAnnotation}
-          paragraphIndex={activeAnnotation.paragraphIndex}
-          reflections={(articleNotes ?? [])
-            .filter((note) => note.annotationId === openAnnotation._id)
-            .sort((a, b) => a.createdAt - b.createdAt)}
-          onReflect={handleReflect}
-          onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+      <Sidenotes
+        key={articleId}
+        containerRef={articleRef}
+        mode={marginMode}
+        version={paragraphs.version}
+        layoutKey={settings}
+        annotations={annotations}
+        userNotes={articleNotes}
+        marks={marks}
+        waiting={
+          article.annotationStatus === "pending" &&
+          article.extractionStatus === "extracted"
+        }
+        openId={activeAnnotationId}
+        onClose={closeAnnotation}
+        onOpenNotes={() => setNotesPanelOpen(true)}
+      />
+
+      {marginMode === "phone" && (
+        <NoteUnfold
           containerRef={articleRef}
-          layoutVersion={paragraphs.version}
-          onClose={() => setActiveAnnotation(null)}
-          onJump={jumpToParagraph}
+          version={paragraphs.version}
+          annotation={openAnnotation ?? null}
+          paragraph={
+            activeAnnotation?.paragraphIndex != null
+              ? activeAnnotation.paragraphIndex + 1
+              : null
+          }
+          sheetOpen={phoneSheet}
+          onFold={closeAnnotation}
+          onOpenCard={() => setPhoneSheet(true)}
         />
       )}
+
+      {openAnnotation &&
+        activeAnnotation &&
+        (marginMode !== "phone" || phoneSheet) && (
+          <AnnotationCard
+            key={openAnnotation._id}
+            annotation={openAnnotation}
+            paragraphIndex={activeAnnotation.paragraphIndex}
+            reflections={(articleNotes ?? [])
+              .filter((note) => note.annotationId === openAnnotation._id)
+              .sort((a, b) => a.createdAt - b.createdAt)}
+            onReflect={handleReflect}
+            onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+            containerRef={articleRef}
+            layoutVersion={paragraphs.version}
+            onClose={closeAnnotation}
+            onJump={jumpToParagraph}
+          />
+        )}
 
       <ArticleAsk
         open={articleAskOpen}
