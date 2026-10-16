@@ -63,6 +63,64 @@ function ReadingGlyph() {
   );
 }
 
+type Layers = { more: boolean; map: boolean };
+const NO_LAYERS: Layers = { more: false, map: false };
+// Which layers BK opened per article, kept for this page session
+const openLayers = new Map<Id<"articles">, Layers>();
+
+function LayerToggle({
+  label,
+  open,
+  onToggle,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex items-center gap-1 hover:text-[var(--ink)] transition-colors"
+    >
+      {label}
+      <ChevronDown
+        size={13}
+        aria-hidden
+        className={cn(
+          "transition-transform duration-300",
+          open && "rotate-180",
+        )}
+      />
+    </button>
+  );
+}
+
+function Layer({
+  open,
+  children,
+}: {
+  open: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.35, ease: EASE }}
+          className="overflow-hidden"
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export function SummaryPanel({
   articleId,
   title,
@@ -83,6 +141,14 @@ export function SummaryPanel({
   const [error, setError] = useState<string | null>(null);
   // A stored summary starts folded on later visits; a fresh one opens
   const [expanded, setExpanded] = useState(false);
+  const [layers, setLayers] = useState<Layers>(
+    () => openLayers.get(articleId) ?? NO_LAYERS,
+  );
+  const setLayer = (layer: keyof Layers, open: boolean) => {
+    const next = { ...layers, [layer]: open };
+    openLayers.set(articleId, next);
+    setLayers(next);
+  };
 
   const run = async () => {
     const paragraphs = getParagraphs(getArticleBody(containerRef.current)).map(
@@ -229,88 +295,110 @@ export function SummaryPanel({
                     animate="show"
                     className="px-5 pb-4"
                   >
-                    <motion.p
-                      variants={item}
-                      className="text-[14.5px] leading-[1.65] text-[var(--reader-fg-soft)]"
-                    >
-                      {summary.gist}
-                    </motion.p>
-
-                    {summary.thesis && (
-                      <motion.div
-                        variants={item}
-                        className="mt-5 border-l-2 border-[var(--pencil-rule)] pl-3"
-                      >
+                    {/* The one point comes first. Without one, the gist is the fallback. */}
+                    {summary.thesis ? (
+                      <motion.div variants={item}>
                         <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
-                          The point
+                          The one point
                         </p>
-                        <p className="mt-1 font-serif text-[17px] leading-snug text-[var(--reader-fg)]">
+                        <p className="mt-1 font-serif text-[18px] leading-snug text-[var(--reader-fg)]">
                           {summary.thesis}
                         </p>
                       </motion.div>
+                    ) : (
+                      <motion.p
+                        variants={item}
+                        className="text-[14.5px] leading-[1.65] text-[var(--reader-fg-soft)]"
+                      >
+                        {summary.gist}
+                      </motion.p>
                     )}
 
-                    {summary.ideas && summary.links ? (
-                      <>
-                        <motion.p
-                          variants={item}
-                          className="mt-6 mb-3 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]"
-                        >
-                          How the ideas connect
-                        </motion.p>
-                        <motion.div variants={item}>
-                          <IdeaMap
-                            ideas={summary.ideas}
-                            links={summary.links}
-                            onJump={onJump}
-                          />
-                        </motion.div>
-                        {summary.flow && (
+                    <motion.div
+                      variants={item}
+                      className="mt-4 flex items-center gap-5 text-[12.5px] text-[var(--pencil)]"
+                    >
+                      {summary.thesis && (
+                        <LayerToggle
+                          label="More"
+                          open={layers.more}
+                          onToggle={() => setLayer("more", !layers.more)}
+                        />
+                      )}
+                      <LayerToggle
+                        label="The map"
+                        open={layers.map}
+                        onToggle={() => setLayer("map", !layers.map)}
+                      />
+                    </motion.div>
+
+                    {summary.thesis && (
+                      <Layer open={layers.more}>
+                        <div className="pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
+                            In short
+                          </p>
+                          <p className="mt-1 text-[14.5px] leading-[1.65] text-[var(--pencil)]">
+                            {summary.gist}
+                          </p>
+                        </div>
+                      </Layer>
+                    )}
+
+                    <Layer open={layers.map}>
+                      <div className="pt-4">
+                        {summary.ideas && summary.links ? (
                           <>
-                            <motion.p
-                              variants={item}
-                              className="mt-6 mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]"
-                            >
-                              How it fits together
-                            </motion.p>
-                            <motion.p
-                              variants={item}
-                              className="text-[13.5px] leading-relaxed text-[var(--reader-fg-soft)]"
-                            >
-                              {summary.flow}
-                            </motion.p>
+                            <p className="mb-3 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
+                              How the ideas connect
+                            </p>
+                            <IdeaMap
+                              ideas={summary.ideas}
+                              links={summary.links}
+                              onJump={onJump}
+                            />
+                            {summary.flow && (
+                              <>
+                                <p className="mt-6 mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
+                                  How it fits together
+                                </p>
+                                <p className="text-[13.5px] leading-relaxed text-[var(--reader-fg-soft)]">
+                                  {summary.flow}
+                                </p>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <ol className="space-y-2">
+                              {summary.claims?.map((claim, i) => (
+                                <li
+                                  key={claim.text}
+                                  className="flex gap-3 text-[13.5px] leading-relaxed text-[var(--reader-fg-soft)]"
+                                >
+                                  <span className="w-4 shrink-0 pt-px text-right font-mono text-[11px] tabular-nums text-[var(--reader-muted)]">
+                                    {i + 1}
+                                  </span>
+                                  <span>
+                                    {claim.text}{" "}
+                                    {claim.paragraphs.map((n) => (
+                                      <ParagraphChip
+                                        key={n}
+                                        n={n}
+                                        onJump={onJump}
+                                      />
+                                    ))}
+                                  </span>
+                                </li>
+                              ))}
+                            </ol>
+                            <p className="mt-3 text-[12px] text-[var(--reader-muted)]">
+                              Redo this summary to get the idea map.
+                            </p>
                           </>
                         )}
-                      </>
-                    ) : (
-                      <motion.div variants={item} className="mt-5">
-                        <ol className="space-y-2">
-                          {summary.claims?.map((claim, i) => (
-                            <li
-                              key={claim.text}
-                              className="flex gap-3 text-[13.5px] leading-relaxed text-[var(--reader-fg-soft)]"
-                            >
-                              <span className="w-4 shrink-0 pt-px text-right font-mono text-[11px] tabular-nums text-[var(--reader-muted)]">
-                                {i + 1}
-                              </span>
-                              <span>
-                                {claim.text}{" "}
-                                {claim.paragraphs.map((n) => (
-                                  <ParagraphChip
-                                    key={n}
-                                    n={n}
-                                    onJump={onJump}
-                                  />
-                                ))}
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
-                        <p className="mt-3 text-[12px] text-[var(--reader-muted)]">
-                          Redo this summary to get the idea map.
-                        </p>
-                      </motion.div>
-                    )}
+                      </div>
+                    </Layer>
 
                     <motion.div
                       variants={item}
@@ -326,7 +414,8 @@ export function SummaryPanel({
                         onClick={run}
                         className="ml-auto flex items-center gap-1 hover:text-[var(--reader-fg)] transition-colors"
                       >
-                        <RotateCcw size={11} /> Redo
+                        <RotateCcw size={11} />{" "}
+                        {summary.thesis ? "Redo" : "Refresh summary"}
                       </button>
                     </motion.div>
                   </motion.div>

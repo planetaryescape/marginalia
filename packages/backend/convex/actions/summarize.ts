@@ -10,7 +10,7 @@ import { loadReaderAI } from "../lib/router";
 import { requireReaderLimit } from "../limits";
 
 const MAX_CHARS = 200_000;
-const MAX_IDEAS = 9;
+const MAX_IDEAS = 7;
 const MAX_LINKS = 14;
 
 const ROLES = [
@@ -24,7 +24,7 @@ const RELATIONS = ["supports", "leads_to", "contrasts", "illustrates"] as const;
 
 // Limits live in the descriptions and are enforced after generation, so a
 // slightly long list trims instead of failing the whole summary.
-const summarySchema = z.object({
+export const summarySchema = z.object({
   gist: z
     .string()
     .describe(
@@ -32,7 +32,9 @@ const summarySchema = z.object({
     ),
   thesis: z
     .string()
-    .describe("The article's main point in one sentence, under 25 words."),
+    .describe(
+      "The article's main point in one sentence, under 25 words. Always give one: it is the first thing the reader sees.",
+    ),
   ideas: z
     .array(
       z.object({
@@ -56,7 +58,7 @@ const summarySchema = z.object({
       }),
     )
     .describe(
-      "4–9 ideas: the load-bearing ones only, including at least one conclusion.",
+      "About 7 ideas at most: the ones that carry the argument, including a conclusion. Fewer is better than padding.",
     ),
   links: z
     .array(
@@ -71,7 +73,7 @@ const summarySchema = z.object({
       }),
     )
     .describe(
-      "How the ideas connect. Every idea should have at least one link, and the links should flow towards the conclusion.",
+      "How the ideas connect. Build a tree that leads to the conclusion: most links run along that path. At most 2 links may skip it (a cross-link). Add a link only if it adds understanding; never add one just to connect things.",
     ),
   flow: z
     .string()
@@ -82,9 +84,10 @@ const summarySchema = z.object({
 
 type Summary = z.infer<typeof summarySchema>;
 
-const SYSTEM = `You map the argument of long-form articles for a careful reader who wants to see how a piece thinks before reading it.
+export const SYSTEM = `You map the argument of long-form articles for a careful reader who wants to see how a piece thinks before reading it.
 The article is given with numbered paragraphs (¶1, ¶2, …). Be faithful to the article: no outside facts, no praise, no filler.
 Don't summarise paragraph by paragraph. Find the handful of ideas that carry the argument, then show how they connect and build to the point: which ideas set things up, which support or illustrate others, where the article pushes against itself, and what it all arrives at.
+The idea map must stay legible: about seven ideas at most, built mostly as a tree that leads to the conclusion, with few cross-links (two at most beyond that path). Add an idea or a line only when it adds understanding.
 Write labels as ideas ("Agents can't learn from mistakes"), not topics ("Agent learning").`;
 
 export const generate = action({
