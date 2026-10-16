@@ -95,6 +95,8 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 - Notes pane: your words lead with a pen rule; saved answers collapse to one pencil line ([03 Notes panel](03-reader.md#notes-panel)).
 - Kept answers mark their passage in pencil, not highlighter ([03 Passage menu](03-reader.md#passage-menu)).
 - The margin card and labels say "connection", not "Cross-reference".
+- Getting back to where you were after any in-article jump ([03](03-reader.md#getting-back-to-where-you-were), D-DES-053).
+- Esc returns to the origin room, unless a menu, note, pane, editor or selection has it.
 - Closing an open note animates its content out as it shrinks (rung 2's close is not yet a true reverse).
 
 **Design:** comp of the toolbar, map, back matter and notes pane in Night and Paper at both widths.

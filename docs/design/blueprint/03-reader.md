@@ -111,6 +111,10 @@ The menu keeps its actions (Ask, Explain, Simplify, Define, Highlight, Underline
 - **Answers are temporary until kept.** An answer stays in the margin while the article is open, including across a refresh, and disappears when the article is closed. **Keep** on the answer saves it to Notes. A follow-up doesn't keep it. Today every finished answer is saved automatically (`apps/web/src/lib/companion.ts#L204`); that changes (D-DES-045).
 - **Length:** an answer is as long as it needs to be and no longer. A definition is a line; an explanation a short paragraph; Ask runs longer only when the question needs it (D-DES-042).
 
+## Getting back to where you were
+
+Every jump inside the article (a ¶ reference in an answer or card, the paragraph map, a summary or idea-map link) remembers where BK was reading. A quiet pencil chip, "↩ Back to ¶N", appears under the toolbar (above the bottom bar on phones) and returns him to that exact line. Jumps stack, so two jumps go back in two steps. The chip disappears once he's back, including when he scrolls back on his own; plain scrolling never adds an entry (D-DES-053).
+
 ## Links in the article
 
 A link in the article never navigates on click (D-DES-044). It opens a small `.reader-menu` beside the link with the link's title (when known) and domain, then:

@@ -217,3 +217,8 @@ Change a decision only by adding a new entry that replaces the old one.
 - **Archive:** rung 3 adds a minimal Up next shelf with archive to Library when it removes Up next from the desk, because the desk's rows are the only place archiving exists today. Rung 4 restyles it.
 - **Topic search:** respects a chosen time (Q14), offers the shortest article on the topic when nothing fits (Q15), and Library keeps the full list (Q16). "Bookmark" and "add to reader" in the link menu are one action, Save for later (Q17).
 - **Re-annotation (BK):** "yeah you can reannotate after we fix the annotation stuff." The unread library is re-annotated once, after rung 2c's annotation changes are live, so existing articles get the new kinds.
+
+### D-DES-053: Every jump inside an article can be undone: a chip returns BK to where he was reading. (BK; design by Claude, delegated)
+- **BK, 2026-10-16:** "when i ask or define or whatever, it has references to other paragraphs which when i click take me to that paragraph which I like but then there's no easy simple way to go back to the paragraph I was actually on, I have to scroll there manually."
+- **Why:** losing your place is a small exit from reading (D-DES-039). A jump the reader can't undo makes following a reference a cost.
+- **Design:** one jump helper for every in-article jump; a stack of up to about five positions; a pencil chip "↩ Back to ¶N" and a key; the entry clears when he returns, by chip or by scrolling. Esc keeps its own job (back to the origin room).
