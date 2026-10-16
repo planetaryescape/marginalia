@@ -38,6 +38,7 @@ import type * as home from "../home.js";
 import type * as http from "../http.js";
 import type * as impressions from "../impressions.js";
 import type * as lib_aiModels from "../lib/aiModels.js";
+import type * as lib_articleUrl from "../lib/articleUrl.js";
 import type * as lib_chatgpt from "../lib/chatgpt.js";
 import type * as lib_chatgptResponses from "../lib/chatgptResponses.js";
 import type * as lib_chatgptTokens from "../lib/chatgptTokens.js";
@@ -122,6 +123,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   impressions: typeof impressions;
   "lib/aiModels": typeof lib_aiModels;
+  "lib/articleUrl": typeof lib_articleUrl;
   "lib/chatgpt": typeof lib_chatgpt;
   "lib/chatgptResponses": typeof lib_chatgptResponses;
   "lib/chatgptTokens": typeof lib_chatgptTokens;
