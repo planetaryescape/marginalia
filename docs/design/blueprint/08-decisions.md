@@ -267,3 +267,13 @@ Change a decision only by adding a new entry that replaces the old one.
 - **Design (Claude):** a local graph, never the whole hairball: one idea in the centre, its closest connections around it and theirs faintly beyond, about 15 nodes at most, laid out with the idea-map legibility rules. Clicking a node recentres. Every edge can say why it exists (meaning, shared tag, same article, a Marginalia connection, or a link BK made by dragging one note onto another); the sentence for an edge is generated only when BK selects it. Nodes keep their hand: BK's notes and marks in pen, kept answers in pencil, articles as print, vault notes as their own kind. Selecting a node opens it beside the graph to read, reply or start a connected note, which joins the graph at once.
 - **Assumed (Q18):** with nothing selected, the graph starts on BK's most recent note, with search to start anywhere else.
 - **Why:** a list of notes is the pile again (D-DES-033); relating ideas is the thinking a partner should make visible (D-DES-051).
+
+### D-DES-063: Comp approval and the remaining product calls are delegated to Claude for the rest of this run. (BK)
+- **BK, 2026-10-16:** "just keep going , keep working decide", when rungs 5c and 7 were waiting on comp approval.
+- **Claude approved:** the comps for rungs 2f, 5c and 7 as made.
+- **Claude decided:**
+  - **Rung 5c:** the tag-merge suggestion sits under Your reading's topics, because that is the one place the whole tag vocabulary is visible and there is no tags page. Keep on a feed suggestion silences it for 90 days; Keep both on a tag pair is permanent for that pair.
+  - **Rung 7:** browsers without View Transitions get an instant swap, not the 200 ms fade (S1).
+  - **Rung 5b:** the approved comp's opening view replaces the "Your week" rhythm bars and kept-note rows ([05](05-library-notes-week.md#your-week-inside-your-reading)).
+  - **Failed annotations:** an article whose first annotation failed is retried when picked or opened, at most twice, and the backfill retries short unread ones (a bulk import on 2026-10-12 failed 213 at once).
+- **BK corrects afterwards;** destructive and outward-facing actions still need him.
