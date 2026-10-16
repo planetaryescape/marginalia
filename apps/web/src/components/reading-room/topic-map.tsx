@@ -1,0 +1,41 @@
+export type Topic = { name: string; minutes: number; articles: number };
+
+function spent(minutes: number) {
+  return minutes >= 60
+    ? `${Math.round(minutes / 60)}h`
+    : `${Math.max(1, Math.round(minutes))}m`;
+}
+
+/** Topics sized by time read. Renders nothing until some article has a topic. */
+export function TopicMap({ topics }: { topics: Topic[] }) {
+  if (topics.length === 0) return null;
+  const most = Math.max(1, ...topics.map((t) => t.minutes));
+  return (
+    <section aria-labelledby="topics">
+      <h2
+        id="topics"
+        className="mb-3 text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--reader-muted)]"
+      >
+        The topics you return to
+      </h2>
+      <ul className="flex flex-wrap items-baseline gap-x-4 gap-y-1.5 leading-tight">
+        {topics.map((topic) => (
+          <li
+            key={topic.name}
+            className="font-serif text-[var(--reader-fg-soft)]"
+            // Area follows minutes, so the size follows their square root
+            style={{
+              fontSize: `${(0.9 + 1.1 * Math.sqrt(topic.minutes / most)).toFixed(2)}rem`,
+            }}
+          >
+            {topic.name}
+            <span className="ml-1 font-sans text-[11px] text-[var(--reader-muted)]">
+              {spent(topic.minutes)} · {topic.articles}{" "}
+              {topic.articles === 1 ? "article" : "articles"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

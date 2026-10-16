@@ -3,6 +3,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { ownedArticle } from "./access";
 import { query } from "./functions";
+import {
+  bucketActiveMinutes,
+  MIN_READ_MS,
+  roomPeriod,
+  skipsMostOf,
+  splitReads,
+} from "./lib/readingRoom";
 import { dayKey, statsPeriod } from "./lib/statsPeriod";
 
 const args = {
@@ -349,4 +356,131 @@ export const getWeeklyStats = query({
       annotationsOpenedCount: s.annotationsOpenedCount,
     };
   },
+});
+
+const roomArgs = {
+  timeZone: v.string(),
+  period: v.union(v.literal("month"), v.literal("30days"), v.literal("90days")),
+};
+// Visits read for the room, newest first. At roughly 1 KB a row this stays
+// well under Convex's per-function read limit; past it the room says so.
+const ROOM_VISITS = 4000;
+// Articles whose length is looked up. Convex reads a whole document, body and
+// embedding included, so this is the budget that matters. A copy of
+// `estimatedReadMinutes` on each readingActivity row would remove it.
+const ROOM_ARTICLES = 120;
+const ARTICLE_BATCH = 20;
+const ROOM_FEEDS = 200;
+const FEEDS_SHOWN = 30;
+
+/**
+ * The numbers behind Your reading: when the reader read, how long their reads
+ * were, and how each feed served them. Aggregated here so the client never
+ * receives visit rows. Hours are the reader's local hours in `timeZone`; a
+ * visit counts toward the hour it started in.
+ */
+export const readingRoom = query({
+  args: roomArgs,
+  handler: async (ctx, { timeZone, period: periodName }) => {
+    const period = roomPeriod(Date.now(), timeZone, periodName);
+    const visits = await ctx.db
+      .query("readingActivity")
+      .withIndex("by_user_started", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .gte("startedAt", period.start)
+          .lt("startedAt", period.end),
+      )
+      .order("desc")
+      .take(ROOM_VISITS + 1);
+    const partial = visits.length > ROOM_VISITS;
+    const rows = visits.slice(0, ROOM_VISITS);
+
+    // `day` is the reader's local day as the client recorded it
+    const readingDays = new Set(
+      rows.filter((r) => r.activeTimeMs > 0).map((r) => r.day),
+    ).size;
+    const perArticle = new Map<
+      Id<"articles">,
+      { activeTimeMs: number; startedAt: number }
+    >();
+    for (const row of rows) {
+      const seen = perArticle.get(row.articleId);
+      perArticle.set(row.articleId, {
+        activeTimeMs: (seen?.activeTimeMs ?? 0) + row.activeTimeMs,
+        // Rows are newest first, so the last one seen is the first visit
+        startedAt: row.startedAt,
+      });
+    }
+    const reads = [...perArticle.entries()].filter(
+      ([, a]) => a.activeTimeMs >= MIN_READ_MS,
+    );
+    const looked = reads.slice(0, ROOM_ARTICLES);
+    const minutes = new Map<Id<"articles">, number | undefined>();
+    for (let i = 0; i < looked.length; i += ARTICLE_BATCH)
+      await Promise.all(
+        looked.slice(i, i + ARTICLE_BATCH).map(async ([id]) => {
+          const article = await ownedArticle(ctx, id, ctx.readerId);
+          if (article) minutes.set(id, article.estimatedReadMinutes);
+        }),
+      );
+    const split = splitReads(
+      looked.map(([id, a]) => ({
+        startedAt: a.startedAt,
+        estimatedReadMinutes: minutes.get(id),
+      })),
+      timeZone,
+    );
+
+    const counted = await ctx.db
+      .query("feedStats")
+      .withIndex("by_user_feed", (q) => q.eq("userId", ctx.readerId))
+      .take(ROOM_FEEDS);
+    const feeds = (
+      await Promise.all(
+        counted
+          .filter((f) => f.offered > 0)
+          .sort((a, b) => b.offered - a.offered)
+          .slice(0, FEEDS_SHOWN)
+          .map(async (f) => {
+            const feed = await ctx.db.get("feeds", f.feedId);
+            if (feed?.userId !== ctx.readerId) return null;
+            return {
+              feedId: f.feedId,
+              title: feed.title,
+              offered: f.offered,
+              opened: f.opened,
+              finished: f.finished,
+              skipsMost: skipsMostOf(f.offered, f.opened),
+            };
+          }),
+      )
+    ).filter((f) => f !== null);
+
+    return {
+      period,
+      partial,
+      readsPartial: reads.length > ROOM_ARTICLES,
+      activeTimeMs: rows.reduce((n, r) => n + r.activeTimeMs, 0),
+      readingDays,
+      heat: bucketActiveMinutes(rows, timeZone),
+      ...split,
+      // Offer counts have no dates, so they cover the feed's whole history
+      feeds,
+    };
+  },
+});
+
+/**
+ * Topics the reader returns to, by minutes read. Tags arrive with the tags
+ * tables (`tags`, `articleTags`); until they exist no article has a topic and
+ * the room hides the block. The tags change will fill this from `articleTags`
+ * joined to the reader's `readingActivity` for the period, keeping the shape
+ * `{ name, minutes, articles }[]`.
+ */
+export const readingTopics = query({
+  args: roomArgs,
+  handler: async (): Promise<
+    { name: string; minutes: number; articles: number }[]
+  > => [],
 });
