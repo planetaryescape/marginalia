@@ -1,5 +1,6 @@
 import { ownedArticle } from "./access";
 import { query } from "./functions";
+import { unreadQueue } from "./lib/unreadQueue";
 
 function hostOf(url: string) {
   try {
@@ -14,16 +15,7 @@ export const overview = query({
   args: {},
   handler: async (ctx) => {
     const [unread, stats, notes] = await Promise.all([
-      ctx.db
-        .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined),
-        )
-        .order("desc")
-        .take(10),
+      unreadQueue(ctx, 10),
       ctx.db
         .query("readingQueueStats")
         .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))

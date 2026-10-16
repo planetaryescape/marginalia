@@ -5,8 +5,14 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { libraryIsActive } from "./access";
 
 function contribution(article: Doc<"articles"> | null) {
+  // A deferred article is as much in the queue as an annotated one; only its
+  // marginalia are still to come
   const annotated =
-    article?.queueCounted && article.annotationStatus === "annotated" ? 1 : 0;
+    article?.queueCounted &&
+    (article.annotationStatus === "annotated" ||
+      article.annotationStatus === "deferred")
+      ? 1
+      : 0;
   const waiting = annotated && article?.finishedAt === undefined ? 1 : 0;
   const minutes = article?.estimatedReadMinutes ?? Number.POSITIVE_INFINITY;
   return {

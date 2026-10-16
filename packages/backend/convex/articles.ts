@@ -13,6 +13,7 @@ import {
 import { annotatesAtImport, LOOKAHEAD_COUNT } from "./lib/annotationPolicy";
 import { articleUrlVariants } from "./lib/articleUrl";
 import { EXTRACT_PAGE } from "./lib/constants";
+import { unreadQueue } from "./lib/unreadQueue";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
 
@@ -53,16 +54,7 @@ export const listAnnotated = query({
 export const listUnread = query({
   args: {},
   handler: async (ctx) => {
-    return ctx.db
-      .query("articles")
-      .withIndex("by_user_annotationStatus_finishedAt", (q) =>
-        q
-          .eq("userId", ctx.readerId)
-          .eq("annotationStatus", "annotated")
-          .eq("finishedAt", undefined),
-      )
-      .order("desc")
-      .take(100);
+    return unreadQueue(ctx, 100);
   },
 });
 

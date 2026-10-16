@@ -291,3 +291,77 @@ describe("offering deferred articles", () => {
     });
   });
 });
+
+describe("deferred articles in the unread queue", () => {
+  const counts = async (t: Awaited<ReturnType<typeof ownerTest>>) => {
+    const o = await t.query(api.home.overview, {});
+    return { total: o.annotatedTotal, waiting: o.waiting, pending: o.pending };
+  };
+
+  it("keeps the counters in step as an article moves deferred, pending, annotated and read", async () => {
+    const t = await ownerTest(modules);
+    await t.mutation(internal.readingQueue.initialize, {
+      userId: "default_user",
+    });
+    const id = await t.mutation(
+      internal.articles.insertExtracted,
+      imported(40),
+    );
+    expect(await statusOf(t, id)).toBe("deferred");
+    expect(await counts(t)).toEqual({ total: 1, waiting: 1, pending: 0 });
+
+    await t.mutation(api.articles.annotateAhead, { articleIds: [id] });
+    expect(await counts(t)).toEqual({ total: 0, waiting: 0, pending: 1 });
+
+    await t.mutation(internal.articles.updateAnnotationStatus, {
+      articleId: id,
+      status: "annotated",
+    });
+    expect(await counts(t)).toEqual({ total: 1, waiting: 1, pending: 0 });
+
+    await t.mutation(api.sessions.recordInteraction, {
+      articleId: id,
+      action: "finished",
+    });
+    expect(await counts(t)).toEqual({ total: 1, waiting: 0, pending: 0 });
+  });
+
+  it("takes a deferred article out of the waiting count when it is read or archived", async () => {
+    const t = await ownerTest(modules);
+    await t.mutation(internal.readingQueue.initialize, {
+      userId: "default_user",
+    });
+    const id = await t.mutation(
+      internal.articles.insertExtracted,
+      imported(40),
+    );
+    await t.mutation(api.articles.archive, { articleId: id });
+    expect(await counts(t)).toEqual({ total: 1, waiting: 0, pending: 0 });
+    await t.mutation(api.articles.restore, { articleId: id });
+    expect(await counts(t)).toEqual({ total: 1, waiting: 1, pending: 0 });
+  });
+
+  it("lists them in Up next and the unread list, newest first, with the 30-minute count", async () => {
+    const t = await ownerTest(modules);
+    await t.mutation(internal.readingQueue.initialize, {
+      userId: "default_user",
+    });
+    const older = await t.mutation(
+      internal.articles.insertExtracted,
+      imported(5),
+    );
+    await t.mutation(internal.articles.updateAnnotationStatus, {
+      articleId: older,
+      status: "annotated",
+    });
+    const newer = await t.mutation(
+      internal.articles.insertExtracted,
+      imported(40),
+    );
+    const overview = await t.query(api.home.overview, {});
+    expect(overview.upNext.map((a) => a._id)).toEqual([newer, older]);
+    expect(overview.fits).toMatchObject({ 5: 1, 20: 1, 30: 2 });
+    const unread = await t.query(api.articles.listUnread, {});
+    expect(unread.map((a) => a._id)).toEqual([newer, older]);
+  });
+});
