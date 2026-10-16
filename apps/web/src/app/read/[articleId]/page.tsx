@@ -130,7 +130,15 @@ export default function ReadPage() {
   const { settings, update: updateSettings, resetText } = useReaderSettings();
   const paragraphs = useParagraphs(articleRef, Boolean(article));
   // A link from Notes names the passage to land on, e.g. `?quote=`.
-  useQuoteLanding(articleRef, searchParams.get("quote"), paragraphs.version);
+  const landingParagraph = Number.parseInt(searchParams.get("p") ?? "", 10);
+  useQuoteLanding(
+    articleRef,
+    searchParams.get("quote"),
+    paragraphs.version,
+    Number.isFinite(landingParagraph) && landingParagraph >= 0
+      ? landingParagraph
+      : null,
+  );
   const position = useReadingPosition(articleRef, paragraphs.version);
   const summary = useQuery(api.summaries.getByArticle, {
     articleId: articleId as any,

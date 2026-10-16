@@ -6,7 +6,7 @@ export type KeptThread = Omit<Doc<"companionThreads">, "embedding">;
 /** A highlight or underline as the Notes page receives it, from `highlights.listMine`. */
 export type KeptMark = Pick<
   Doc<"highlights">,
-  "_id" | "articleId" | "kind" | "text" | "createdAt"
+  "_id" | "articleId" | "kind" | "text" | "createdAt" | "paragraphIndex"
 >;
 
 export type GroupItem =
@@ -63,7 +63,10 @@ export function groupByArticle(
     const keptAt = thread.keptAt ?? thread.updatedAt;
     add(thread.articleId, keptAt, { type: "answer", at: keptAt, thread });
   }
-  for (const g of groups.values()) g.items.sort((a, b) => a.at - b.at);
+  // Your words lead, then your marks, then Marginalia's kept answers; time orders within each
+  const rank = { note: 0, mark: 1, answer: 2 } as const;
+  for (const g of groups.values())
+    g.items.sort((a, b) => rank[a.type] - rank[b.type] || a.at - b.at);
   return [...groups.values()].sort((a, b) => b.latest - a.latest);
 }
 
@@ -71,8 +74,15 @@ export function groupByArticle(
  * The reader at a passage. The quote is what the reader finds again in the
  * article, so it survives re-rendering in a way a paragraph number does not.
  */
-export function readLink(articleId: Id<"articles">, quote?: string): string {
+export function readLink(
+  articleId: Id<"articles">,
+  quote?: string,
+  paragraphIndex?: number,
+): string {
   const base = `/read/${articleId}`;
   if (!quote) return base;
-  return `${base}?${new URLSearchParams({ quote }).toString()}`;
+  const params = new URLSearchParams({ quote });
+  // The paragraph picks the right occurrence when the quote appears more than once
+  if (paragraphIndex !== undefined) params.set("p", String(paragraphIndex));
+  return `${base}?${params.toString()}`;
 }

@@ -26,14 +26,19 @@ describe("groupByArticle", () => {
     ]);
   });
 
-  it("puts each article's items in the order they were made", () => {
+  it("puts your notes first, then your marks, then kept answers, each in time order", () => {
     const [a] = groupByArticle(
       [note("a", 50), note("a", 10)],
-      [kept("a", 30)],
+      [kept("a", 5)],
       [mark("a", 20, "underline")],
     );
-    expect(a.items.map((i) => i.at)).toEqual([10, 20, 30, 50]);
-    expect(a.items[1]).toMatchObject({
+    expect(a.items.map((i) => [i.type, i.at])).toEqual([
+      ["note", 10],
+      ["note", 50],
+      ["mark", 20],
+      ["answer", 5],
+    ]);
+    expect(a.items[2]).toMatchObject({
       type: "mark",
       mark: { kind: "underline" },
     });

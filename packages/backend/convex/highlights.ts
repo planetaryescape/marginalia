@@ -20,6 +20,8 @@ export const listByArticle = query({
  * Each row carries a 1536-number embedding, so the projection below is what
  * keeps the vector off the wire, though each read still loads the whole document, so keep pages at 50 or fewer.
  */
+const MAX_PAGE = 50;
+
 export const listMine = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
@@ -27,7 +29,11 @@ export const listMine = query({
       .query("highlights")
       .withIndex("by_userId", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
-      .paginate(args.paginationOpts);
+      // Each document is read whole, embedding and all, so the server caps the page
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.min(args.paginationOpts.numItems, MAX_PAGE),
+      });
     return {
       ...page,
       page: page.page.map((row) => ({
@@ -35,6 +41,7 @@ export const listMine = query({
         articleId: row.articleId,
         kind: row.kind,
         text: row.text,
+        paragraphIndex: row.paragraphIndex,
         createdAt: row.createdAt,
       })),
     };

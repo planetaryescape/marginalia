@@ -13,6 +13,7 @@ export function useQuoteLanding(
   containerRef: RefObject<HTMLElement | null>,
   quote: string | null,
   version: number,
+  paragraphIndex: number | null = null,
 ) {
   const landed = useRef<string | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` signals the article was re-tagged
@@ -24,12 +25,19 @@ export function useQuoteLanding(
     if (landed.current === quote) return;
     const body = getArticleBody(containerRef.current);
     if (!body) return;
-    const range = findTextRange(body, quote);
+    // Prefer the saved paragraph (0-based, `data-para` is 1-based) when the quote repeats
+    const preferred =
+      paragraphIndex === null
+        ? null
+        : body.querySelector<HTMLElement>(
+            `[data-para="${paragraphIndex + 1}"]`,
+          );
+    const range = findTextRange(body, quote, preferred);
     if (!range) return;
     landed.current = quote;
     const node = range.startContainer;
     const el = node instanceof Element ? node : node.parentElement;
     // A deep link lands where the reader is starting, so there is no smooth scroll to follow.
     el?.scrollIntoView({ block: "center", behavior: "instant" });
-  }, [containerRef, quote, version]);
+  }, [containerRef, quote, version, paragraphIndex]);
 }

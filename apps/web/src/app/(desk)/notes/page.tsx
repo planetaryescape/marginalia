@@ -110,8 +110,8 @@ function ArticleNotesGroup({
   const article = useQuery(api.articles.getById, { articleId });
   const source = article ? sourceOf(article.url) : null;
   // Where a row opens: the reader at a quote, or nowhere once the article is gone.
-  const at = (quote?: string) =>
-    article === null ? null : readLink(articleId, quote);
+  const at = (quote?: string, paragraphIndex?: number) =>
+    article === null ? null : readLink(articleId, quote, paragraphIndex);
 
   return (
     <section className="mb-10">
@@ -223,10 +223,10 @@ function MarkRow({
   at,
 }: {
   mark: KeptMark;
-  at: (quote?: string) => string | null;
+  at: (quote?: string, paragraphIndex?: number) => string | null;
 }) {
   return (
-    <Opens href={at(mark.text)} className="block">
+    <Opens href={at(mark.text, mark.paragraphIndex)} className="block">
       <p className="font-serif text-[16px] leading-relaxed text-[var(--reader-fg)]">
         {mark.kind === "highlight" ? (
           <span className="rounded-sm bg-[var(--highlighter)]">
