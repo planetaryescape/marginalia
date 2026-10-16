@@ -2,6 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useQuery } from "convex/react";
 import { useState } from "react";
+import { Skeleton, SkeletonBar } from "@/components/in-place";
 import {
   PERIOD_LABELS,
   PERIODS,
@@ -61,9 +62,13 @@ export function StatsTab() {
             })}
           </p>
         ) : (
-          <p role="status" className="text-sm text-[var(--reader-muted)]">
-            Loading your reading…
-          </p>
+          <Skeleton
+            label="Loading your reading"
+            className="w-full max-w-[860px]"
+          >
+            <SkeletonBar className="h-8 w-full" />
+            <SkeletonBar className="mt-3 h-8 w-[60%]" />
+          </Skeleton>
         )}
         <label className="relative shrink-0 text-sm text-[var(--reader-muted)]">
           <span className="sr-only">Period</span>

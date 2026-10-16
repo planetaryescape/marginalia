@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Skeleton, SkeletonBar } from "@/components/in-place";
 import {
   DICTIONARY_CAP,
   type Entry,
@@ -164,9 +165,14 @@ export function DictionaryTab() {
 
   if (status === "LoadingFirstPage")
     return (
-      <p role="status" className="text-sm text-[var(--reader-muted)]">
-        Loading your dictionary…
-      </p>
+      <Skeleton label="Loading your dictionary">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="border-b border-[var(--reader-border)] py-4">
+            <SkeletonBar className="h-5 w-[20%]" />
+            <SkeletonBar className="mt-2 h-4 w-[65%]" />
+          </div>
+        ))}
+      </Skeleton>
     );
   if (all.length === 0)
     return (

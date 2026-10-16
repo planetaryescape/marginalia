@@ -20,7 +20,7 @@ import { ArticleTags } from "@/components/article-tags";
 import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
 import { ImpressionSummary } from "@/components/impression-panel";
-import { InlineError } from "@/components/in-place";
+import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
 import { ListenBar } from "@/components/listen-bar";
 import {
   AnswerUnfold,
@@ -806,11 +806,17 @@ export default function ReadPage() {
     );
     if (rememberedTitle(articleId)) return opening;
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-[var(--ink-muted)] font-sans text-sm">
-          Loading article...
-        </p>
-      </div>
+      <Skeleton
+        label="Loading article"
+        className="article-column mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))]"
+      >
+        <SkeletonBar className="mb-10 h-10 w-[75%]" />
+        <SkeletonBar className="mb-4 h-4 w-full" />
+        <SkeletonBar className="mb-4 h-4 w-full" />
+        <SkeletonBar className="mb-4 h-4 w-[85%]" />
+        <SkeletonBar className="mb-4 h-4 w-full" />
+        <SkeletonBar className="h-4 w-[60%]" />
+      </Skeleton>
     );
   }
 

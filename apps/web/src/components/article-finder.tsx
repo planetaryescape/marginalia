@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PdfPickerButton } from "@/components/desk/pdf-picker";
-import { InlineError } from "@/components/in-place";
+import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
 import {
   isOnControl,
   isTypingTarget,
@@ -364,12 +364,10 @@ export function ArticleFinder({
             </div>
           )}
           {loading && (
-            <p
-              role="status"
-              className="px-5 py-6 text-[14px] text-[var(--reader-muted)]"
-            >
-              Finding something that fits…
-            </p>
+            <Skeleton label="Finding something that fits" className="px-5 py-6">
+              <SkeletonBar className="h-6 w-[70%]" />
+              <SkeletonBar className="mt-3 h-3.5 w-[30%]" />
+            </Skeleton>
           )}
           {shown && (
             <div className="px-[18px] pb-4 pt-[18px]">

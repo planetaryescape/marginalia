@@ -2,6 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useQuery } from "convex/react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Skeleton, SkeletonBar } from "@/components/in-place";
 import type { GraphEdge, NodeKind } from "@/lib/idea-kinds";
 import { KIND_LABELS } from "@/lib/idea-kinds";
 import { useShortcuts } from "@/lib/shortcuts";
@@ -158,9 +159,9 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
       </div>
 
       {graph === undefined && (
-        <p role="status" className="text-sm text-[var(--reader-muted)]">
-          Loading your ideas…
-        </p>
+        <Skeleton label="Loading your ideas">
+          <SkeletonBar className="h-[min(60vh,420px)] w-full" />
+        </Skeleton>
       )}
 
       {graph && graph.nodes.length === 0 && (

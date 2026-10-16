@@ -7,7 +7,12 @@ import { toast } from "sonner";
 import { ApiTokens } from "@/components/api-tokens";
 import { FeedSuggestion } from "@/components/feed-suggestion";
 import { FileDrop } from "@/components/file-drop";
-import { ChangeWash, InlineError } from "@/components/in-place";
+import {
+  ChangeWash,
+  InlineError,
+  Skeleton,
+  SkeletonBar,
+} from "@/components/in-place";
 import { ReadwiseCard } from "@/components/readwise-card";
 import { RemoveFeedConfirm } from "@/components/remove-feed-confirm";
 import {
@@ -223,9 +228,17 @@ export default function FeedsPage() {
         </p>
 
         {feeds === undefined && (
-          <p role="status" className="text-sm text-[var(--reader-muted)]">
-            Loading sources…
-          </p>
+          <Skeleton label="Loading sources">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="border-b border-[var(--reader-border)] py-3"
+              >
+                <SkeletonBar className="h-4 w-[40%]" />
+                <SkeletonBar className="mt-2 h-3.5 w-[60%]" />
+              </div>
+            ))}
+          </Skeleton>
         )}
         {feeds && feeds.length === 0 && (
           <p className="text-sm text-[var(--reader-muted)]">

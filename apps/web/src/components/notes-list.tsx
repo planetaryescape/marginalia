@@ -5,7 +5,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
-import { InlineError } from "@/components/in-place";
+import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
 import { KeptTranscript } from "@/components/kept-transcript";
 import { useListKeys } from "@/lib/list-nav";
 import { MODE_LABELS } from "@/lib/margin-answers";
@@ -60,9 +60,18 @@ export function NotesList() {
   return (
     <>
       {groups === undefined && (
-        <p role="status" className="text-sm text-[var(--reader-muted)]">
-          Loading notes…
-        </p>
+        <Skeleton label="Loading notes">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="border-b border-[var(--reader-border)] py-4"
+            >
+              <SkeletonBar className="h-3.5 w-[30%]" />
+              <SkeletonBar className="mt-3 h-4 w-full" />
+              <SkeletonBar className="mt-2 h-4 w-[70%]" />
+            </div>
+          ))}
+        </Skeleton>
       )}
 
       {groups?.length === 0 && (

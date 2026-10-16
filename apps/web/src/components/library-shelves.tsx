@@ -6,7 +6,7 @@ import { Star } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { RATINGS } from "@/components/impression-panel";
-import { InlineError } from "@/components/in-place";
+import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
 import { ConfirmAction } from "@/components/settings-confirm";
 import { navItems, useListKeys } from "@/lib/list-nav";
 import { cn, formatReadTime } from "@/lib/utils";
@@ -61,9 +61,14 @@ function shelfMeta(article: {
 
 function Loading() {
   return (
-    <p role="status" className="py-8 text-sm text-[var(--reader-muted)]">
-      Loading…
-    </p>
+    <Skeleton label="Loading" className="py-4">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="border-b border-[var(--reader-border)] py-3">
+          <SkeletonBar className="h-5 w-[55%]" />
+          <SkeletonBar className="mt-2 h-3.5 w-[30%]" />
+        </div>
+      ))}
+    </Skeleton>
   );
 }
 
