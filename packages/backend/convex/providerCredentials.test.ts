@@ -262,6 +262,8 @@ describe("models from the reader's own providers", () => {
       "openrouter:deepseek/deepseek-v4.1-flash",
       "openrouter:openai/gpt-6-luna",
       "openrouter:google/gemini-3.8-flash",
+      "openrouter:anthropic/claude-sonnet-5.5",
+      "openrouter:~openai/gpt-terra-latest",
       "openai:gpt-6-luna",
       "openai:gpt-6.1-sol",
     ]);
