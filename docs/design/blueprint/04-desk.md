@@ -66,6 +66,22 @@ Three rows: serif title, then one meta line (source · minutes · "annotating" i
 
 The archive action (today's icon button) appears at the row's right on hover and on keyboard focus within the row. It's always visible on touch devices (`apps/web/DESIGN.md`: delete must be reachable by keyboard and touch). Archiving slides the row out (`--motion-move`) and shows the existing Undo toast.
 
+## Topic search: the second way in
+
+Typing a topic into the bar is the second way to the same moment (D-DES-036). It answers one article at a time, like a time choice: the best match, its reading time, and one pencil line on why it matches, with Read now, Another and Save for later.
+
+- **Fast first.** Today the bar waits 600 ms after typing (`article-finder.tsx#L63`), then embeds the question, searches the library and asks a model to rank and explain the matches before showing anything (`http.ts#L488`). The first card comes from the search alone and appears at once; the model's explanation then fills the reason line on that card in place, without replacing the article. S5 measures today's latency and the target.
+- **One at a time.** No list in the bar. The Library room keeps the full list for deliberate browsing (Q16).
+- **With a time chosen,** a topic only offers articles that fit it, and says so when none do (Q14, Q15).
+
+## Bringing your own
+
+Sometimes BK knows exactly what he wants (D-DES-043). The bar takes three things: a topic, a URL (as today, `addArticleByUrl`) and a PDF (dropped on the bar, or picked as a file). An article he brings opens straight away, with the margin showing "Reading alongside you…" while its notes are written. PDF import is new: today the only PDF handling is Readwise sync skipping them (`actions/readwiseSync.ts#L21`). S7 settles extraction.
+
+## Saved gets a boost
+
+Saved is the reading list (D-DES-040). Among articles that fit the window, a saved one wins when it's close, so things BK saved from a margin connection or a link come back to him. A boost never breaks "only what fits" (D-DES-034). Today `suggestions.ts` ignores Saved.
+
 ## Search field
 
 A quiet field-shaped button with the glass icon and "Ask, or paste a link". It opens the floating picker (D-DES-003), which keeps its behaviour. The picker's restyle:

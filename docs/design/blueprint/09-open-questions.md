@@ -10,6 +10,9 @@ For each spike, record what was tried, the result, the date and the conclusion u
 | S2 | Margin layout under load: with every annotation shown as a sidenote, how are collisions resolved at 1280 px and 1440 px, how much reflow and scroll jank does a 100+ paragraph article cause, and does in-flow unfolding on a phone keep the reading place? | Sidenotes are the concept's main bet (D-DES-019, D-DES-026). A crowded or janky margin defeats it. | [03](03-reader.md#the-margin) | Rung 2 |
 | S3 | Does prefetching `suggestions.forWindow` on hover or focus of a time choice bring perceived wait under 150 ms? Is a layout skeleton better than the current loader for the first sign-in load? | Choosing time is the desk's core action. The 2026-10-15 pass measured 0.47–1.1 s per window. | [04](04-desk.md#choosing-time) | Rung 3 |
 | S4 | When scrolled to the end of an article at 1440×900, does the top progress bar reach the end? In the 2026-10-16 audit it stayed at about a fifth of the width after an automated scroll. It may be an artifact of the automation. | If it's real, the finishing moment is broken. If not, no action. | [03](03-reader.md#finishing) | Rung 1 |
+| S5 | How long does topic search take today from the last keystroke to the first result, and how fast can the first card appear from search alone? | The first card must land before BK bounces (D-DES-036). | [04](04-desk.md#topic-search-the-second-way-in) | Rung 3 |
+| S6 | What fingerprint tells cheaply whether anything relevant changed since an article was last annotated, and what does a reading-time pass cost per article? | The pass must cost nothing when nothing changed (D-DES-046). | [03](03-reader.md#reading-alongside) | Rung 2c |
+| S7 | Which PDF text extraction runs in Convex (or beside it) and keeps headings and paragraphs well enough to read and annotate? | PDFs become articles (D-DES-043). | [04](04-desk.md#bringing-your-own) | Rung 3b |
 
 ## Product questions for BK
 
@@ -28,6 +31,10 @@ For each spike, record what was tried, the result, the date and the conclusion u
 | Q11 | Move "Re-annotate with latest vault" into the article's overflow menu? | Answered by BK 2026-10-16: yes (D-DES-029) |
 | Q12 | When you choose a time, should the pick appear on the desk itself instead of on a separate full-screen page? | Answered by BK 2026-10-16: on the desk, in the main slot (D-DES-030) |
 | Q13 | Should Up next leave the desk entirely, so the desk is only the question, the slot and search? Three rows are a small queue, which is what D-DES-033 avoids. | Answered by BK 2026-10-16: remove Up next from the desk; it lives in Library (D-DES-035) |
+| Q14 | With a time chosen, should a topic search offer only articles that fit it? | Open; blueprint assumes yes |
+| Q15 | When no article on a topic fits the time, should it say so and offer the shortest on that topic? | Open; blueprint assumes yes, as for time choices (D-DES-034) |
+| Q16 | Should Library keep the full list of topic matches for deliberate browsing? | Open; blueprint assumes yes |
+| Q17 | In the link menu, are "bookmark" and "add to reader" one action, Save for later into Marginalia's library? | Open; blueprint assumes one action (D-DES-044) |
 
 ### S4 result (2026-10-16)
 

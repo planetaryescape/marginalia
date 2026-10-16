@@ -43,6 +43,7 @@ Notes is your commonplace book: every note and mark you made, grouped by article
  ▍"…most days are cut into pieces too small to return"         ← a highlight, in your highlighter
 ```
 
+- **Only what was kept.** Marginalia's answers appear here only when BK pressed **Keep** (D-DES-045). His own notes and reflections are always here.
 - **Your words lead.** A note is your text in `--type-ui` ink with a 2 px pen-coloured rule. Saved AI answers collapse to one pencil line ("Marginalia's answer · Explain ▸") and expand in place. Today both sit in the same box at the same weight ([01](01-current-state.md#collection-pages-are-boxes-in-two-thirds-of-the-page)).
 - **Highlights and underlines** appear under their article in the reader's highlighter and pen. Today Notes shows only notes, and marks are invisible outside the reader. This makes journey 4 ("Keep this") end somewhere.
 - **No boxes:** articles are separated by space and a hairline. Each note row is the hand's rule, not a card.

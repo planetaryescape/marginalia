@@ -19,7 +19,7 @@
 | A3 | BK answers Q8, Q12 and Q13 (keycaps hidden; the pick on the desk; Up next off the desk) | Rung 3 |
 | A4 | BK answers Q3, Q4 and Q9 (three rooms; settings behind the avatar; GitHub link moves) | Rung 4 |
 
-Spikes from [09](09-open-questions.md): S4 before rung 1, S2 before rung 2, S3 before rung 3, S1 before rung 7.
+Spikes from [09](09-open-questions.md): S4 before rung 1, S2 before rung 2, S6 before rung 2c, S3 and S5 before rung 3, S7 before rung 3b, S1 before rung 7.
 
 ## Rung 1: Skateboard: "My pen is mine again, and the reader gets out of the way"
 
@@ -69,14 +69,48 @@ Spikes from [09](09-open-questions.md): S4 before rung 1, S2 before rung 2, S3 b
 
 **Left out:** Explain, Define and Ask answers move into the margin in rung 2b if the open-in-place card can't take them in this session.
 
+## Rung 2b: "I never leave the page to understand something"
+
+**Previously:** Explain, Simplify, Define and Ask answer in a separate card, every answer is saved to Notes automatically, and links in the article navigate away. The summary leads with the gist and its idea map can tangle.
+**Now:** every tool answers in the margin beside its passage, in pencil, as long as it needs to be. Answers stay while the article is open (including a refresh) and are kept only on **Keep**. A link opens Save for later / Open in background. The summary reads one point, then the short summary, then a legible idea map.
+
+**Promise:** "When I don't know a word or a claim, I find out right here and carry on reading, and nothing is kept unless I choose."
+
+**Build:** [03 Passage menu](03-reader.md#passage-menu), [Links in the article](03-reader.md#links-in-the-article), [Front matter](03-reader.md#front-matter). Answers move into the margin (open-note layout from rung 2). Session-scoped answer storage keyed by article; cleared on leaving the article. **Keep** writes the existing saved-thread record. Reflections keep autosaving. Link menu. Summary reorder, the one point always generated, the idea-map prompt and a layered-graph layout library. The backend changes (answers no longer saved by default; prompt and summary fields) need a snapshot and a backend deploy.
+
+**Design:** comp of an answer in the margin, Keep, the link menu and the summary layers, in Night and Paper at both widths.
+
+**New unknowns:** session storage surviving refresh but not article close; the layout library's size and look.
+
+**Demo:** define a word, read on, refresh, see the definition still there; keep one answer and find it in Notes; close and reopen the article and see the unkept answer gone. Click a link and save it for later without leaving.
+
+**Done when:** no reader tool or article link navigates away on a plain click; unkept answers never reach Notes; the design gate passes.
+
+## Rung 2c: "A critical friend reads with me"
+
+**Previously:** four note kinds, 3–7 notes written once at import, connections only to vault notes, and the pushback mostly at the end.
+**Now:** the margin leans toward pushback, close to balance, with fallacy and the new kinds in three families. Connections reach the whole library with Save for later. Notes are budgeted by density and written as BK reads, only when something has changed since the last pass.
+
+**Promise:** "As I read, something beside me tells me where the argument is strong, where it's weak and what it connects to, and it doesn't waste effort repeating itself."
+
+**Build:** [02 Note kinds](02-design-concept.md#note-kinds), [03 Connections and discovery](03-reader.md#connections-and-discovery), [Reading alongside](03-reader.md#reading-alongside). Schema: new annotation kinds and an article-reference connection; the article's last-annotated time and context fingerprint. The annotation prompt for the families, the lean, density and length. The reading-time pass with change detection (S6). Kind colours with the contrast test. Backend snapshot and deploy.
+
+**Design:** comps of a margin with each family, a connection with Save for later, and the reading-alongside state.
+
+**New unknowns:** S6 (fingerprint and cost); tuning the lean so it reads as fair.
+
+**Demo:** open an article read yesterday with nothing new since: no model call (log). Add a note elsewhere, reopen: only new connections appear ahead. See a fallacy, an assumption and a strong point in the margin.
+
+**Done when:** an unchanged article makes no annotation call on open, measured in logs; every kind renders with its family colour at ≥ 4.5:1 for its label; the design gate passes.
+
 ## Rung 3: Bicycle: "The desk asks one question and answers it"
 
 **Previously:** about twelve equal-weight blocks and nine keycaps. Choosing a time leaves the desk for a differently styled page.
-**Now:** the question, one slot, four numerals, search and three rows. Choosing a time fills the slot with a pick and its reason, usually within 150 ms.
+**Now:** the question, one slot, four numerals and the bar. Choosing a time fills the slot with a pick and its reason, usually within 150 ms.
 
 **Promise:** "I open Marginalia, say how long I've got, and there's the thing to read."
 
-**Build:** [04](04-desk.md) in full: hierarchy, time choices, the pick in the slot (D-DES-028), prefetch on intent (S3), Continue, Up next rows, empty and error states. Keycaps hidden, with the hold-`Alt` overlay and tooltips (D-DES-021). The right-hand column removed.
+**Build:** [04](04-desk.md) in full: hierarchy, time choices, the pick in the slot (D-DES-028), prefetch on intent (S3), Continue with minutes left, no backlog count and no Up next (D-DES-034, D-DES-035), topic search one at a time and fast (D-DES-036, S5), Saved boosted in picks (D-DES-040), empty and error states. Keycaps hidden, with the hold-`Alt` overlay and tooltips (D-DES-021). The right-hand column removed.
 
 **Design:** desk comps at both widths. Key moments: first open, choosing time, empty.
 
@@ -89,6 +123,19 @@ Spikes from [09](09-open-questions.md): S4 before rung 1, S2 before rung 2, S3 b
 - The design gate passes for journeys 1 and 2.
 
 **Left out:** the title morph into the reader (rung 7).
+
+## Rung 3b: "I bring my own"
+
+**Previously:** the bar takes a topic or a URL; PDFs can't be read at all.
+**Now:** drop a PDF on the bar and it opens as an article, with the margin reading alongside.
+
+**Promise:** "When I already know what I want to read, I hand it over and I'm reading."
+
+**Build:** [04 Bringing your own](04-desk.md#bringing-your-own). Upload to Convex storage, text extraction (S7), the article record, annotation. An article you bring opens straight away. Backend snapshot and deploy.
+
+**Demo:** drop a PDF, read it with notes in the margin, find it later in Library.
+
+**Done when:** a text PDF opens readable within seconds, with headings and paragraphs; the design gate passes.
 
 ## Rung 4: Motorbike: "Three rooms"
 

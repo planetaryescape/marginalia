@@ -8,7 +8,9 @@ BK didn't state a concept. The one below is the blueprint's proposal, built on w
 
 Marginalia is the cure for the read-later pile. In Readwise Reader BK landed on "a tonne of articles I need to read and i dn't know where to start" (D-DES-033). Marginalia asks how much time he has and hands him one thing he can finish in it, because "sometimes I just have 5 mins to read and I don't want to start soemthing and then be stopped midway". In his words, it's "a better way to get something to read and read it". The pile exists, but he never has to look at it.
 
-Once he's reading, Marginalia is where he reads things worth reading, with a second voice beside the text. That voice is a well-read friend who knows his notes, has read the article and leaves pencil notes in the margin: "this connects to what you wrote in March", "this claim is contested", "here's the question this raises". He reaches for it when he has a slot of time, five minutes or half an hour, and wants to spend it on something good rather than on a feed.
+He reaches for it three ways: with an amount of time, with a topic he feels like reading about (D-DES-036), or with the thing itself, a link or a PDF (D-DES-043). Each way ends in one article offered with its reading time, never a list.
+
+Once he's reading, Marginalia is where he reads things worth reading, with a second voice beside the text. Its job is to keep him there, reading and reflecting, and to keep him from believing a well-written author too easily (D-DES-037). In his words: "When an article has been selected, the reader should optimise to keep me there and keep me reading and keep me reflecting on this article and it's connections to other things I've read and importantly, help me not be too impressionable by telling me about tensions, counterpoints, showing me logical fallacies, etc. That's why I love that bottom section so much because sometimes when I read an article that's written well, i believe the author too much because of recency bias and just being enamoured about a well written thing." That voice is a well-read friend who knows his notes, has read the article and leaves pencil notes in the margin: "this connects to what you wrote in March", "this claim is contested", "here's the question this raises". He reaches for it when he has a slot of time, five minutes or half an hour, and wants to spend it on something good rather than on a feed.
 
 He doesn't come to manage a queue, configure sources or look at statistics. Those exist so that reading can happen. He leaves wanting to feel two things: *I read that well*, and *I kept something from it*. A highlight, a note or a rating is how the second one happens.
 
@@ -19,7 +21,7 @@ The objects in his head are the ones a reader has always had: a desk, a page, a 
 **Print, pencil and pen.** Three hands write on every page, and each has its own voice:
 
 - **Print** is the author. Newsreader, in ink, at the reader's chosen size and measure. It's the hero, and nothing covers it.
-- **Pencil** is Marginalia. Notes in the margin beside the line they're about, in a smaller sans in a soft graphite tone, with a small coloured dot naming the kind of note. Pencil is quiet, a little lighter than print, and easily ignored. It never shouts over the author.
+- **Pencil** is Marginalia. Notes in the margin beside the line they're about, in a smaller sans in a soft graphite tone, with a small coloured dot naming the kind of note. Pencil is quiet, a little lighter than print, and easily ignored. It never shouts over the author. Its character is a critical friend: it leans toward pushback, close to balance, says where the argument is strong as well as where it is weak, and is exactly as long as it needs to be (D-DES-038, D-DES-042).
 - **Pen** is the reader. Highlights, pen underlines, notes, ratings and reflections, in the colour the reader chose. The pen colour belongs to the reader alone, so their own marks are the most vivid thing on the page.
 
 The material is paper under a reading lamp: warm, matte, still. Paper and Sepia are daylight paper. Night, Dusk and Ink are the same page under a lamp at night, not an inverted screen (D-DES-007). The mood is a quiet library desk with a good book and a good pencil.
@@ -148,6 +150,9 @@ The reader always knows, without asking:
 | Marking a passage | "That's mine now." | The highlighter sweeps left to right across the selection (180 ms) in the reader's colour. A small pen tick appears in the margin at that line. |
 | Asking | "A good answer, beside the text." | The answer writes into the margin card in pencil, beside the passage, with ¶ references that scroll and pulse the paragraph they cite. |
 | Finishing | "Done. That was worth it." | At the end, back matter appears ("Before you go", impression stars). Pressing Done gives a soft page-turn fade back to the desk. The finished article's row slides out of Up next and the next pick slides into the slot. No confetti and no streaks. |
+| Looking something up | "I understood it and kept going." | Define, Explain, Simplify or Ask writes its answer in pencil in the margin beside the passage. Nothing opens elsewhere. The answer stays while the article is open, even across a refresh, and a quiet **Keep** saves it to Notes (D-DES-039, D-DES-045). |
+| A link in the article | "I can follow that later." | Clicking a link opens a small menu with the link's title and domain: **Save for later**, then **Open in background** last. Nothing navigates (D-DES-044). |
+| A connection to another article | "I'll read that one day." | A connection note names the other article with its reading time and offers **Save for later**, never a link. Saved articles come back to you as picks (D-DES-040). |
 | Waiting on model work | "It's working; I can keep reading." | A pencil line writing itself in the margin. Never a spinner on the page and never a blocked page. |
 | Something failed | "I know what happened and what to do." | One sentence in place, in ink, with a small terracotta dot and Retry. The rest of the page keeps working. |
 | Empty (new reader, no sources) | "I know the one step to take." | The desk asks the question anyway. Under it: "Nothing to read yet. Add a source, or paste a link with `/`." One primary button: Add a source. |
@@ -191,6 +196,18 @@ Each theme keeps its existing `--reader-*` values. Two semantic layers are added
 Contrast: `--pencil` must reach 4.5:1 on `--reader-bg` in every theme. Check all six, not only these two. Prose links become ink with an underline in `--pencil-rule`; they turn ink-underlined on hover (D-DES-020).
 
 New readers get `theme: "auto"`, which follows the operating system. That's already the default in `@planetaryescape/reader`.
+
+### Note kinds
+
+Margin notes come in three families, each with one colour family, and the kind's name always shows on the note (D-DES-038):
+
+| Family | Kinds | What it does |
+|---|---|---|
+| Pushback | tension (counterpoint), fallacy, assumption, unsupported, other explanation | Slows premature agreement: a conflict, a reasoning error, an unstated premise, a claim without evidence, another cause that fits the same facts |
+| Support | strong point, crux | Says what survives: where the argument is well made, and the claim the rest depends on |
+| Connection | connection, context, question | Relates the passage to BK's notes and library, adds context he wouldn't have, or asks him something |
+
+The mix leans toward pushback, close to balance. Pushback family colours are the warm end of the existing annotation palette (terracotta), support the sage end, connection the slate and purple. Exact values are set in rung 2c with the contrast test from rung 1.
 
 ### Materials and depth
 

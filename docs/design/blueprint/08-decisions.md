@@ -146,3 +146,52 @@ Change a decision only by adding a new entry that replaces the old one.
 - **BK, 2026-10-16, answering Q13:** remove it from Home.
 - **Why:** a list of what's waiting is the pile in miniature (D-DES-033). The desk is the question, the one pick or Continue, and search. The Up next section in [04](04-desk.md#up-next) now describes the Library shelf's rows, and archiving from them moves with it.
 
+### D-DES-036: Topic search is the second way in, and it answers one article at a time, fast. (BK)
+- **BK, 2026-10-16:** "The othe way of finding what to read is opening the bar and saying the topic I want to read about then I get the articles that I could read (with a clear annotation of reading time). This fits into the philosophy, the problem I have with how it works today is two things: 1: it takes too long to return a result, i might have bounced by then. 2: it still gives me a list after that which can be overwhelming, we should keep the thing from the time selector where the articles are presented to me one by one."
+- **Consequence:** the bar shows one match at a time with its reading time and a reason, like a time choice. The first card comes from the search alone; the model's explanation fills in after. Library keeps the full list ([04](04-desk.md#topic-search-the-second-way-in)).
+
+### D-DES-037: Once an article is open, the reader keeps BK there, reading, reflecting and not too impressionable. (BK)
+- **BK, 2026-10-16:** "When an article has been selected, the reader should optimise to keep me there and keep me reading and keep me reflecting on this article and it's connections to other things I've read and importantly, help me not be too impressionable by telling me about tensions, counterpoints, showing me logical fallacies, etc. That's why I love that bottom section so much because sometimes when I read an article that's written well, i believe the author too much because of recency bias and just being enamoured about a well written thing."
+- **Found:** the reflection prompt already says its job is "to slow down premature agreement" (`generateAnnotations.ts#L112`, origin/main `75a3eae`). The design hadn't put it at the centre.
+
+### D-DES-038: The margin leans toward pushback, close to balance; fallacy is its own kind; kinds come in three families; nothing moves on automatically. (BK; kinds proposed by Claude and agreed)
+- **BK, 2026-10-16:** "margin should lean towards pushbacck but very close to balance. fallacy should be it's own visible kind, you can think of any other kinds that help a piece logically that I havenn't thought of besides falacy. Yes, connections can read articles i dind't mark, it can be a discovery tool as well. No moving on automatically."
+- **Kinds (Claude proposed, BK agreed the families):** pushback (tension, fallacy, assumption, unsupported, other explanation), support (strong point, crux), connection (connection, context, question). Support exists so the pushback is credible.
+- **Option rejected:** one colour per kind. Nine dots can't be told apart at a glance.
+
+### D-DES-039: Stay on the page: every reader tool answers beside the text so BK never leaves to understand something. (BK)
+- **BK, 2026-10-16:** "this app is designed to keep you in the reading page because one of my issues is if for example I see a word I don't know and i go to a dictionary or google for a definition. Something else might catch my attention there and then I don't come back. That's why define is a tool right there and I can see a definition in the margin in context, once I understand, i can carry on reading. same for all the other tools like ask simplify explain etc."
+
+### D-DES-040: A connection can be saved for later but is never a link; Saved is the reading list and is boosted in picks; connections reach the whole library as discovery. (BK)
+- **BK, 2026-10-16:** "A connection can have a add to reading list, things added to reading list get a boost in recommendation. But it doesn't create a link that will take me there because then it contradicts the requirement of keeping me there. So i can be told of a connection and if I like it I click bookmark or whatever and then keep reading. The bookmarks will find me in a next reading session somewhere because they are boosted."
+- **BK:** reading list is the same as today's Saved. Connections can reach articles he didn't mark (D-DES-038).
+- **Rule:** the boost never breaks "only what fits" (D-DES-034).
+
+### D-DES-041: Marginalia reads alongside: a second annotation pass runs as BK reads, ahead of where he is. (BK)
+- **BK, 2026-10-16:** "would be nice if like you said, the thing reads with me like you were just saying as I read it's looking at the article and parts I haven't gotten to and annotating. I think the limit of 3 - 7 that I gace was too limiting so we should increase it without making the annotations overwhelming. Also the ai answers and annotations should be just as long as they need to be and no more so that they don't end up being another distraction."
+
+### D-DES-042: Notes are budgeted by density, not a fixed 3–7, and every note and answer is as long as it needs to be. (BK)
+- **BK, 2026-10-16:** "the limit of 3 - 7 that I gace was too limiting" and answers "should be just as long as they need to be and no more" (D-DES-041).
+
+### D-DES-043: Bring your own: the bar takes a topic, a URL or a PDF, and what BK brings opens straight away. (BK)
+- **BK, 2026-10-16:** "Sometimes I know exactly what I want to read. i come with an article url (that's why the search box can also take a URL) we also need to support PDF upload, if I come with a pdf upload."
+- **New capability:** PDF import doesn't exist today. Flagged once under BK's product discipline; his words are the need.
+
+### D-DES-044: A link in the article offers choices and never navigates on a plain click. (BK)
+- **BK, 2026-10-16:** "When there's genuine link to elsewhere in the body of the article, clicking it shouldnt' automatically send me off. it should offer me choices. something like bookmark, add to reader, and open as the last choice and even then it opens in a new tab in the background, it doesnt' immediately take me there."
+- **Assumed (Q17):** "bookmark" and "add to reader" are one action, Save for later, which imports the page into Marginalia's library as Saved.
+
+### D-DES-045: Marginalia's answers are temporary until BK keeps them; his own writing saves automatically. (BK)
+- **BK, 2026-10-16:** "Don't auto save things I ask or define etc. sometimes they are just ephemeral and I don't want to keep them. i want to choose intentionally when to persist something to my notes. But if there's an annotation and then I add my reflections. You should save that automatically."
+- **BK, on how long:** "you can keep them as long the article is still open, even when i refresh, because I cold ask something read on and then be like what was that again, I shouldn't have to run another quiery. it only disappears if I close the article."
+- **Replaces** today's behaviour, where every finished answer is saved (`companion.ts#L204`).
+
+### D-DES-046: The reading-time pass runs only when something relevant has changed since the last one. (BK)
+- **BK, 2026-10-16:** "Keep when the article was last read and now many new things came in after that. No need to reread an article everytime if maybe it was last read yesterday or my notes and articles and references haven't changed at all. It's just wasting tokens at that point."
+
+### D-DES-047: The summary reads in order of increasing detail: the one point, the short summary, the idea map. (BK)
+- **BK, 2026-10-16:** "The summarise this article for me should order things in progressive complexity. So “the one point” is first, soemtimes I can read that and I can already decide whether I want to read this or not. Sometimes after reading that I can still be like I want to know more, in which case the little summary blurb is the next thing i read. And then the idea map."
+
+### D-DES-048: The idea map is designed for legibility, by the prompt and by a crossing-minimising layout. (BK)
+- **BK, 2026-10-16:** "The idea map in te summarise this article at the top is great but the connections sometimes cross each other in a confusing way and all that. Basicallly that little diagram could look better because for long complex articles it can get noisy, prompt the model to pay attention to the design of that idea map."
+- **Found:** today's layout is longest-path layering with one ordering pass (`idea-map.tsx#L61-L112`), which leaves crossings.

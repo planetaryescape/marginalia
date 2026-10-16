@@ -24,6 +24,7 @@ Related docs outside this folder: [apps/web/DESIGN.md](../../../apps/web/DESIGN.
 
 ## Summary
 
+- **Why:** the pile makes reading triage. Marginalia offers one thing you can finish, by time, topic or what you bring, then keeps you on the page with a critical friend in the margin (D-DES-033, D-DES-036, D-DES-037).
 - **Concept:** "Print, pencil and pen". The author speaks in print, Marginalia in pencil in the margin, and the reader in their own pen colour (D-DES-018, Q1).
 - **Margin:** on wide screens, margin notes are quiet sidenotes beside their line, without a click. On phones they unfold in the flow (D-DES-019, D-DES-026).
 - **Colour:** the pen colour belongs to the reader's marks only. Chrome is ink (D-DES-020).

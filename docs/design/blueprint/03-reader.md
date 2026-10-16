@@ -90,7 +90,15 @@ Phones keep today's bottom bar, renamed to the glossary: **Ask · Notes · Liste
 
 ## Front matter
 
-"Summarize this article" stays above the text as one quiet line, not a bordered card: "Summary, key claims and a map, before you start →" in `--type-pencil`. Opening it expands the summary and idea map in place, in pencil, above the text. It never covers the text.
+"Summarize this article" stays above the text as one quiet line, not a bordered card: "Summary, key claims and a map, before you start →" in `--type-pencil`. Opening it expands in place, in pencil, above the text. It never covers the text.
+
+It reads in order of increasing detail, so BK can stop at any layer (D-DES-047):
+
+1. **The one point:** one sentence. Often enough to decide whether to read on. Always present; today `thesis` is optional in `summaries` and shown second, after the gist (`summary-panel.tsx`, origin/main `67798dc`).
+2. **The short summary** (today's `gist`).
+3. **The idea map.**
+
+The idea map is designed, not just generated (D-DES-048). The model is told to keep it legible: about seven ideas at most, built mostly as a tree toward the conclusion, few cross-links, and nothing that adds lines without adding understanding. Layout uses a layered-graph library with crossing minimisation (dagre or elkjs) instead of today's single ordering pass (`idea-map.tsx#L61-L112`), and runs top-down when the map is long.
 
 ## Passage menu
 
@@ -98,7 +106,33 @@ The menu keeps its actions (Ask, Explain, Simplify, Define, Highlight, Underline
 
 - **Order by hand:** first the pen actions that mark the page (Highlight, Underline, Note), then a hairline, then the pencil actions that ask Marginalia (Explain, Simplify, Define, Ask), then Copy.
 - **Highlight:** sweeps the selection (`--motion-sweep`) and adds a pen tick in the margin.
-- **Explain, Simplify, Define and Ask:** each opens its answer as an open note in the margin beside the passage (on phones, in the flow below it), not in a separate panel. Answers write in pencil as they stream. ¶ references in an answer are links that scroll to and briefly wash the cited paragraph.
+- **Explain, Simplify, Define and Ask:** each opens its answer as an open note in the margin beside the passage (on phones, in the flow below it), not in a separate panel. Answers write in pencil as they stream. ¶ references in an answer are links that scroll to and briefly wash the cited paragraph. These tools exist so BK never leaves the page to understand something (D-DES-039).
+- **Answers are temporary until kept.** An answer stays in the margin while the article is open, including across a refresh, and disappears when the article is closed. **Keep** on the answer saves it to Notes. A follow-up doesn't keep it. Today every finished answer is saved automatically (`apps/web/src/lib/companion.ts#L204`); that changes (D-DES-045).
+- **Length:** an answer is as long as it needs to be and no longer. A definition is a line; an explanation a short paragraph; Ask runs longer only when the question needs it (D-DES-042).
+
+## Links in the article
+
+A link in the article never navigates on click (D-DES-044). It opens a small `.reader-menu` beside the link with the link's title (when known) and domain, then:
+
+1. **Save for later:** imports the page into the library as Saved, which boosts it in picks (D-DES-040).
+2. **Open in background:** last, and it opens a new tab without focusing it.
+
+Modifier-click (⌘ or Ctrl) keeps the browser's own new-tab behaviour for people who reach for it deliberately.
+
+## Connections and discovery
+
+A connection note can point at an article in the library, read or unread, not only at a vault note (D-DES-040). Today a `cross_reference` must cite a vault note (`generateAnnotations.ts#L101`). A connection to an article shows that article's title and reading time and one action, **Save for later**. It is never a link, because following it would leave the page. Saved articles get a boost when picks are made, so the connection finds BK in a later session.
+
+## Reading alongside
+
+Annotation runs in two passes (D-DES-041):
+
+- **On import,** as today (`actions/extractArticle.ts#L113`): the whole article, so the desk can offer it.
+- **While reading:** when BK opens the article, and as he moves through it, Marginalia looks at the part ahead of him with what he has done so far (highlights, questions, notes) and adds notes there. The "Reading alongside you…" line marks where it's working.
+
+The second pass runs only when something has changed (D-DES-046). Each article records when it was last annotated and a fingerprint of what the margin drew on: BK's notes and marks, the library articles it connected to, and the vault. On open, if nothing relevant has arrived since, the margin is current and no model call is made. If something has, only the new material and the passages ahead are annotated; existing notes stay where they are, so the margin never reshuffles under him.
+
+Density replaces the fixed count (D-DES-042). Today the prompt asks for 3–7 notes and the code caps at 10 (`lib/constants.ts#L10`). The new budget is per length of text (for example, on average at most one note per screen of text), with the S2 layout rules keeping crowded passages calm.
 
 ## Ask about this article
 
@@ -119,6 +153,8 @@ The end of the article is back matter, in this order:
 1. **"Before you go":** keep today's four prompts (strongest point, weakest assumption, counterview, question for you), in pencil, without circled glyph icons.
 2. **Your impression:** stars with labels (D-DES-005), tags as quiet chips, "What stayed with you?" as a borderless field with a hairline under it.
 3. **Done:** the single primary button of the back matter, solid ink.
+
+Nothing moves on automatically (D-DES-038). The back matter is a pause for reflection; BK leaves when he chooses. A reflection he writes on an annotation or in "What stayed with you?" saves automatically, because it's his own writing (D-DES-045).
 
 Pressing Done marks the article finished:
 
