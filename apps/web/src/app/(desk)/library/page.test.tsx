@@ -27,6 +27,7 @@ vi.mock("convex/react", () => ({
               _id: "a1",
               title: "A saved piece",
               estimatedReadMinutes: 9,
+              annotationStatus: "pending",
             },
           },
         ];
@@ -80,6 +81,12 @@ describe("Library shelves", () => {
     expect(html).toContain('href="/library?shelf=saved" aria-current="page"');
     expect(html).toContain("A saved piece");
     expect(html).not.toContain("A finished piece");
+  });
+
+  it("says annotating in a row's meta while its notes are still being written", () => {
+    shelf.value = "saved";
+    const html = renderToStaticMarkup(<LibraryPage />);
+    expect(html).toContain("9 min read · annotating");
   });
 
   it("shows ratings as stars in the pen colour, not squares", () => {

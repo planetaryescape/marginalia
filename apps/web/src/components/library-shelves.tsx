@@ -41,6 +41,21 @@ const rowClass =
 const titleClass =
   "block font-serif text-[17px] sm:text-[18px] leading-snug hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4";
 
+/** Author and length, plus "annotating" while the margin notes are still being written. */
+function shelfMeta(article: {
+  author?: string;
+  estimatedReadMinutes?: number;
+  annotationStatus?: string;
+}) {
+  return [
+    article.author,
+    formatReadTime(article.estimatedReadMinutes),
+    article.annotationStatus === "pending" ? "annotating" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function Loading() {
   return (
     <p role="status" className="py-8 text-sm text-[var(--reader-muted)]">
@@ -75,9 +90,7 @@ export function SavedShelf() {
                 {article.title}
               </Link>
               <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)]">
-                {[article.author, formatReadTime(article.estimatedReadMinutes)]
-                  .filter(Boolean)
-                  .join(" · ")}
+                {shelfMeta(article)}
               </span>
             </div>
             <button
@@ -122,12 +135,7 @@ export function LovedShelf() {
                 {item.article.title}
               </Link>
               <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)]">
-                {[
-                  item.article.author,
-                  formatReadTime(item.article.estimatedReadMinutes),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+                {shelfMeta(item.article)}
               </span>
             </div>
           </li>
