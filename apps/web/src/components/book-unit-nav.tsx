@@ -41,7 +41,7 @@ export function BookUnitNav({
       {next ? (
         <Link
           href={href(unitIndex + 1)}
-          className="group mt-3 block rounded-xl bg-[var(--reader-surface)] px-5 py-4 ring-1 ring-[var(--reader-border)] hover:ring-[var(--reader-border-strong)]"
+          className="group mt-3 block rounded-lg bg-[var(--reader-surface)] px-5 py-4 ring-1 ring-[var(--reader-border)] hover:ring-[var(--reader-border-strong)]"
         >
           <span className="block text-[12.5px] text-[var(--ink-muted)]">
             Next part · {next.minutes} min

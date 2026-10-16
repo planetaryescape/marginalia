@@ -226,7 +226,7 @@ export function AnnotationCard({
 
   const footer = (
     <form
-      className="mx-3 mb-3 mt-1 flex items-end gap-2 rounded-xl bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--card-accent)]"
+      className="mx-3 mb-3 mt-1 flex items-end gap-2 rounded-lg bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--card-accent)]"
       onSubmit={(e) => {
         e.preventDefault();
         submit();

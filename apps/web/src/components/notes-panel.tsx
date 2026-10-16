@@ -267,7 +267,7 @@ export function NotesPanel({
           animate={{ x: 0, y: 0 }}
           exit={isPhone() ? { y: "100%" } : { x: "100%" }}
           transition={{ type: "spring", damping: 25, stiffness: 250 }}
-          className="fixed z-50 flex flex-col overflow-y-auto bg-[var(--reader-bg)] text-[var(--reader-fg)] shadow-2xl shadow-black/20 outline-none border-[var(--reader-border)] pb-[env(safe-area-inset-bottom)] inset-x-0 bottom-0 h-[calc(var(--app-viewport-height)*0.55)] rounded-t-2xl border-t sm:inset-x-auto sm:right-0 sm:bottom-auto sm:top-[var(--app-viewport-top)] sm:h-[var(--app-viewport-height)] sm:w-[380px] sm:rounded-none sm:border-t-0 sm:border-l sm:pt-[env(safe-area-inset-top)]"
+          className="fixed z-50 flex flex-col overflow-y-auto bg-[var(--reader-bg)] text-[var(--reader-fg)] shadow-2xl shadow-black/20 outline-none border-[var(--reader-border)] pb-[env(safe-area-inset-bottom)] inset-x-0 bottom-0 h-[calc(var(--app-viewport-height)*0.55)] rounded-t-lg border-t sm:inset-x-auto sm:right-0 sm:bottom-auto sm:top-[var(--app-viewport-top)] sm:h-[var(--app-viewport-height)] sm:w-[380px] sm:rounded-none sm:border-t-0 sm:border-l sm:pt-[env(safe-area-inset-top)]"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--reader-border)]">

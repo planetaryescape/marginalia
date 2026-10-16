@@ -947,14 +947,14 @@ export default function ReadPage() {
         )}
       </nav>
       {doneError && (
-        <div className="fixed z-40 left-3 right-3 bottom-20 rounded-xl bg-[var(--reader-surface)] p-3 text-sm font-sans ring-1 ring-[var(--reader-border)] sm:hidden">
+        <div className="fixed z-40 left-3 right-3 bottom-20 rounded-lg bg-[var(--reader-surface)] p-3 text-sm font-sans ring-1 ring-[var(--reader-border)] sm:hidden">
           {doneError}
         </div>
       )}
       {saveError && (
         <div
           role="status"
-          className="fixed z-40 left-3 right-3 bottom-20 rounded-xl bg-[var(--reader-surface)] p-3 text-sm font-sans ring-1 ring-[var(--reader-border)]"
+          className="fixed z-40 left-3 right-3 bottom-20 rounded-lg bg-[var(--reader-surface)] p-3 text-sm font-sans ring-1 ring-[var(--reader-border)]"
         >
           Reading activity is waiting to sync.{" "}
           <button

@@ -66,7 +66,7 @@ export function FileDrop({
       aria-hidden
       className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] p-6"
     >
-      <div className="rounded-xl border-[1.5px] border-dashed border-[var(--reader-border-strong)] px-10 py-9 text-center sm:px-[70px] sm:py-[46px]">
+      <div className="rounded-lg border-[1.5px] border-dashed border-[var(--reader-border-strong)] px-10 py-9 text-center sm:px-[70px] sm:py-[46px]">
         <p className="font-serif text-[26px] leading-tight sm:text-[30px]">
           {title}
         </p>

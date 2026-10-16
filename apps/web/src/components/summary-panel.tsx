@@ -199,7 +199,7 @@ export function SummaryPanel({
       className={cn(
         "mb-10 overflow-hidden font-sans",
         state !== "idle" &&
-          "rounded-xl ring-1 ring-[var(--reader-border)] bg-[var(--reader-surface)]",
+          "rounded-lg ring-1 ring-[var(--reader-border)] bg-[var(--reader-surface)]",
       )}
     >
       <AnimatePresence mode="popLayout" initial={false}>

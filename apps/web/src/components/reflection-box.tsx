@@ -153,7 +153,7 @@ export function ReflectionBox({ reflection, flushRef }: ReflectionBoxProps) {
           }}
           onBlur={() => void flush()}
           placeholder="Your thoughts (optional)"
-          className="w-full p-4 rounded-xl border border-[var(--reader-border-strong)] bg-[var(--reader-surface)] text-[var(--reader-fg)] font-sans text-sm placeholder:text-[var(--reader-muted)] focus:outline-none focus:border-[var(--ink-muted)] resize-none"
+          className="w-full p-4 rounded-lg border border-[var(--reader-border-strong)] bg-[var(--reader-surface)] text-[var(--reader-fg)] font-sans text-sm placeholder:text-[var(--reader-muted)] focus:outline-none focus:border-[var(--ink-muted)] resize-none"
           rows={3}
         />
       </div>

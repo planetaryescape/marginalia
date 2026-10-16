@@ -53,7 +53,7 @@ export function ArticleRenderer({
           prose-code:text-sm prose-code:bg-[var(--reader-chip)]
           prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded
           prose-code:before:content-none prose-code:after:content-none
-          prose-pre:rounded-xl prose-pre:overflow-x-auto
+          prose-pre:rounded-lg prose-pre:overflow-x-auto
           prose-pre:border prose-pre:border-[var(--reader-border)]
           prose-img:rounded-lg prose-img:my-8
           prose-li:leading-[1.7]"

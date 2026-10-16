@@ -227,7 +227,7 @@ function ToggleTile({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "flex items-center justify-center gap-2 h-10 rounded-xl text-[13px] font-medium transition-colors border",
+        "flex items-center justify-center gap-2 h-10 rounded-lg text-[13px] font-medium transition-colors border",
         active
           ? "bg-[var(--reader-chip)] text-[var(--ink)] border-[var(--reader-border-strong)]"
           : "border-[var(--reader-border)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]",
@@ -440,7 +440,7 @@ export function ReaderSettingsPanel({
                         aria-pressed={active}
                         onClick={() => update({ typeface: face.id })}
                         className={cn(
-                          "flex flex-col items-center justify-center h-[62px] rounded-xl border transition-colors",
+                          "flex flex-col items-center justify-center h-[62px] rounded-lg border transition-colors",
                           active
                             ? "border-[var(--reader-fg)] bg-[var(--reader-chip)]"
                             : "border-[var(--reader-border)] hover:bg-[var(--reader-chip)]",
@@ -576,7 +576,7 @@ export function ReaderSettingsPanel({
                         aria-pressed={active}
                         onClick={() => update({ dropCap: option.id })}
                         className={cn(
-                          "flex flex-col items-center justify-center h-[62px] rounded-xl border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
+                          "flex flex-col items-center justify-center h-[62px] rounded-lg border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
                           active
                             ? "border-[var(--reader-fg)] bg-[var(--reader-chip)]"
                             : "border-[var(--reader-border)] hover:bg-[var(--reader-chip)]",

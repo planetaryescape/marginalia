@@ -226,7 +226,7 @@ export function ArticleAsk({
                     align="end"
                     sideOffset={10}
                     collisionPadding={12}
-                    className="reader-popover z-50 w-[320px] max-h-[50vh] overflow-y-auto rounded-xl p-1.5 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
+                    className="reader-popover z-50 w-[320px] max-h-[50vh] overflow-y-auto rounded-lg p-1.5 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
                   >
                     <p className="px-2.5 pt-1.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
                       Earlier questions
