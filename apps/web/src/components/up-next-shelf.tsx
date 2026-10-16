@@ -37,11 +37,9 @@ export function UpNextShelf() {
 
   if (!overview || overview.upNext.length === 0) return null;
   return (
-    <section aria-label="Up next" className="mt-14">
-      <h2 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--reader-muted)]">
-        Up next
-      </h2>
-      <ul className="mt-3 border-t border-[var(--reader-border)]">
+    // The shelf tab above already names it, so no heading of its own
+    <section aria-label="Up next" className="mt-6">
+      <ul className="border-t border-[var(--reader-border)]">
         <AnimatePresence initial={false}>
           {overview.upNext.map((article) => (
             <motion.li

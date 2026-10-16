@@ -129,7 +129,7 @@ function Librarian() {
         transition={{ duration: 0.55, ease: EASE }}
         className="font-serif font-light tracking-tight leading-[1.05] text-[clamp(2.25rem,5vw,3.75rem)]"
       >
-        Ask your library
+        What are you looking for?
       </motion.h1>
       <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-[var(--reader-fg-soft)]">
         Find something you half-remember, recall what you thought of it, or pick
