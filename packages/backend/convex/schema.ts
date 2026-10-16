@@ -192,8 +192,8 @@ export default defineSchema({
   })
     .index("by_article", ["articleId"])
     .index("by_user", ["userId"])
-    // Which annotations point at a vault note, for the idea graph
-    .index("by_note_chunk", ["noteChunkId"]),
+    // Which annotations point at a vault note, by its file so reindexing keeps them (idea graph)
+    .index("by_user_note_path", ["userId", "notePath"]),
 
   // The reader's topic vocabulary (blueprint 02, Tags). A candidate stays
   // hidden until it recurs on enough articles.

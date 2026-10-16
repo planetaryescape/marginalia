@@ -3,7 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type GraphEdge, KIND_LABELS } from "@/lib/idea-kinds";
 import { readLink } from "@/lib/notes-groups";
@@ -245,11 +245,9 @@ type Explained =
 export function EdgePanel({
   edge,
   labels,
-  cache,
 }: {
   edge: GraphEdge;
   labels: Map<string, string>;
-  cache: RefObject<Map<string, string>>;
 }) {
   const explain = useAction(api.actions.explainIdeaEdge.explain);
   const link = useMutation(api.ideaLinks.link);
@@ -262,18 +260,12 @@ export function EdgePanel({
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` re-runs the request after a failure
   useEffect(() => {
     if (!edge.needsAi) return;
-    const known = cache.current.get(edge.id);
-    if (known) {
-      setExplained({ status: "done", reason: known });
-      return;
-    }
     let live = true;
     setExplained({ status: "loading" });
     explain({ a: edge.a, b: edge.b })
       .then((result) => {
         if (!live) return;
         if (result.source === "generated") {
-          cache.current.set(edge.id, result.reason);
           setExplained({ status: "done", reason: result.reason });
         } else
           setExplained({
@@ -291,7 +283,7 @@ export function EdgePanel({
     return () => {
       live = false;
     };
-  }, [edge.id, edge.a, edge.b, edge.needsAi, explain, cache, attempt]);
+  }, [edge.id, edge.a, edge.b, edge.needsAi, explain, attempt]);
 
   return (
     <div aria-live="polite">

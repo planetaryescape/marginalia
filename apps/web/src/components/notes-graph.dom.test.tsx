@@ -10,11 +10,14 @@ const mocks = vi.hoisted(() => ({
   search: [] as unknown[],
   similar: vi.fn(async () => [] as string[]),
   write: vi.fn(),
+  graphArgs: [] as unknown[],
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: (ref: string, args: unknown) =>
-    args === "skip" ? undefined : (mocks as never)[ref],
+  useQuery: (ref: string, args: unknown) => {
+    if (ref === "graph") mocks.graphArgs.push(args);
+    return args === "skip" ? undefined : (mocks as never)[ref];
+  },
   useAction: (ref: string) => (mocks as never)[ref],
   useMutation: (ref: string) => (mocks as never)[ref],
 }));
@@ -136,6 +139,8 @@ describe("Notes as a map", () => {
       prompt: undefined,
     });
     expect(host.textContent).toContain("Saved. Your note is on the map.");
+    // The map is asked to keep the new note on it
+    expect(mocks.graphArgs.at(-1)).toMatchObject({ pin: "note:new" });
   });
 
   it("opens an article as its title and one point, with a link to read it", async () => {

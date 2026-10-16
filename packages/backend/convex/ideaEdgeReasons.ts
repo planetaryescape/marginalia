@@ -2,6 +2,7 @@
 // server, and the generated sentence cached per reader until either text changes.
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./functions";
+import { DEFAULT_USER_ID } from "./lib/constants";
 import { pairFingerprint, pairKey, snippet } from "./lib/ideaGraph";
 import { articleTitle, type LoadedNode, loadNode } from "./lib/ideaNodes";
 import { pairReasons } from "./lib/ideaSignals";
@@ -57,12 +58,16 @@ export const saveReason = internalMutation({
     model: v.string(),
   },
   handler: async (ctx, args) => {
-    // The action runs for a while: a library deleted meanwhile must stay empty
-    const reader = await ctx.db
-      .query("readers")
-      .withIndex("by_libraryId", (q) => q.eq("libraryId", args.userId))
-      .first();
-    if (reader && (reader.status !== "active" || reader.deletingAt)) return;
+    // The action runs for a while: a library deleted meanwhile must stay
+    // empty, and once the purge has removed its reader row nothing is left to
+    // vouch for it. Only the owner's library has no reader row.
+    if (args.userId !== DEFAULT_USER_ID) {
+      const reader = await ctx.db
+        .query("readers")
+        .withIndex("by_libraryId", (q) => q.eq("libraryId", args.userId))
+        .first();
+      if (!reader || reader.status !== "active" || reader.deletingAt) return;
+    }
     const existing = await ctx.db
       .query("edgeReasons")
       .withIndex("by_user_pair", (q) =>

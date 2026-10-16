@@ -30,6 +30,8 @@ export async function loadNode(
   userId: string,
   key: string,
   budget: ReadBudget = UNLIMITED,
+  // The key was derived from the reader's own ideas, not typed by the client
+  trusted = false,
 ): Promise<LoadedNode | null> {
   const ref = parseKey(key);
   if (!ref || budget.allow(1) === 0) return null;
@@ -87,7 +89,11 @@ export async function loadNode(
     }
     case "article": {
       const id = db.normalizeId("articles", ref.id);
-      const row = id && (await db.get("articles", id));
+      if (!id) return null;
+      if (!budget.mayReadArticle)
+        return articleFromSummary(ctx, userId, id, key, budget, trusted);
+      budget.spendArticle();
+      const row = await db.get("articles", id);
       if (!row || row.userId !== userId) return null;
       return {
         key,
@@ -100,9 +106,15 @@ export async function loadNode(
       };
     }
     case "vault": {
-      const id = db.normalizeId("noteChunks", ref.id);
-      const row = id && (await db.get("noteChunks", id));
-      if (!row || row.userId !== userId) return null;
+      // A vault idea is its file, so it survives the file being reindexed
+      // (which replaces its chunks); the first chunk stands for it now
+      const row = await db
+        .query("noteChunks")
+        .withIndex("by_user_file", (q) =>
+          q.eq("userId", userId).eq("filePath", ref.id),
+        )
+        .first();
+      if (!row) return null;
       return {
         key,
         kind: "vault",
@@ -116,14 +128,50 @@ export async function loadNode(
   }
 }
 
+/**
+ * An article read from its summary instead of itself, once the whole-article
+ * reads of this query are spent (see ARTICLE_READS). The summary is small and
+ * carries the reader's id, which proves the article is theirs; without one, an
+ * article the graph itself derived from the reader's own ideas is still shown,
+ * as plain "An article".
+ */
+async function articleFromSummary(
+  ctx: Db,
+  userId: string,
+  articleId: Id<"articles">,
+  key: string,
+  budget: ReadBudget,
+  trusted: boolean,
+): Promise<LoadedNode | null> {
+  const [summary] = await budget.take(1, (limit) =>
+    ctx.db
+      .query("summaries")
+      .withIndex("by_article", (q) => q.eq("articleId", articleId))
+      .take(limit),
+  );
+  const owned = summary?.userId === userId;
+  if (!owned && !trusted) return null;
+  const point = owned ? summary.thesis || summary.gist : "";
+  return {
+    key,
+    kind: "article",
+    id: articleId,
+    articleId,
+    label: point ? snippet(point, 70) : "An article",
+    text: point || "An article in your library",
+    createdAt: owned ? summary.createdAt : 0,
+  };
+}
+
 export async function articleTitle(
   ctx: Db,
   userId: string,
   articleId: Id<"articles">,
   budget: ReadBudget = UNLIMITED,
 ): Promise<string | null> {
-  if (budget.allow(1) === 0) return null;
-  budget.spend(1);
+  // Past the whole-article reads this query may make, reasons just say "Same article"
+  if (!budget.mayReadArticle) return null;
+  budget.spendArticle();
   const article = await ctx.db.get("articles", articleId);
   return article && article.userId === userId ? article.title : null;
 }
@@ -145,10 +193,12 @@ export async function linkRow(ctx: Db, userId: string, a: string, b: string) {
 export async function articleFor(ctx: Db, userId: string, from: LoadedNode) {
   if (from.articleId) return from.articleId;
   if (from.kind !== "vault") return null;
+  if (!from.filePath) return null;
+  const filePath = from.filePath;
   const rows = await ctx.db
     .query("annotations")
-    .withIndex("by_note_chunk", (q) =>
-      q.eq("noteChunkId", from.id as Id<"noteChunks">),
+    .withIndex("by_user_note_path", (q) =>
+      q.eq("userId", userId).eq("notePath", filePath),
     )
     .order("desc")
     .take(5);

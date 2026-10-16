@@ -55,9 +55,10 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     keys: string[];
   } | null>(null);
   const [addedKey, setAddedKey] = useState<string | null>(null);
+  // The note just written, asked to be on the map whatever else is near it
+  const [pinned, setPinned] = useState<string | undefined>();
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const reasonCache = useRef(new Map<string, string>());
   const [stageRef, stageWidth] = useWidth(770);
 
   const findSimilar = useAction(api.actions.ideaNeighbours.similar);
@@ -70,6 +71,7 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
       similar && similar.for === (centre ?? resolved)
         ? similar.keys
         : undefined,
+    pin: pinned,
   });
   const graph = useLatest(live);
   const graphCentre = graph?.centre ?? undefined;
@@ -104,6 +106,7 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
 
   function open(key: string) {
     setCentre(key);
+    setPinned(undefined);
     setPanel({ kind: "node" });
     setFocusKey(key);
     setSaved(false);
@@ -212,13 +215,14 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
                   onCancel={() => setPanel({ kind: "node" })}
                   onSaved={(key) => {
                     setAddedKey(key);
+                    setPinned(key);
                     setSaved(true);
                     setPanel({ kind: "node" });
                   }}
                 />
               )}
               {panel.kind === "edge" && edge && (
-                <EdgePanel edge={edge} labels={labels} cache={reasonCache} />
+                <EdgePanel edge={edge} labels={labels} />
               )}
             </aside>
           )}

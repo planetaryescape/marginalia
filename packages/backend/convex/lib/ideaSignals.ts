@@ -165,14 +165,17 @@ export async function gatherCandidates(
 ) {
   const found = new Candidates(centre.key);
 
-  for (const key of await linkedKeys(
+  // Newest first, and each a little below the one before, so the idea just
+  // written beside the centre outranks older links however many there are
+  const linked = await linkedKeys(
     ctx,
     userId,
     centre.key,
     LINKS_PER_NODE,
     budget,
-  ))
-    found.add(key, linkedReason());
+  );
+  for (const [rank, key] of linked.entries())
+    found.add(key, linkedReason(), SIGNAL_SCORE.linked - rank * 0.5);
 
   similar.forEach((key, rank) => {
     const reason = similarityReason();
@@ -204,9 +207,9 @@ export async function gatherCandidates(
       articleId,
       budget,
     )) {
-      if (row.noteChunkId)
+      if (row.notePath)
         found.add(
-          nodeKey("vault", row.noteChunkId),
+          nodeKey("vault", row.notePath),
           connectionReason("this article to this vault note"),
         );
       else if (row.articleRefId) {
@@ -256,11 +259,12 @@ export async function gatherCandidates(
           found.add(key, tagReason(tag.name));
     }
   } else if (centre.kind === "vault") {
+    const filePath = centre.filePath ?? "";
     const rows = await budget.take(5, (limit) =>
       ctx.db
         .query("annotations")
-        .withIndex("by_note_chunk", (q) =>
-          q.eq("noteChunkId", centre.id as Id<"noteChunks">),
+        .withIndex("by_user_note_path", (q) =>
+          q.eq("userId", userId).eq("notePath", filePath),
         )
         .take(limit),
     );
@@ -309,15 +313,22 @@ export async function pairReasons(
     for (const tag of tagsA)
       if (shared.has(tag._id)) reasons.push(tagReason(tag.name));
   }
+  // A connection is written on one article but joins both ends, so look from each side
   for (const [mine, other] of [
     [a, b],
     [b, a],
   ] as const) {
-    if (mine.articleId && other.kind === "vault") {
-      const rows = await connectionsOnArticle(ctx, userId, mine.articleId);
-      if (rows.some((row) => row.noteChunkId === other.id))
+    if (!mine.articleId) continue;
+    const rows = await connectionsOnArticle(ctx, userId, mine.articleId);
+    if (other.kind === "vault") {
+      if (rows.some((row) => row.notePath === other.filePath))
         reasons.push(connectionReason("this article to this vault note"));
+    } else if (other.articleId && other.articleId !== mine.articleId) {
+      if (rows.some((row) => row.articleRefId === other.articleId))
+        reasons.push(connectionReason("these two articles"));
     }
   }
-  return reasons;
+  return reasons.filter(
+    (reason, i) => reasons.findIndex((r) => r.text === reason.text) === i,
+  );
 }

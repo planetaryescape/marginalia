@@ -5,7 +5,14 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { buildGraph } from "./ideaGraph";
-import { GRAPH_READ_BUDGET, MAX_NODES, nodeKey } from "./lib/ideaGraph";
+import {
+  ARTICLE_READS,
+  GRAPH_READ_BUDGET,
+  MAX_NODES,
+  nodeKey,
+  ReadBudget,
+} from "./lib/ideaGraph";
+import { loadNode } from "./lib/ideaNodes";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -15,6 +22,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
+
+/** A vault idea is keyed by its file, so it outlives reindexing. */
+const vaultNode = (name: string) => nodeKey("vault", `vault/${name}.md`);
 
 let tick = 1_000;
 function addArticle(ctx: MutationCtx, userId: string, title: string) {
@@ -112,30 +122,60 @@ const reasonsOf = (
     .filter((e) => e.a === key || e.b === key)
     .flatMap((e) => e.reasons.map((r) => r.type));
 
-/** Wraps a db so every document a read returns is counted, however the query is built. */
+/**
+ * Wraps a db so every document a read returns is counted, with its size and
+ * the table it came from, however the query is built.
+ */
 function countingDb(db: MutationCtx["db"]) {
-  const reads = { documents: 0 };
-  const wrap = (target: object): never =>
+  const reads = { documents: 0, articles: 0, bytes: 0 };
+  const tally = (table: string | undefined, rows: unknown) => {
+    const list = Array.isArray(rows) ? rows : rows ? [rows] : [];
+    reads.documents += list.length;
+    if (table === "articles") reads.articles += list.length;
+    for (const row of list) reads.bytes += JSON.stringify(row).length;
+  };
+  const wrap = (target: object, table?: string): never =>
     new Proxy(target, {
       get(obj, prop) {
         const value = (obj as Record<string | symbol, unknown>)[prop];
         if (typeof value !== "function") return value;
         return (...args: unknown[]) => {
           const result = value.apply(obj, args);
+          const from =
+            prop === "query" || prop === "get" ? String(args[0]) : table;
           if (result && typeof result.then === "function")
             return result.then((rows: unknown) => {
-              reads.documents += Array.isArray(rows)
-                ? rows.length
-                : rows
-                  ? 1
-                  : 0;
+              tally(from, rows);
               return rows;
             });
-          return result && typeof result === "object" ? wrap(result) : result;
+          return result && typeof result === "object"
+            ? wrap(result, from)
+            : result;
         };
       },
     }) as never;
   return { reads, db: wrap(db) as MutationCtx["db"] };
+}
+
+function addAnnotation(
+  ctx: MutationCtx,
+  articleId: Id<"articles">,
+  fields: { notePath?: string; articleRefId?: Id<"articles"> },
+) {
+  return ctx.db.insert("annotations", {
+    articleId,
+    userId: OWNER,
+    type: "cross_reference",
+    anchorText: "x",
+    anchorStartOffset: 0,
+    anchorEndOffset: 1,
+    content: "ties in",
+    relevanceScore: 0.9,
+    wasViewed: false,
+    wasDismissed: false,
+    createdAt: Date.now(),
+    ...fields,
+  });
 }
 
 describe("idea graph read budget", () => {
@@ -175,6 +215,114 @@ describe("idea graph read budget", () => {
       expect(counted.documents).toBeGreaterThan(20);
       expect(counted.nodes).toBeLessThanOrEqual(MAX_NODES);
     }
+  });
+
+  it("reads at most a few whole articles however many connections point at them", async () => {
+    const { t } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const home = await addArticle(ctx, OWNER, "Home");
+      await addNote(ctx, OWNER, home, "centre");
+      for (let i = 0; i < 20; i++) {
+        // Articles hold their full text, which can approach a megabyte
+        const other = await ctx.db.insert("articles", {
+          userId: OWNER,
+          guid: `big-${i}`,
+          url: `https://example.com/big-${i}`,
+          title: `Big ${i}`,
+          content: "x".repeat(899_000),
+          extractionStatus: "extracted",
+          annotationStatus: "annotated",
+          createdAt: Date.now(),
+        });
+        await addNote(ctx, OWNER, other, `elsewhere ${i}`);
+        await addAnnotation(ctx, home, { articleRefId: other });
+      }
+    });
+    const counted = await t.run(async (ctx) => {
+      const { reads, db } = countingDb(ctx.db);
+      const g = await buildGraph({ db }, OWNER, {});
+      return { ...reads, nodes: g.nodes.length };
+    });
+    expect(counted.articles).toBeLessThanOrEqual(ARTICLE_READS);
+    // ~900KB each: the cap is what keeps this clear of Convex's 16MiB read limit
+    expect(counted.bytes).toBeLessThan(10 * 1024 * 1024);
+    expect(counted.nodes).toBeGreaterThan(1);
+  });
+
+  it("labels an article from its summary, or plainly, once whole-article reads are spent", async () => {
+    const { t } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => ({
+      withSummary: await addArticle(ctx, OWNER, "Has a summary"),
+      without: await addArticle(ctx, OWNER, "Has none"),
+    }));
+    await t.run(async (ctx) => {
+      await ctx.db.insert("summaries", {
+        userId: OWNER,
+        articleId: ids.withSummary,
+        gist: "A gist.",
+        thesis: "Interruptions cost more than minutes.",
+        model: "m",
+        createdAt: 5,
+      } as never);
+      const spent = () => new ReadBudget(160, 0);
+      const db = { db: ctx.db };
+      expect(
+        await loadNode(
+          db,
+          OWNER,
+          nodeKey("article", ids.withSummary),
+          spent(),
+          true,
+        ),
+      ).toMatchObject({ label: "Interruptions cost more than minutes." });
+      expect(
+        await loadNode(
+          db,
+          OWNER,
+          nodeKey("article", ids.without),
+          spent(),
+          true,
+        ),
+      ).toMatchObject({ label: "An article" });
+      // A key the client typed gets no such benefit of the doubt
+      expect(
+        await loadNode(db, OWNER, nodeKey("article", ids.without), spent()),
+      ).toBeNull();
+    });
+  });
+
+  it("still gives the centre its neighbours when discovery finds far more than it can read", async () => {
+    const { t } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const home = await addArticle(ctx, OWNER, "Home");
+      const articles: Id<"articles">[] = [home];
+      for (let a = 0; a < 6; a++) {
+        const article = await addArticle(ctx, OWNER, `Six ${a}`);
+        articles.push(article);
+        for (let i = 0; i < 8; i++) {
+          await addNote(ctx, OWNER, article, `n${a}.${i}`);
+          await addMark(ctx, OWNER, article, `m${a}.${i}`);
+        }
+      }
+      for (const tag of ["one", "two", "three"])
+        await addTag(ctx, OWNER, tag, articles);
+      for (let i = 0; i < 20; i++) {
+        const other = await addArticle(ctx, OWNER, `Linked ${i}`);
+        await addNote(ctx, OWNER, other, `linked ${i}`);
+        await addAnnotation(ctx, home, { articleRefId: other });
+      }
+      for (let i = 0; i < 8; i++) await addNote(ctx, OWNER, home, `home ${i}`);
+    });
+    const counted = await t.run(async (ctx) => {
+      const { reads, db } = countingDb(ctx.db);
+      const g = await buildGraph({ db }, OWNER, {});
+      return {
+        documents: reads.documents,
+        ring: g.nodes.filter((n) => n.hop === 1).length,
+      };
+    });
+    expect(counted.documents).toBeLessThanOrEqual(GRAPH_READ_BUDGET);
+    expect(counted.ring).toBeGreaterThanOrEqual(5);
   });
 
   it("asks for only as many of each kind as an article's expansion needs", async () => {
@@ -263,7 +411,7 @@ describe("idea graph edges", () => {
         articleId: article,
         userId: OWNER,
         type: "cross_reference",
-        noteChunkId: vault,
+        notePath: "vault/Deep work.md",
         anchorText: "x",
         anchorStartOffset: 0,
         anchorEndOffset: 1,
@@ -276,7 +424,7 @@ describe("idea graph edges", () => {
       const note = await addNote(ctx, OWNER, article, "centre");
       return { vault, note };
     });
-    const vaultKey = nodeKey("vault", ids.vault);
+    const vaultKey = vaultNode("Deep work");
     const fromNote = await owner.query(api.ideaGraph.graph, {});
     expect(reasonsOf(fromNote, vaultKey)).toContain("connection");
 
@@ -387,7 +535,7 @@ describe("idea graph edges", () => {
     });
     const g = await owner.query(api.ideaGraph.graph, {
       similar: (await t.run((ctx) => ctx.db.query("noteChunks").collect())).map(
-        (c) => nodeKey("vault", c._id),
+        (c) => nodeKey("vault", c.filePath),
       ),
     });
     expect(g.nodes.filter((n) => n.kind === "vault")).toHaveLength(1);
@@ -454,7 +602,7 @@ describe("idea graph edges", () => {
     });
     expect(
       await owner.query(api.ideaGraph.node, {
-        key: nodeKey("vault", ids.vault),
+        key: vaultNode("Loose"),
       }),
     ).toMatchObject({ filePath: "vault/Loose.md", canWrite: false });
   });
@@ -531,6 +679,94 @@ describe("idea graph edges", () => {
     for (const e of g.edges) {
       expect(keys.has(e.a) && keys.has(e.b)).toBe(true);
     }
+  });
+
+  it("keeps a vault idea and its links when the file is reindexed", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const note = await t.run(async (ctx) =>
+      addNote(ctx, OWNER, await addArticle(ctx, OWNER, "Alpha"), "centre"),
+    );
+    const vault = vaultNode("Deep work");
+    await t.run((ctx) => addVault(ctx, OWNER, "Deep work"));
+    await owner.mutation(api.ideaLinks.link, {
+      from: nodeKey("note", note),
+      to: vault,
+    });
+    // Reindexing replaces the file's chunks, so every chunk id changes
+    await t.run(async (ctx) => {
+      for (const chunk of await ctx.db.query("noteChunks").collect())
+        await ctx.db.delete(chunk._id);
+      await ctx.db.insert("noteChunks", {
+        userId: OWNER,
+        filePath: "vault/Deep work.md",
+        fileName: "Deep work.md",
+        chunkIndex: 0,
+        content: "Rewritten after reindexing",
+        embedding: [1, 0],
+        fileHash: "new",
+        indexedAt: Date.now(),
+      });
+    });
+    const g = await owner.query(api.ideaGraph.graph, {});
+    const edge = g.edges.find((e) => e.b === vault);
+    expect(edge?.reasons.map((r) => r.text)).toContain("You linked these");
+    expect(await owner.query(api.ideaGraph.node, { key: vault })).toMatchObject(
+      {
+        text: "Rewritten after reindexing",
+      },
+    );
+  });
+
+  it("always gives a note just written from the map a place, even beside seven older links", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => {
+      const article = await addArticle(ctx, OWNER, "Alpha");
+      const other = await addArticle(ctx, OWNER, "Other");
+      const old: string[] = [];
+      for (let i = 0; i < 7; i++)
+        old.push(nodeKey("note", await addNote(ctx, OWNER, other, `old ${i}`)));
+      const far = await addNote(
+        ctx,
+        OWNER,
+        await addArticle(ctx, OWNER, "Far"),
+        "far",
+      );
+      const centre = await addNote(ctx, OWNER, article, "centre");
+      return {
+        old,
+        far: nodeKey("note", far),
+        centre: nodeKey("note", centre),
+      };
+    });
+    for (const [i, to] of ids.old.entries())
+      await t.run((ctx) =>
+        ctx.db.insert("ideaLinks", {
+          userId: OWNER,
+          from: ids.centre,
+          to,
+          createdAt: 100 + i,
+        }),
+      );
+    const written = await owner.mutation(api.ideaLinks.writeConnected, {
+      from: ids.centre,
+      content: "<p>new</p>",
+      contentPlain: "new",
+    });
+    const plain = await owner.query(api.ideaGraph.graph, {
+      centre: ids.centre,
+    });
+    expect(plain.nodes.filter((n) => n.hop === 1).map((n) => n.key)).toContain(
+      written,
+    );
+    // Whatever else is near, the pinned idea has its place
+    const pinned = await owner.query(api.ideaGraph.graph, {
+      centre: ids.centre,
+      pin: ids.far,
+    });
+    expect(pinned.nodes.filter((n) => n.hop === 1).map((n) => n.key)).toContain(
+      ids.far,
+    );
+    expect(pinned.nodes.filter((n) => n.hop === 1)).toHaveLength(7);
   });
 
   it("finds an idea to start from", async () => {
@@ -688,14 +924,14 @@ describe("links the reader makes", () => {
     const vault = await t.run((ctx) => addVault(ctx, OWNER, "Loose"));
     await expect(
       owner.mutation(api.ideaLinks.writeConnected, {
-        from: nodeKey("vault", vault),
+        from: vaultNode("Loose"),
         content: "x",
         contentPlain: "x",
       }),
     ).rejects.toThrow(/isn't tied to an article/);
     await expect(
       owner.mutation(api.ideaLinks.writeConnected, {
-        from: nodeKey("vault", vault),
+        from: vaultNode("Loose"),
         content: " ",
         contentPlain: " ",
       }),
@@ -809,6 +1045,45 @@ describe("edge reasons", () => {
     await reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
     await t.mutation(internal.ideaEdgeReasons.saveReason, {
       userId: readerLibraryId,
+      pair: "note:a|note:b",
+      fingerprint: "f",
+      reason: "late",
+      model: "m",
+    });
+    expect(await t.run((ctx) => ctx.db.query("edgeReasons").collect())).toEqual(
+      [],
+    );
+  });
+
+  it("finds an article-reference connection written from either article, before asking a model", async () => {
+    const { t } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => {
+      const one = await addArticle(ctx, OWNER, "One");
+      const two = await addArticle(ctx, OWNER, "Two");
+      // Marginalia wrote the connection on Two, pointing back at One
+      await addAnnotation(ctx, two, { articleRefId: one });
+      return {
+        a: nodeKey("note", await addNote(ctx, OWNER, one, "on one")),
+        b: nodeKey("note", await addNote(ctx, OWNER, two, "on two")),
+      };
+    });
+    for (const [a, b] of [
+      [ids.a, ids.b],
+      [ids.b, ids.a],
+    ]) {
+      const context = await t.query(internal.ideaEdgeReasons.edgeContext, {
+        userId: OWNER,
+        a,
+        b,
+      });
+      expect(context?.structural.map((r) => r.type)).toEqual(["connection"]);
+    }
+  });
+
+  it("won't write a reason for a library with no reader row left, as after a purge", async () => {
+    const { t } = await secondReaderTest(modules);
+    await t.mutation(internal.ideaEdgeReasons.saveReason, {
+      userId: "purged_library",
       pair: "note:a|note:b",
       fingerprint: "f",
       reason: "late",

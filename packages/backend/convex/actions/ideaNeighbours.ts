@@ -40,6 +40,10 @@ export const similar = action({
         filter: (q) => q.eq("userId", ctx.readerId),
       }),
     ]);
+    const files: Record<string, string> = await ctx.runQuery(
+      internal.ideaGraph.vaultFiles,
+      { userId: ctx.readerId, chunkIds: vault.map((hit) => hit._id) },
+    );
     return [
       ...notes.map((hit) => ({
         key: nodeKey("note", hit._id),
@@ -53,14 +57,16 @@ export const similar = action({
         key: nodeKey("answer", hit._id),
         score: hit._score,
       })),
-      ...vault.map((hit) => ({
-        key: nodeKey("vault", hit._id),
-        score: hit._score,
-      })),
+      ...vault.flatMap((hit) =>
+        files[hit._id]
+          ? [{ key: nodeKey("vault", files[hit._id]), score: hit._score }]
+          : [],
+      ),
     ]
       .filter((hit) => hit.key !== args.key && hit.score >= SIMILARITY_FLOOR)
       .sort((a, b) => b.score - a.score)
-      .slice(0, RETURNED)
-      .map((hit) => hit.key);
+      .map((hit) => hit.key)
+      .filter((key, i, all) => all.indexOf(key) === i)
+      .slice(0, RETURNED);
   },
 });

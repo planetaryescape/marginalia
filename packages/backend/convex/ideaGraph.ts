@@ -79,7 +79,7 @@ const view = (node: LoadedNode, hop: 0 | 1 | 2): GraphNode => ({
 export async function buildGraph(
   ctx: Db,
   userId: string,
-  args: { centre?: string; similar?: string[] },
+  args: { centre?: string; similar?: string[]; pin?: string },
   budget: ReadBudget = new ReadBudget(),
 ): Promise<Graph> {
   const centre =
@@ -92,8 +92,11 @@ export async function buildGraph(
     userId,
     centre,
     (args.similar ?? []).slice(0, HINTS_USED),
-    budget,
+    // Finding who is near may not use up what loading them needs
+    budget.discovery(),
   );
+  // The idea just written from the map always has a place beside the centre
+  if (args.pin) found.pin(args.pin, linkedReason());
 
   const nodes: GraphNode[] = [view(centre, 0)];
   const edges: GraphEdge[] = [];
@@ -103,7 +106,7 @@ export async function buildGraph(
 
   for (const candidate of found.ranked(CANDIDATES_LOADED)) {
     if (ring.length >= FIRST_RING) break;
-    const node = await loadNode(ctx, userId, candidate.key, budget);
+    const node = await loadNode(ctx, userId, candidate.key, budget, true);
     if (!node) continue;
     // Several chunks of one vault file are one idea
     if (node.filePath) {
@@ -125,7 +128,13 @@ export async function buildGraph(
   // One idea further out from each neighbour, by the cheap signals only
   const edgeIds = new Set(edges.map((edge) => edge.id));
   for (const near of ring) {
-    const nearLinks = await linkedKeys(ctx, userId, near.key, 4, budget);
+    const nearLinks = await linkedKeys(
+      ctx,
+      userId,
+      near.key,
+      4,
+      budget.discovery(),
+    );
     // A link between two ideas already on the map is a line worth drawing
     for (const key of nearLinks) {
       const id = pairKey(near.key, key);
@@ -150,11 +159,11 @@ export async function buildGraph(
           userId,
           near.articleId,
           { notes: 6, highlights: 3, answers: 1 },
-          budget,
+          budget.discovery(),
         )
       : [];
     const title = near.articleId
-      ? await articleTitle(ctx, userId, near.articleId, budget)
+      ? await articleTitle(ctx, userId, near.articleId, budget.discovery())
       : null;
     const options: { key: string; reason: Reason }[] = [
       ...nearLinks.map((key) => ({ key, reason: linkedReason() })),
@@ -166,7 +175,7 @@ export async function buildGraph(
     ];
     for (const option of options) {
       if (shown.has(option.key)) continue;
-      const node = await loadNode(ctx, userId, option.key, budget);
+      const node = await loadNode(ctx, userId, option.key, budget, true);
       if (!node) continue;
       if (node.filePath) {
         if (files.has(node.filePath)) continue;
@@ -200,7 +209,7 @@ export async function buildGraph(
   for (const [articleId, members] of hubs) {
     const key = nodeKey("article", articleId);
     if (nodes.length >= MAX_NODES || shown.has(key)) continue;
-    const hub = await loadNode(ctx, userId, key, budget);
+    const hub = await loadNode(ctx, userId, key, budget, true);
     if (!hub) continue;
     shown.set(key, hub);
     nodes.push(view(hub, 2));
@@ -237,6 +246,8 @@ export const graph = query({
   args: {
     centre: v.optional(v.string()),
     similar: v.optional(v.array(v.string())),
+    // The note just written from the map, which must show whatever else is near
+    pin: v.optional(v.string()),
   },
   handler: (ctx, args) => buildGraph(ctx, ctx.readerId, args),
 });
@@ -284,7 +295,9 @@ export const search = query({
       ...notes.map((r) => nodeKey("note", r._id)),
       ...marks.map((r) => nodeKey("highlight", r._id)),
       ...threads.filter((r) => r.keptAt).map((r) => nodeKey("answer", r._id)),
-      ...chunks.map((r) => nodeKey("vault", r._id)),
+      ...[...new Set(chunks.map((r) => r.filePath))].map((path) =>
+        nodeKey("vault", path),
+      ),
     ];
     const hits: SearchHit[] = [];
     for (const key of keys) {
@@ -373,5 +386,18 @@ export const embeddingOf = internalQuery({
             ?.embedding ?? null
         );
     }
+  },
+});
+
+/** The files that vector-search hits on vault chunks belong to: ideas are keyed by file. */
+export const vaultFiles = internalQuery({
+  args: { userId: v.string(), chunkIds: v.array(v.id("noteChunks")) },
+  handler: async (ctx, args): Promise<Record<string, string>> => {
+    const files: Record<string, string> = {};
+    for (const id of args.chunkIds.slice(0, 20)) {
+      const chunk = await ctx.db.get("noteChunks", id);
+      if (chunk && chunk.userId === args.userId) files[id] = chunk.filePath;
+    }
+    return files;
   },
 });

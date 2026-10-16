@@ -21,21 +21,53 @@ export const FIRST_RING = 7;
 /**
  * Documents one graph query may read in all. Every read in the graph asks the
  * budget first, so a busy library can't push a query towards Convex's 16MiB
- * limit (each note, highlight and answer carries a ~12KB embedding).
+ * limit. A note, highlight or answer carries a ~12KB embedding, so 160 of
+ * them are about 2MB.
  */
 export const GRAPH_READ_BUDGET = 160;
+/**
+ * Of those, kept back for loading the ideas that are drawn. Discovery (finding
+ * who is near) may only spend the rest, so a busy library can't use the whole
+ * budget finding candidates and leave none to show.
+ */
+export const LOAD_RESERVE = 60;
+/**
+ * Whole-article reads allowed in one graph query. A document is not a fixed
+ * size: an article holds its full text and can reach ~900KB, so counting
+ * documents alone lets 20 of them read ~18MB. Eight is about 7MB at that
+ * size, which with the ~2MB of embedded documents above stays well under 16MiB.
+ */
+export const ARTICLE_READS = 8;
+
+interface BudgetState {
+  left: number;
+  articles: number;
+}
 
 export class ReadBudget {
-  private left: number;
-  constructor(total = GRAPH_READ_BUDGET) {
-    this.left = total;
+  private readonly state: BudgetState;
+  private readonly floor: number;
+  constructor(
+    total = GRAPH_READ_BUDGET,
+    articles = ARTICLE_READS,
+    shared?: { state: BudgetState; floor: number },
+  ) {
+    this.state = shared?.state ?? { left: total, articles };
+    this.floor = shared?.floor ?? 0;
+  }
+  /** The same budget, but leaving `reserve` documents untouched: for discovery. */
+  discovery(reserve = LOAD_RESERVE): ReadBudget {
+    return new ReadBudget(0, 0, {
+      state: this.state,
+      floor: this.floor + reserve,
+    });
   }
   get remaining() {
-    return this.left;
+    return Math.max(0, this.state.left - this.floor);
   }
   /** The most documents the next read may take: what it wants, capped by what is left. */
   allow(want: number): number {
-    return Math.max(0, Math.min(want, this.left));
+    return Math.max(0, Math.min(want, this.remaining));
   }
   /** Runs a read of up to `want` documents if any budget is left, and charges what it returned. */
   async take<T>(
@@ -50,12 +82,23 @@ export class ReadBudget {
   }
   /** Even an empty read costs one, so the number of queries is bounded too. */
   spend(read: number) {
-    this.left -= Math.max(1, read);
+    this.state.left -= Math.max(1, read);
+  }
+  /** Whether another whole article may be read; see ARTICLE_READS. */
+  get mayReadArticle() {
+    return this.state.articles > 0 && this.allow(1) > 0;
+  }
+  spendArticle() {
+    this.state.articles -= 1;
+    this.spend(1);
   }
 }
 
 /** For reads outside the graph query, which have their own small fixed bounds. */
-export const UNLIMITED = new ReadBudget(Number.POSITIVE_INFINITY);
+export const UNLIMITED = new ReadBudget(
+  Number.POSITIVE_INFINITY,
+  Number.POSITIVE_INFINITY,
+);
 
 export type ReasonType =
   | "linked"
@@ -146,6 +189,15 @@ export class Candidates {
       entry.reasons.push(reason);
       entry.score += score;
     }
+    this.byKey.set(key, entry);
+  }
+
+  /** Puts an idea in the first ring whatever else is near: the one just written from the map. */
+  pin(key: string, reason: Reason) {
+    if (key === this.self) return;
+    const entry = this.byKey.get(key) ?? { reasons: [], score: 0 };
+    if (!entry.reasons.length) entry.reasons.push(reason);
+    entry.score = Number.MAX_SAFE_INTEGER;
     this.byKey.set(key, entry);
   }
 
