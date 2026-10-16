@@ -5,7 +5,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
-import { toast } from "sonner";
+import { InlineError } from "@/components/in-place";
 import { KeptTranscript } from "@/components/kept-transcript";
 import { useListKeys } from "@/lib/list-nav";
 import { MODE_LABELS } from "@/lib/margin-answers";
@@ -34,6 +34,20 @@ export function NotesList() {
   const removeNote = useMutation(api.userNotes.remove);
   const removeThread = useMutation(api.companionThreads.remove);
   useListKeys();
+  // A failed delete stays above the notes with Retry; the note stays where it was
+  const [failure, setFailure] = useState<{
+    message: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const attempt = async (message: string, run: () => Promise<unknown>) => {
+    try {
+      await run();
+      setFailure(null);
+    } catch {
+      setFailure({ message, retry: () => attempt(message, run) });
+    }
+  };
 
   const loading =
     notes === undefined ||
@@ -59,18 +73,32 @@ export function NotesList() {
         </div>
       )}
 
+      {failure && (
+        <div className="mb-6">
+          <InlineError
+            message={failure.message}
+            busy={retrying}
+            onRetry={async () => {
+              setRetrying(true);
+              await failure.retry();
+              setRetrying(false);
+            }}
+          />
+        </div>
+      )}
+
       {groups?.map((group) => (
         <ArticleNotesGroup
           key={group.articleId}
           group={group}
           onDelete={(noteId) =>
-            removeNote({ noteId }).catch(() =>
-              toast.error("Couldn't delete the note. Try again."),
+            void attempt("Couldn't delete the note.", () =>
+              removeNote({ noteId }),
             )
           }
           onDeleteAnswer={(threadId) =>
-            removeThread({ threadId }).catch(() =>
-              toast.error("Couldn't delete the answer. Try again."),
+            void attempt("Couldn't delete the answer.", () =>
+              removeThread({ threadId }),
             )
           }
         />

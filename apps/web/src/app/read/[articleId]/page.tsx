@@ -694,15 +694,36 @@ export default function ReadPage() {
     />
   );
 
+  // A failed toolbar action is shown under the toolbar with Retry, not as a toast
+  const [toolbarFailure, setToolbarFailure] = useState<{
+    message: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [toolbarRetrying, setToolbarRetrying] = useState(false);
+  const attemptToolbar = useCallback(
+    async (message: string, run: () => Promise<void>): Promise<void> => {
+      try {
+        await run();
+        setToolbarFailure(null);
+      } catch {
+        setToolbarFailure({
+          message,
+          retry: () => attemptToolbar(message, run),
+        });
+      }
+    },
+    [],
+  );
+
   const restoreArticle = useMutation(api.articles.restore);
-  const handleRestore = useCallback(async () => {
-    try {
-      await restoreArticle({ articleId: articleId as any });
-      toast.success("Back in Up next");
-    } catch {
-      toast.error("Couldn't mark this unread. Try again.");
-    }
-  }, [articleId, restoreArticle]);
+  const handleRestore = useCallback(
+    () =>
+      attemptToolbar("Couldn't mark this unread.", async () => {
+        await restoreArticle({ articleId: articleId as any });
+        toast.success("Back in Up next");
+      }),
+    [articleId, restoreArticle, attemptToolbar],
+  );
 
   const handleAnnotationSelect = useCallback(
     (annotationId: string | null) => {
@@ -844,14 +865,12 @@ export default function ReadPage() {
         rating={impression?.rating ?? undefined}
         onRate={rateArticle}
         loved={Boolean(isLoved)}
-        onToggleLove={async () => {
-          try {
+        onToggleLove={() =>
+          void attemptToolbar("Couldn't update loved articles.", async () => {
             if (isLoved) await unloveArticle({ articleId: articleId as any });
             else await loveArticle({ articleId: articleId as any });
-          } catch {
-            toast.error("Couldn't update loved articles");
-          }
-        }}
+          })
+        }
         listening={listen.active}
         onToggleListen={toggleListen}
         onToggleSummary={() => emitCommand("toggle-summary")}
@@ -859,14 +878,11 @@ export default function ReadPage() {
         onReannotate={
           isBook
             ? null
-            : async () => {
-                try {
+            : () =>
+                void attemptToolbar("Couldn't re-annotate.", async () => {
                   await reannotate({ articleId: articleId as any });
                   toast.success("Re-annotating with latest vault…");
-                } catch {
-                  toast.error("Couldn't re-annotate");
-                }
-              }
+                })
         }
         settings={{
           settings,
@@ -876,6 +892,20 @@ export default function ReadPage() {
           onToggleListen: toggleListen,
         }}
       />
+
+      {toolbarFailure && (
+        <div className="fixed z-40 left-3 right-3 top-[calc(3.5rem+env(safe-area-inset-top))] rounded-md bg-[var(--reader-surface)] p-3 font-sans ring-1 ring-[var(--reader-border)] sm:left-auto sm:right-[calc(var(--notes-inset)+1.5rem)] sm:max-w-sm">
+          <InlineError
+            message={toolbarFailure.message}
+            busy={toolbarRetrying}
+            onRetry={async () => {
+              setToolbarRetrying(true);
+              await toolbarFailure.retry();
+              setToolbarRetrying(false);
+            }}
+          />
+        </div>
+      )}
 
       <nav
         aria-label="Reading controls"

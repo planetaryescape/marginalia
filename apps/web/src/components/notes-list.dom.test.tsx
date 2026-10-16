@@ -155,6 +155,23 @@ describe("the Notes page", () => {
     expect(mocks.removeThread).toHaveBeenCalledWith({ threadId: "t1" });
   });
 
+  it("shows a failed delete on the page with Retry, and the answer stays", async () => {
+    mocks.listKept = [thread({})];
+    mocks.removeThread.mockRejectedValueOnce(new Error("offline"));
+    await render();
+    await act(async () => lines()[0].click());
+    const del = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent === "Delete",
+    ) as HTMLElement;
+    await act(async () => del.click());
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Couldn't delete the answer.");
+    expect(host.textContent).toContain("A small mountain lake.");
+    await act(async () => alert?.querySelector("button")?.click());
+    expect(mocks.removeThread).toHaveBeenCalledTimes(2);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("waits for both lists, and says so when there is nothing", async () => {
     mocks.listKept = undefined;
     await render();

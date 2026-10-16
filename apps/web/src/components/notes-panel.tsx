@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
+import { InlineError } from "@/components/in-place";
 import { type KeptAnswer, splitNotes } from "@/lib/kept-answers";
 import { MODE_LABELS } from "@/lib/margin-answers";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -200,8 +200,8 @@ export function NotesPanel({
         setStatus("saved");
         return { id: created, ok: true };
       } catch {
+        // The editor shows the failure and its Retry
         setStatus("error");
-        toast.error("Couldn't save your note");
         return { id, ok: false };
       }
     });
@@ -221,24 +221,33 @@ export function NotesPanel({
 
   const { mine, answers } = splitNotes(notes ?? [], threads ?? []);
 
-  const handleDeleteAnswer = async (answer: KeptAnswer) => {
+  // A failed delete stays in the list with Retry, and the row stays where it was
+  const [deleteFailure, setDeleteFailure] = useState<{
+    message: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [retryingDelete, setRetryingDelete] = useState(false);
+  const attemptDelete = async (message: string, run: () => Promise<void>) => {
     try {
+      await run();
+      setDeleteFailure(null);
+    } catch {
+      setDeleteFailure({ message, retry: () => attemptDelete(message, run) });
+    }
+  };
+
+  const handleDeleteAnswer = (answer: KeptAnswer) =>
+    attemptDelete("Couldn't delete the answer.", async () => {
       if (answer.kind === "thread") {
         await removeThread({ threadId: answer.thread._id });
         onAnswerDeleted?.(answer.thread._id);
       } else await removeNote({ noteId: answer.note._id });
-    } catch {
-      toast.error("Couldn't delete the answer. Try again.");
-    }
-  };
+    });
 
-  const handleDelete = async (noteId: Id<"userNotes">) => {
-    try {
+  const handleDelete = (noteId: Id<"userNotes">) =>
+    attemptDelete("Couldn't delete the note.", async () => {
       await removeNote({ noteId });
-    } catch {
-      toast.error("Couldn't delete the note. Try again.");
-    }
-  };
+    });
 
   return (
     <AnimatePresence>
@@ -302,6 +311,19 @@ export function NotesPanel({
 
           {/* Existing notes */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            {deleteFailure && (
+              <div className="border-b border-[var(--reader-border)] px-4 py-3 text-sm">
+                <InlineError
+                  message={deleteFailure.message}
+                  busy={retryingDelete}
+                  onRetry={async () => {
+                    setRetryingDelete(true);
+                    await deleteFailure.retry();
+                    setRetryingDelete(false);
+                  }}
+                />
+              </div>
+            )}
             {notes &&
               mine.length === 0 &&
               answers.length === 0 &&

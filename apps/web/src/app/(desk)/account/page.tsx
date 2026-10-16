@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import { useState } from "react";
 import QRCode from "react-qr-code";
 import { AiProviders } from "@/components/ai-providers";
+import { InlineError } from "@/components/in-place";
 import { FeedbackPreferences } from "@/components/interaction-feedback";
 import { ConfirmAction } from "@/components/settings-confirm";
 import {
@@ -30,6 +31,11 @@ export default function AccountPage() {
     backupCodes: string[];
   } | null>(null);
   const [message, setMessage] = useState("");
+  // A failed action stays on the page with Retry, which runs the same action again
+  const [failure, setFailure] = useState<{
+    text: string;
+    task: () => Promise<void>;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [verified, setVerified] = useState(false);
   const [codesSaved, setCodesSaved] = useState(false);
@@ -37,14 +43,17 @@ export default function AccountPage() {
   async function run(task: () => Promise<void>) {
     setBusy(true);
     setMessage("");
+    setFailure(null);
     try {
       await task();
     } catch (e) {
-      setMessage(
-        e instanceof Error
-          ? e.message
-          : "Couldn't complete that action. Try again.",
-      );
+      setFailure({
+        text:
+          e instanceof Error
+            ? e.message
+            : "Couldn't complete that action. Try again.",
+        task,
+      });
     } finally {
       setBusy(false);
     }
@@ -301,6 +310,13 @@ export default function AccountPage() {
               {message}
             </p>
           )}
+          {failure && (
+            <InlineError
+              message={failure.text}
+              busy={busy}
+              onRetry={() => void run(failure.task)}
+            />
+          )}
           <div>
             <button
               type="button"
@@ -329,6 +345,21 @@ function DeleteAccount() {
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const remove = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await deleteMine({ confirmation: typed });
+      await authClient.signOut().catch(() => {});
+    } catch (e) {
+      setError(
+        e instanceof ConvexError && typeof e.data === "string"
+          ? e.data
+          : "Couldn't delete your account. Try again.",
+      );
+      setBusy(false);
+    }
+  };
   return (
     <SettingsSection
       title="Delete my account"
@@ -350,30 +381,12 @@ function DeleteAccount() {
           type="button"
           className={confirmControl}
           disabled={busy || typed !== CONFIRM}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            try {
-              await deleteMine({ confirmation: typed });
-              await authClient.signOut().catch(() => {});
-            } catch (e) {
-              setError(
-                e instanceof ConvexError && typeof e.data === "string"
-                  ? e.data
-                  : "Couldn't delete your account. Try again.",
-              );
-              setBusy(false);
-            }
-          }}
+          onClick={remove}
         >
           {busy ? "Deleting…" : "Delete my account"}
         </button>
       </div>
-      {error && (
-        <p role="alert" className="text-sm text-[var(--danger)]">
-          {error}
-        </p>
-      )}
+      {error && <InlineError message={error} busy={busy} onRetry={remove} />}
     </SettingsSection>
   );
 }
