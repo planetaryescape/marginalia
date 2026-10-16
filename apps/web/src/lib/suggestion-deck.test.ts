@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   appendFitting,
   appendUnseen,
+  createSingleFlight,
   deckView,
   LOAD_AHEAD,
   shouldLoadMore,
@@ -105,5 +106,34 @@ describe("shouldLoadMore", () => {
     expect(shouldLoadMore({ length: 3, index: 2, canLoadMore: false })).toBe(
       false,
     );
+  });
+});
+
+describe("createSingleFlight", () => {
+  it("runs one task and drops a second that starts while the first is pending", async () => {
+    const run = createSingleFlight();
+    let release: () => void = () => {};
+    const first = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    const second = vi.fn(async () => {});
+    const pending = run(first);
+    await run(second);
+    expect(second).not.toHaveBeenCalled();
+    release();
+    await pending;
+    expect(first).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts the next task once the first has failed", async () => {
+    const run = createSingleFlight();
+    await expect(
+      run(async () => {
+        throw new Error("network");
+      }),
+    ).rejects.toThrow("network");
+    const next = vi.fn(async () => {});
+    await run(next);
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });

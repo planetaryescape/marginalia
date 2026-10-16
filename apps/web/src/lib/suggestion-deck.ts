@@ -30,6 +30,26 @@ export function appendFitting<
   );
 }
 
+/**
+ * Runs one card action at a time. A call made while another is still pending is
+ * dropped: the page reads the index at click time, so a second action that got
+ * through would advance from the same card and skip one.
+ */
+export function createSingleFlight(): (
+  task: () => Promise<void>,
+) => Promise<void> {
+  let pending = false;
+  return async (task) => {
+    if (pending) return;
+    pending = true;
+    try {
+      await task();
+    } finally {
+      pending = false;
+    }
+  };
+}
+
 export type DeckView = "card" | "loading" | "end" | "empty";
 
 /**

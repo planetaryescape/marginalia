@@ -186,10 +186,9 @@ describe("paged time-window suggestions", () => {
 });
 
 describe("shortest unread article", () => {
-  it("offers the shortest estimated unread article, ignoring finished, other readers', and unestimated ones", async () => {
+  it("offers the shortest unread article, ignoring finished and other readers' articles", async () => {
     const t = await library([
       { title: "finished short", minutes: 1, finished: true },
-      { title: "unknown length" },
       { title: "seven", minutes: 7 },
       { title: "three", minutes: 3 },
     ]);
@@ -211,8 +210,82 @@ describe("shortest unread article", () => {
     });
   });
 
-  it("returns null when the reader has nothing unread with an estimate", async () => {
-    const t = await library([{ title: "unknown length" }]);
+  it("returns null when the reader has nothing unread", async () => {
+    const t = await library([{ title: "done", minutes: 3, finished: true }]);
     expect(await t.query(api.suggestions.shortestUnread, {})).toBeNull();
+  });
+
+  it("measures an unestimated article by word count, the same way the deck does", async () => {
+    const t = await library([{ title: "twenty", minutes: 20 }]);
+    await insertUnestimated(t, "long read", 2200);
+    expect(await t.query(api.suggestions.shortestUnread, {})).toMatchObject({
+      title: "long read",
+      estimatedReadMinutes: 10,
+    });
+  });
+
+  it("does not call a 20-minute estimate the shortest when a 10-minute unestimated article exists", async () => {
+    const t = await library([{ title: "twenty", minutes: 20 }]);
+    await insertUnestimated(t, "long read", 2200);
+    const picked = await t.query(api.suggestions.shortestUnread, {});
+    expect(picked?.title).not.toBe("twenty");
+  });
+
+  async function insertUnestimated(
+    t: Awaited<ReturnType<typeof library>>,
+    title: string,
+    wordCount: number,
+  ) {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: `guid-${title}`,
+        url: `https://example.com/${title}`,
+        title,
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        wordCount,
+        createdAt: Date.now(),
+      });
+    });
+  }
+
+  describe("length filter on paged suggestions", () => {
+    it("drops a page's article whose word-count length is over the window, and keeps paging", async () => {
+      const t = await library([{ title: "five", minutes: 5 }]);
+      for (let i = 0; i < 4; i++) await insertUnestimated(t, `long ${i}`, 2200);
+      const pageSizes: number[] = [];
+      let cursor: string | null = null;
+      const titlesSeen: string[] = [];
+      for (;;) {
+        const page: PaginationResult<{
+          title: string;
+          estimatedReadMinutes: number;
+        }> = await t.query(api.suggestions.moreForWindow, {
+          requestedMinutes: 5,
+          paginationOpts: { numItems: 2, cursor },
+        });
+        pageSizes.push(page.page.length);
+        titlesSeen.push(...page.page.map((a) => a.title));
+        if (page.isDone) break;
+        cursor = page.continueCursor;
+      }
+      expect(titlesSeen).toEqual(["five"]);
+      // An unestimated article at 10 minutes sits in the 5-minute index range; the
+      // page it lands on comes back empty, but paging continues past it.
+      expect(pageSizes).toContain(0);
+      expect(pageSizes.at(-1)).toBe(0);
+    });
+
+    it("returns an empty, finished page when only over-long articles remain", async () => {
+      const t = await library([]);
+      await insertUnestimated(t, "long", 2200);
+      const page = await t.query(api.suggestions.moreForWindow, {
+        requestedMinutes: 5,
+        paginationOpts: { numItems: 10, cursor: null },
+      });
+      expect(page.page).toEqual([]);
+      expect(page.isDone).toBe(true);
+    });
   });
 });

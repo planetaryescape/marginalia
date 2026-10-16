@@ -97,46 +97,73 @@ export const moreForWindow = query({
       )
       .order("desc")
       .paginate(args.paginationOpts);
+    // The index only bounds articles that have an estimate. One without it is
+    // measured by word count here, so it can still be too long for the window.
+    // Filtering the page keeps the cursor and isDone: an empty page is a
+    // normal result and the client asks for the next one.
     return {
       ...page,
-      page: page.page.map((a) => {
-        const readMin = readMinutesOf(a);
-        return toSuggestion(
-          a,
-          readMin,
-          targetMinutes,
-          readMin <= targetMinutes * 1.3,
-        );
-      }),
+      page: page.page
+        .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
+        .filter(({ readMin }) => readMin <= targetMinutes)
+        .map(({ article, readMin }) =>
+          toSuggestion(article, readMin, targetMinutes, true),
+        ),
     };
   },
 });
 
 /**
- * The single shortest unread article with a read-time estimate, offered when
- * nothing fits the reader's window. Articles without an estimate are left out:
- * their length is a guess, so calling one the shortest would be a claim we
- * cannot back.
+ * The single shortest unread article, by the same length `readMinutesOf` gives
+ * the deck, offered when nothing fits the reader's window.
+ *
+ * Read bounds: the index sorts estimates ascending, so the first estimated
+ * article is the shortest estimate and one read finds it exactly. Articles
+ * without an estimate sort before every estimate and have no length in the
+ * index, so they are read in a batch of UNESTIMATED_SCAN. A library with more
+ * unestimated unread articles than that gets the shortest of the first batch,
+ * in the index's creation-time order.
  */
+const UNESTIMATED_SCAN = 100;
+
 export const shortestUnread = query({
   args: {},
   handler: async (ctx) => {
-    const a = await ctx.db
-      .query("articles")
-      .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-        q
-          .eq("userId", ctx.readerId)
-          .eq("annotationStatus", "annotated")
-          .eq("finishedAt", undefined)
-          .gte("estimatedReadMinutes", 0),
-      )
-      .order("asc")
-      .first();
-    if (!a) return null;
+    const [unestimated, shortestEstimated] = await Promise.all([
+      ctx.db
+        .query("articles")
+        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+          q
+            .eq("userId", ctx.readerId)
+            .eq("annotationStatus", "annotated")
+            .eq("finishedAt", undefined)
+            .lt("estimatedReadMinutes", 0),
+        )
+        .take(UNESTIMATED_SCAN),
+      ctx.db
+        .query("articles")
+        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
+          q
+            .eq("userId", ctx.readerId)
+            .eq("annotationStatus", "annotated")
+            .eq("finishedAt", undefined)
+            .gte("estimatedReadMinutes", 0),
+        )
+        .order("asc")
+        .first(),
+    ]);
+    let best: { article: Doc<"articles">; readMin: number } | undefined;
+    for (const article of shortestEstimated
+      ? [...unestimated, shortestEstimated]
+      : unestimated) {
+      const readMin = readMinutesOf(article);
+      if (!best || readMin < best.readMin) best = { article, readMin };
+    }
+    if (!best) return null;
     return {
-      _id: a._id,
-      title: a.title,
-      estimatedReadMinutes: readMinutesOf(a),
+      _id: best.article._id,
+      title: best.article.title,
+      estimatedReadMinutes: best.readMin,
     };
   },
 });

@@ -7,7 +7,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { appendFitting, deckView, shouldLoadMore } from "@/lib/suggestion-deck";
+import {
+  appendFitting,
+  createSingleFlight,
+  deckView,
+  shouldLoadMore,
+} from "@/lib/suggestion-deck";
 import { formatDate, formatReadTime } from "@/lib/utils";
 
 // Cards fetched per page once the first three are used up
@@ -132,28 +137,51 @@ function SessionDeck({
     router.push(`/read/${current._id}?session=${sessionId}`);
   };
 
-  const handleSkip = async () => {
-    if (!current) return;
-    await recordInteraction({
-      articleId: current._id,
-      sessionId,
-      action: "skipped",
+  // Skip and Save share one slot: while one is pending the other is dropped, so
+  // a double click records the interaction once and advances once. Each action
+  // advances from the index it was clicked on, never from wherever the deck is by then.
+  const [acting, setActing] = useState(false);
+  const [runCardAction] = useState(() => createSingleFlight());
+  const act = (task: () => Promise<void>) =>
+    runCardAction(async () => {
+      setActing(true);
+      try {
+        await task();
+      } finally {
+        setActing(false);
+      }
     });
-    setDirection(1);
-    setCurrentIndex((i) => i + 1);
+
+  const handleSkip = () => {
+    const card = current;
+    const index = currentIndex;
+    if (!card) return;
+    return act(async () => {
+      await recordInteraction({
+        articleId: card._id,
+        sessionId,
+        action: "skipped",
+      });
+      setDirection(1);
+      setCurrentIndex(index + 1);
+    });
   };
 
-  const handleSave = async () => {
-    if (!current) return;
-    await saveArticle({ articleId: current._id });
-    await recordInteraction({
-      articleId: current._id,
-      sessionId,
-      action: "saved",
+  const handleSave = () => {
+    const card = current;
+    const index = currentIndex;
+    if (!card) return;
+    return act(async () => {
+      await saveArticle({ articleId: card._id });
+      await recordInteraction({
+        articleId: card._id,
+        sessionId,
+        action: "saved",
+      });
+      // Move to next
+      setDirection(1);
+      setCurrentIndex(index + 1);
     });
-    // Move to next
-    setDirection(1);
-    setCurrentIndex((i) => i + 1);
   };
 
   if (loading || view === "loading") {
@@ -289,12 +317,14 @@ function SessionDeck({
             </button>
             <button
               onClick={handleSkip}
+              disabled={acting}
               className="px-6 py-3 border border-ink-200 dark:border-ink-700 rounded-xl font-sans text-sm text-ink-600 dark:text-ink-400 hover:border-ink-400 transition-colors disabled:opacity-30"
             >
               Skip
             </button>
             <button
               onClick={handleSave}
+              disabled={acting}
               className="px-4 py-3 border border-ink-200 dark:border-ink-700 rounded-xl font-sans text-sm text-ink-600 dark:text-ink-400 hover:border-annotation-crossref hover:text-annotation-crossref transition-colors"
               title="Save for later"
             >
