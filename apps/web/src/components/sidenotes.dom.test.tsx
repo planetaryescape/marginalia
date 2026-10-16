@@ -386,7 +386,7 @@ describe("your own hand", () => {
         layoutKey={DEFAULT_SETTINGS}
         annotations={[{ _id: "a1", type: "context", content: "x" }]}
         userNotes={[]}
-        marks={[{ doc: { _id: "h1" }, range }]}
+        marks={[{ doc: { _id: "h1", kind: "highlight" }, range }]}
         waiting={false}
         openId={null}
         onClose={() => {}}

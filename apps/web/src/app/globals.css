@@ -360,7 +360,7 @@ article[data-margin="phone"] .annotation-mark::after {
   left: calc(var(--sidenote-left) - 28px);
   width: 6px;
   height: 2px;
-  background: var(--pen);
+  background: var(--tick-colour, var(--pen));
 }
 
 .sidenote-waiting {

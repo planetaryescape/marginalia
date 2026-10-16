@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { MarkKind } from "@/lib/highlights";
 import {
   type AnnotationKind,
   kindLabel,
@@ -21,6 +22,7 @@ import {
   type Placement,
 } from "@/lib/margin-layout";
 import { type MarginMode, measureGutter } from "@/lib/margin-mode";
+import { type MarkColor, markColor } from "@/lib/mark-colours";
 import { getArticleBody, getParagraphs } from "@/lib/paragraphs";
 import type { ReaderSettings } from "@/lib/reader-settings";
 import { findTextRange } from "@/lib/text-range";
@@ -61,7 +63,7 @@ export interface SidenoteAnswer {
 }
 
 interface SidenoteMark {
-  doc: { _id: string };
+  doc: { _id: string; kind: MarkKind; color?: MarkColor | null };
   range: Range;
 }
 
@@ -96,7 +98,7 @@ type Entry =
 interface LayoutState {
   placements: Record<string, Placement>;
   labels: Record<string, string>;
-  ticks: { key: string; top: number }[];
+  ticks: { key: string; top: number; color: MarkColor }[];
 }
 
 const EMPTY: LayoutState = { placements: {}, labels: {}, ticks: [] };
@@ -351,7 +353,13 @@ export function Sidenotes({
         ? firstRect(m.range.getClientRects())
         : null;
       return rect
-        ? [{ key: m.doc._id, top: rect.top + scrollY + rect.height / 2 - 1 }]
+        ? [
+            {
+              key: m.doc._id,
+              top: rect.top + scrollY + rect.height / 2 - 1,
+              color: markColor(m.doc, layoutKey),
+            },
+          ]
         : [];
     });
 
@@ -364,7 +372,15 @@ export function Sidenotes({
     if (json === layoutJson.current) return;
     layoutJson.current = json;
     setLayout(next);
-  }, [containerRef, entries, marks, version, openKey, waitingAnchor]);
+  }, [
+    containerRef,
+    entries,
+    marks,
+    version,
+    openKey,
+    waitingAnchor,
+    layoutKey,
+  ]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `layoutKey` asks for a re-measure
   useLayoutEffect(() => {
@@ -732,7 +748,11 @@ export function Sidenotes({
         <span
           key={tick.key}
           className="sidenote-tick"
-          style={{ top: tick.top }}
+          style={{
+            top: tick.top,
+            // The variable is set on the tick, so the CSS fallback is --pen.
+            ["--tick-colour" as string]: `var(--mark-${tick.color})`,
+          }}
           aria-hidden="true"
         />
       ))}
