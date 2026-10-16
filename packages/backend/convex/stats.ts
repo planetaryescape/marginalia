@@ -6,6 +6,7 @@ import { query } from "./functions";
 import {
   bucketActiveMinutes,
   MIN_READ_MS,
+  type RoomPeriod,
   roomPeriod,
   skipsMostOf,
   splitReads,
@@ -373,6 +374,31 @@ const ARTICLE_BATCH = 20;
 const ROOM_FEEDS = 200;
 const FEEDS_SHOWN = 30;
 
+/** The reader's newest visits in the period, capped; `partial` when more exist. */
+async function periodVisits(
+  ctx: QueryCtx,
+  userId: string,
+  timeZone: string,
+  periodName: RoomPeriod,
+) {
+  const period = roomPeriod(Date.now(), timeZone, periodName);
+  const visits = await ctx.db
+    .query("readingActivity")
+    .withIndex("by_user_started", (q) =>
+      q
+        .eq("userId", userId)
+        .gte("startedAt", period.start)
+        .lt("startedAt", period.end),
+    )
+    .order("desc")
+    .take(ROOM_VISITS + 1);
+  return {
+    period,
+    rows: visits.slice(0, ROOM_VISITS),
+    partial: visits.length > ROOM_VISITS,
+  };
+}
+
 /**
  * The numbers behind Your reading: when the reader read, how long their reads
  * were, and how each feed served them. Aggregated here so the client never
@@ -382,19 +408,12 @@ const FEEDS_SHOWN = 30;
 export const readingRoom = query({
   args: roomArgs,
   handler: async (ctx, { timeZone, period: periodName }) => {
-    const period = roomPeriod(Date.now(), timeZone, periodName);
-    const visits = await ctx.db
-      .query("readingActivity")
-      .withIndex("by_user_started", (q) =>
-        q
-          .eq("userId", ctx.readerId)
-          .gte("startedAt", period.start)
-          .lt("startedAt", period.end),
-      )
-      .order("desc")
-      .take(ROOM_VISITS + 1);
-    const partial = visits.length > ROOM_VISITS;
-    const rows = visits.slice(0, ROOM_VISITS);
+    const { period, rows, partial } = await periodVisits(
+      ctx,
+      ctx.readerId,
+      timeZone,
+      periodName,
+    );
 
     // `day` is the reader's local day as the client recorded it
     const readingDays = new Set(
@@ -471,16 +490,82 @@ export const readingRoom = query({
   },
 });
 
+// Articles whose tags are read, newest read first, and the most tags kept per article
+const TOPIC_ARTICLES = 200;
+const TAGS_PER_ARTICLE = 20;
+// Tag documents carry an embedding, so they are fetched in small batches and
+// only as far down the minutes ranking as 30 active topics need
+const TOPICS_SHOWN = 30;
+const TOPIC_EXAMINED = 100;
+const TAG_BATCH = 20;
+
 /**
- * Topics the reader returns to, by minutes read. Tags arrive with the tags
- * tables (`tags`, `articleTags`); until they exist no article has a topic and
- * the room hides the block. The tags change will fill this from `articleTags`
- * joined to the reader's `readingActivity` for the period, keeping the shape
- * `{ name, minutes, articles }[]`.
+ * Topics the reader returns to, by minutes read in the period: the active tags
+ * on the articles they read, with the active minutes spent and how many
+ * distinct articles carried each. Candidate tags are not topics yet.
  */
 export const readingTopics = query({
   args: roomArgs,
-  handler: async (): Promise<
-    { name: string; minutes: number; articles: number }[]
-  > => [],
+  handler: async (ctx, { timeZone, period: periodName }) => {
+    const { rows } = await periodVisits(
+      ctx,
+      ctx.readerId,
+      timeZone,
+      periodName,
+    );
+    const activeMs = new Map<Id<"articles">, number>();
+    for (const row of rows)
+      activeMs.set(
+        row.articleId,
+        (activeMs.get(row.articleId) ?? 0) + row.activeTimeMs,
+      );
+    const read = [...activeMs.entries()]
+      .filter(([, ms]) => ms > 0)
+      .slice(0, TOPIC_ARTICLES);
+
+    const perTag = new Map<Id<"tags">, { ms: number; articles: number }>();
+    for (let i = 0; i < read.length; i += ARTICLE_BATCH)
+      await Promise.all(
+        read.slice(i, i + ARTICLE_BATCH).map(async ([articleId, ms]) => {
+          const links = await ctx.db
+            .query("articleTags")
+            .withIndex("by_article", (q) => q.eq("articleId", articleId))
+            .take(TAGS_PER_ARTICLE);
+          // by_article is not scoped to a reader, so check the owner of each link
+          for (const link of links) {
+            if (link.userId !== ctx.readerId) continue;
+            const seen = perTag.get(link.tagId) ?? { ms: 0, articles: 0 };
+            perTag.set(link.tagId, {
+              ms: seen.ms + ms,
+              articles: seen.articles + 1,
+            });
+          }
+        }),
+      );
+
+    const ranked = [...perTag.entries()]
+      .sort((a, b) => b[1].ms - a[1].ms || a[0].localeCompare(b[0]))
+      .slice(0, TOPIC_EXAMINED);
+    const topics: { name: string; minutes: number; articles: number }[] = [];
+    for (
+      let i = 0;
+      i < ranked.length && topics.length < TOPICS_SHOWN;
+      i += TAG_BATCH
+    ) {
+      const tags = await Promise.all(
+        ranked.slice(i, i + TAG_BATCH).map(async ([tagId, total]) => ({
+          tag: await ctx.db.get("tags", tagId),
+          total,
+        })),
+      );
+      for (const { tag, total } of tags)
+        if (tag?.userId === ctx.readerId && tag.status === "active")
+          topics.push({
+            name: tag.name,
+            minutes: Math.round((total.ms / 60_000) * 10) / 10,
+            articles: total.articles,
+          });
+    }
+    return topics.slice(0, TOPICS_SHOWN);
+  },
 });

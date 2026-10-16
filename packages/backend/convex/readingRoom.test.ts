@@ -157,10 +157,129 @@ describe("readingRoom", () => {
 });
 
 describe("readingTopics", () => {
-  it("has no topics until tags exist", async () => {
-    const { owner, reader } = await secondReaderTest(modules);
-    const args = { timeZone: "UTC", period: "month" as const };
-    expect(await owner.query(api.stats.readingTopics, args)).toEqual([]);
-    expect(await reader.query(api.stats.readingTopics, args)).toEqual([]);
+  async function seedTopics(
+    t: Awaited<ReturnType<typeof secondReaderTest>>["t"],
+    readerLibraryId: string,
+  ) {
+    await t.run(async (ctx) => {
+      const article = (userId: string, guid: string) =>
+        ctx.db.insert("articles", {
+          userId,
+          guid,
+          url: `https://example.com/${guid}`,
+          title: guid,
+          extractionStatus: "extracted",
+          annotationStatus: "annotated",
+          createdAt: 1,
+        });
+      const tag = (
+        userId: string,
+        name: string,
+        status: "active" | "candidate",
+      ) =>
+        ctx.db.insert("tags", {
+          userId,
+          name,
+          key: name,
+          status,
+          count: 1,
+          aliases: [],
+          createdAt: 1,
+        });
+      const visit = (
+        userId: string,
+        articleId: Awaited<ReturnType<typeof article>>,
+        startedAt: number,
+        minutes: number,
+      ) =>
+        ctx.db.insert("readingActivity", {
+          userId,
+          visitId: `${articleId}-${startedAt}`,
+          day: "2026-10-13",
+          articleId,
+          startedAt,
+          updatedAt: startedAt,
+          activeTimeMs: minutes * 60_000,
+          visibleTimeMs: minutes * 60_000,
+          timeSpentMs: minutes * 60_000,
+          maxScrollPercent: 10,
+          annotationsOpened: [],
+        });
+      const link = (
+        userId: string,
+        articleId: Awaited<ReturnType<typeof article>>,
+        tagId: Awaited<ReturnType<typeof tag>>,
+      ) =>
+        ctx.db.insert("articleTags", {
+          userId,
+          articleId,
+          tagId,
+          createdAt: 1,
+        });
+      const at = Date.UTC(2026, 9, 13, 8);
+
+      const a1 = await article(OWNER, "a1");
+      const a2 = await article(OWNER, "a2");
+      const old = await article(OWNER, "old");
+      const attention = await tag(OWNER, "attention", "active");
+      const hiring = await tag(OWNER, "hiring", "active");
+      const maybe = await tag(OWNER, "maybe", "candidate");
+      await visit(OWNER, a1, at, 10);
+      await visit(OWNER, a1, at + 3_600_000, 5);
+      await visit(OWNER, a2, at, 20);
+      // Before the month began, so it adds nothing
+      await visit(OWNER, old, Date.UTC(2026, 8, 1), 60);
+      await link(OWNER, a1, attention);
+      await link(OWNER, a2, attention);
+      await link(OWNER, a2, hiring);
+      await link(OWNER, a1, maybe);
+      await link(OWNER, old, hiring);
+
+      // Another reader's tag on the same article, and their own reading
+      const theirs = await tag(readerLibraryId, "secret topic", "active");
+      await link(readerLibraryId, a1, theirs);
+      const theirArticle = await article(readerLibraryId, "theirs");
+      await visit(readerLibraryId, theirArticle, at, 90);
+      await link(readerLibraryId, theirArticle, theirs);
+    });
+  }
+
+  it("ranks the reader's active tags by minutes read in the period", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner, readerLibraryId } = await secondReaderTest(modules);
+    await seedTopics(t, readerLibraryId);
+    expect(
+      await owner.query(api.stats.readingTopics, {
+        timeZone: "UTC",
+        period: "month",
+      }),
+    ).toEqual([
+      { name: "attention", minutes: 35, articles: 2 },
+      { name: "hiring", minutes: 20, articles: 1 },
+    ]);
+  });
+
+  it("shows another reader only their own topics", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, reader, readerLibraryId } = await secondReaderTest(modules);
+    await seedTopics(t, readerLibraryId);
+    expect(
+      await reader.query(api.stats.readingTopics, {
+        timeZone: "UTC",
+        period: "month",
+      }),
+    ).toEqual([{ name: "secret topic", minutes: 90, articles: 1 }]);
+  });
+
+  it("has no topics for a reader with no tags", async () => {
+    const { owner } = await secondReaderTest(modules);
+    expect(
+      await owner.query(api.stats.readingTopics, {
+        timeZone: "UTC",
+        period: "month",
+      }),
+    ).toEqual([]);
   });
 });
