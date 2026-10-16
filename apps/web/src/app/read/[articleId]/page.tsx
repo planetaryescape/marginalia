@@ -43,13 +43,7 @@ import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import { answerNotes, articleHistory } from "@/lib/margin-answers";
-import {
-  defaultColor,
-  type HighlighterColor,
-  type MarkColor,
-  markColor,
-  type PenColor,
-} from "@/lib/mark-colours";
+import { defaultColor, type MarkColor, markColor } from "@/lib/mark-colours";
 import {
   getArticleBody,
   getParagraphs,
@@ -79,6 +73,7 @@ import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
+import { useSetMarkDefault } from "@/lib/use-mark-default";
 import { useMarkPaint } from "@/lib/use-mark-paint";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { usePlaceRestore } from "@/lib/use-place-restore";
@@ -174,6 +169,7 @@ export default function ReadPage() {
 
   const createNote = useMutation(api.userNotes.create);
   const { settings, update: updateSettings, resetText } = useReaderSettings();
+  const setMarkDefault = useSetMarkDefault();
   const paragraphs = useParagraphs(articleRef, Boolean(article));
   // A link from Notes names the passage to land on, e.g. `?quote=`.
   const landingParagraph = Number.parseInt(searchParams.get("p") ?? "", 10);
@@ -393,11 +389,7 @@ export default function ReadPage() {
   // there, and becomes the default for that tool until another is picked.
   const markInColor = useCallback(
     async (kind: MarkKind, range: Range, color: MarkColor) => {
-      updateSettings(
-        kind === "highlight"
-          ? { highlighter: color as HighlighterColor }
-          : { pen: color as PenColor },
-      );
+      await setMarkDefault(kind, color);
       const existing = findMark(marks, kind, range);
       try {
         if (!existing) await saveMark(kind, range, color);
@@ -407,7 +399,7 @@ export default function ReadPage() {
         toast.error("Couldn't save that");
       }
     },
-    [marks, saveMark, recolourHighlight, updateSettings, settings],
+    [marks, saveMark, recolourHighlight, setMarkDefault, settings],
   );
 
   const markedColor = useCallback(

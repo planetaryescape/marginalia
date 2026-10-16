@@ -31,6 +31,7 @@ import {
 } from "@/lib/reader-settings";
 import { THEMES } from "@/lib/reader-themes";
 import { useCommand } from "@/lib/shortcuts";
+import { useSetMarkDefault } from "@/lib/use-mark-default";
 import { cn } from "@/lib/utils";
 
 type ModelRole = "annotations" | "quick" | "deep";
@@ -258,6 +259,8 @@ export function ReaderSettingsPanel({
 }: ReaderSettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("look");
   const [open, setOpen] = useState(false);
+  // Changing a tool's default never repaints marks already made
+  const setMarkDefault = useSetMarkDefault();
   // The `,` shortcut opens the panel without going through Radix's callback
   useEffect(() => {
     onOpenChange?.(open);
@@ -378,14 +381,16 @@ export function ReaderSettingsPanel({
                 shape="dot"
                 value={settings.pen}
                 options={PENS}
-                onChange={(pen) => update({ pen })}
+                onChange={(pen) => void setMarkDefault("underline", pen)}
               />
               <SwatchRow
                 label="Highlighter"
                 shape="marker"
                 value={settings.highlighter}
                 options={HIGHLIGHTERS}
-                onChange={(highlighter) => update({ highlighter })}
+                onChange={(highlighter) =>
+                  void setMarkDefault("highlight", highlighter)
+                }
               />
 
               <div className="h-px bg-[var(--reader-border)]" />

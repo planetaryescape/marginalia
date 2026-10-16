@@ -1,6 +1,8 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { colorFitsKind, markColor } from "./lib/markColours";
@@ -122,6 +124,61 @@ export const setColor = mutation({
     await ctx.db.patch("highlights", args.highlightId, { color: args.color });
   },
 });
+
+// Highlight rows carry an embedding, so a page stays small
+const STAMP_BATCH = 100;
+
+/**
+ * Before the reader's default colour for a tool changes, gives every mark of
+ * that kind without a stored colour the colour it shows now. Marks saved
+ * before colours were stored follow the default, so without this, changing
+ * the default would repaint them.
+ */
+export const stampUncoloured = mutation({
+  args: {
+    kind: v.union(v.literal("highlight"), v.literal("underline")),
+    color: markColor,
+  },
+  handler: async (ctx, args) => {
+    if (!colorFitsKind(args.kind, args.color))
+      throw new Error("That colour is not for this kind of mark");
+    await stampPage(ctx, ctx.readerId, args.kind, args.color, null);
+  },
+});
+
+export const stampUncolouredPage = internalMutation({
+  args: {
+    userId: v.string(),
+    kind: v.union(v.literal("highlight"), v.literal("underline")),
+    color: markColor,
+    cursor: v.string(),
+  },
+  handler: (ctx, args) =>
+    stampPage(ctx, args.userId, args.kind, args.color, args.cursor),
+});
+
+async function stampPage(
+  ctx: MutationCtx,
+  userId: string,
+  kind: "highlight" | "underline",
+  color: Doc<"highlights">["color"] & string,
+  cursor: string | null,
+) {
+  const page = await ctx.db
+    .query("highlights")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .paginate({ numItems: STAMP_BATCH, cursor });
+  for (const row of page.page)
+    if (row.kind === kind && row.color === undefined)
+      await ctx.db.patch("highlights", row._id, { color });
+  if (!page.isDone)
+    await ctx.scheduler.runAfter(0, internal.highlights.stampUncolouredPage, {
+      userId,
+      kind,
+      color,
+      cursor: page.continueCursor,
+    });
+}
 
 export const remove = mutation({
   args: { highlightId: v.id("highlights") },

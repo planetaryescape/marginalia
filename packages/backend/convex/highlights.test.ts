@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
-import { secondReaderTest } from "../test/owner";
+import { ownerTest, secondReaderTest } from "../test/owner";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
@@ -222,5 +222,59 @@ describe("mark colours", () => {
         color: "green",
       }),
     ).rejects.toThrow("Highlight not found");
+  });
+});
+
+describe("changing a tool's default colour", () => {
+  it("first gives colour-less marks the colour they show, and leaves coloured ones alone", async () => {
+    const t = await ownerTest(modules);
+    const ids = await t.run(async (ctx) => {
+      const articleId = await ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "stamp",
+        url: "https://example.com/stamp",
+        title: "Stamp",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      });
+      const mark = (
+        kind: "highlight" | "underline",
+        color?: "pink" | "cobalt",
+      ) =>
+        ctx.db.insert("highlights", {
+          userId: "default_user",
+          articleId,
+          kind,
+          color,
+          text: "a passage",
+          createdAt: Date.now(),
+        });
+      return {
+        old: await mark("highlight"),
+        pink: await mark("highlight", "pink"),
+        underline: await mark("underline"),
+      };
+    });
+    await t.mutation(api.highlights.stampUncoloured, {
+      kind: "highlight",
+      color: "yellow",
+    });
+    const colours = await t.run(async (ctx) => ({
+      old: (await ctx.db.get("highlights", ids.old))?.color,
+      pink: (await ctx.db.get("highlights", ids.pink))?.color,
+      underline: (await ctx.db.get("highlights", ids.underline))?.color ?? null,
+    }));
+    expect(colours).toEqual({ old: "yellow", pink: "pink", underline: null });
+  });
+
+  it("refuses a pen colour for highlights", async () => {
+    const t = await ownerTest(modules);
+    await expect(
+      t.mutation(api.highlights.stampUncoloured, {
+        kind: "highlight",
+        color: "cobalt",
+      }),
+    ).rejects.toThrow();
   });
 });
