@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { ownedArticle, requireArticle } from "./access";
+import { countFeedOutcome } from "./feedStats";
 import { mutation, query } from "./functions";
 import { updateQueueStats } from "./readingQueue";
 
@@ -78,13 +79,13 @@ export const recordInteraction = mutation({
     tabHiddenCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    const article = await requireArticle(ctx, args.articleId, ctx.readerId);
     if (args.sessionId) {
       const session = await ctx.db.get(args.sessionId);
       if (session?.userId !== ctx.readerId)
         throw new Error("Session not found");
     }
-    await ctx.db.insert("articleInteractions", {
+    const interactionId = await ctx.db.insert("articleInteractions", {
       userId: ctx.readerId,
       articleId: args.articleId,
       sessionId: args.sessionId,
@@ -98,6 +99,7 @@ export const recordInteraction = mutation({
       tabHiddenCount: args.tabHiddenCount,
       createdAt: Date.now(),
     });
+    await countFeedOutcome(ctx, article, interactionId);
     // Finishing an article that came from Readwise Reader archives it there
     if (args.action === "finished") {
       const before = await ctx.db.get(args.articleId);

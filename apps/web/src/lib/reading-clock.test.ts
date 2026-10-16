@@ -61,3 +61,75 @@ describe("recorded reading time", () => {
     expect(articleProgress(400, 2000, 800)).toBe(0);
   });
 });
+
+describe("paragraph dwell", () => {
+  const dwell = (clock: ReadingClock, ms: number) =>
+    clock.snapshots(start + ms, ms)[0].dwell;
+  it("credits only the paragraphs on screen, up to the moment the set changes", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.paragraphs([1, 2], start, 0);
+    for (let t = 1000; t <= 5000; t += 1000) clock.tick(start + t, t);
+    clock.paragraphs([2, 3], start + 5000, 5000);
+    for (let t = 6000; t <= 8000; t += 1000) clock.tick(start + t, t);
+    expect(dwell(clock, 8000)).toEqual({ 1: 5000, 2: 8000, 3: 3000 });
+  });
+  it("is cumulative, so repeated snapshots never add up twice", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.paragraphs([4], start, 0);
+    for (let t = 1000; t <= 3000; t += 1000) clock.tick(start + t, t);
+    expect(dwell(clock, 3000)).toEqual({ 4: 3000 });
+    expect(dwell(clock, 3000)).toEqual({ 4: 3000 });
+    expect(dwell(clock, 4000)).toEqual({ 4: 4000 });
+  });
+  it("stops while the tab is hidden or the window loses focus, and resumes after", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.paragraphs([1], start, 0);
+    clock.tick(start + 2000, 2000);
+    clock.visibility(false, start + 2000, 2000);
+    clock.tick(start + 4000, 4000);
+    clock.tick(start + 6000, 6000);
+    clock.visibility(true, start + 6000, 6000);
+    clock.tick(start + 8000, 8000);
+    expect(dwell(clock, 8000)).toEqual({ 1: 4000 });
+  });
+  it("stops at the idle boundary and resumes with activity", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.paragraphs([1], start, 0);
+    for (let t = 1000; t <= 100000; t += 1000) clock.tick(start + t, t);
+    expect(dwell(clock, 100000)).toEqual({ 1: 90000 });
+    clock.activity(start + 100000, 100000);
+    expect(dwell(clock, 102000)).toEqual({ 1: 92000 });
+  });
+  it("records nothing for paragraphs held under a second or when none is on screen", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.paragraphs([1], start, 0);
+    clock.tick(start + 900, 900);
+    clock.paragraphs([], start + 900, 900);
+    clock.tick(start + 5000, 5000);
+    expect(dwell(clock, 5000)).toBeUndefined();
+  });
+  it("keeps the longest 300 paragraphs", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.paragraphs(
+      Array.from({ length: 400 }, (_, i) => i + 1),
+      start,
+      0,
+    );
+    clock.tick(start + 2000, 2000);
+    clock.paragraphs([1], start + 2000, 2000);
+    clock.tick(start + 4000, 4000);
+    const kept = dwell(clock, 4000) ?? {};
+    expect(Object.keys(kept)).toHaveLength(300);
+    expect(kept[1]).toBe(4000);
+  });
+  it("splits dwell at local midnight with the rest of the visit", () => {
+    const late = new Date(2026, 9, 12, 23, 59, 59).getTime();
+    const clock = new ReadingClock(late, 0, true);
+    clock.paragraphs([1], late, 0);
+    for (let t = 1000; t <= 4000; t += 1000) clock.tick(late + t, t);
+    const days = clock.snapshots(late + 4000, 4000);
+    expect(days).toHaveLength(2);
+    const total = days.reduce((sum, d) => sum + (d.dwell?.[1] ?? 0), 0);
+    expect(total).toBe(4000);
+  });
+});

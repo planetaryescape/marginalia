@@ -1,4 +1,5 @@
 import {
+  mergeDwell,
   type ReadingCheckpoint,
   readingCheckpointSchema,
 } from "@marginalia/backend/reading-activity";
@@ -35,6 +36,7 @@ export function mergeCheckpoint(
           ...new Set([...old.annotationsOpened, ...snapshot.annotationsOpened]),
         ].slice(0, 128),
         finished: old.finished || snapshot.finished,
+        dwell: mergeDwell(old.dwell, snapshot.dwell),
       }
     : snapshot;
   return [
@@ -42,6 +44,11 @@ export function mergeCheckpoint(
     merged,
   ].slice(-64);
 }
+const dwellAhead = (
+  entry: Record<string, number> | undefined,
+  sent: Record<string, number> | undefined,
+) => Object.entries(entry ?? {}).some(([key, ms]) => ms > (sent?.[key] ?? 0));
+
 export function acknowledgeCheckpoint(
   queue: ReadingCheckpoint[],
   sent: ReadingCheckpoint,
@@ -57,6 +64,7 @@ export function acknowledgeCheckpoint(
       entry.annotationsOpened.some(
         (id) => !sent.annotationsOpened.includes(id),
       ) ||
+      dwellAhead(entry.dwell, sent.dwell) ||
       (entry.finished && !sent.finished),
   );
 }

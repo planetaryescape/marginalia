@@ -31,6 +31,7 @@ import type * as chatgpt from "../chatgpt.js";
 import type * as companionThreads from "../companionThreads.js";
 import type * as crons from "../crons.js";
 import type * as externalApi from "../externalApi.js";
+import type * as feedStats from "../feedStats.js";
 import type * as feeds from "../feeds.js";
 import type * as functions from "../functions.js";
 import type * as highlights from "../highlights.js";
@@ -116,6 +117,7 @@ declare const fullApi: ApiFromModules<{
   companionThreads: typeof companionThreads;
   crons: typeof crons;
   externalApi: typeof externalApi;
+  feedStats: typeof feedStats;
   feeds: typeof feeds;
   functions: typeof functions;
   highlights: typeof highlights;

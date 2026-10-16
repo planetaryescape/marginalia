@@ -98,6 +98,24 @@ const STEPS: Step[] = [
   ),
   rows((ctx, u) =>
     ctx.db
+      .query("paragraphDwell")
+      .withIndex("by_user_article", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("feedStats")
+      .withIndex("by_user_feed", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("feedStatsBackfill")
+      .withIndex("by_user", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
       .query("sessions")
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),

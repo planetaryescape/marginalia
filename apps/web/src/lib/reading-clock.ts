@@ -1,3 +1,5 @@
+import { capDwell } from "@marginalia/backend/reading-activity";
+
 export const READING_IDLE_MS = 90_000;
 export interface ReadingSample {
   day: string;
@@ -8,6 +10,8 @@ export interface ReadingSample {
   timeSpentMs: number;
   maxScrollPercent: number;
   annotationsOpened: string[];
+  /** Active milliseconds per displayed paragraph number */
+  dwell: Record<string, number>;
 }
 export function articleProgress(
   top: number,
@@ -33,6 +37,7 @@ export class ReadingClock {
   private lastActivity: number;
   private visible: boolean;
   private listening = false;
+  private inView: readonly number[] = [];
   constructor(at: number, tick: number, visible: boolean) {
     this.lastAt = at;
     this.lastTick = tick;
@@ -53,6 +58,7 @@ export class ReadingClock {
         timeSpentMs: 0,
         maxScrollPercent: 0,
         annotationsOpened: [],
+        dwell: {},
       };
       this.samples.set(day, s);
     }
@@ -82,6 +88,10 @@ export class ReadingClock {
       s.timeSpentMs += end - from;
       s.visibleTimeMs += visible * share;
       s.activeTimeMs += active * share;
+      // Dwell takes the active share, so it stops when the tab is hidden, the
+      // window loses focus or the reader goes idle, exactly as active time does
+      for (const paragraph of this.inView)
+        s.dwell[paragraph] = (s.dwell[paragraph] ?? 0) + active * share;
       s.updatedAt = end;
       from = end;
     }
@@ -101,6 +111,11 @@ export class ReadingClock {
     this.tick(at, tick);
     this.listening = listening;
   }
+  /** Sets which paragraphs are on screen; time up to now goes to the previous set. */
+  paragraphs(inView: readonly number[], at: number, tick: number) {
+    this.tick(at, tick);
+    this.inView = [...inView];
+  }
   progress(percent: number) {
     const s = this.sample(this.lastAt);
     s.maxScrollPercent = Math.max(
@@ -118,6 +133,7 @@ export class ReadingClock {
     return [...this.samples.values()].map((s) => ({
       ...s,
       annotationsOpened: [...s.annotationsOpened],
+      dwell: capDwell(s.dwell),
     }));
   }
   acknowledge(day: string) {

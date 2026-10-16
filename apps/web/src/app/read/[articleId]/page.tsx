@@ -165,6 +165,7 @@ export default function ReadPage() {
     ready: Boolean(article),
     containerRef: articleRef,
     listening: listen.active,
+    paragraphVersion: paragraphs.version,
   });
   // The open answer's passage, found again by its text so a refresh can restore it.
   const [openRange, setOpenRange] = useState<Range | null>(null);

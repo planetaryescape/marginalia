@@ -267,6 +267,41 @@ export default defineSchema({
     .index("by_user_started", ["userId", "startedAt"])
     .index("by_user_article", ["userId", "articleId"]),
 
+  // Milliseconds each paragraph held the reader's attention in one visit and
+  // local day, keyed by the paragraph's displayed number. A sibling of
+  // readingActivity, not a field on it: that table is scanned on every
+  // checkpoint and by statistics, and up to 300 entries would bloat each row.
+  paragraphDwell: defineTable({
+    userId: v.string(),
+    visitId: v.string(),
+    day: v.string(),
+    articleId: v.id("articles"),
+    dwell: v.record(v.string(), v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_user_visit_day", ["userId", "visitId", "day"])
+    .index("by_user_article", ["userId", "articleId"]),
+
+  // Per-feed offer outcomes, counted where articleInteractions are inserted.
+  feedStats: defineTable({
+    userId: v.string(),
+    feedId: v.id("feeds"),
+    offered: v.number(),
+    opened: v.number(),
+    finished: v.number(),
+    skipped: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user_feed", ["userId", "feedId"]),
+
+  // Splits history from live counting: interactions created before `cutoff`
+  // belong to the backfill, later ones to the live counters.
+  feedStatsBackfill: defineTable({
+    userId: v.string(),
+    cutoff: v.number(),
+    cursor: v.optional(v.string()),
+    ready: v.boolean(),
+  }).index("by_user", ["userId"]),
+
   readingQueueStats: defineTable({
     userId: v.string(),
     annotated: v.number(),

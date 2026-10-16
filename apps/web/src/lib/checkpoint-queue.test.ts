@@ -50,3 +50,18 @@ it("keeps separate visits and days separate, discarding invalid stored payloads"
     ),
   ).toEqual([snapshot]);
 });
+it("merges queued dwell by the larger reading per paragraph and keeps it until acknowledged", () => {
+  const first = { ...snapshot, dwell: { "1": 3000, "2": 1500 } };
+  const later = { ...snapshot, dwell: { "1": 2000, "3": 4000 } };
+  const [merged] = mergeCheckpoint([first], later);
+  expect(merged.dwell).toEqual({ "1": 3000, "2": 1500, "3": 4000 });
+  expect(mergeCheckpoint([merged], first)[0].dwell).toEqual(merged.dwell);
+  expect(acknowledgeCheckpoint([merged], first)).toEqual([merged]);
+  expect(acknowledgeCheckpoint([merged], merged)).toEqual([]);
+});
+it("still parses and merges checkpoints from before dwell existed", () => {
+  const queue = parseCheckpoints(JSON.stringify([snapshot]));
+  expect(queue).toEqual([snapshot]);
+  expect(mergeCheckpoint(queue, snapshot)[0].dwell).toBeUndefined();
+  expect(acknowledgeCheckpoint(queue, snapshot)).toEqual([]);
+});

@@ -6,6 +6,7 @@ import {
   mergeCheckpoint,
   parseCheckpoints,
 } from "./checkpoint-queue";
+import { observeParagraphsInView } from "./paragraph-dwell";
 import { getArticleBody } from "./paragraphs";
 import { articleProgress, ReadingClock } from "./reading-clock";
 
@@ -49,12 +50,15 @@ export function useEngagementTracker({
   ready,
   containerRef,
   listening,
+  paragraphVersion = 0,
 }: {
   articleId: string;
   sessionId: string | null;
   ready: boolean;
   containerRef: React.RefObject<HTMLElement | null>;
   listening: boolean;
+  /** Bumps when paragraphs are renumbered, so the observer follows the new elements */
+  paragraphVersion?: number;
 }) {
   const clockRef = useRef<ReadingClock | null>(null);
   const flushRef = useRef<((finish?: boolean) => Promise<void>) | null>(null);
@@ -182,6 +186,19 @@ export function useEngagementTracker({
       window.removeEventListener("online", retry);
     };
   }, [ready, articleId, sessionId, containerRef]);
+  // Declared after the clock's effect so the clock exists when this runs
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `sessionId` re-creates the clock and `paragraphVersion` renumbers paragraphs, so both need a fresh observer
+  useEffect(() => {
+    const body = ready ? getArticleBody(containerRef.current) : null;
+    if (!body) return;
+    const stop = observeParagraphsInView(body, (inView) =>
+      clockRef.current?.paragraphs(inView, Date.now(), performance.now()),
+    );
+    return () => {
+      stop();
+      clockRef.current?.paragraphs([], Date.now(), performance.now());
+    };
+  }, [ready, articleId, sessionId, containerRef, paragraphVersion]);
   useEffect(() => {
     clockRef.current?.speech(listening, Date.now(), performance.now());
   }, [listening]);

@@ -96,6 +96,28 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       maxScrollPercent: 1,
       annotationsOpened: [],
     });
+    await ctx.db.insert("paragraphDwell", {
+      userId,
+      visitId: `visit-${i}`,
+      day: "2026-10-12",
+      articleId,
+      dwell: { "1": 2000 },
+      updatedAt: now,
+    });
+    await ctx.db.insert("feedStats", {
+      userId,
+      feedId,
+      offered: 1,
+      opened: 1,
+      finished: 0,
+      skipped: 0,
+      updatedAt: now,
+    });
+    await ctx.db.insert("feedStatsBackfill", {
+      userId: `${userId}`,
+      cutoff: now,
+      ready: i === 0,
+    });
     await ctx.db.insert("noteChunks", {
       userId,
       filePath: `notes/${i}.md`,

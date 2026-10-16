@@ -8,8 +8,9 @@ const job = v.union(
   v.literal("queue"),
   v.literal("feeds"),
   v.literal("readwise"),
+  v.literal("feedStats"),
 );
-type Job = "queue" | "feeds" | "readwise";
+type Job = "queue" | "feeds" | "readwise" | "feedStats";
 
 const PAGE_SIZE = 25;
 // Spread each library's work out instead of starting every reader at once
@@ -17,6 +18,7 @@ const STAGGER_MS: Record<Job, number> = {
   queue: 500,
   feeds: 10_000,
   readwise: 15_000,
+  feedStats: 500,
 };
 
 async function scheduleFor(
@@ -28,6 +30,11 @@ async function scheduleFor(
   switch (name) {
     case "queue":
       await ctx.scheduler.runAfter(delayMs, internal.readingQueue.initialize, {
+        userId,
+      });
+      return true;
+    case "feedStats":
+      await ctx.scheduler.runAfter(delayMs, internal.feedStats.backfill, {
         userId,
       });
       return true;

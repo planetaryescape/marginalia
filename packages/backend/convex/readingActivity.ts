@@ -1,10 +1,13 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
+import { countFeedOutcome } from "./feedStats";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 import {
+  capDwell,
   hasReadArticle,
+  mergeDwell,
   type ReadingCheckpoint,
   readingCheckpointSchema,
 } from "./lib/readingActivity";
@@ -23,6 +26,8 @@ const args = {
   maxScrollPercent: v.number(),
   annotationsOpened: v.array(v.string()),
   finished: v.optional(v.boolean()),
+  // Cumulative milliseconds per displayed paragraph number
+  dwell: v.optional(v.record(v.string(), v.number())),
 };
 
 async function saveCheckpoint(
@@ -71,14 +76,18 @@ async function saveCheckpoint(
         "This reading visit belongs to another article or session.",
       );
     if (!previousDay)
-      await ctx.db.insert("articleInteractions", {
-        userId: userId,
-        articleId: article._id,
-        sessionId: sessionId ?? undefined,
-        visitId: s.visitId,
-        action: "opened",
-        createdAt: s.startedAt,
-      });
+      await countFeedOutcome(
+        ctx,
+        article,
+        await ctx.db.insert("articleInteractions", {
+          userId: userId,
+          articleId: article._id,
+          sessionId: sessionId ?? undefined,
+          visitId: s.visitId,
+          action: "opened",
+          createdAt: s.startedAt,
+        }),
+      );
   }
   const activeTimeMs = Math.max(old?.activeTimeMs ?? 0, s.activeTimeMs);
   const visibleTimeMs = Math.max(old?.visibleTimeMs ?? 0, s.visibleTimeMs);
@@ -113,6 +122,7 @@ async function saveCheckpoint(
   };
   if (old) await ctx.db.patch(old._id, data);
   else await ctx.db.insert("readingActivity", data);
+  await saveDwell(ctx, data, s.dwell);
   if (session)
     await ctx.db.patch(session._id, {
       timeSpentMs:
@@ -128,14 +138,18 @@ async function saveCheckpoint(
   if (finishing) {
     // Keep existing reading history and queue semantics, but exclude these
     // marker-only interactions from measured time in statistics.
-    await ctx.db.insert("articleInteractions", {
-      userId: userId,
-      articleId: article._id,
-      sessionId: sessionId ?? undefined,
-      action: "finished",
-      visitId: s.visitId,
-      createdAt: s.updatedAt,
-    });
+    await countFeedOutcome(
+      ctx,
+      article,
+      await ctx.db.insert("articleInteractions", {
+        userId: userId,
+        articleId: article._id,
+        sessionId: sessionId ?? undefined,
+        action: "finished",
+        visitId: s.visitId,
+        createdAt: s.updatedAt,
+      }),
+    );
     if (article.finishedAt === undefined) {
       await ctx.db.patch(article._id, { finishedAt: s.updatedAt });
       const after = await ctx.db.get(article._id);
@@ -148,6 +162,43 @@ async function saveCheckpoint(
     }
   }
   return null;
+}
+
+/** Folds this checkpoint's dwell into the visit's row; repeats and reordering change nothing. */
+async function saveDwell(
+  ctx: MutationCtx,
+  visit: Pick<
+    Doc<"readingActivity">,
+    "userId" | "visitId" | "day" | "articleId" | "activeTimeMs" | "updatedAt"
+  >,
+  incoming: Record<string, number> | undefined,
+) {
+  if (!capDwell(incoming)) return;
+  const old = await ctx.db
+    .query("paragraphDwell")
+    .withIndex("by_user_visit_day", (q) =>
+      q
+        .eq("userId", visit.userId)
+        .eq("visitId", visit.visitId)
+        .eq("day", visit.day),
+    )
+    .unique();
+  const dwell = mergeDwell(old?.dwell, incoming, visit.activeTimeMs);
+  if (!dwell) return;
+  if (!old)
+    await ctx.db.insert("paragraphDwell", {
+      userId: visit.userId,
+      visitId: visit.visitId,
+      day: visit.day,
+      articleId: visit.articleId,
+      dwell,
+      updatedAt: visit.updatedAt,
+    });
+  else if (JSON.stringify(old.dwell) !== JSON.stringify(dwell))
+    await ctx.db.patch(old._id, {
+      dwell,
+      updatedAt: Math.max(old.updatedAt, visit.updatedAt),
+    });
 }
 
 /**
