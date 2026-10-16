@@ -82,6 +82,7 @@ import type * as lib_pdf_structure from "../lib/pdf/structure.js";
 import type * as lib_pdf_title from "../lib/pdf/title.js";
 import type * as lib_providerKeys from "../lib/providerKeys.js";
 import type * as lib_providers from "../lib/providers.js";
+import type * as lib_queryEmbeddingCache from "../lib/queryEmbeddingCache.js";
 import type * as lib_readerAI from "../lib/readerAI.js";
 import type * as lib_readingActivity from "../lib/readingActivity.js";
 import type * as lib_readingCompanion from "../lib/readingCompanion.js";
@@ -208,6 +209,7 @@ declare const fullApi: ApiFromModules<{
   "lib/pdf/title": typeof lib_pdf_title;
   "lib/providerKeys": typeof lib_providerKeys;
   "lib/providers": typeof lib_providers;
+  "lib/queryEmbeddingCache": typeof lib_queryEmbeddingCache;
   "lib/readerAI": typeof lib_readerAI;
   "lib/readingActivity": typeof lib_readingActivity;
   "lib/readingCompanion": typeof lib_readingCompanion;
