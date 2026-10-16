@@ -27,3 +27,7 @@ For each spike, record what was tried, the result, the date and the conclusion u
 | Q10 | The decorative drop cap is on by default (`dropCap: "text"` in `@planetaryescape/reader`) and drawn in the pen colour. Should it default to off, or be drawn in ink? | Answered by BK 2026-10-16: drawn in ink, on by default, kept as a reader setting (D-DES-029) |
 | Q11 | Move "Re-annotate with latest vault" into the article's overflow menu? | Answered by BK 2026-10-16: yes (D-DES-029) |
 | Q12 | When you choose a time, should the pick appear on the desk itself instead of on a separate full-screen page? | Open; blueprint assumes yes (D-DES-028) |
+
+### S4 result (2026-10-16)
+
+Tried on the live reader at origin/main `3794180`, 1440×900, Night, on a long article (8,442 px body): 40 wheel scrolls of 1,500 px with `agent-browser scroll`, which fire real scroll events. At the end `scrollY` was 7,542 of a 7,542 maximum and `.reading-progress` had `width: 100%`. The audit's fifth-of-the-width reading came from scrolling without scroll events, so `use-engagement-tracker.ts` never re-measured. Conclusion: not a bug; no action. Rung 1 still recolours the bar, which today uses the crossref-to-question annotation gradient (`globals.css` `.reading-progress`).
