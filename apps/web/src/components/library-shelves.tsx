@@ -42,7 +42,7 @@ const shelfEmpty = "py-10 text-center text-[13px] text-[var(--reader-muted)]";
 const rowClass =
   "flex items-start gap-4 border-b border-[var(--reader-border)] py-3.5";
 const titleClass =
-  "block font-serif text-[17px] sm:text-[18px] leading-snug hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4";
+  "-mx-2 block rounded-md px-2 font-serif text-[17px] sm:text-[18px] leading-snug hover:bg-[var(--reader-chip)]";
 
 /** Author and length, plus "annotating" while the margin notes are still being written. */
 function shelfMeta(article: {
