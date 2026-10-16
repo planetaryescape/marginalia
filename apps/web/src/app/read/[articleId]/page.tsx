@@ -705,6 +705,7 @@ export default function ReadPage() {
         key={answerThread.id}
         inline={inline}
         thread={answerThread}
+        isBook={isBook}
         range={openRange}
         containerRef={articleRef}
         layoutVersion={paragraphs.version}

@@ -37,6 +37,7 @@ export function CompanionCard({
   onRegenerate,
   onJump,
   onKeep,
+  isBook = false,
 }: {
   thread: CompanionThread;
   /** The passage the answer is about, for the floating card to sit beside. */
@@ -52,11 +53,15 @@ export function CompanionCard({
   onRegenerate: () => void;
   onJump: (index: number) => void;
   onKeep: () => void;
+  /** A question about a whole book reads as one, not as an article. */
+  isBook?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const { label, Icon } = MODES[thread.mode];
+  const { Icon } = MODES[thread.mode];
+  const label =
+    thread.mode === "article" && isBook ? "Book" : MODES[thread.mode].label;
   const streaming = thread.status === "streaming";
   const kept = Boolean(thread.savedId);
   // Kept now, or saved automatically before answers became temporary
@@ -233,7 +238,13 @@ export function CompanionCard({
           {kept && <span className="font-normal opacity-70">· kept</span>}
         </>
       }
-      label={thread.mode === "article" ? "Ask the article" : `${label} passage`}
+      label={
+        thread.mode === "article"
+          ? isBook
+            ? "Ask the book"
+            : "Ask the article"
+          : `${label} passage`
+      }
       pinned={thread.mode === "article"}
       paragraphIndex={thread.paragraphIndex}
       onJump={onJump}
