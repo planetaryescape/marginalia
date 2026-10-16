@@ -181,6 +181,8 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       model: "fixture",
       startParagraph: 0,
       endParagraph: 0,
+      fromOffset: 0,
+      toOffset: 0,
       embedding,
     });
     await ctx.db.insert("noteChunks", {

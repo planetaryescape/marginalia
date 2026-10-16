@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { ASK_BUDGET_CHARS, type BudgetedSelection } from "./articleAsk";
+import {
+  ASK_BUDGET_CHARS,
+  type BudgetedSelection,
+  type Segment,
+} from "./articleAsk";
 import { type BookAskContext, formatBookContext } from "./bookAsk";
 
 // Gemini Flash takes far more than this, but a long article plus every
@@ -286,6 +290,35 @@ export function formatArticle(
   return `# ${title || "Untitled"}\n\n${lines.join("\n\n")}`;
 }
 
+/** Retrieved stretches of the article, each under its paragraph's real ¶ number. */
+export function formatSegments(
+  title: string,
+  segments: readonly Segment[],
+  paragraphCount: number,
+): string {
+  const lines: string[] = [];
+  let previous: Segment | null = null;
+  for (const seg of segments) {
+    const follows = previous
+      ? previous.to === previous.length &&
+        seg.from === 0 &&
+        seg.index === previous.index + 1
+      : seg.index === 0 && seg.from === 0;
+    if (!follows) lines.push("[…]");
+    lines.push(
+      `¶${seg.index + 1}${seg.from > 0 ? " (cont.)" : ""}\n${seg.text}`,
+    );
+    previous = seg;
+  }
+  if (
+    !previous ||
+    previous.to < previous.length ||
+    previous.index < paragraphCount - 1
+  )
+    lines.push("[…]");
+  return `# ${title || "Untitled"}\n\n${lines.join("\n\n")}`;
+}
+
 function formatSummary(summary: ArticleSummary | null | undefined): string[] {
   if (!summary) return [];
   const body = [summary.thesis, summary.gist].filter(Boolean).join("\n\n");
@@ -343,25 +376,29 @@ export function buildCompanionPrompt(
     book
       ? `<article part="${book.partNumber} of ${book.partCount}">`
       : "<article>",
-    formatArticle(
-      book
-        ? `${request.title} (part ${book.partNumber} of ${book.partCount}, on screen)`
-        : request.title,
-      retrieved?.paragraphs ?? request.paragraphs,
-      request.paragraphIndex,
-      book
-        ? {
-            indices: selectParagraphWindow(
-              request.paragraphs,
-              null,
-              BOOK_PART_CHARS,
-            ),
-            marked: new Set(),
-          }
-        : retrieved
-          ? { indices: retrieved.indices, marked: new Set() }
-          : selectContext(request),
-    ),
+    retrieved && !book
+      ? formatSegments(
+          request.title,
+          retrieved.segments,
+          request.paragraphs.length,
+        )
+      : formatArticle(
+          book
+            ? `${request.title} (part ${book.partNumber} of ${book.partCount}, on screen)`
+            : request.title,
+          request.paragraphs,
+          request.paragraphIndex,
+          book
+            ? {
+                indices: selectParagraphWindow(
+                  request.paragraphs,
+                  null,
+                  BOOK_PART_CHARS,
+                ),
+                marked: new Set(),
+              }
+            : selectContext(request),
+        ),
     "</article>",
     "",
     ...passage,

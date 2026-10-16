@@ -40,6 +40,8 @@ export const cached = internalQuery({
             .map((row) => ({
               startParagraph: row.startParagraph,
               endParagraph: row.endParagraph,
+              fromOffset: row.fromOffset,
+              toOffset: row.toOffset,
               embedding: row.embedding,
             }))
         : [],
@@ -58,6 +60,8 @@ export const replace = internalMutation({
       v.object({
         startParagraph: v.number(),
         endParagraph: v.number(),
+        fromOffset: v.number(),
+        toOffset: v.number(),
         embedding: v.array(v.float64()),
       }),
     ),

@@ -7,7 +7,8 @@ import {
   ASK_FULL_TEXT_CHARS,
   chunkParagraphs,
   citedParagraphs,
-  FALLBACK_HEAD_CHARS,
+  LONG_PARAGRAPH_CHARS,
+  passageText,
 } from "./lib/articleAsk";
 import {
   buildCompanionPrompt,
@@ -92,6 +93,12 @@ function article(count: number, answerAt?: number) {
     .slice(0, count)
     .map((p) => p.slice(0, 1_000));
 }
+
+/** `count` paragraphs of exactly `length` characters, each opening with its number. */
+const sized = (count: number, length: number) =>
+  Array.from({ length: count }, (_, i) =>
+    `PARA${i + 1} Filler about tides. `.padEnd(length, "Words worth reading. "),
+  ).map((p) => p.slice(0, length));
 
 const sum = (paragraphs: string[]) =>
   paragraphs.reduce((total, p) => total + p.length, 0);
@@ -244,9 +251,87 @@ describe("Ask about a long article", () => {
     expect(prompt).toContain(`¶1\n${paragraphs[0]}`);
     expect(prompt).not.toContain("PARA80 ");
     expect(articleSection(prompt).length).toBeLessThan(
-      FALLBACK_HEAD_CHARS + 2_000,
+      ASK_BUDGET_CHARS + 2_000,
     );
     expect(await rows()).toEqual([]);
+  });
+
+  it("keeps every cited paragraph whole, up to the full budget", async () => {
+    const { f, mock, seed, ask } = await setup();
+    const paragraphs = sized(20, 3_000);
+    const articleId = await seed(OWNER);
+    await ask(f.owner, {
+      articleId,
+      paragraphs,
+      question: "Compare ¶10 and ¶15",
+    });
+    const prompt = mock.prompts.at(-1) ?? "";
+    expect(prompt).toContain(`¶10\n${paragraphs[9]}`);
+    expect(prompt).toContain(`¶15\n${paragraphs[14]}`);
+    expect(prompt).toContain(`¶1\n${paragraphs[0]}`);
+  });
+
+  it("keeps cited paragraphs whole when the search fails too", async () => {
+    const { f, mock, seed, ask } = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mock.breakEmbeddings();
+    const paragraphs = sized(20, 3_000);
+    const articleId = await seed(OWNER);
+    await ask(f.owner, {
+      articleId,
+      paragraphs,
+      question: "Compare ¶10 and ¶15",
+    });
+    const prompt = mock.prompts.at(-1) ?? "";
+    expect(prompt).toContain(`¶10\n${paragraphs[9]}`);
+    expect(prompt).toContain(`¶15\n${paragraphs[14]}`);
+    expect(prompt).toContain(`¶1\n${paragraphs[0]}`);
+    // The rest of the budget runs from the start of the article
+    expect(prompt).toContain(`¶2\n${paragraphs[1]}`);
+    expect(articleSection(prompt).length).toBeLessThan(
+      ASK_BUDGET_CHARS + 2_000,
+    );
+  });
+
+  it("finds an answer deep inside a long paragraph and labels the piece", async () => {
+    const { f, mock, seed, ask, rows } = await setup();
+    const paragraphs = sized(20, 3_000);
+    // ¶10 is 6,000 characters and the answer starts at character 4,500
+    paragraphs[9] = (
+      "Plain words about nothing. ".repeat(167) +
+      "The zebra stripes deter flies. " +
+      "More plain words. ".repeat(100)
+    ).slice(0, 6_000);
+    const answerAt = paragraphs[9].indexOf("zebra");
+    expect(answerAt).toBeGreaterThan(4_000);
+    const articleId = await seed(OWNER);
+    await ask(f.owner, { articleId, paragraphs });
+    const prompt = mock.prompts.at(-1) ?? "";
+    expect(prompt).toContain("¶10 (cont.)\n");
+    expect(prompt).toContain("The zebra stripes deter flies.");
+    expect(prompt).not.toContain(paragraphs[9]);
+    // The pieces were embedded and cached with their offsets
+    const stored = (await rows()).filter((r) => r.startParagraph === 9);
+    expect(stored.length).toBeGreaterThan(1);
+    expect(stored.every((r) => r.endParagraph === 9)).toBe(true);
+    // Cited, the paragraph comes whole
+    await ask(f.owner, {
+      articleId,
+      paragraphs,
+      question: "What about the zebra in ¶10?",
+    });
+    expect(mock.prompts.at(-1)).toContain(`¶10\n${paragraphs[9]}`);
+  });
+
+  it("sends an article that fits the budget whole, without searching", async () => {
+    const { f, mock, seed, ask } = await setup();
+    const paragraphs = sized(5, 3_000);
+    const articleId = await seed(OWNER);
+    await ask(f.owner, { articleId, paragraphs });
+    const prompt = mock.prompts.at(-1) ?? "";
+    for (const [i, p] of paragraphs.entries())
+      expect(prompt).toContain(`¶${i + 1}\n${p}`);
+    expect(mock.embedInputs).toEqual([]);
   });
 
   it("keeps a short article whole", async () => {
@@ -354,6 +439,25 @@ describe("Ask about a passage", () => {
     expect(articleSection(messages[0].content).length).toBeLessThan(
       ASK_BUDGET_CHARS + 2_000,
     );
+  });
+});
+
+describe("chunking", () => {
+  it("splits only paragraphs over the limit, keeping their index and offsets", () => {
+    const paragraphs = [
+      "Short one.",
+      "x".repeat(LONG_PARAGRAPH_CHARS + 1_000),
+      "Short two.",
+    ];
+    const spans = chunkParagraphs(paragraphs);
+    const pieces = spans.filter((s) => s.start === 1 && s.end === 1);
+    expect(pieces.length).toBeGreaterThan(1);
+    // Together the pieces are the paragraph, in order, with nothing lost
+    expect(pieces.map((s) => passageText(paragraphs, s)).join("")).toBe(
+      paragraphs[1],
+    );
+    expect(spans[0]).toMatchObject({ start: 0, end: 0 });
+    expect(spans.at(-1)).toMatchObject({ start: 2, end: 2 });
   });
 });
 

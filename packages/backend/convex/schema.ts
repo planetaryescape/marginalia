@@ -480,6 +480,10 @@ export default defineSchema({
     model: v.string(),
     startParagraph: v.number(),
     endParagraph: v.number(),
+    // Where the passage starts and stops inside those paragraphs, for a long
+    // paragraph split into several
+    fromOffset: v.number(),
+    toOffset: v.number(),
     embedding: v.array(v.float64()),
   })
     .index("by_userId_and_articleId", ["userId", "articleId"])

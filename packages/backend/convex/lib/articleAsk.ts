@@ -13,20 +13,20 @@ import {
 } from "./embeddings";
 import { sha256Hex } from "./tokens";
 
-/** At or under this, the whole article is sent as before (about 3,000 tokens). */
-export const ASK_FULL_TEXT_CHARS = 12_000;
 /** The most article text a retrieved question carries. */
 export const ASK_BUDGET_CHARS = 16_000;
+/** An article that fits the budget is sent whole, as before. */
+export const ASK_FULL_TEXT_CHARS = ASK_BUDGET_CHARS;
 /** About 300 tokens; a paragraph is never split, so a passage can run over. */
 export const PASSAGE_TARGET_CHARS = 1_200;
 /** Caps what one article stores; a longer one gets bigger passages instead. */
 export const MAX_PASSAGES = 200;
 /** The most passages a question takes, if the budget has room. */
 export const MAX_RETRIEVED_PASSAGES = 10;
-/** A longer paragraph is clipped, so one block can't use the whole budget. */
-export const MAX_PARAGRAPH_CHARS = 4_000;
-/** Without a search: the summary, what is pinned, and this much from the top. */
-export const FALLBACK_HEAD_CHARS = 8_000;
+/** A paragraph longer than this is split into passages of its own. */
+export const LONG_PARAGRAPH_CHARS = 4_000;
+/** About how long each piece of a split paragraph is. */
+const SPLIT_PIECE_CHARS = 2_000;
 
 const EMBED_BATCH = 64;
 const EMBED_INPUT_CHARS = 8_000;
@@ -35,31 +35,76 @@ export interface PassageSpan {
   /** Paragraph indices, inclusive, counted from 0. */
   start: number;
   end: number;
+  /**
+   * Where the passage begins in the first paragraph and ends in the last, in
+   * characters. Whole paragraphs unless one was too long and was split.
+   */
+  from: number;
+  to: number;
 }
 
 export interface RankedPassage extends PassageSpan {
   score: number;
 }
 
-/** Runs of whole paragraphs of about `PASSAGE_TARGET_CHARS`, in order. */
+/** The text a passage covers. */
+export function passageText(
+  paragraphs: readonly string[],
+  span: PassageSpan,
+): string {
+  if (span.start === span.end)
+    return paragraphs[span.start].slice(span.from, span.to);
+  return paragraphs.slice(span.start, span.end + 1).join("\n\n");
+}
+
+/** A cut near `limit`, at a sentence or line end if one is in the back half. */
+function cutPoint(text: string, from: number, limit: number): number {
+  const end = Math.min(text.length, from + limit);
+  if (end === text.length) return end;
+  const window = text.slice(from + Math.floor(limit / 2), end);
+  const cut = Math.max(window.lastIndexOf(". "), window.lastIndexOf("\n"));
+  return cut > 0 ? from + Math.floor(limit / 2) + cut + 1 : end;
+}
+
+/**
+ * Passages of whole paragraphs of about `PASSAGE_TARGET_CHARS`, in order. A
+ * paragraph over `LONG_PARAGRAPH_CHARS` is split into passages of its own,
+ * which keep its index so a reader's ¶ reference still finds it.
+ */
 export function chunkParagraphs(paragraphs: readonly string[]): PassageSpan[] {
   const total = paragraphs.reduce((sum, p) => sum + p.length, 0);
   const target = Math.max(
     PASSAGE_TARGET_CHARS,
     Math.ceil(total / MAX_PASSAGES),
   );
+  const piece = Math.max(SPLIT_PIECE_CHARS, target);
   const spans: PassageSpan[] = [];
   let start = 0;
   let size = 0;
+  const flush = (end: number) => {
+    if (end >= start)
+      spans.push({ start, end, from: 0, to: paragraphs[end].length });
+  };
   for (const [i, paragraph] of paragraphs.entries()) {
+    if (paragraph.length > LONG_PARAGRAPH_CHARS) {
+      flush(i - 1);
+      for (let from = 0; from < paragraph.length; ) {
+        const to = cutPoint(paragraph, from, piece);
+        spans.push({ start: i, end: i, from, to });
+        from = to;
+      }
+      start = i + 1;
+      size = 0;
+      continue;
+    }
     if (i > start && size + paragraph.length > target) {
-      spans.push({ start, end: i - 1 });
+      flush(i - 1);
       start = i;
       size = 0;
     }
     size += paragraph.length;
   }
-  if (paragraphs.length) spans.push({ start, end: paragraphs.length - 1 });
+  flush(paragraphs.length - 1);
   return spans;
 }
 
@@ -81,63 +126,132 @@ export function citedParagraphs(text: string, count: number): number[] {
   return found;
 }
 
+/** A stretch of one paragraph, as sent. */
+export interface Segment {
+  index: number;
+  from: number;
+  to: number;
+  /** The whole paragraph's length, to tell a partial stretch from a whole one. */
+  length: number;
+  text: string;
+}
+
 export interface BudgetedSelection {
-  indices: number[];
-  /** The paragraphs, with any over `MAX_PARAGRAPH_CHARS` clipped. */
-  paragraphs: string[];
+  segments: Segment[];
   chars: number;
 }
 
-const clip = (text: string) =>
-  text.length > MAX_PARAGRAPH_CHARS
-    ? `${text.slice(0, MAX_PARAGRAPH_CHARS)}…`
-    : text;
+type Interval = [from: number, to: number];
+
+/** Per paragraph, the stretches already chosen. */
+class Chosen {
+  private readonly byParagraph = new Map<number, Interval[]>();
+  used = 0;
+
+  constructor(private readonly lengths: readonly number[]) {}
+
+  /** The parts of [from, to) of a paragraph not yet chosen. */
+  gaps(index: number, from: number, to: number): Interval[] {
+    const gaps: Interval[] = [];
+    let at = from;
+    for (const [a, b] of this.byParagraph.get(index) ?? []) {
+      if (b <= at) continue;
+      if (a >= to) break;
+      if (a > at) gaps.push([at, a]);
+      at = Math.max(at, b);
+    }
+    if (at < to) gaps.push([at, to]);
+    return gaps;
+  }
+
+  size(index: number, from: number, to: number): number {
+    return this.gaps(index, from, to).reduce((sum, [a, b]) => sum + b - a, 0);
+  }
+
+  /** Chooses what of [from, to) fits in `room`; returns false if it was cut short. */
+  add(index: number, from: number, to: number, room: number): boolean {
+    let whole = true;
+    for (const [a, b] of this.gaps(index, from, to)) {
+      const end = Math.min(b, a + Math.max(0, room - this.used));
+      if (end < b) whole = false;
+      if (end <= a) continue;
+      const added: Interval = [a, end];
+      const merged = [...(this.byParagraph.get(index) ?? []), added]
+        .sort((x, y) => x[0] - y[0])
+        .reduce<Interval[]>((out, [x, y]) => {
+          const last = out.at(-1);
+          if (last && x <= last[1]) last[1] = Math.max(last[1], y);
+          else out.push([x, y]);
+          return out;
+        }, []);
+      this.byParagraph.set(index, merged);
+      this.used += end - a;
+    }
+    return whole;
+  }
+
+  segments(paragraphs: readonly string[]): Segment[] {
+    return [...this.byParagraph.entries()]
+      .sort(([a], [b]) => a - b)
+      .flatMap(([index, intervals]) =>
+        intervals.map(([from, to]) => ({
+          index,
+          from,
+          to,
+          length: this.lengths[index],
+          text: paragraphs[index].slice(from, to),
+        })),
+      );
+  }
+}
 
 /**
- * The paragraphs to send within `budget`: the pinned ones first (up to half
- * the budget), then the ranked passages, best first, each only if it fits.
- * With no ranking, the article from the top fills `headChars`.
+ * The text to send within `budget`. The pinned paragraphs come first, whole and
+ * in the order given (a paragraph that cannot fit is cut where the budget ends);
+ * then the ranked passages, best first, each only if it fits. With no ranking,
+ * the article from the top fills what is left.
  */
 export function selectWithinBudget(input: {
   paragraphs: readonly string[];
   pinned: readonly number[];
   ranked: readonly PassageSpan[] | null;
   budget?: number;
-  headChars?: number;
 }): BudgetedSelection {
   const budget = input.budget ?? ASK_BUDGET_CHARS;
-  const texts = input.paragraphs.map(clip);
-  const picked = new Set<number>();
-  let used = 0;
-  const take = (i: number, limit: number) => {
-    if (picked.has(i) || i < 0 || i >= texts.length) return true;
-    if (used + texts[i].length > limit) return false;
-    picked.add(i);
-    used += texts[i].length;
-    return true;
-  };
-  for (const i of input.pinned) take(i, budget / 2);
+  const { paragraphs } = input;
+  const chosen = new Chosen(paragraphs.map((p) => p.length));
+  for (const i of input.pinned)
+    if (i >= 0 && i < paragraphs.length)
+      chosen.add(i, 0, paragraphs[i].length, budget);
 
   if (input.ranked) {
     let taken = 0;
     for (const span of input.ranked) {
       if (taken >= MAX_RETRIEVED_PASSAGES) break;
-      let size = 0;
-      for (let i = span.start; i <= span.end; i++)
-        if (!picked.has(i)) size += texts[i].length;
-      if (used + size > budget) continue;
-      for (let i = span.start; i <= span.end; i++) take(i, budget);
+      const parts = Array.from(
+        { length: span.end - span.start + 1 },
+        (_, k): [number, number, number] => {
+          const index = span.start + k;
+          return [
+            index,
+            index === span.start ? span.from : 0,
+            index === span.end ? span.to : paragraphs[index].length,
+          ];
+        },
+      );
+      const size = parts.reduce(
+        (sum, [i, a, b]) => sum + chosen.size(i, a, b),
+        0,
+      );
+      if (chosen.used + size > budget) continue;
+      for (const [i, a, b] of parts) chosen.add(i, a, b, budget);
       taken++;
     }
   } else {
-    const head = input.headChars ?? FALLBACK_HEAD_CHARS;
-    for (let i = 0; i < texts.length && take(i, head); i++);
+    for (const [i, paragraph] of paragraphs.entries())
+      if (!chosen.add(i, 0, paragraph.length, budget)) break;
   }
-  return {
-    indices: [...picked].sort((a, b) => a - b),
-    paragraphs: texts,
-    chars: used,
-  };
+  return { segments: chosen.segments(paragraphs), chars: chosen.used };
 }
 
 function cosine(a: readonly number[], b: readonly number[]): number {
@@ -172,13 +286,15 @@ export function pinnedParagraphs(input: {
 }): number[] {
   const { paragraphCount: count } = input;
   const recent = input.history.slice(-2).map((turn) => turn.content);
+  // In the order they win the budget: what the reader cited, what is on
+  // screen, then the opening
   return [
-    ...(count ? [0] : []),
+    ...citedParagraphs(input.question, count),
+    ...recent.flatMap((text) => citedParagraphs(text, count)),
     ...(input.paragraphIndex !== null && input.paragraphIndex < count
       ? [input.paragraphIndex]
       : []),
-    ...citedParagraphs(input.question, count),
-    ...recent.flatMap((text) => citedParagraphs(text, count)),
+    ...(count ? [0] : []),
   ];
 }
 
@@ -218,15 +334,14 @@ async function passageVectors(
     cache.passages.every(
       (row, i) =>
         row.startParagraph === spans[i].start &&
-        row.endParagraph === spans[i].end,
+        row.endParagraph === spans[i].end &&
+        row.fromOffset === spans[i].from &&
+        row.toOffset === spans[i].to,
     );
   if (same) return cache.passages.map((row) => row.embedding);
 
   const texts = spans.map((span) =>
-    input.paragraphs
-      .slice(span.start, span.end + 1)
-      .join("\n\n")
-      .slice(0, EMBED_INPUT_CHARS),
+    passageText(input.paragraphs, span).slice(0, EMBED_INPUT_CHARS),
   );
   const vectors: number[][] = [];
   for (let i = 0; i < texts.length; i += EMBED_BATCH)
@@ -242,6 +357,8 @@ async function passageVectors(
       passages: spans.map((span, i) => ({
         startParagraph: span.start,
         endParagraph: span.end,
+        fromOffset: span.from,
+        toOffset: span.to,
         embedding: vectors[i],
       })),
     });
