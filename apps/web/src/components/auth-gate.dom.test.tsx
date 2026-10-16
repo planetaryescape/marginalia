@@ -19,9 +19,16 @@ vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast }));
+const session = vi.hoisted(() => ({ data: null as object | null }));
+const rearm = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth-client", () => ({
-  authClient: { signUp: { email: signUp }, signIn: {} },
+  authClient: {
+    signUp: { email: signUp },
+    signIn: {},
+    useSession: () => ({ data: session.data }),
+  },
 }));
+vi.mock("@/lib/auth-retry", () => ({ rearmAuth: rearm }));
 vi.mock("@/lib/reader-settings", () => ({
   useReaderSettings: () => ({ settings: { theme: "ink" } }),
 }));
@@ -38,6 +45,7 @@ afterEach(async () => {
   document.body.innerHTML = "";
   state.authenticated = false;
   state.reader = undefined;
+  session.data = null;
   history.replaceState(null, "", "/");
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -90,5 +98,33 @@ describe("one-time tokens in the URL", () => {
     expect(document.body.textContent).toContain("Set up your reader");
     expect(document.querySelector('input[name="name"]')).not.toBeNull();
     expect(toast).not.toHaveBeenCalled();
+  });
+});
+
+describe("a lost token is not a sign-out", () => {
+  it("offers to reconnect, not to sign in, while a session exists", async () => {
+    session.data = { session: { id: "s" } };
+    await act(async () => root.render(<AuthGate>reading</AuthGate>));
+    expect(document.body.textContent).toContain("Reconnecting to your library");
+    expect(document.body.textContent).not.toContain("Sign in");
+    const retry = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === "Try again",
+    );
+    await act(async () => retry?.click());
+    expect(rearm).toHaveBeenCalled();
+  });
+
+  it("retries once by itself after a moment", async () => {
+    vi.useFakeTimers();
+    session.data = { session: { id: "s" } };
+    await act(async () => root.render(<AuthGate>reading</AuthGate>));
+    await act(async () => vi.advanceTimersByTime(3_000));
+    expect(rearm).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("still shows sign-in when there is no session", async () => {
+    await act(async () => root.render(<AuthGate>reading</AuthGate>));
+    expect(document.body.textContent).not.toContain("Reconnecting");
   });
 });
