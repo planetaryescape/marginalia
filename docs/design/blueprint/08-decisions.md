@@ -1,0 +1,122 @@
+# 08: Decisions
+
+Every decision behind this design blueprint, including the options we rejected, so a later agent doesn't argue its way back into one. BK is the decision-maker. The attribution after each heading says whose call it was:
+
+- **(BK)** means BK said it, quoted where his words are available.
+- **(BK, recorded in docs/decisions.md)** means a request from the 2026-10-11 polish conversation. That transcript can't be recovered (`PRODUCT.md` says so too), so these carry the recorded reason, not his words.
+- **(Claude, delegated by BK)** means the agent decided it while writing this blueprint, inside the remit of BK's request.
+- **(Blueprint assumes; Qn)** means a design choice BK hasn't made yet. The documents proceed on it, and [09](09-open-questions.md) asks him to confirm it.
+
+Change a decision only by adding a new entry that replaces the old one.
+
+## The arc, briefly
+
+1. Marginalia was built feature-first. It started in April 2026, got a large polish pass on 2026-10-11 (one-screen Home, floating search, keyboard map, PWA), and then took on archive, dark-theme fixes, performance and Readwise import on 2026-10-14 and 2026-10-15.
+2. Each request was met behaviourally. On 2026-10-16 BK judged the result: the features work, but nobody designed the product as a whole.
+3. No design conversation took place. This blueprint comes from four sources: BK's request, his remarks while using the app, the constraints recorded in `docs/decisions.md`, and an audit of the live app at origin/main `bc23f5e` ([01](01-current-state.md)).
+4. The audit found strong typography and palettes, plus one excellent moment: the margin card. Around them, everything carries equal weight. Annotations hide behind superscript numbers, the pen colour paints the chrome, and the navigation has grown to seven destinations.
+5. We read the existing code's own vocabulary, *pen* and *highlighter*, as the start of a concept. Three hands write on the page: print, pencil and pen. The blueprint proposes that concept and asks BK to confirm it (Q1).
+
+## Decisions
+
+### D-DES-001: The functions stay; this work designs the product around them. (BK)
+- **BK:** "focus on the design aspect. The functions but i don't think the design was considered" (2026-10-16).
+- **Why:** behaviour is already broad: annotations, companion, notes, ratings, activity, sources, readers. What's missing is a concept, hierarchy and a single way of doing things.
+- **Option rejected:** a functional rewrite or new features alongside the redesign. That breaks BK's "fix before adding" rule and would hide whether the design work landed.
+
+### D-DES-002: Home stays one wide, attractive screen with no scrolling, on desktop and on a phone. (BK, recorded in docs/decisions.md)
+- **Why (recorded):** the reading desk should make the next read immediately available.
+- **Consequence here:** the redesign of Home in [04](04-desk.md) removes elements instead of adding them, because the one-screen constraint is fixed.
+
+### D-DES-003: Search is a floating picker opened by a click or `/`. It explains its matches and accepts pasted URLs. (BK, recorded in docs/decisions.md)
+
+### D-DES-004: Everything works from the keyboard, and focus is visible but quiet, never loud blue. (BK, recorded in docs/decisions.md)
+- **Why (recorded):** loud blue highlights distracted from the reading design.
+- **Consequence here:** the keyboard stays complete, but its *hints* go quiet (D-DES-021). Keyboard access and keycaps painted on every surface are different things.
+
+### D-DES-005: Ratings show stars with meaningful labels. (BK, recorded in docs/decisions.md)
+- **Why (recorded):** shortcut hints alone didn't make rating understandable.
+- **Drift found:** Library's impressions column draws five squares in the pen colour (`library/page.tsx`, `RatingMarks`), while the reader's impression panel draws stars. The redesign uses stars everywhere ([05](05-library-notes-week.md)).
+
+### D-DES-006: Note editors focus when they open and autosave. (BK, recorded in docs/decisions.md)
+
+### D-DES-007: Dark themes are first-class, not inverted light themes. (BK)
+- **BK:** "why are these things white in dark theme? they are a bit jarring" (2026-10-15, about the floating controls).
+- **Why:** BK reads in the night theme. Anything designed in light and inverted afterwards shows up there first.
+- **How to apply:** every comp and screenshot in the design gate is made in Night and Paper at minimum ([02](02-design-concept.md#the-design-gate)).
+
+### D-DES-008: Every main destination shares one frame: the same header, theme and phone navigation. (BK, recorded in docs/decisions.md)
+- **Why (recorded):** legacy routes such as Notes once dropped the navigation and changed layout.
+
+### D-DES-009: Speed is part of the design. The app should feel instant. (BK)
+- **BK:** "I wan tthe app to fly" (2026-10-15).
+- **Why:** waiting on a reading desk breaks the moment of "I have ten minutes". The 2026-10-15 performance pass brought time windows to 0.47–1.1 s. Design treats the rest: optimistic transitions, prefetching on intent, and no full-screen loaders where a skeleton of the real layout would do (S3).
+
+### D-DES-010: The desk offers only what BK hasn't read. (BK)
+- **BK:** "The idea is to not get suggested something I've read already" (2026-10-14).
+- **Consequence here:** finishing an article is a visible moment that takes the article off the desk ([03](03-reader.md#finishing)).
+
+### D-DES-011: The phone is a real reading surface, installable as a PWA. (BK, recorded in docs/decisions.md)
+
+### D-DES-012: Sources are set up once and then stay out of the way. (BK)
+- **BK:** on importing feeds by exporting and re-importing OPML: "the process of exporting opml files and then imporing is quite manual. are you saying this can't be an automated sync process?" (2026-10-15).
+- **Why:** BK wants sources to run themselves. The Sources screen is for setup and for diagnosing problems, not for daily attention ([06](06-sources-and-settings.md)).
+
+### D-DES-013: Preserve the reading-first design, the user's notes and reading history, and the multi-reader model. (BK, recorded in docs/decisions.md)
+- **Why (recorded):** polish must not replace personal reading history. Don't turn a polish pass into a multi-user rewrite.
+
+### D-DES-014: This is a feature-scale blueprint at `docs/design/blueprint/`, with decision IDs prefixed `D-DES-`. (Claude, delegated by BK)
+- **Why:** the app and its docs already exist. This blueprint covers the design layer only and must not read as a plan to rebuild.
+
+### D-DES-015: Behaviour changes only where the design needs them, and each such change is named in the domain document that needs it. (Claude, delegated by BK)
+- **Why:** follows from D-DES-001. The named exceptions are moving Saved into Library (D-DES-024), grouping Sources, Account and Readers as settings (D-DES-025), showing margin notes without a click (D-DES-019), and showing the time-window pick on the desk (D-DES-028).
+
+### D-DES-016: The repo is public, so the blueprint contains no personal library content, account details or screenshots. (Claude, delegated by BK)
+- **Why:** `planetaryescape/marginalia` is public on GitHub, and the live library contains BK's notes, including work material. Screens are described in words and ASCII. Audit screenshots stay local.
+
+### D-DES-017: Keep the six themes, the three type families, the shared `@planetaryescape/reader` package and the four annotation colours. (Claude, delegated by BK)
+- **Why:** the audit found typography and palettes to be the strongest part of the app ([01](01-current-state.md#what-already-works)). Replacing them would cost the identity BK already lives with and would gain nothing the concept needs.
+
+### D-DES-018: The concept is "Print, pencil and pen". The author speaks in print, Marginalia in pencil, and the reader in their own pen. (Blueprint assumes; Q1)
+- **Why:** it names the product's real job (a reading with a second voice beside it). It builds on the vocabulary already in the code (`--pen`, `--highlighter`, pen colours), and it settles hierarchy and colour arguments by asking whose hand an element belongs to.
+- **Options rejected:** (a) "Reading desk" as the whole concept. It already exists in the docs, and it describes Home but not the reader, where the hours are spent. (b) "Lamplight / reading room", a mood without a rule. It says how things look but doesn't decide which element wins. (c) A neutral "clean minimal" pass. That brings restraint without identity, which is the keyloom failure in a different form.
+
+### D-DES-019: On wide screens, margin notes live in the margin as quiet sidenotes beside their line, without a click. (Blueprint assumes; Q6)
+- **Replaces** the current one-card-at-a-time margin popover opened from superscript numbers.
+- **Why:** the product is named after notes in the margin, and at 1440 px the reader leaves about 400 px of empty margin to the right of the text. Hiding the margin behind numbered markers makes the product's main idea a hunt.
+- **Option rejected:** keeping footnote-style markers. They are calm, but they turn the companion into an appendix nobody opens.
+- **Risk:** a crowded margin on heavily annotated articles. Collision rules are in [03](03-reader.md#the-margin), and density is S2.
+
+### D-DES-020: Colour belongs to a hand. Chrome is ink; the pen colour is used only for the reader's own marks. (Blueprint assumes; Q7)
+- **Why:** today `--pen` (blue by default) also colours links, the drop cap, rating marks, progress and primary actions. The reader's own highlights then can't stand out from the interface.
+- **How to apply:** see [02 Visual language](02-design-concept.md#visual-language).
+
+### D-DES-021: Keycap hints are hidden by default and appear on demand. (Blueprint assumes; Q8)
+- **Why:** the audit counted nine keycaps on Home (`1`–`4`, `/`, `c`, `j`, `k`, `?`). They make a calm desk look like a cheat sheet. Keyboard users learn the map from `?`, tooltips and a held modifier ([02](02-design-concept.md#shared-patterns)).
+
+### D-DES-022: Remove the GitHub link from the header and the reader toolbar. (Blueprint assumes; Q9)
+- **Why:** it is the project's link, not a reading tool, and it takes a permanent slot on every screen. It moves to the account page footer.
+
+### D-DES-023: Maintenance actions ("Re-annotate with latest vault") leave the reader toolbar for the article's overflow menu. (Blueprint assumes; Q11)
+
+### D-DES-024: Primary navigation becomes three rooms: Desk, Library and Notes. Saved becomes a Library shelf, and This week becomes Notes → Your week. (Blueprint assumes; Q3)
+- **Why:** seven destinations (eight with Home on the phone) give equal weight to things BK does daily (read, find) and things he does rarely (sources, readers). The phone bar is too narrow for labels on small screens, which `site-header.tsx` itself notes in a comment.
+- **Options rejected:** (a) keep all seven and restyle them. That keeps the equal weight. (b) A sidebar. It costs reading width on the desk and adds chrome.
+
+### D-DES-025: Sources, Account and Readers move behind the account menu as Settings pages that share one form pattern. (Blueprint assumes; Q4)
+
+### D-DES-026: On a phone, opening a margin note unfolds it in the text flow below its paragraph instead of a bottom sheet. (Blueprint assumes; Q5)
+- **Why:** a sheet covers the passage the note is about. In-flow keeps the note and its line on screen together, the way a note would sit in a narrow book's footer.
+- **Way back:** the bottom sheet exists today (`margin-card.tsx`, `kind: "sheet"`). If S2 shows that in-flow reflow loses the reading place, return to the sheet.
+
+### D-DES-027: Design work ships in rungs that each pass a design gate, not only tests. (Claude, delegated by BK)
+- **Why:** this is the lesson of keyloom (2026-10-16), and the reason this blueprint exists. See [02 The design gate](02-design-concept.md#the-design-gate) and [07](07-roadmap.md).
+
+### D-DES-028: Choosing a time keeps you on the desk. The pick appears in the desk's main slot instead of on a separate full-screen page. (Blueprint assumes; Q12)
+- **Why:** `/session/[id]` leaves the desk frame and uses legacy colour classes ([01](01-current-state.md#choosing-a-time-leaves-the-desk)). The core action should feel like the desk answering, not like being sent somewhere.
+- **Behaviour kept:** the session record, `suggestions.forWindow`, the frozen first result set, Read now / Save / Another. The `/session/[id]` route stays as a deep link that renders the same desk state.
+- **Option rejected:** restyling `/session/[id]` onto the tokens and leaving the flow alone. That fixes the colour but keeps the hand-off break.
+
+### D-DES-029: BK confirmed the concept, the colour rule and the reader toolbar before rung 1. (BK)
+- **BK, 2026-10-16, answering Q1, Q2, Q7, Q9, Q10 and Q11:** yes to "Print, pencil and pen"; the pen colour marks only his own highlights and notes; the drop cap is drawn in ink, stays on by default and stays a setting; the GitHub link moves to the account page footer; Re-annotate moves into the article's ⋯ menu. His taste references are Tufte / gwern.net sidenotes, iA Writer and Things 3. He did not pick Readwise Reader as a model.
+- **Consequence:** D-DES-018, D-DES-020, D-DES-022 and D-DES-023 are now BK's decisions, not assumptions. The remaining questions (Q3–Q6, Q8, Q12) are asked before the rung that needs them.
