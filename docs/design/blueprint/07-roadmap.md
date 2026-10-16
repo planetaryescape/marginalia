@@ -21,7 +21,7 @@
 | 2g | It remembers how I read | Building |
 | 3 | The desk asks one question and answers it | Done: live at `8741fbd`; warm pick in 121 ms |
 | 3c | Ask by topic, one at a time, fast | Deployed at `9a90018`: first card ~1.05 s warm (was 6.7–8.8 s) |
-| 2d | Links wait for me, and saved things come back | Building |
+| 2d | Links wait for me, and saved things come back | Done: live; link menu verified |
 | 2e | The summary reads in layers | Done: live at `4c46980` |
 | 2c | A critical friend in the margin | Planned |
 | 2f | It reads alongside me, and doesn't repeat itself | Planned (S6 first) |
