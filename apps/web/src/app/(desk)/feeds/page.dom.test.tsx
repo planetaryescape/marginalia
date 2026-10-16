@@ -267,3 +267,52 @@ describe("a feed the reader almost never opens", () => {
     expect(document.body.textContent).not.toContain("from this feed");
   });
 });
+
+describe("dropping an OPML file on the page", () => {
+  const OPML = `<opml><body><outline text="One" xmlUrl="https://one.example/feed.xml"/></body></opml>`;
+  const drag = (type: string, files: File[]) => {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", {
+      value: { types: ["Files"], files },
+    });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+  };
+
+  it("shows a calm target while a file is dragged over", async () => {
+    await act(async () => root.render(<FeedsPage />));
+    expect(document.body.textContent).not.toContain(
+      "Drop to import your feeds",
+    );
+    drag("dragenter", [new File([OPML], "feeds.opml")]);
+    expect(document.body.textContent).toContain("Drop to import your feeds");
+  });
+
+  it("imports the dropped file through the same path as the link", async () => {
+    await act(async () => root.render(<FeedsPage />));
+    const file = new File([OPML], "feeds.opml");
+    drag("dragenter", [file]);
+    await act(async () => {
+      drag("drop", [file]);
+    });
+    await vi.waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Imported 1 feeds"),
+    );
+    expect(document.body.textContent).not.toContain(
+      "Drop to import your feeds",
+    );
+  });
+
+  it("refuses a file that is not OPML in one sentence", async () => {
+    await act(async () => root.render(<FeedsPage />));
+    const png = new File(["x"], "a.png", { type: "image/png" });
+    await act(async () => {
+      drag("drop", [png]);
+    });
+    expect(toast.error).toHaveBeenCalledWith(
+      "Marginalia imports OPML files, which end in .opml or .xml.",
+    );
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});

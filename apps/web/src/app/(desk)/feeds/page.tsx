@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ApiTokens } from "@/components/api-tokens";
 import { FeedSuggestion } from "@/components/feed-suggestion";
+import { FileDrop } from "@/components/file-drop";
 import { ChangeWash, InlineError } from "@/components/in-place";
 import { ReadwiseCard } from "@/components/readwise-card";
 import { RemoveFeedConfirm } from "@/components/remove-feed-confirm";
@@ -21,6 +22,7 @@ import { useListKeys } from "@/lib/list-nav";
 import { formatDate } from "@/lib/utils";
 
 const CHECK_FLAG_TTL_MS = 10 * 60_000;
+const OPML_NAME = /\.(opml|xml)$/i;
 
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
@@ -79,6 +81,56 @@ export default function FeedsPage() {
       setPollFailed(true);
     }
     setPolling(false);
+  };
+
+  const importOpml = async (file: File) => {
+    setRemovingId(null);
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, "text/xml");
+      if (doc.querySelector("parsererror"))
+        throw new Error("This OPML file isn't valid XML.");
+      const outlines = doc.querySelectorAll("outline[xmlUrl]");
+      if (!outlines.length)
+        throw new Error("No feed URLs found in this OPML file.");
+      let added = 0;
+      let skipped = 0;
+      for (const outline of outlines) {
+        const feedUrl = outline.getAttribute("xmlUrl");
+        const title =
+          outline.getAttribute("title") || outline.getAttribute("text") || "";
+        if (!feedUrl) continue;
+        try {
+          await addFeed({
+            url: feedUrl,
+            title: title || new URL(feedUrl).hostname,
+          });
+          added++;
+        } catch {
+          skipped++;
+        }
+      }
+      toast.success(
+        `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't read the OPML file.",
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // A drop is refused the same way a pick is: in one sentence, without importing
+  const dropOpml = (files: File[]) => {
+    if (importing) return;
+    const file = files.find((f) => OPML_NAME.test(f.name));
+    if (file) void importOpml(file);
+    else
+      toast.error("Marginalia imports OPML files, which end in .opml or .xml.");
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -158,53 +210,13 @@ export default function FeedsPage() {
               accept=".opml,.xml"
               className="sr-only"
               disabled={importing}
-              onChange={async (e) => {
+              onChange={(e) => {
                 const input = e.currentTarget;
                 const file = input.files?.[0];
-                if (!file) return;
-                setRemovingId(null);
-                setImporting(true);
-                try {
-                  const text = await file.text();
-                  const parser = new DOMParser();
-                  const doc = parser.parseFromString(text, "text/xml");
-                  if (doc.querySelector("parsererror"))
-                    throw new Error("This OPML file isn't valid XML.");
-                  const outlines = doc.querySelectorAll("outline[xmlUrl]");
-                  if (!outlines.length)
-                    throw new Error("No feed URLs found in this OPML file.");
-                  let added = 0;
-                  let skipped = 0;
-                  for (const outline of outlines) {
-                    const feedUrl = outline.getAttribute("xmlUrl");
-                    const title =
-                      outline.getAttribute("title") ||
-                      outline.getAttribute("text") ||
-                      "";
-                    if (!feedUrl) continue;
-                    try {
-                      await addFeed({
-                        url: feedUrl,
-                        title: title || new URL(feedUrl).hostname,
-                      });
-                      added++;
-                    } catch {
-                      skipped++;
-                    }
-                  }
-                  toast.success(
-                    `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
-                  );
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : "Couldn't read the OPML file.",
-                  );
-                } finally {
-                  input.value = "";
-                  setImporting(false);
-                }
+                if (file)
+                  void importOpml(file).finally(() => {
+                    input.value = "";
+                  });
               }}
             />
           </label>
@@ -310,6 +322,11 @@ export default function FeedsPage() {
       </SettingsSection>
 
       <ApiTokens />
+      <FileDrop
+        onFiles={dropOpml}
+        title="Drop to import your feeds"
+        hint="An OPML file from another reader"
+      />
     </SettingsPage>
   );
 }
