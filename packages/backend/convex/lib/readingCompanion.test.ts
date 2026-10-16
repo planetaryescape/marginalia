@@ -90,6 +90,31 @@ describe("readingCompanion", () => {
     });
   });
 
+  describe("passage Ask with a selection across two long paragraphs", () => {
+    it("keeps the end of the first paragraph where the selection starts", () => {
+      const first = `${"a".repeat(19_990)}TAIL_END!`;
+      const second = `HEAD_START!${"b".repeat(19_989)}`;
+      const request = companionRequestSchema.parse({
+        mode: "ask",
+        question: "Why?",
+        title: "T",
+        paragraphs: ["before", first, second, "after"],
+        selection: "TAIL_END! HEAD_START!",
+        paragraphIndex: 1,
+        paragraphEnd: 2,
+      });
+      const text = formatArticle(
+        "T",
+        request.paragraphs,
+        1,
+        selectContext(request),
+      );
+      expect(text).toContain("TAIL_END!");
+      expect(text).toContain("HEAD_START!");
+      expect(text.length).toBeLessThan(16_200);
+    });
+  });
+
   describe("per-tool context", () => {
     const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
     const request = (over: Record<string, string | number | null>) =>

@@ -293,10 +293,11 @@ function clipPassage(
   for (const i of marked) {
     const text = paragraphs[i];
     if (text.length <= share) continue;
-    const found = i === start ? text.indexOf(selection.trim().slice(0, 40)) : 0;
+    const found =
+      i === start ? selectionAt(text, selection, marked.size > 1) : 0;
     // Some text before the selection, so the model sees what it follows
     const from = Math.min(
-      Math.max(0, (found < 0 ? 0 : found) - Math.floor(share / 4)),
+      Math.max(0, found - Math.floor(share / 4)),
       text.length - share,
     );
     const to = from + share;
@@ -330,6 +331,21 @@ function trimWindow(
     total -= paragraphs[outer].length;
   }
   return kept;
+}
+
+/**
+ * Where the selection starts in its first paragraph. A selection that crosses
+ * into the next paragraph isn't found whole, so the longest opening piece of
+ * it that is found is used; failing that, a crossing selection ends this
+ * paragraph.
+ */
+function selectionAt(text: string, selection: string, crosses: boolean) {
+  const wanted = selection.trim();
+  for (let k = Math.min(40, wanted.length); k >= 8; k--) {
+    const at = text.indexOf(wanted.slice(0, k));
+    if (at >= 0) return at;
+  }
+  return crosses ? text.length : 0;
 }
 
 export function formatArticle(
