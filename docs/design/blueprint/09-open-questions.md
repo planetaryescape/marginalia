@@ -146,3 +146,92 @@ Conclusion:
 #### Cleanup and caveats
 
 Everything injected was removed by a full reload (verified: 0 clone nodes and 0 prototype wrappers after reload). No notes, highlights, ratings or finishes were written. Four articles were opened, one of them several times. Production showed the signed-out screen once mid-run, then recovered after a reload with the same profile (the session in the profile was still valid). Prototype code and raw outputs are in the scratchpad (`/private/tmp/claude-501/-Users-bhekanik-code-planetaryescape-marginalia/ea7c940c-dd4b-4eb6-9d8b-27b90f1e0199/scratchpad/s2/`: `proto.js`, `phone.js`, `rec.js`, `m1280.txt`, `m1440b.txt`).
+
+# Marginalia design spikes S3 and S5
+
+Measured 2026-10-16 on the live app at 1440x900. Code read at origin/main 037e305. No notes, highlights, saves, reads or skips were pressed. Four time choices were made (the session budget): cold 5, warm 5, cold 10, warm 10. Three topic searches were run (budget 8).
+
+### S3 result (2026-10-16)
+
+**What I tried**
+
+- Clicked a time choice on Home with an injected script (`performance.now()` plus a per-frame poll for the first card heading). "Cold" was a fresh page load of `/`; "warm" was a client-side return to `/` from a session page, then a second click.
+- Timed the existing-session page on hard loads (no new session records) for first paint and first heading.
+- Tried to time a client-side `/session` route change to an existing session using back/forward. The result was invalid: the router kept the previous tree, so the card showed at 0 ms. I discarded it.
+
+**Numbers** (from click, `performance.now()`, poll resolution about 16 ms)
+
+| Run | Session route (`/session` shown) | First card heading |
+|---|---|---|
+| Cold, 5 min | 274 ms | 484 ms |
+| Warm, 5 min | 211 ms | 311 ms |
+| Cold, 10 min | 166 ms | 333 ms |
+| Warm, 10 min | 164 ms | 347 ms |
+
+Route-to-card (the post-route part, which is the subscription, the `getById` and `suggestions.forWindow` round trips, and the render): 210, 100, 167 and 183 ms.
+
+Hard load of an existing session URL (no record created, 3 runs): first paint 100–184 ms after navigation start. First heading 708–1317 ms after navigation start. This is an upper bound, because the poll starts after the load event.
+
+**Why the 150 ms target does not fit**
+
+`startSession` in `apps/web/src/app/(desk)/page.tsx` awaits `api.sessions.create` before `router.push`. The route therefore cannot change until the session mutation round trip has finished, and that is 164–274 ms before any query runs. Query prefetch on hover cannot remove that part. Even with the query at zero, the click-to-route segment is above 150 ms in all four runs.
+
+I could not split the 164–274 ms into mutation round trip and route render. That needs send-timestamp logging on the WebSocket, which needs a fresh session and I had none left. Treat the split as unmeasured.
+
+Hover prefetch can only save the route-to-card part (100–210 ms). For it to work, the prefetch must hold a live subscription in Convex. A one-off `client.query` does not populate the reactive cache that `useQuery` reads. The 200–400 ms hover-to-click window is larger than the query time, so the card would be ready at click if the subscription were held.
+
+**Skeleton versus loader**
+
+The current loader (`apps/web/src/app/session/[id]/page.tsx`, around L187) is a pulsing text line ("Finding something for your N minutes...") and it shows for 100–480 ms in the warm and cold runs. On a first sign-in hard load, the wait before the first heading is 0.7–1.3 s, and nearly all of it is WebSocket connect and auth, which a skeleton does not shorten. I did not measure perceived wait, so I cannot say the skeleton is better.
+
+**Conclusion and recommendation**
+
+- Do not gate rung 3 on the 150 ms target as written. It fails because `sessions.create` is awaited before navigation, not because of query time.
+- Next step: make the route change first and create the session in the background (or generate the session id client-side). That is a server-visible change, so it needs a decision first.
+- Prefetch on hover is worth it only with a held subscription, and it saves at most 100–210 ms. Measure again after the route change, not before.
+- Keep the loader for now. Test a skeleton only after the route change is fixed, with a perceived-wait check.
+- What would settle the open points: a timestamped WebSocket log (outgoing mutation, outgoing `ModifyQuerySet`, incoming transition) on one cold run.
+
+### S5 result (2026-10-16)
+
+**What I tried**
+
+Typed three generic topics ("attention", "software design", "writing") into the Home search bar with real keystrokes (`agent-browser keyboard type`). The page's `fetch` was wrapped to time the request. A `MutationObserver` recorded the first `role=option` row. Times are measured from the last `input` event.
+
+**Numbers** (from last keystroke)
+
+| Topic | Request starts (debounce) | Response headers | First result row | Rows |
+|---|---|---|---|---|
+| attention | 603 ms | 8827 ms | 8828 ms | 5 |
+| software design | 602 ms | 7285 ms | 7286 ms | 6 |
+| writing | 603 ms | 6742 ms | 6743 ms | 6 |
+
+The debounce is 600 ms, as coded in `apps/web/src/components/article-finder.tsx` (L63 area). The request is a single POST to `/api/reader/library/search` with status 200. The first row appears in the same frame as the response, so rendering adds about 1 ms.
+
+**Where the time goes**
+
+The route is `packages/backend/convex/http.ts` (L488 onwards) and the retrieval is `packages/backend/convex/lib/library.ts` (`retrieveLibraryContext`). The response is only `{ matches }`, with no timings. So the split is not observable from the browser.
+
+By code shape, the stages are:
+
+1. `loadReaderAI` (reader's provider and key lookup).
+2. `embedText`: one external embedding call (`lib/embeddings.ts`).
+3. Five vector searches in parallel (articles 24, impressions 10, notes 8, highlights 8, threads 6).
+4. `recentActivity` and `loadMatches` queries, then `loadArticles` for up to `MAX_ARTICLES = 40` articles, which build a context block.
+5. `completeJson` with the quick model, JSON schema, 3000 max tokens, and the full context.
+6. `parseLibrarySearch`.
+
+I estimate stage 5 is most of the 6.7–8.8 s, because it is the only stage that generates tokens. That is inference from the code, not a measurement. I did not measure the embedding call or the vector search on their own. Nothing I could reach from the browser isolates them.
+
+**Target and design**
+
+- Target: first result under about 1 s after the 600 ms debounce, from a search-only path (embedding plus vector search, then articles from the hits, with no ranking or explanation call). Stretch: under 300 ms. I would not commit to 300 ms before the embedding round trip is measured, because it is one external API call.
+- Design: return the vector hits immediately as an unexplained list. Send the model's ranking and reason as a second, optional update (second request, or streamed JSON), and merge them when they arrive. The current `parseLibrarySearch` already maps results to article ids, so a second call can refine the order without new fetches.
+- Server changes needed:
+  - A search-only route, or a `mode` flag on `/api/library/search`, that returns after step 4.
+  - A `Server-Timing` header (or a timings field) with per-stage durations for steps 1–6. This is the one change that would settle the split.
+  - Optional: a short `Cache-Control` for repeated queries (the client already caches for 5 minutes).
+
+**Conclusion**
+
+The current search takes 6.7–8.8 s from the last keystroke, and the model call is the likely cause. Adding `Server-Timing` first is cheap and would confirm the split before any redesign. Then build the search-only path behind a flag and compare its first-result time to the target above.

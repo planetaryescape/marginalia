@@ -46,7 +46,7 @@ Choosing a time keeps you on the desk (D-DES-028, Q12):
 4. Esc, or choosing the same time again, returns the slot to its resting state.
 5. `/session/[id]?m=` stays as a deep link and renders the desk in this state.
 
-If the pick hasn't arrived within 150 ms, the slot shows its own skeleton (a title-width bar and a meta-width bar) in place. Never a centred loader, and never a page change.
+S3 found the wait is mostly the route change and the session mutation that precedes it, not the query (click to card 311–484 ms, of which 164–274 ms is `sessions.create` before `router.push`). So the pick renders on the desk from the prefetched query at once, and the session record is created in the background; nothing waits on it. If the pick hasn't arrived within 150 ms, the slot shows its own skeleton (a title-width bar and a meta-width bar) in place. Never a centred loader, and never a page change.
 
 ## Continue
 
@@ -70,7 +70,7 @@ On the shelf, each row is a serif title and one meta line (source · minutes · 
 
 Typing a topic into the bar is the second way to the same moment (D-DES-036). It answers one article at a time, like a time choice: the best match, its reading time, and one pencil line on why it matches, with Read now, Another and Save for later.
 
-- **Fast first.** Today the bar waits 600 ms after typing (`article-finder.tsx#L63`), then embeds the question, searches the library and asks a model to rank and explain the matches before showing anything (`http.ts#L488`). The first card comes from the search alone and appears at once; the model's explanation then fills the reason line on that card in place, without replacing the article. S5 measures today's latency and the target.
+- **Fast first.** Today the bar waits 600 ms after typing (`article-finder.tsx#L63`), then embeds the question, searches the library and asks a model to rank and explain the matches before showing anything (`http.ts#L488`). The first card comes from the search alone and appears at once; the model's explanation then fills the reason line on that card in place, without replacing the article. S5 measured 6.7–8.8 s from the last keystroke to the first result today; the target is a first card under 1 s after the debounce from a search-only path, with a `Server-Timing` header so the stages can be measured.
 - **One at a time.** No list in the bar. The Library room keeps the full list for deliberate browsing (Q16, D-DES-052).
 - **With a time chosen,** a topic only offers articles that fit it. When none do, it says so and offers the shortest article on that topic as a labelled choice (Q14, Q15, D-DES-052).
 
