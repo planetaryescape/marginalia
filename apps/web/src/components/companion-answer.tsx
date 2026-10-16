@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 
 const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(¶\s?\d+(?:\s*[–-]\s*\d+)?)|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|\/read\/[a-z0-9]+)\)/g;
+  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(¶\s?\d+(?:\s*[–-]\s*\d+)?)|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|\/read\/[a-z0-9]+)\)|(?<![*\w])\*([^*\n]+)\*(?![*\w])/g;
 
 function renderInline(
   text: string,
@@ -13,7 +13,7 @@ function renderInline(
   for (const match of text.matchAll(INLINE)) {
     const index = match.index ?? 0;
     if (index > last) nodes.push(text.slice(last, index));
-    const [token, code, bold, ref, linkText, linkUrl] = match;
+    const [token, code, bold, ref, linkText, linkUrl, italic] = match;
     if (code) {
       nodes.push(
         <code
@@ -29,6 +29,8 @@ function renderInline(
           {bold.slice(2, -2)}
         </strong>,
       );
+    } else if (italic) {
+      nodes.push(<em key={index}>{italic}</em>);
     } else if (ref) {
       const first = Number(ref.match(/\d+/)?.[0]);
       nodes.push(
@@ -87,10 +89,37 @@ export function CompanionAnswer({
   onJump: (index: number) => void;
 }) {
   const paragraphs = text.trim().split(/\n{2,}/);
+  // A paragraph whose later lines start with "- " or "* " is a lead line and a list
+  const listOf = (paragraph: string) => {
+    const lines = paragraph.split("\n");
+    const items = lines.filter((l) => /^\s*[-*]\s+/.test(l));
+    if (items.length < 2) return null;
+    const head = lines.filter((l) => !/^\s*[-*]\s+/.test(l)).join(" ");
+    return { head, items: items.map((l) => l.replace(/^\s*[-*]\s+/, "")) };
+  };
   return (
     <div className="space-y-3">
       {paragraphs.map((paragraph, i) => {
         const isLast = i === paragraphs.length - 1;
+        const list = i === 0 && lead ? null : listOf(paragraph);
+        if (list)
+          return (
+            <div
+              key={i}
+              className="text-[14px] leading-[1.7] text-[var(--reader-fg-soft)]"
+            >
+              {list.head && <p>{renderInline(list.head, onJump)}</p>}
+              <ul className="mt-1 list-disc space-y-1 pl-5 marker:text-[var(--reader-muted)]">
+                {list.items.map((item, j) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: items are positional text
+                  <li key={j}>{renderInline(item, onJump)}</li>
+                ))}
+              </ul>
+              {streaming && isLast && (
+                <span className="companion-caret" aria-hidden />
+              )}
+            </div>
+          );
         const content = (
           <Fragment key="content">
             {renderInline(paragraph.replace(/\n/g, " "), onJump)}
@@ -104,7 +133,7 @@ export function CompanionAnswer({
             key={i}
             className="text-[15px] leading-[1.6] font-medium text-[var(--reader-fg)]"
           >
-            <span className="companion-lead">{content}</span>
+            {content}
           </p>
         ) : (
           <p

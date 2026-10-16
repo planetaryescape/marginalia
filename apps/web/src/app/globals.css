@@ -993,15 +993,6 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   background: color-mix(in srgb, #8b7bb0 18%, transparent) !important;
 }
 
-.companion-lead {
-  background: var(--highlighter);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-  padding: 0.08em 0.2em;
-  margin: 0 -0.2em;
-  border-radius: 3px;
-}
-
 @keyframes caret-blink {
   50% {
     opacity: 0;
