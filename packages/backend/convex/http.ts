@@ -12,6 +12,7 @@ import {
   streamChat,
 } from "./lib/companionStream";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { readerPreflight, withReaderCors } from "./lib/cors";
 import {
   bearerToken,
   externalArticleSchema,
@@ -488,9 +489,7 @@ http.route({
 http.route({
   path: "/api/library/find",
   method: "OPTIONS",
-  handler: httpAction(
-    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
-  ),
+  handler: httpAction(async (_ctx, request) => readerPreflight(request)),
 });
 
 // The search-only path behind the topic picker's first card: embedding and
@@ -498,158 +497,168 @@ http.route({
 http.route({
   path: "/api/library/find",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const readerId = await signedInReader(ctx);
-    if (!readerId)
-      return new Response("Sign in to your reader", {
-        status: 401,
-        headers: CORS_HEADERS,
-      });
-    const limited = await aiBudgetExceeded(ctx, readerId);
-    if (limited) return limited;
-    const headers = {
-      ...CORS_HEADERS,
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    };
-    const parsed = librarySearchRequestSchema.safeParse(
-      await request.json().catch(() => null),
-    );
-    if (!parsed.success)
-      return new Response(
-        JSON.stringify({
-          error: "Enter a search between 2 and 2000 characters.",
-        }),
-        { status: 400, headers },
-      );
-    const timings = startTimings();
-    const ai = await loadReaderAI(ctx, readerId);
-    timings.mark("ai");
-    const embedder = ai.embedder();
-    if (!embedder) return setupNeeded("no_embeddings");
-    try {
-      const found = await findLibraryArticles(
-        ctx,
-        readerId,
-        parsed.data.question,
-        embedder,
-        timings,
-      );
-      return new Response(JSON.stringify(found), {
-        headers: { ...headers, "Server-Timing": timings.header() },
-      });
-    } catch (error) {
-      console.error("Library find failed", error);
-      await ai.noteFailure(error).catch(() => {});
-      return new Response(
-        JSON.stringify({ error: "Couldn't search your library. Try again." }),
-        { status: 502, headers },
-      );
-    }
-  }),
+  // Browsers call this directly with the Convex JWT as a Bearer token, so
+  // the CORS headers depend on the request's origin.
+  handler: httpAction(async (ctx, request) =>
+    withReaderCors(request, await findLibrary(ctx, request)),
+  ),
 });
+
+async function findLibrary(ctx: ActionCtx, request: Request) {
+  const readerId = await signedInReader(ctx);
+  if (!readerId)
+    return new Response("Sign in to your reader", {
+      status: 401,
+      headers: CORS_HEADERS,
+    });
+  const limited = await aiBudgetExceeded(ctx, readerId);
+  if (limited) return limited;
+  const headers = {
+    ...CORS_HEADERS,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+  };
+  const parsed = librarySearchRequestSchema.safeParse(
+    await request.json().catch(() => null),
+  );
+  if (!parsed.success)
+    return new Response(
+      JSON.stringify({
+        error: "Enter a search between 2 and 2000 characters.",
+      }),
+      { status: 400, headers },
+    );
+  const timings = startTimings();
+  const ai = await loadReaderAI(ctx, readerId);
+  timings.mark("ai");
+  const embedder = ai.embedder();
+  if (!embedder) return setupNeeded("no_embeddings");
+  try {
+    const found = await findLibraryArticles(
+      ctx,
+      readerId,
+      parsed.data.question,
+      embedder,
+      timings,
+    );
+    return new Response(JSON.stringify(found), {
+      headers: { ...headers, "Server-Timing": timings.header() },
+    });
+  } catch (error) {
+    console.error("Library find failed", error);
+    await ai.noteFailure(error).catch(() => {});
+    return new Response(
+      JSON.stringify({ error: "Couldn't search your library. Try again." }),
+      { status: 502, headers },
+    );
+  }
+}
 
 http.route({
   path: "/api/library/search",
   method: "OPTIONS",
-  handler: httpAction(
-    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
-  ),
+  handler: httpAction(async (_ctx, request) => readerPreflight(request)),
 });
 
 http.route({
   path: "/api/library/search",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const readerId = await signedInReader(ctx);
-    if (!readerId)
-      return new Response("Sign in to your reader", {
-        status: 401,
-        headers: CORS_HEADERS,
-      });
-    const limited = await aiBudgetExceeded(ctx, readerId);
-    if (limited) return limited;
-    const headers = {
-      ...CORS_HEADERS,
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    };
-    const parsed = librarySearchRequestSchema.safeParse(
-      await request.json().catch(() => null),
+  // Browsers call this directly with the Convex JWT as a Bearer token, so
+  // the CORS headers depend on the request's origin.
+  handler: httpAction(async (ctx, request) =>
+    withReaderCors(request, await searchLibrary(ctx, request)),
+  ),
+});
+
+async function searchLibrary(ctx: ActionCtx, request: Request) {
+  const readerId = await signedInReader(ctx);
+  if (!readerId)
+    return new Response("Sign in to your reader", {
+      status: 401,
+      headers: CORS_HEADERS,
+    });
+  const limited = await aiBudgetExceeded(ctx, readerId);
+  if (limited) return limited;
+  const headers = {
+    ...CORS_HEADERS,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+  };
+  const parsed = librarySearchRequestSchema.safeParse(
+    await request.json().catch(() => null),
+  );
+  if (!parsed.success)
+    return new Response(
+      JSON.stringify({
+        error: "Enter a search between 2 and 2000 characters.",
+      }),
+      { status: 400, headers },
     );
-    if (!parsed.success)
-      return new Response(
-        JSON.stringify({
-          error: "Enter a search between 2 and 2000 characters.",
-        }),
-        { status: 400, headers },
-      );
-    const timings = startTimings();
-    const ai = await loadReaderAI(ctx, readerId);
-    timings.mark("ai");
-    const targets = ai.chain("quick");
-    if (!targets.length) return setupNeeded("no_provider");
-    const embedder = ai.embedder();
-    if (!embedder) return setupNeeded("no_embeddings");
-    try {
-      const { context, articles } = await retrieveLibraryContext(
-        ctx,
-        readerId,
-        parsed.data.question,
-        embedder,
-        timings,
-      );
-      timings.mark("retrieve");
-      if (!articles.length)
-        return new Response(JSON.stringify({ matches: [] }), {
+  const timings = startTimings();
+  const ai = await loadReaderAI(ctx, readerId);
+  timings.mark("ai");
+  const targets = ai.chain("quick");
+  if (!targets.length) return setupNeeded("no_provider");
+  const embedder = ai.embedder();
+  if (!embedder) return setupNeeded("no_embeddings");
+  try {
+    const { context, articles } = await retrieveLibraryContext(
+      ctx,
+      readerId,
+      parsed.data.question,
+      embedder,
+      timings,
+    );
+    timings.mark("retrieve");
+    if (!articles.length)
+      return new Response(JSON.stringify({ matches: [] }), {
+        headers: { ...headers, "Server-Timing": timings.header() },
+      });
+    for (const target of targets) {
+      if (request.signal.aborted) break;
+      try {
+        const { content, truncated } = await completeJson({
+          target,
+          messages: [
+            { role: "system", content: LIBRARY_SEARCH_SYSTEM },
+            {
+              role: "user",
+              content: `${context}\n\nSearch: ${parsed.data.question}`,
+            },
+          ],
+          maxTokens: 3000,
+          jsonSchema: LIBRARY_SEARCH_JSON_SCHEMA,
+          signal: request.signal,
+        });
+        if (truncated)
+          throw new Error("Search result exceeded its token limit");
+        timings.mark("rank");
+        const matches = parseLibrarySearch(content, articles);
+        return new Response(JSON.stringify({ matches }), {
           headers: { ...headers, "Server-Timing": timings.header() },
         });
-      for (const target of targets) {
+      } catch (error) {
         if (request.signal.aborted) break;
-        try {
-          const { content, truncated } = await completeJson({
-            target,
-            messages: [
-              { role: "system", content: LIBRARY_SEARCH_SYSTEM },
-              {
-                role: "user",
-                content: `${context}\n\nSearch: ${parsed.data.question}`,
-              },
-            ],
-            maxTokens: 3000,
-            jsonSchema: LIBRARY_SEARCH_JSON_SCHEMA,
-            signal: request.signal,
-          });
-          if (truncated)
-            throw new Error("Search result exceeded its token limit");
-          timings.mark("rank");
-          const matches = parseLibrarySearch(content, articles);
-          return new Response(JSON.stringify({ matches }), {
-            headers: { ...headers, "Server-Timing": timings.header() },
-          });
-        } catch (error) {
-          if (request.signal.aborted) break;
-          console.error(`Library search: ${target.id} failed`, error);
-          await ai.noteFailure(error).catch(() => {});
-          if (isTerminalChatGPTError(error))
-            return new Response(
-              JSON.stringify({
-                code: `chatgpt_${error.kind}`,
-                error: error.readerMessage,
-              }),
-              { status: error.responseStatus, headers },
-            );
-        }
+        console.error(`Library search: ${target.id} failed`, error);
+        await ai.noteFailure(error).catch(() => {});
+        if (isTerminalChatGPTError(error))
+          return new Response(
+            JSON.stringify({
+              code: `chatgpt_${error.kind}`,
+              error: error.readerMessage,
+            }),
+            { status: error.responseStatus, headers },
+          );
       }
-    } catch (error) {
-      console.error("Library search retrieval failed", error);
     }
-    return new Response(
-      JSON.stringify({ error: "Couldn't search your library. Try again." }),
-      { status: 502, headers },
-    );
-  }),
-});
+  } catch (error) {
+    console.error("Library search retrieval failed", error);
+  }
+  return new Response(
+    JSON.stringify({ error: "Couldn't search your library. Try again." }),
+    { status: 502, headers },
+  );
+}
 
 // Public API for other apps, authenticated with a reader's personal API token.
 // Server-to-server only, so it sends no CORS headers.

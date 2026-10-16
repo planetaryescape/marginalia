@@ -23,3 +23,14 @@ Three calls to `POST /api/reader/library/find` from a signed-in browser, one aft
 | same as the first (hit) | 508 ms | `embed-cached;dur=14`, `total;dur=20` |
 
 A repeated or re-spaced query is now under the 1 s target. What remains is about 480 ms of hop from the browser through the Vercel proxy to Convex, and the embedding cost of a query never seen before.
+
+## Direct browser calls to Convex (fix/search-direct)
+
+The picker now posts `library/find` and `library/search` straight to `${NEXT_PUBLIC_CONVEX_SITE_URL}/api/library/<path>` with `Authorization: Bearer <Convex JWT>`, skipping the proxy's server-side `getToken()` round trip and the extra hop. Not yet measured live; the target is the roughly 21 ms Convex cost plus one network round trip on a cache hit.
+
+- Token: `apps/web/src/lib/convex-token.ts` keeps the last good JWT with its `exp`. `fetchAccessToken` in `convex.tsx` feeds it, and it refreshes through `authClient.convex.token()` when missing or within 60 s of expiry. Concurrent callers share one refresh.
+- Fallback: `topic-search-request.ts` uses the proxy route (`/api/reader/library/<path>`) on a network or CORS failure, a missing token or a 401. After a network or CORS failure it skips the direct path for 5 minutes, so a misconfigured origin costs one failed preflight, not one per search. Other statuses (404 for a backend without `find`, 409, 429) pass through unchanged.
+- Convex CORS: both routes answer `OPTIONS` and add `Access-Control-Allow-Origin` only when the request `Origin` is in `READER_ORIGINS` (comma-separated, default `https://reader.bhekani.com`, `*` ignored). Allowed headers are `authorization, content-type`, methods `POST, OPTIONS`, `Server-Timing` is exposed, `Vary: Origin` is always set, and credentials are never allowed. Any other origin gets no `Access-Control-*` headers. Implementation: `packages/backend/convex/lib/cors.ts`, applied to the two routes' responses in `http.ts` (including 401, 409, 429 and 502).
+- Auth is unchanged: `signedInReader` resolves `ctx.auth` from the Bearer JWT.
+- The proxy still serves companion, engagement and every other path, and remains the fallback for these two.
+- Local development (`localhost`) is not in the default origins, so it falls back to the proxy. Add the origin to `READER_ORIGINS` on a dev deployment to test the direct path.

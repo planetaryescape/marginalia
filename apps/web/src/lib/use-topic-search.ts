@@ -6,6 +6,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { ReaderRequestError, readerRequestError } from "@/lib/companion";
 import { dedupeMatches, type TopicMatch } from "@/lib/topic-card";
+import { postTopicSearch as post } from "@/lib/topic-search-request";
 
 const CACHE_TTL_MS = 5 * 60_000;
 /** Short, because the fast path only embeds and searches. */
@@ -40,17 +41,6 @@ const idle: TopicSearch = {
   reasons: {},
   explained: true,
 };
-
-async function post(path: string, question: string, signal: AbortSignal) {
-  const response = await fetch(`/api/reader/library/${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
-    signal,
-  });
-  if (!response.ok) throw response;
-  return response.json();
-}
 
 async function failure(thrown: unknown) {
   return thrown instanceof Response ? readerRequestError(thrown) : thrown;

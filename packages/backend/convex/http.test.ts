@@ -159,3 +159,74 @@ describe("companion HTTP streaming", () => {
     expect(response.status).toBe(401);
   });
 });
+
+describe("library search CORS", () => {
+  const allowed = "https://reader.bhekani.com";
+
+  for (const path of ["find", "search"]) {
+    it(`answers a /api/library/${path} preflight for the reader origin`, async () => {
+      const t = convexTest(schema, modules);
+      const response = await t.fetch(`/api/library/${path}`, {
+        method: "OPTIONS",
+        headers: {
+          Origin: allowed,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type",
+        },
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(allowed);
+      expect(response.headers.get("Access-Control-Allow-Headers")).toBe(
+        "authorization, content-type",
+      );
+      expect(
+        response.headers.get("Access-Control-Allow-Credentials"),
+      ).toBeNull();
+    });
+
+    it(`gives /api/library/${path} no CORS headers to another origin`, async () => {
+      const t = convexTest(schema, modules);
+      const preflight = await t.fetch(`/api/library/${path}`, {
+        method: "OPTIONS",
+        headers: { Origin: "https://evil.example" },
+      });
+      expect(preflight.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      const post = await t.fetch(`/api/library/${path}`, {
+        method: "POST",
+        headers: { Origin: "https://evil.example" },
+        body: JSON.stringify({ question: "life" }),
+      });
+      expect(post.status).toBe(401);
+      expect(post.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    });
+
+    it(`adds CORS headers to a signed-out /api/library/${path} error for the reader origin`, async () => {
+      const t = convexTest(schema, modules);
+      const post = await t.fetch(`/api/library/${path}`, {
+        method: "POST",
+        headers: { Origin: allowed },
+        body: JSON.stringify({ question: "life" }),
+      });
+      expect(post.status).toBe(401);
+      expect(post.headers.get("Access-Control-Allow-Origin")).toBe(allowed);
+      expect(post.headers.get("Vary")).toBe("Origin");
+    });
+  }
+
+  it("reads the allowed origins from READER_ORIGINS", async () => {
+    vi.stubEnv("READER_ORIGINS", "https://staging.example");
+    const t = convexTest(schema, modules);
+    const staging = await t.fetch("/api/library/find", {
+      method: "OPTIONS",
+      headers: { Origin: "https://staging.example" },
+    });
+    expect(staging.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://staging.example",
+    );
+    const production = await t.fetch("/api/library/find", {
+      method: "OPTIONS",
+      headers: { Origin: allowed },
+    });
+    expect(production.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+});

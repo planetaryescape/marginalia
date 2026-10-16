@@ -5,6 +5,7 @@ import { type ReactNode, useCallback } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import { authClient } from "./auth-client";
 import { fetchTokenWithRetry, useAuthNonce } from "./auth-retry";
+import { forgetConvexToken, rememberConvexToken } from "./convex-token";
 
 const convex = new ConvexReactClient(
   process.env.NEXT_PUBLIC_CONVEX_URL as string,
@@ -32,15 +33,21 @@ function useReaderAuth() {
   const nonce = useAuthNonce();
   // biome-ignore lint/correctness/useExhaustiveDependencies: nonce only re-creates the function
   const fetchAccessToken = useCallback(async () => {
-    if (!sessionId) return null;
+    if (!sessionId) {
+      forgetConvexToken();
+      return null;
+    }
     // No token cache: Convex's forced refresh always reaches the auth server.
-    return fetchTokenWithRetry(async () => {
+    const token = await fetchTokenWithRetry(async () => {
       const result = await authClient.convex.token({
         fetchOptions: { throw: false },
       });
       if (result.data?.token) return { token: result.data.token };
       return { status: result.error?.status ?? 0 };
     });
+    // Direct calls to the Convex HTTP endpoint reuse this token.
+    rememberConvexToken(token);
+    return token;
   }, [sessionId, nonce]);
   // A failed session check is not a signed-out answer: keep waiting rather
   // than show the sign-in screen, and let the auth gate offer to reconnect
