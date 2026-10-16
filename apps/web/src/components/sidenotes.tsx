@@ -71,6 +71,31 @@ interface LayoutState {
 
 const EMPTY: LayoutState = { placements: {}, labels: {}, ticks: [] };
 
+/**
+ * The motion token's duration and easing, so the slot's height and the notes'
+ * slide run on one clock. The fallback is the token in globals.css.
+ */
+function moveTiming(): { duration: number; easing: string } {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--motion-move")
+    .trim();
+  const match = /^(\d+)ms\s+(.+)$/.exec(raw);
+  return match
+    ? { duration: Number(match[1]), easing: match[2] }
+    : { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" };
+}
+
+/**
+ * A note's natural height. An open note measures its card, which keeps its
+ * height while the slot around it is animating.
+ */
+function naturalHeight(el: HTMLElement): number {
+  return el.dataset.open === "true"
+    ? (el.querySelector<HTMLElement>(".sidenote-card")?.offsetHeight ??
+        el.offsetHeight)
+    : el.offsetHeight;
+}
+
 function firstRect(rects: DOMRectList | DOMRect[] | undefined): DOMRect | null {
   const rect = rects?.[0];
   return rect && (rect.width > 0 || rect.height > 0) ? rect : null;
@@ -208,7 +233,7 @@ export function Sidenotes({
       // The open card is the whole note; a collapsed note measures its hidden body.
       const isOpenNote = el.dataset.open === "true";
       const height = isOpenNote
-        ? el.offsetHeight
+        ? naturalHeight(el)
         : (el.querySelector<HTMLElement>(".sidenote-body")?.scrollHeight ??
           COLLAPSED_HEIGHT);
       notes.push({
@@ -254,13 +279,20 @@ export function Sidenotes({
   useEffect(() => {
     const el = openId ? nodes.current.get(`a:${openId}`) : undefined;
     if (!active || !el) return;
+    // Observe the card itself: its size is its content's, not the animated slot's.
     const resize = new ResizeObserver(() => run());
-    resize.observe(el);
+    resize.observe(el.querySelector<HTMLElement>(".sidenote-card") ?? el);
     return () => resize.disconnect();
   }, [active, openId, run]);
 
-  // Notes that move slide from where they were, so they never jump.
+  // Notes that move slide from where they were, so they never jump. A note that
+  // opens or closes also grows or shrinks its slot over the same duration and
+  // easing, so the slide and the height stay in step.
   const lastTops = useRef(new Map<string, number>());
+  const slots = useRef(
+    new Map<string, { open: boolean; height: number; animation?: Animation }>(),
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `openId` must run this pass even when the layout is unchanged
   useLayoutEffect(() => {
     for (const [key, placement] of Object.entries(layout.placements)) {
       const previous = lastTops.current.get(key);
@@ -279,7 +311,41 @@ export function Sidenotes({
       el.style.transition = "";
       el.style.transform = "";
     }
-  }, [layout, reduced]);
+    for (const [key, el] of nodes.current) {
+      const open = el.dataset.open === "true";
+      const slot = slots.current.get(key);
+      if (!slot) {
+        slots.current.set(key, { open, height: naturalHeight(el) });
+        continue;
+      }
+      if (slot.open === open) {
+        // Track the settled height so the next open or close starts from it.
+        if (slot.animation?.playState !== "running")
+          slot.height = naturalHeight(el);
+        continue;
+      }
+      // Measure from the height it settled at, then animate to the new one.
+      slot.open = open;
+      slot.animation?.cancel();
+      const to = naturalHeight(el);
+      if (!reduced) {
+        el.style.overflow = "hidden";
+        const animation = el.animate(
+          [{ height: `${slot.height}px` }, { height: `${to}px` }],
+          moveTiming(),
+        );
+        slot.animation = animation;
+        animation.finished.then(
+          () => {
+            el.style.overflow = "";
+          },
+          // Cancelled by a newer change, which owns the overflow now.
+          () => {},
+        );
+      }
+      slot.height = to;
+    }
+  }, [layout, openId, reduced]);
 
   // Anything that moves lines without a React update: resize, the notes pane, web fonts.
   useEffect(() => {

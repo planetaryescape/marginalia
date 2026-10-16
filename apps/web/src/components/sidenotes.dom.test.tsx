@@ -18,6 +18,11 @@ let arrive: (records: unknown[]) => void = () => {};
 const ioDisconnect = vi.fn();
 const roDisconnect = vi.fn();
 let ioConstructed = 0;
+const animations: {
+  el: HTMLElement;
+  keyframes: Keyframe[];
+  options: unknown;
+}[] = [];
 // Where lines sit, by data-y; happy-dom has no layout.
 let lineOffset = 0;
 
@@ -185,18 +190,27 @@ beforeEach(() => {
       }) as DOMRect,
   );
   // An open note measures its card, which a test gives a height with data-card-height.
+  // A collapsed note is 70px; a card reports its data-card-height.
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
     get(this: HTMLElement) {
-      if (this.classList.contains("sidenote") && this.dataset.open === "true")
-        return Number(
-          this.querySelector("[data-card-height]")?.getAttribute(
-            "data-card-height",
-          ) ?? 70,
-        );
-      return 0;
+      const card =
+        this.querySelector("[data-card-height]") ??
+        (this.hasAttribute("data-card-height") ? this : null);
+      if (card) return Number(card.getAttribute("data-card-height"));
+      return this.classList.contains("sidenote") ? 70 : 0;
     },
   });
+  animations.length = 0;
+  (HTMLElement.prototype as unknown as { animate: unknown }).animate =
+    function (this: HTMLElement, keyframes: Keyframe[], options: unknown) {
+      animations.push({ el: this, keyframes, options });
+      return {
+        cancel() {},
+        playState: "finished",
+        finished: Promise.resolve(),
+      };
+    };
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get(this: HTMLElement) {
@@ -209,6 +223,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   ioDisconnect.mockReset();
@@ -618,5 +633,46 @@ describe("the open card in the column", () => {
     // Column position and width come from the layer's variables, the same as collapsed notes.
     expect(note.style.left).toBe("");
     expect(note.style.width).toBe("");
+  });
+
+  it("grows the open slot from its closed height to its card's height over the motion token", async () => {
+    await render(<Column openId={null} />);
+    await render(<Column openId="a2" />);
+    const grow = animations.filter((a) => a.el.dataset.key === "a:a2");
+    expect(grow).toHaveLength(1);
+    expect(grow[0].keyframes).toEqual([
+      { height: "70px" },
+      { height: "260px" },
+    ]);
+    expect(grow[0].options).toEqual({
+      duration: 240,
+      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    });
+  });
+
+  it("shrinks the slot back over the same motion when the note closes", async () => {
+    await render(<Column openId="a2" />);
+    animations.length = 0;
+    await render(<Column openId={null} />);
+    const shrink = animations.filter((a) => a.el.dataset.key === "a:a2");
+    expect(shrink.map((a) => a.keyframes)).toEqual([
+      [{ height: "260px" }, { height: "70px" }],
+    ]);
+  });
+
+  it("does not animate the slot under reduced motion, but still moves the notes below", async () => {
+    reducedMotion = true;
+    await render(<Column openId={null} />);
+    await render(<Column openId="a2" />);
+    expect(animations).toHaveLength(0);
+    expect(tops().a3).toBe("572px");
+  });
+
+  it("follows a card that streams taller without restarting the slot animation", async () => {
+    await render(<Column openId="a2" cardHeight={260} />);
+    animations.length = 0;
+    await render(<Column openId="a2" cardHeight={300} />);
+    expect(animations).toHaveLength(0);
+    expect(tops().a3).toBe("612px");
   });
 });
