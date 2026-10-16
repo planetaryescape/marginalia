@@ -5,14 +5,8 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ArrowUp } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { LibraryMatches } from "@/components/library-matches";
 import {
   FinishedShelf,
   LovedShelf,
@@ -33,14 +27,12 @@ const EXAMPLES = ["what did I love recently?", "a short read for tonight"];
 type Turn = LibraryTurn;
 
 function Librarian() {
-  const searchParams = useSearchParams();
   const reduced = useReducedMotion();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const askedFromUrl = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useShortcuts({ "/": () => inputRef.current?.focus() }, true, {
@@ -94,23 +86,6 @@ function Librarian() {
     },
     [streaming, turns],
   );
-
-  // Arriving from the home page's "ask your library" line. Deferred so React's
-  // development double-run of effects cancels the first attempt instead of
-  // aborting a request already in flight.
-  const askRef = useRef(ask);
-  useLayoutEffect(() => {
-    askRef.current = ask;
-  }, [ask]);
-  useEffect(() => {
-    const q = searchParams.get("q");
-    if (!q || askedFromUrl.current) return;
-    const timer = window.setTimeout(() => {
-      askedFromUrl.current = true;
-      askRef.current(q);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [searchParams]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -234,7 +209,9 @@ function shelfFromUrl(value: string | null): ShelfId | "up-next" {
 }
 
 function Shelves() {
-  const shelf = shelfFromUrl(useSearchParams().get("shelf"));
+  const params = useSearchParams();
+  const shelf = shelfFromUrl(params.get("shelf"));
+  const matchesFor = params.get("q")?.trim() ?? "";
   const overview = useQuery(api.home.overview, {});
   const saved = useQuery(api.savedArticles.count, {});
   const loved = useQuery(api.lovedArticles.listAll, {});
@@ -272,6 +249,9 @@ function Shelves() {
   ];
 
   useTabKeys(tabs, shelf);
+
+  // A topic from the desk's search lists its matches; the shelves return with Back
+  if (matchesFor) return <LibraryMatches query={matchesFor} />;
 
   return (
     <>
