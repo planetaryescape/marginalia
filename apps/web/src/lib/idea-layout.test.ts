@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { layoutGraph, nextInDirection, wrapLabel } from "./idea-layout";
+import {
+  type Box,
+  edgeLabelSpot,
+  ideaBoxes,
+  layoutGraph,
+  nextInDirection,
+  wrapLabel,
+} from "./idea-layout";
 
 const ring = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ key: `n${i}`, hop: 1 as const }));
@@ -120,5 +127,37 @@ describe("wrapLabel", () => {
       wrapLabel("a very long label that will not fit in two lines", 10),
     ).toEqual(["a very", "long labe…"]);
     expect(wrapLabel("", 10)).toEqual([""]);
+  });
+});
+
+describe("edge labels", () => {
+  const centre = { x: 400, y: 300, r: 22 };
+  const outer = { x: 400, y: 500, r: 16 };
+
+  it("sits at the middle of a clear line", () => {
+    const spot = edgeLabelSpot(centre, outer, "same article", []);
+    expect(spot?.y).toBeCloseTo(394);
+  });
+
+  it("moves along the line to clear an idea's label", () => {
+    const labelUnderCentre = ideaBoxes(centre, ["A long centre label"], 14);
+    const blocker: Box = { x0: 300, y0: 380, x1: 500, y1: 410 };
+    const spot = edgeLabelSpot(centre, outer, "same article", [
+      ...labelUnderCentre,
+      blocker,
+    ]);
+    expect(spot).not.toBeNull();
+    for (const box of [...labelUnderCentre, blocker])
+      expect(
+        spot!.box.y1 <= box.y0 ||
+          spot!.box.y0 >= box.y1 ||
+          spot!.box.x1 <= box.x0 ||
+          spot!.box.x0 >= box.x1,
+      ).toBe(true);
+  });
+
+  it("gives up when nowhere on the line is clear", () => {
+    const wall: Box = { x0: 0, y0: 0, x1: 1000, y1: 1000 };
+    expect(edgeLabelSpot(centre, outer, "same article", [wall])).toBeNull();
   });
 });

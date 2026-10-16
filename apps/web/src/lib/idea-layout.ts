@@ -185,3 +185,64 @@ export function wrapLabel(text: string, width: number, maxLines = 2): string[] {
     line.length > width ? `${line.slice(0, width - 1).trimEnd()}…` : line;
   return lines.length ? lines.map(fit) : [""];
 }
+
+/** A rectangle on the map, in the SVG's coordinates. */
+export interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+// Text widths are estimated, not measured: DM Sans runs about 0.56 em per
+// character on average, which is close enough to keep labels apart
+const CHAR_EM = 0.56;
+const EDGE_FONT = 11;
+
+const overlaps = (a: Box, b: Box) =>
+  a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+/** The space an idea takes: its mark and the label lines drawn below it. */
+export function ideaBoxes(
+  p: { x: number; y: number; r: number },
+  lines: readonly string[],
+  fontSize: number,
+): Box[] {
+  const boxes: Box[] = [
+    { x0: p.x - p.r, y0: p.y - p.r, x1: p.x + p.r, y1: p.y + p.r },
+  ];
+  if (lines.length) {
+    const half =
+      (Math.max(...lines.map((l) => l.length)) * fontSize * CHAR_EM) / 2;
+    const top = p.y + p.r + 18 - fontSize;
+    const bottom = p.y + p.r + 18 + (lines.length - 1) * (fontSize + 2) + 4;
+    boxes.push({ x0: p.x - half, y0: top, x1: p.x + half, y1: bottom });
+  }
+  return boxes;
+}
+
+// Where along an edge a label may sit, best first: the middle, then nearer
+// either end
+const ALONG = [0.5, 0.42, 0.6, 0.35, 0.68, 0.28, 0.75];
+
+/**
+ * Where an edge's label can sit without covering an idea, its label or a
+ * label already placed, as the baseline point for centred text. Null when
+ * nowhere on the line is clear: the edge then goes unlabelled, and selecting
+ * it still says why it exists.
+ */
+export function edgeLabelSpot(
+  inner: { x: number; y: number },
+  outer: { x: number; y: number },
+  text: string,
+  obstacles: readonly Box[],
+): { x: number; y: number; box: Box } | null {
+  const half = (text.length * EDGE_FONT * CHAR_EM) / 2 + 3;
+  for (const t of ALONG) {
+    const x = inner.x + (outer.x - inner.x) * t;
+    const y = inner.y + (outer.y - inner.y) * t - 6;
+    const box = { x0: x - half, y0: y - EDGE_FONT, x1: x + half, y1: y + 3 };
+    if (!obstacles.some((o) => overlaps(box, o))) return { x, y, box };
+  }
+  return null;
+}

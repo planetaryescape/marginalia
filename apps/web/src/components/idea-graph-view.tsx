@@ -8,7 +8,10 @@ import {
   KIND_LABELS,
 } from "@/lib/idea-kinds";
 import {
+  type Box,
   type Direction,
+  edgeLabelSpot,
+  ideaBoxes,
   layoutGraph,
   nextInDirection,
   type Placed,
@@ -111,6 +114,34 @@ export function IdeaGraphView({
 
   const narrow = width < 520;
   const wrapAt = narrow ? 14 : 22;
+  // Edge labels go where they cover no idea, no idea's label and no other
+  // edge label; an edge with no clear spot stays unlabelled
+  const labelSpots = useMemo(() => {
+    const taken: Box[] = [];
+    for (const p of placed) {
+      const node = nodeByKey.get(p.key);
+      if (!node) continue;
+      const centre = node.hop === 0;
+      const lines =
+        node.hop === 2
+          ? []
+          : wrapLabel(node.label, centre ? wrapAt + 6 : wrapAt);
+      taken.push(...ideaBoxes(p, lines, centre ? 14 : 12.5));
+    }
+    const spots = new Map<string, { x: number; y: number }>();
+    if (narrow) return spots;
+    for (const edge of graph.edges) {
+      const a = byKey.get(edge.a);
+      const b = byKey.get(edge.b);
+      if (!a || !b || a.hop === 2 || b.hop === 2) continue;
+      const [inner, outer] = a.hop <= b.hop ? [a, b] : [b, a];
+      const spot = edgeLabelSpot(inner, outer, edgeLabel(edge), taken);
+      if (!spot) continue;
+      taken.push(spot.box);
+      spots.set(edge.id, spot);
+    }
+    return spots;
+  }, [placed, nodeByKey, byKey, graph.edges, wrapAt, narrow]);
 
   // The line a second-ring or neighbouring idea hangs off, for Space
   const edgeFor = (key: string) =>
@@ -163,15 +194,8 @@ export function IdeaGraphView({
           const faint = a.hop === 2 || b.hop === 2;
           const selected = edge.id === edgeId;
           // On a phone the lines would crowd each other; the panel says why instead
-          const label = faint || narrow ? "" : edgeLabel(edge);
-          // An idea's label sits below it. On a line rising to an outer idea
-          // the midpoint label would meet that idea's label, so it moves
-          // nearer the inner end; on a falling line it would meet the inner
-          // idea's own label, so it moves further out.
-          const [inner, outer] = a.hop <= b.hop ? [a, b] : [b, a];
-          const along = outer.y < inner.y ? 0.42 : 0.6;
-          const labelX = inner.x + (outer.x - inner.x) * along;
-          const labelY = inner.y + (outer.y - inner.y) * along;
+          const spot = labelSpots.get(edge.id);
+          const label = spot ? edgeLabel(edge) : "";
           return (
             <g
               key={edge.id}
@@ -206,8 +230,8 @@ export function IdeaGraphView({
               />
               {label && (
                 <text
-                  x={labelX}
-                  y={labelY - 6}
+                  x={spot?.x}
+                  y={spot?.y}
                   textAnchor="middle"
                   fontSize={11}
                   fill="var(--reader-muted)"
