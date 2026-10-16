@@ -25,7 +25,7 @@
 | 2e | The summary reads in layers | Done: live at `4c46980` |
 | 2c | A critical friend in the margin | Done: live at `a2d16bc`; 111 short unread articles re-annotated. Failed first annotations now retry (`800263e`) |
 | 2f | It reads alongside me, and doesn't repeat itself | Live at `c24abfd` (backend, existing arrival UI); unchanged articles skip with no model call, seen in logs. Comp awaiting approval for any new UI |
-| 3b | I bring my own (PDF) | Done: live at `28e29c3`, book parts regrouped at `574a233`. Book per-part summaries and passage embeddings (S8) not built |
+| 3b | I bring my own (PDF) | Done: live at `28e29c3`, book parts regrouped at `574a233`. Per-part summaries, the book's point from them, passage embeddings and Ask about a book live at `f342745` (Pro Git: 97 summaries, 851 passages; Ask cites Part 22 for rebasing) |
 | 4 | Four rooms | Done: live at `27cce50` |
 | 5 | Notes is my commonplace book | Done: live at `6730c0b` |
 | 5b | Your reading: stats and dictionary | Done: live at `efea4a4` |
