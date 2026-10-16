@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readerTest, secondReaderTest } from "../test/owner";
 import { api } from "./_generated/api";
 import { deleteArticle } from "./lib/feedRemoval";
@@ -163,7 +163,8 @@ describe("dictionary titles", () => {
     });
   });
 
-  it("marks lookups of a deleted article as gone and keeps the rest", async () => {
+  it("marks lookups of a deleted article as gone, however many, and keeps the rest", async () => {
+    vi.useFakeTimers();
     const { t, owner } = await secondReaderTest(modules);
     await t.run(async (ctx) => {
       const keep = await ctx.db.insert(
@@ -174,32 +175,46 @@ describe("dictionary titles", () => {
         "articles",
         article(OWNER, "drop", "Dropped"),
       );
-      for (const [articleId, word] of [
-        [keep, "kept"],
-        [drop, "dropped"],
-      ] as const)
+      await ctx.db.insert("lookups", {
+        userId: OWNER,
+        articleId: keep,
+        word: "kept",
+        wordKey: "kept",
+        sentence: "s",
+        sense: "n. x",
+        articleTitle: "Kept",
+        createdAt: 1,
+      });
+      // More than one batch of 100
+      for (let i = 0; i < 150; i++)
         await ctx.db.insert("lookups", {
           userId: OWNER,
-          articleId,
-          word,
-          wordKey: word,
+          articleId: drop,
+          word: `d${i}`,
+          wordKey: `d${i}`,
           sentence: "s",
           sense: "n. x",
-          articleTitle: word,
-          createdAt: word === "kept" ? 1 : 2,
+          articleTitle: "Dropped",
+          createdAt: 2 + i,
         });
       const doc = await ctx.db.get("articles", drop);
       if (doc) await deleteArticle(ctx, doc);
     });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const rows = await t.run((ctx) => ctx.db.query("lookups").collect());
+    expect(rows).toHaveLength(151);
+    expect(rows.filter((r) => r.articleGone === true)).toHaveLength(150);
+    expect(rows.filter((r) => r.articleTitle === undefined)).toHaveLength(150);
+    const kept = rows.find((r) => r.wordKey === "kept");
+    expect(kept).toMatchObject({ articleTitle: "Kept" });
+    expect(kept?.articleGone).toBeUndefined();
     const { page } = await owner.query(api.dictionary.page, {
       paginationOpts: first,
     });
-    expect(
-      page.map((r) => [r.wordKey, r.articleGone, r.articleTitle === null]),
-    ).toEqual([
-      ["dropped", true, true],
-      ["kept", false, false],
-    ]);
+    expect(page.every((r) => r.articleGone && r.articleTitle === null)).toBe(
+      true,
+    );
+    vi.useRealTimers();
   });
 
   it("reads at most 8 articles for lookups without a title, leaving the rest unknown rather than gone", async () => {

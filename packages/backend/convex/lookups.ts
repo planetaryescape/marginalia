@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { internalMutation } from "./_generated/server";
 import { requireArticle } from "./access";
 import { mutation } from "./functions";
 
@@ -72,5 +74,38 @@ export const record = mutation({
       articleTitle: article.title,
       createdAt: Date.now(),
     });
+  },
+});
+
+const GONE_BATCH = 100;
+
+/**
+ * After an article is deleted, marks the reader's lookups of it so the
+ * dictionary stops linking to it. A batch at a time, rescheduling itself.
+ */
+export const markArticleGone = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  handler: async (ctx, { userId, articleId, cursor = null }) => {
+    const page = await ctx.db
+      .query("lookups")
+      .withIndex("by_user_article", (q) =>
+        q.eq("userId", userId).eq("articleId", articleId),
+      )
+      .paginate({ numItems: GONE_BATCH, cursor });
+    for (const lookup of page.page)
+      await ctx.db.patch("lookups", lookup._id, {
+        articleGone: true,
+        articleTitle: undefined,
+      });
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.lookups.markArticleGone, {
+        userId,
+        articleId,
+        cursor: page.continueCursor,
+      });
   },
 });

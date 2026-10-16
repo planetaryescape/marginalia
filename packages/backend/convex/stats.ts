@@ -369,9 +369,12 @@ const roomArgs = {
   today: v.optional(v.string()),
   period: v.union(v.literal("month"), v.literal("30days"), v.literal("90days")),
 };
-// Visits read for the room, newest first. At roughly 1 KB a row this stays
-// well under Convex's per-function read limit; past it the room says so.
-const ROOM_VISITS = 4000;
+// Visits read for the room, newest first. A row can carry up to 128
+// annotation ids: 4,001 such rows measured 18.9 MB, about 4.7 KB each. At 1,500
+// the worst case is 1,500 x 4.7 KB = 7.1 MB, leaving room under Convex's 16 MiB
+// read limit for the articles, tags and feeds the same query reads. Past it the
+// room says it is partial.
+const ROOM_VISITS = 1500;
 // Rows written before `estimatedReadMinutes` was copied onto them fall back to
 // reading the article, whose document can be close to a megabyte. This many
 // such reads per query; the backfill removes the need.
@@ -516,8 +519,11 @@ const TAGS_PER_ARTICLE = 20;
 // Tag documents carry an embedding, so they are fetched in small batches and
 // only as far down the minutes ranking as 30 active topics need
 const TOPICS_SHOWN = 30;
-const TOPIC_EXAMINED = 300;
-const TAG_BATCH = 20;
+// Active tags loaded to rank against. A tag document is about 15 KB with its
+// embedding, so 300 is about 4.5 MB. Tag counts stay far below that because
+// new tags are resisted: a name is matched onto an existing tag or alias
+// before one is created (D-DES-059).
+const ACTIVE_TAGS = 300;
 
 /**
  * Topics the reader returns to, by minutes read in the period: the active tags
@@ -543,6 +549,18 @@ export const readingTopics = query({
       .filter(([, ms]) => ms > 0)
       .slice(0, TOPIC_ARTICLES);
 
+    // Candidates and other readers' tags are dropped before ranking, so they
+    // can't use up the places that active topics need
+    const active = new Map(
+      (
+        await ctx.db
+          .query("tags")
+          .withIndex("by_user_status", (q) =>
+            q.eq("userId", ctx.readerId).eq("status", "active"),
+          )
+          .take(ACTIVE_TAGS)
+      ).map((tag) => [tag._id, tag.name]),
+    );
     const perTag = new Map<Id<"tags">, { ms: number; articles: number }>();
     for (let i = 0; i < read.length; i += ARTICLE_BATCH)
       await Promise.all(
@@ -553,7 +571,8 @@ export const readingTopics = query({
             .take(TAGS_PER_ARTICLE);
           // by_article is not scoped to a reader, so check the owner of each link
           for (const link of links) {
-            if (link.userId !== ctx.readerId) continue;
+            if (link.userId !== ctx.readerId || !active.has(link.tagId))
+              continue;
             const seen = perTag.get(link.tagId) ?? { ms: 0, articles: 0 };
             perTag.set(link.tagId, {
               ms: seen.ms + ms,
@@ -563,29 +582,13 @@ export const readingTopics = query({
         }),
       );
 
-    const ranked = [...perTag.entries()]
+    return [...perTag.entries()]
       .sort((a, b) => b[1].ms - a[1].ms || a[0].localeCompare(b[0]))
-      .slice(0, TOPIC_EXAMINED);
-    const topics: { name: string; minutes: number; articles: number }[] = [];
-    for (
-      let i = 0;
-      i < ranked.length && topics.length < TOPICS_SHOWN;
-      i += TAG_BATCH
-    ) {
-      const tags = await Promise.all(
-        ranked.slice(i, i + TAG_BATCH).map(async ([tagId, total]) => ({
-          tag: await ctx.db.get("tags", tagId),
-          total,
-        })),
-      );
-      for (const { tag, total } of tags)
-        if (tag?.userId === ctx.readerId && tag.status === "active")
-          topics.push({
-            name: tag.name,
-            minutes: Math.round((total.ms / 60_000) * 10) / 10,
-            articles: total.articles,
-          });
-    }
-    return topics.slice(0, TOPICS_SHOWN);
+      .slice(0, TOPICS_SHOWN)
+      .map(([tagId, total]) => ({
+        name: active.get(tagId) ?? "",
+        minutes: Math.round((total.ms / 60_000) * 10) / 10,
+        articles: total.articles,
+      }));
   },
 });

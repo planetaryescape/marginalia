@@ -483,3 +483,57 @@ describe("readingTopics with many candidates", () => {
     ).toEqual([{ name: "quiet topic", minutes: 1, articles: 1 }]);
   });
 });
+
+describe("readingTopics with candidates on every article", () => {
+  it("finds the active tag when every read article carries three candidates", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const tag = (name: string, status: "active" | "candidate") =>
+        ctx.db.insert("tags", {
+          userId: OWNER,
+          name,
+          key: name,
+          status,
+          count: 1,
+          aliases: [],
+          createdAt: 1,
+        });
+      const active = await tag("the one", "active");
+      const candidates = [
+        await tag("x", "candidate"),
+        await tag("y", "candidate"),
+        await tag("z", "candidate"),
+      ];
+      for (let i = 0; i < 100; i++) {
+        const id = await insertArticle(ctx, `many${i}`);
+        // The active tag sits on the least-read article
+        await ctx.db.insert("readingActivity", {
+          ...visitRow(id, Date.UTC(2026, 9, 13, 9, i)),
+          activeTimeMs: (i === 0 ? 1 : 10 + i) * 60_000,
+        });
+        for (const tagId of candidates)
+          await ctx.db.insert("articleTags", {
+            userId: OWNER,
+            articleId: id,
+            tagId,
+            createdAt: 1,
+          });
+        if (i === 0)
+          await ctx.db.insert("articleTags", {
+            userId: OWNER,
+            articleId: id,
+            tagId: active,
+            createdAt: 1,
+          });
+      }
+    });
+    expect(
+      await owner.query(api.stats.readingTopics, {
+        timeZone: "UTC",
+        period: "month",
+      }),
+    ).toEqual([{ name: "the one", minutes: 1, articles: 1 }]);
+  });
+});

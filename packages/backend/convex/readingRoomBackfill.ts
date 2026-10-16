@@ -35,7 +35,12 @@ export const run = internalMutation({
         .paginate({ numItems: BATCH, cursor });
       for (const row of page.page) {
         if (row.estimatedReadMinutes !== undefined) continue;
-        const minutes = (await articleOf(row.articleId))?.estimatedReadMinutes;
+        const article = await articleOf(row.articleId);
+        // Only an article the row's own reader owns is copied from
+        const minutes =
+          article?.userId === row.userId
+            ? article.estimatedReadMinutes
+            : undefined;
         if (minutes !== undefined)
           await ctx.db.patch("readingActivity", row._id, {
             estimatedReadMinutes: minutes,
@@ -49,6 +54,7 @@ export const run = internalMutation({
       for (const row of page.page) {
         if (row.articleTitle !== undefined || row.articleGone) continue;
         const article = await articleOf(row.articleId);
+        if (article && article.userId !== row.userId) continue;
         await ctx.db.patch(
           "lookups",
           row._id,
