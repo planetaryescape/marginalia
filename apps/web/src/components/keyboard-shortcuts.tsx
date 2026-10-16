@@ -2,55 +2,28 @@
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useCommand, useShortcuts } from "@/lib/shortcuts";
+import {
+  useActiveShortcutHelp,
+  useCommand,
+  useShortcuts,
+} from "@/lib/shortcuts";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 
-const SECTIONS: { title: string; keys: [string, string][] }[] = [
-  {
-    title: "Everywhere",
-    keys: [
-      ["?", "Show these shortcuts"],
-      ["g h", "Go home"],
-      ["g l", "Go to your library"],
-      ["g n", "Go to notes"],
-      ["g w", "Go to your reading"],
-      ["g s", "Go to your saved articles"],
-      ["Esc", "Close a card, panel or menu"],
-    ],
-  },
-  {
-    title: "Home",
-    keys: [
-      ["/", "Find an article or paste a link"],
-      ["↑ ↓", "Choose a search result, Enter to read"],
-      ["1 – 4", "Read for 5, 10, 20 or 30+ minutes"],
-      ["c", "Continue reading"],
-      ["j  k", "Move through Up next, Enter to open"],
-    ],
-  },
-  {
-    title: "Reading",
-    keys: [
-      ["j  k", "Next and previous paragraph"],
-      ["e", "Explain the selection or paragraph"],
-      ["s", "Simplify it"],
-      ["d", "Define a word or phrase in context"],
-      ["a", "Ask about it"],
-      ["h", "Highlight it"],
-      ["p", "Pen-mark it"],
-      ["o", "Open the note or conversation on this paragraph"],
-      ["/", "Ask about the whole article"],
-      ["r", "Rate the article"],
-      ["u", "Show or hide the summary"],
-      ["n", "Open notes"],
-      [",", "Reading settings"],
-      ["l", "Listen"],
-    ],
-  },
-  {
-    title: "Library",
-    keys: [["/", "Ask your library"]],
-  },
+const NAVIGATION: [string, string][] = [
+  ["g d", "Go to the desk"],
+  ["g h", "Go home (the desk)"],
+  ["g l", "Go to your library"],
+  ["g n", "Go to notes"],
+  ["g r", "Go to your reading"],
+  ["g w", "Go to your reading"],
+  ["g s", "Go to your saved articles"],
+];
+
+const EVERYWHERE: [string, string][] = [
+  ["?", "Show these shortcuts"],
+  ["/", "Search: the desk bar, or this page's search"],
+  ["Tab", "Move between controls"],
+  ["Esc", "Close a card, panel or menu"],
 ];
 
 function Key({ children }: { children: string }) {
@@ -84,14 +57,30 @@ export function KeyboardShortcuts() {
     document.documentElement.dataset.keyboardShortcuts = enabled ? "on" : "off";
   }, []);
 
-  useShortcuts({
-    "?": () => setOpen((o) => !o),
-    "g h": () => router.push("/"),
-    "g l": () => router.push("/library"),
-    "g n": () => router.push("/notes"),
-    "g w": () => router.push("/reading"),
-    "g s": () => router.push("/library?shelf=saved"),
+  useShortcuts(
+    {
+      "?": () => setOpen((o) => !o),
+      "g d": () => router.push("/"),
+      "g h": () => router.push("/"),
+      "g l": () => router.push("/library"),
+      "g n": () => router.push("/notes"),
+      "g r": () => router.push("/reading"),
+      "g w": () => router.push("/reading"),
+      "g s": () => router.push("/library?shelf=saved"),
+    },
+    true,
+  );
+  // Rooms without a search of their own hand `/` to the desk's bar; a page's
+  // own `/` is consulted first.
+  useShortcuts({ "/": () => router.push("/?find=1") }, true, {
+    fallback: true,
   });
+  const pageHelp = useActiveShortcutHelp();
+  const sections = [
+    { group: "Go to", keys: NAVIGATION },
+    { group: "Everywhere", keys: EVERYWHERE },
+    ...pageHelp,
+  ];
   useCommand("open-shortcuts", () => setOpen(true));
 
   useModalDialog(dialogRef, open);
@@ -121,10 +110,10 @@ export function KeyboardShortcuts() {
         </button>
       </div>
       <div className="mt-5 grid gap-x-10 gap-y-6 sm:grid-cols-2">
-        {SECTIONS.map((section) => (
-          <section key={section.title}>
+        {sections.map((section) => (
+          <section key={section.group}>
             <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--reader-muted)]">
-              {section.title}
+              {section.group}
             </h3>
             <dl className="mt-2 space-y-1.5">
               {section.keys.map(([keys, description]) => (

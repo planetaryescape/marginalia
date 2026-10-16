@@ -90,6 +90,31 @@ describe("keyboard shortcuts", () => {
       expect(press(key).defaultPrevented).toBe(false);
   });
 
+  it("a handler that returns false declines the key: the browser keeps it and the next registration may take it", () => {
+    const decline = vi.fn(() => false as const);
+    const take = vi.fn();
+    register({ ArrowDown: decline });
+    expect(press("ArrowDown").defaultPrevented).toBe(false);
+    register({ ArrowDown: take });
+    expect(press("ArrowDown").defaultPrevented).toBe(true);
+    expect(decline).toHaveBeenCalledTimes(2);
+    expect(take).toHaveBeenCalledOnce();
+  });
+
+  it("a fallback registration only gets keys the page does not take, whatever the order", () => {
+    const fallback = vi.fn();
+    const page = vi.fn();
+    cleanups.push(
+      registerShortcuts({ current: { "/": fallback } }, { fallback: true }),
+    );
+    press("/");
+    expect(fallback).toHaveBeenCalledOnce();
+    register({ "/": page });
+    press("/");
+    expect(page).toHaveBeenCalledOnce();
+    expect(fallback).toHaveBeenCalledOnce();
+  });
+
   it("ignores typing, composition and browser modifier shortcuts", () => {
     const action = vi.fn();
     register({ j: action });

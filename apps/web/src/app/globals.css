@@ -162,7 +162,7 @@ article[data-margin="phone"] .annotation-mark sup {
 
 article[data-margin="sidenotes"] .annotation-mark:focus-visible,
 article[data-margin="phone"] .annotation-mark:focus-visible {
-  outline: 1px solid var(--pencil);
+  outline: 1px solid var(--reader-focus);
   outline-offset: 3px;
 }
 
@@ -256,7 +256,7 @@ article[data-margin="phone"] .annotation-mark::after {
 }
 
 .sidenote-hit:focus-visible {
-  outline: 1px solid var(--pencil);
+  outline: 1px solid var(--reader-focus);
   outline-offset: 3px;
 }
 
