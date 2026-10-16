@@ -150,7 +150,7 @@ The reader always knows, without asking:
 |---|---|---|
 | First open of the day | "There's something good waiting, and I don't have to choose from a pile." | The question in large Newsreader and the date. No backlog count anywhere on the desk (D-DES-034). Below it, the Continue or best pick, already chosen. Nothing animates except the pick fading up 8 px over 240 ms. |
 | Choosing time | "It understood me, and I'll finish this." | The chosen time stays lit and the others dim. The main slot cross-fades to the pick with its reason in pencil ("Short, and it answers the question you asked on Tuesday"). The pick was prefetched on hover or focus (S3), so it lands under 150 ms. |
-| Opening an article | "I'm in." | The title morphs from the desk row into the reader heading (View Transitions, S1). The header chrome dissolves, and the page settles. Fallback: a 200 ms fade. |
+| Opening an article | "I'm in." | The title morphs from the desk row into the reader heading (View Transitions, S1). The header chrome dissolves, and the page settles. Without View Transitions the swap is instant (D-DES-063). |
 | A margin note arriving | "Someone read this with me." | As the line scrolls into view, the note's connector draws from the line's end into the margin (240 ms), then the text fades in. Each note arrives once. It doesn't redraw on scroll back. |
 | Marking a passage | "That's mine now." | The highlighter sweeps left to right across the selection (180 ms) in the reader's colour. A small pen tick appears in the margin at that line. |
 | Asking | "A good answer, beside the text." | The answer writes into the margin card in pencil, beside the passage, with ¶ references that scroll and pulse the paragraph they cite. |

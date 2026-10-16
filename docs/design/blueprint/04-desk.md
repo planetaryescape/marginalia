@@ -18,7 +18,7 @@ The header sits above all of it. The phone order is the same.
 Off the desk (D-DES-021, D-DES-024):
 
 - **The right-hand column** (From your notes, Recently rated, Where it comes from) is removed. Notes and ratings live in Notes and Library, and source status lives in the avatar menu ([06](06-sources-and-settings.md)). The desk is one column (D-DES-064).
-- **Keycaps:** removed from the surface. The keys still work (`1`–`4`, `c`, `j`/`k`, `/`).
+- **Keycaps:** removed from the surface; holding Alt or pressing `?` shows them. The keys still work: `1`–`4` choose a time, `Enter` or `o` reads the pick, `n` or `→` gives another, `←` goes back, `s` saves it, `c` opens Continue, `/` opens the bar.
 - **Per-window counts** ("30 fit"): shown in a time choice's tooltip only.
 - **"Worth revisiting"** shares the main slot instead of taking a second card. It shows only when there's no article in progress and no time chosen, as "Worth revisiting · loved 6 months ago", with "Not now" as a quiet text button.
 - **"Press ? for keyboard shortcuts":** removed. `?` is in the avatar menu.
@@ -113,7 +113,7 @@ A quiet field-shaped button with the glass icon and "Ask, or paste a link". It o
 
 ## Phone (390×844)
 
-- The question in `--type-display` at its clamp minimum, then the slot, then the time choices as a row of four numerals, then the bar. Nothing else.
+- The same order as the wide desk (D-DES-064): the question in `--type-display` at its clamp minimum, the time choices as a row of four numerals, the slot, then the bar. Nothing else.
 - A bottom bar with four slots: Desk, Library, Notes, Search (D-DES-024).
 - No date line on screens shorter than 700 px.
 

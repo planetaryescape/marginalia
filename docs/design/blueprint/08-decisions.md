@@ -287,3 +287,8 @@ Change a decision only by adding a new entry that replaces the old one.
 ### D-DES-065: The avatar menu has a theme row. (BK; design by Claude, delegated)
 - **BK, 2026-10-16:** "there's no way to change the colro theme on the home page or any other page that's not the reader page".
 - **Decision (Claude):** Paper, Sepia, Snow, Dusk, Night, Ink and Auto as swatches in the avatar menu, the same themes and storage as the reader's settings. Choosing one changes the page at once and keeps the menu open.
+
+### D-DES-066: Each mark keeps its own colour; the last colour picked becomes the default. (BK; mechanism by Claude, delegated)
+- **BK, 2026-10-16:** "currently you select a highlight color in the settings and all your highlights become like that. I wan tto be able to select the highlight color or pen color when I actually highlight or use the pen, when I select a color that becomes the default till I select another one".
+- **Decision:** the selection toolbar offers the four colours beside Highlight and Underline; a pick marks in that colour and becomes the tool's default. Each mark stores its colour (`highlights.color`). Before a default changes, marks saved without a colour are first given the colour they show, so changing the default never repaints existing marks.
+- **Why:** colour is part of what the reader meant when they marked; a settings change shouldn't rewrite their past marks.

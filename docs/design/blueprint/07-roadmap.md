@@ -17,14 +17,14 @@
 | 1 | The pen colour is mine; the reader gets out of the way | Done: live at origin/main `6e2e49a` |
 | 2 | The margin talks | Done: live at `67798dc`, accordion open notes at `de6f560` (D-DES-049) |
 | 2a | The reader finishes its own redesign | Done: live at `fac7694` (notes-pane split moved to 2b) |
-| 2b | Answers beside the text, kept only on purpose | Deployed at `6471b14` (backend and frontend); BK's hand journey pending. Edge cases in `docs/issues/companion-keep-edge-cases.md` |
+| 2b | Answers beside the text, kept only on purpose | Done: live at `6471b14`; Define → refresh → Keep → Notes walked live on 2026-10-16. Edge cases in `docs/issues/companion-keep-edge-cases.md` |
 | 2g | It remembers how I read | Done: live at `82fba7d`; feed history backfilled |
 | 3 | The desk asks one question and answers it | Done: live at `8741fbd`; warm pick in 121 ms |
-| 3c | Ask by topic, one at a time, fast | Deployed at `9a90018`: first card ~1.05 s warm (was 6.7–8.8 s) |
+| 3c | Ask by topic, one at a time, fast | Done: a repeated query ~110–150 ms through the direct call and query cache (`221f633`); a new query ~0.8–1.4 s, bound by its embedding |
 | 2d | Links wait for me, and saved things come back | Done: live; link menu verified |
 | 2e | The summary reads in layers | Done: live at `4c46980` |
 | 2c | A critical friend in the margin | Done: live at `a2d16bc`; 111 short unread articles re-annotated. Failed first annotations now retry (`800263e`) |
-| 2f | It reads alongside me, and doesn't repeat itself | Live at `c24abfd` (backend, existing arrival UI); unchanged articles skip with no model call, seen in logs. Comp awaiting approval for any new UI |
+| 2f | It reads alongside me, and doesn't repeat itself | Done: live at `c24abfd`; unchanged articles skip with no model call, and after a new note the sections ahead got 2–3 notes each (logs, 2026-10-16) |
 | 3b | I bring my own (PDF) | Done: live at `28e29c3`, book parts regrouped at `574a233`. Per-part summaries, the book's point from them, passage embeddings and Ask about a book live at `f342745` (Pro Git: 97 summaries, 851 passages; Ask cites Part 22 for rebasing) |
 | 4 | Four rooms | Done: live at `27cce50` |
 | 5 | Notes is my commonplace book | Done: live at `6730c0b` |
@@ -32,7 +32,7 @@
 | 5c | It learns what I'd read | Live at `23b75b6`: taste profile built (26 signals). No feed or tag-merge suggestion qualifies yet, and no deferred articles exist, so the pre-annotation lift isn't measurable yet (`preAnnotate:preAnnotationReport`) |
 | 5d | My ideas, connected | Done: live at `09a1e2c`, edge polish `0f4c280` |
 | 6 | Settings are quiet | Done: live at `e1c0e30` |
-| 7 | It flies | Live at `a4e3fb7`: title morph seen live (320 ms). Finishing and the sweep checked only in a harness; Safari and the installed PWA untested |
+| 7 | It flies | Live at `a4e3fb7`: title morph seen live (320 ms). Finishing and the sweep checked only in a harness; finishing and the sweep later seen live; Safari and the installed PWA still need BK's hand check (sign-in) |
 
 Build in the order of the table (D-DES-052). Letters keep the numbers already cited; the order, not the number, is the sequence. The product questions that gated rungs are all answered except Q3 and Q4, which BK answers before rung 4. Spikes: S6 before 2f, S9 before 2c, S3 before 3, S5 before 3c, S7 and S8 before 3b, S1 before 7. S3 and S5 are done.
 
