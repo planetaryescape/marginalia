@@ -19,7 +19,7 @@ const URL_PATTERN = /^(https?:\/\/|www\.)\S+$/i;
 const CACHE_TTL_MS = 5 * 60_000;
 
 /** A keyboard-first search picker: the input keeps focus while arrows choose a result. */
-export function ArticleFinder() {
+export function ArticleFinder({ showKey = false }: { showKey?: boolean }) {
   const router = useRouter();
   const addByUrl = useAction(api.actions.addArticleByUrl.add);
   const overview = useQuery(api.home.overview, {});
@@ -169,15 +169,18 @@ export function ArticleFinder() {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-keyshortcuts="/"
+        title="Ask, or paste a link · press /"
         className="flex w-full items-center gap-2.5 h-12 rounded-2xl px-4 bg-[var(--reader-surface)] ring-1 ring-[var(--reader-border)] text-left text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
       >
         <Search size={16} className="shrink-0" />
         <span className="flex-1 min-w-0 truncate text-[15px]">
-          Ask for something to read, or paste a link
+          Ask, or paste a link
         </span>
-        <kbd className="reader-kbd hidden md:inline-block" aria-hidden>
-          /
-        </kbd>
+        {showKey && (
+          <kbd className="reader-kbd hidden md:inline-block" aria-hidden>
+            /
+          </kbd>
+        )}
       </button>
       <dialog
         ref={dialogRef}

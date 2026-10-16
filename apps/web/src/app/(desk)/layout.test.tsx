@@ -56,6 +56,7 @@ vi.mock("convex/react", () => ({
         return undefined;
     }
   },
+  useConvex: () => ({ prewarmQuery: vi.fn() }),
   useMutation: () => vi.fn(),
   useAction: () => vi.fn(),
 }));
