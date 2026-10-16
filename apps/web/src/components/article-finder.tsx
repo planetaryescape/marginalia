@@ -108,6 +108,7 @@ export function ArticleFinder({
         action: "presented",
       }).catch((error) => console.error("Couldn't record the offer", error));
     },
+    open,
   );
   const shortest = card?.kind === "none-fit" ? card.shortest : null;
 

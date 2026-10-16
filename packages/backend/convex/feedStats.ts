@@ -116,7 +116,10 @@ export async function countFeedOutcome(
     interaction.feedCounted ||
     !outcome ||
     !article.feedId ||
-    interaction.userId !== article.userId
+    interaction.userId !== article.userId ||
+    // Not while the library is being deleted: the purge may already be past
+    // these tables
+    !(await libraryIsActive(ctx, interaction.userId))
   )
     return;
   const state = await ctx.db

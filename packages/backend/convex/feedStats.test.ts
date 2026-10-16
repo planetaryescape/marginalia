@@ -4,6 +4,7 @@ import { secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { countFeedOutcome } from "./feedStats";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -509,5 +510,53 @@ describe("feed stats backfill", () => {
       .filter((job) => job.name.includes("feedStats"))
       .map((job) => (job.args[0] as { userId: string }).userId);
     expect(new Set(users)).toEqual(new Set([OWNER, readerLibraryId]));
+  });
+});
+
+describe("a library being deleted", () => {
+  it("takes no late checkpoint, offer or backfill once deletion has started", async () => {
+    vi.useFakeTimers();
+    const { t, reader, readerLibraryId } = await secondReaderTest(modules);
+    const { articleId } = await t.run((ctx) =>
+      feedWithArticle(ctx, readerLibraryId, "late"),
+    );
+    await reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
+    const startedAt = Date.now() - 20_000;
+    const late = {
+      articleId,
+      userId: readerLibraryId,
+      visitId: "170d1ba0-28c2-44b1-9d97-c9f9bc9e944e",
+      day: new Date(startedAt).toISOString().slice(0, 10),
+      startedAt,
+      updatedAt: startedAt + 10_000,
+      activeTimeMs: 6000,
+      visibleTimeMs: 8000,
+      timeSpentMs: 10_000,
+      maxScrollPercent: 40,
+      annotationsOpened: [],
+      dwell: { "1": 3000 },
+    };
+    await expect(
+      t.mutation(internal.readingActivity.record, late),
+    ).rejects.toThrow("no longer active");
+    await t.run(async (ctx) => {
+      const interaction = await ctx.db.insert("articleInteractions", {
+        userId: readerLibraryId,
+        articleId,
+        action: "presented",
+        createdAt: Date.now(),
+      });
+      const article = await ctx.db.get(articleId);
+      if (article) await countFeedOutcome(ctx, article, interaction);
+    });
+    await t.mutation(internal.feedStats.backfill, { userId: readerLibraryId });
+    const rows = await t.run(async (ctx) => ({
+      dwell: await ctx.db.query("paragraphDwell").collect(),
+      activity: await ctx.db.query("readingActivity").collect(),
+      stats: await ctx.db.query("feedStats").collect(),
+      state: await ctx.db.query("feedStatsBackfill").collect(),
+    }));
+    expect(rows).toEqual({ dwell: [], activity: [], stats: [], state: [] });
+    vi.useRealTimers();
   });
 });

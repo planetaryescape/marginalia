@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
+import { libraryIsActive } from "./access";
 import { countFeedOutcome } from "./feedStats";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { WORDS_PER_MINUTE } from "./lib/constants";
@@ -36,6 +37,10 @@ async function saveCheckpoint(
   userId: string,
 ) {
   const s = readingCheckpointSchema.parse(input);
+  // The internal path trusts a caller that authenticated before an account
+  // deletion began, so a late checkpoint must not recreate purged rows
+  if (!(await libraryIsActive(ctx, userId)))
+    throw new Error("This library is no longer active.");
   const now = Date.now();
   if (s.updatedAt > now + 60_000 || s.updatedAt < s.startedAt)
     throw new Error("Check your device clock and try again.");

@@ -388,6 +388,28 @@ describe("topic picker", () => {
     expect(record).toHaveBeenCalledTimes(2);
   });
 
+  it("records the offer again each time the finder is opened", async () => {
+    await show();
+    await type("attention");
+    await settle();
+    await answer("find", { more: false, matches: [find("a", "Alpha", 3)] });
+    await answer("search", {
+      matches: [find("a", "Alpha", 3, { reason: "Fits" })],
+    });
+    expect(record).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      host
+        .querySelector("dialog")
+        ?.dispatchEvent(new Event("cancel", { cancelable: true }));
+    });
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>("button[aria-haspopup]")?.click();
+    });
+    await settle();
+    expect(host.textContent).toContain("Alpha");
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
   it("saves the shown article for later", async () => {
     save.mockResolvedValue("saved-id");
     await show();

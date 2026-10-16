@@ -1,0 +1,5 @@
+# Feed counts can over-count an article opened more than about 100 times
+
+`isNewOutcome` in `packages/backend/convex/feedStats.ts` pairs a desk open with the reader page's checkpoint open, and drops a repeated finish for one visit, by reading the article's same-action interactions with `take(200)`. The index returns the oldest first, so once an article has more than 200 `opened` rows (about 100 opens, because each open is usually a desk row plus a visit row) a newer interaction is not in the window. The function then counts it unpaired, so the desk and visit rows of every open past that point each add to `opened`. The same cut-off applies to `finished`, though 200 finishes of one article is far less likely.
+
+Likely cause for fixing it: scan newest first, or look up the partner row directly (same session, opposite kind, nearest in time) instead of ranking within a window. A per-session marker on the desk row would also remove the scan. Not fixed because no reader is near the limit; found in the second review of rung 2g.
