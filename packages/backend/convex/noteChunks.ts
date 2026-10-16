@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./functions";
-import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 
 const chunkValidator = v.object({
   userId: v.string(),
@@ -70,7 +69,6 @@ export const insertBatch = internalMutation({
     for (const chunk of args.chunks) {
       await ctx.db.insert("noteChunks", { ...chunk, userId: args.userId });
     }
-    await bumpRetrievalRevision(ctx, args.userId);
   },
 });
 
@@ -108,7 +106,6 @@ export const replaceFile = internalMutation({
     for (const chunk of previous) await ctx.db.delete(chunk._id);
     for (const chunk of args.chunks)
       await ctx.db.insert("noteChunks", { ...chunk, userId: args.userId });
-    await bumpRetrievalRevision(ctx, args.userId);
   },
 });
 

@@ -3,7 +3,6 @@ import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { nodeKey } from "./lib/ideaGraph";
-import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 
 export const create = mutation({
   args: {
@@ -66,8 +65,8 @@ export const update = mutation({
       contentPlain: args.contentPlain,
       updatedAt: Date.now(),
       embedding: undefined,
+      embeddedAt: Date.now(),
     });
-    await bumpRetrievalRevision(ctx, note.userId);
     // Notes autosave while you type, so keep the embedding in step with the text
     await ctx.scheduler.runAfter(0, internal.actions.embedUserNote.embed, {
       noteId: args.noteId,
@@ -163,7 +162,9 @@ export const setEmbedding = internalMutation({
     const note = await ctx.db.get(args.noteId);
     // A slow embedding must not replace one for newer text, or resurrect a deleted note.
     if (!note || note.contentPlain !== args.contentPlain) return;
-    await ctx.db.patch(args.noteId, { embedding: args.embedding });
-    await bumpRetrievalRevision(ctx, note.userId);
+    await ctx.db.patch(args.noteId, {
+      embedding: args.embedding,
+      embeddedAt: Date.now(),
+    });
   },
 });

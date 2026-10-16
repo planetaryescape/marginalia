@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import type { QueryCtx } from "../_generated/server";
-import { retrievalRevision } from "./retrievalRevision";
 
 /**
  * The cheap gate of reading alongside (D-DES-046): a handful of numbers read
@@ -15,9 +14,10 @@ export const marginaliaFingerprint = v.object({
   // maximum can't see
   highlightsCount: v.number(),
   vaultIndexedMax: v.number(),
-  // Bumped when anything becomes searchable or stops being (a late embedding,
-  // a library article's embedding); absent on fingerprints taken before it
-  retrievalRevision: v.optional(v.number()),
+  // Newest embedding set or cleared on a note, highlight, thread or library
+  // article. An embedding lands after its row, and a library article carries
+  // no edit time, so neither would move a timestamp above.
+  embeddedMax: v.optional(v.number()),
   // When it was taken
   passAt: v.number(),
 });
@@ -35,7 +35,21 @@ export async function computeFingerprint(
   userId: string,
   now = Date.now(),
 ): Promise<MarginaliaFingerprint> {
-  const [note, thread, chunk, highlights, revision] = await Promise.all([
+  // Each table's newest embedding stamp, read from its own index so
+  // independent writes never touch a shared row. (The library-article read
+  // returns one whole article row, about 900 KB at worst; no lighter source
+  // carries the stamp.)
+  const newestEmbedded = async (
+    table: "userNotes" | "highlights" | "companionThreads" | "articles",
+  ) =>
+    (
+      await ctx.db
+        .query(table)
+        .withIndex("by_user_embeddedAt", (q) => q.eq("userId", userId))
+        .order("desc")
+        .first()
+    )?.embeddedAt ?? 0;
+  const [note, thread, chunk, highlights, embedded] = await Promise.all([
     ctx.db
       .query("userNotes")
       .withIndex("by_user_recent", (q) => q.eq("userId", userId))
@@ -56,7 +70,11 @@ export async function computeFingerprint(
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .order("desc")
       .take(COUNT_CAP),
-    retrievalRevision(ctx, userId),
+    Promise.all(
+      (
+        ["userNotes", "highlights", "companionThreads", "articles"] as const
+      ).map(newestEmbedded),
+    ),
   ]);
   return {
     notesMax: note?.updatedAt ?? 0,
@@ -64,7 +82,7 @@ export async function computeFingerprint(
     highlightsMax: highlights[0]?._creationTime ?? 0,
     highlightsCount: highlights.length,
     vaultIndexedMax: chunk?.indexedAt ?? 0,
-    retrievalRevision: revision,
+    embeddedMax: Math.max(...embedded),
     passAt: now,
   };
 }
@@ -80,7 +98,7 @@ export function sameFingerprint(
     a.highlightsMax === b.highlightsMax &&
     a.highlightsCount === b.highlightsCount &&
     a.vaultIndexedMax === b.vaultIndexedMax &&
-    (a.retrievalRevision ?? 0) === (b.retrievalRevision ?? 0)
+    (a.embeddedMax ?? 0) === (b.embeddedMax ?? 0)
   );
 }
 

@@ -3,7 +3,6 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
-import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 
 export const listByArticle = query({
   args: {
@@ -140,8 +139,8 @@ export const setEmbedding = internalMutation({
     if (row) {
       await ctx.db.patch("highlights", args.highlightId, {
         embedding: args.embedding,
+        embeddedAt: Date.now(),
       });
-      await bumpRetrievalRevision(ctx, row.userId);
     }
   },
 });

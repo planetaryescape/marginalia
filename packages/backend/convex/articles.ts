@@ -19,7 +19,6 @@ import {
 } from "./lib/annotationPolicy";
 import { articleUrlVariants } from "./lib/articleUrl";
 import { EXTRACT_PAGE } from "./lib/constants";
-import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 import { unreadQueue } from "./lib/unreadQueue";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
@@ -228,10 +227,9 @@ export const updateExtracted = internalMutation({
       firstExtraction && annotatesAtImport(args.estimatedReadMinutes);
     await ctx.db.patch(articleId, {
       ...updates,
+      ...(updates.embedding ? { embeddedAt: Date.now() } : {}),
       extractionStatus: "extracted" as const,
     });
-    if (before && updates.embedding)
-      await bumpRetrievalRevision(ctx, before.userId);
     if (
       firstExtraction &&
       !annotateNow &&
@@ -412,13 +410,13 @@ async function insertExtractedRow(
   const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
   const id = await ctx.db.insert("articles", {
     ...article,
+    ...(article.embedding ? { embeddedAt: Date.now() } : {}),
     extractionStatus: "extracted",
     annotationStatus: annotateNow ? "pending" : "deferred",
     createdAt: Date.now(),
   });
   const inserted = await ctx.db.get(id);
   if (inserted) await updateQueueStats(ctx, null, inserted);
-  if (article.embedding) await bumpRetrievalRevision(ctx, article.userId);
   if (annotateNow) {
     await ctx.scheduler.runAfter(
       annotateAfterMs ?? 500,
@@ -510,8 +508,8 @@ export const setEmbedding = internalMutation({
     if (row && !row.embedding) {
       await ctx.db.patch("articles", args.articleId, {
         embedding: args.embedding,
+        embeddedAt: Date.now(),
       });
-      await bumpRetrievalRevision(ctx, row.userId);
     }
     return null;
   },

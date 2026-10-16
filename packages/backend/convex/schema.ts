@@ -140,6 +140,8 @@ export default defineSchema({
     // pass of a section can tell what is new since (rung 2f)
     marginaliaSources: v.optional(v.array(v.string())),
     embedding: v.optional(v.array(v.float64())),
+    // When the embedding was set or cleared; the reading-alongside fingerprint reads the newest
+    embeddedAt: v.optional(v.number()),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
     // Set for a PDF the reader uploaded (documentImports.ts)
@@ -162,6 +164,7 @@ export default defineSchema({
     queueCounted: v.optional(v.boolean()),
     createdAt: v.number(),
   })
+    .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_feed", ["feedId"])
     .index("by_reader_document", ["readerDocumentId"])
     .index("by_userId_and_readerDocumentId", ["userId", "readerDocumentId"])
@@ -220,13 +223,6 @@ export default defineSchema({
     .index("by_user", ["userId"])
     // Which annotations point at a vault note, by its file so reindexing keeps them (idea graph)
     .index("by_user_note_path", ["userId", "notePath"]),
-
-  // One counter per reader, bumped when something becomes or stops being
-  // findable by the margin's vector searches (lib/retrievalRevision.ts)
-  retrievalRevisions: defineTable({
-    userId: v.string(),
-    revision: v.number(),
-  }).index("by_userId", ["userId"]),
 
   // One row per article section that reading alongside has looked at (rung
   // 2f). The row is the claim: a pass starts only by claiming it in a mutation,
@@ -645,9 +641,12 @@ export default defineSchema({
     contentPlain: v.string(),
     // Embedding for future annotation matching
     embedding: v.optional(v.array(v.float64())),
+    // When the embedding was set or cleared; the reading-alongside fingerprint reads the newest
+    embeddedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_user", ["userId"])
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
@@ -702,6 +701,8 @@ export default defineSchema({
     model: v.optional(v.string()),
     // Passage + question + first answer, so future marginalia can recall it
     embedding: v.optional(v.array(v.float64())),
+    // When the embedding was set or cleared; the reading-alongside fingerprint reads the newest
+    embeddedAt: v.optional(v.number()),
     // Set when the reader chose Keep. Rows written before answers became
     // temporary have none: they were saved automatically.
     keptAt: v.optional(v.number()),
@@ -710,6 +711,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_article", ["articleId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_user", ["userId"])
@@ -762,11 +764,14 @@ export default defineSchema({
     // The part of a book the mark is in; paragraphIndex counts within it
     unitIndex: v.optional(v.number()),
     embedding: v.optional(v.array(v.float64())),
+    // When the embedding was set or cleared; the reading-alongside fingerprint reads the newest
+    embeddedAt: v.optional(v.number()),
     // Readwise Reader sync: where the mark came from, and its Reader id
     source: v.optional(v.union(v.literal("marginalia"), v.literal("reader"))),
     readerHighlightId: v.optional(v.string()),
     createdAt: v.number(),
   })
+    .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_article", ["articleId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_userId", ["userId"])

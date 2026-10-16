@@ -200,12 +200,6 @@ const STEPS: Step[] = [
   ),
   rows((ctx, u) =>
     ctx.db
-      .query("retrievalRevisions")
-      .withIndex("by_userId", (q) => q.eq("userId", u))
-      .take(BATCH),
-  ),
-  rows((ctx, u) =>
-    ctx.db
       .query("marginaliaPasses")
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(BATCH),

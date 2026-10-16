@@ -13,8 +13,8 @@ import {
   sameFingerprint,
 } from "./lib/marginaliaFingerprint";
 import { sectionRanges } from "./lib/readingSections";
-import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 import { READER_LIMITS } from "./limits";
+import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -985,8 +985,10 @@ describe("the pass", () => {
 
     // Its text changes with the embedding still in place: the precise hash moves
     await f.t.run(async (ctx) => {
-      await ctx.db.patch(libraryId, { excerpt: "Second version." });
-      await bumpRetrievalRevision(ctx, f.readerLibraryId);
+      await ctx.db.patch(libraryId, {
+        excerpt: "Second version.",
+        embeddedAt: Date.now() + 10_000,
+      });
     });
     expect(await f.request()).toBe("scheduled");
     expect(f.prompts).toHaveLength(2);
@@ -1138,29 +1140,21 @@ describe("the retrieval budget", () => {
   });
 });
 
-describe("the retrieval revision", () => {
+describe("the embedding stamp", () => {
   it("moves the fingerprint when anything becomes searchable or stops being", async () => {
     const f = await secondReaderTest(modules);
-    const revision = async () =>
+    const stamp = async () =>
       (await f.t.run((ctx) => computeFingerprint(ctx, f.readerLibraryId)))
-        .retrievalRevision;
-    let last = await revision();
+        .embeddedMax;
+    let last = await stamp();
     const moved = async (label: string) => {
-      const next = await revision();
+      const next = await stamp();
       expect(next, label).toBeGreaterThan(last ?? 0);
       last = next;
     };
-    const chunk = {
-      userId: f.readerLibraryId,
-      filePath: "Vault/a.md",
-      fileName: "a.md",
-      chunkIndex: 0,
-      content: "vault",
-      embedding: vector,
-      fileHash: "h",
-      indexedAt: 9,
-    };
+    const later = () => vi.setSystemTime(Date.now() + 1_000);
 
+    later();
     const noteId = await addNote(f, f.readerLibraryId, false);
     await f.t.mutation(internal.userNotes.setEmbedding, {
       noteId,
@@ -1169,6 +1163,7 @@ describe("the retrieval revision", () => {
     });
     await moved("note embedding");
 
+    later();
     const highlightId = await addHighlight(f, f.readerLibraryId);
     await f.t.mutation(internal.highlights.setEmbedding, {
       highlightId,
@@ -1176,6 +1171,7 @@ describe("the retrieval revision", () => {
     });
     await moved("highlight embedding");
 
+    later();
     const threadId = await f.t.run(async (ctx) => {
       const article = await ctx.db.insert("articles", {
         userId: f.readerLibraryId,
@@ -1202,18 +1198,7 @@ describe("the retrieval revision", () => {
     });
     await moved("thread embedding");
 
-    await f.t.mutation(internal.noteChunks.replaceFile, {
-      userId: f.readerLibraryId,
-      filePath: chunk.filePath,
-      chunks: [{ ...chunk, indexedAt: 9 }],
-    });
-    await moved("vault file");
-    await f.t.mutation(internal.noteChunks.insertBatch, {
-      userId: f.readerLibraryId,
-      chunks: [{ ...chunk, filePath: "Vault/b.md", fileName: "b.md" }],
-    });
-    await moved("vault batch");
-
+    later();
     const articleId = await f.t.run((ctx) =>
       ctx.db.insert("articles", {
         userId: f.readerLibraryId,
@@ -1232,6 +1217,7 @@ describe("the retrieval revision", () => {
     await moved("library article embedding");
 
     // Editing a note removes its embedding, so the next visit re-checks
+    later();
     await f.reader.mutation(api.userNotes.update, {
       noteId,
       content: "<p>x</p>",
@@ -1240,15 +1226,140 @@ describe("the retrieval revision", () => {
     await moved("note edit");
   });
 
+  it("moves the fingerprint for vault chunks through their own indexing time", async () => {
+    const f = await secondReaderTest(modules);
+    const chunk = {
+      userId: f.readerLibraryId,
+      filePath: "Vault/a.md",
+      fileName: "a.md",
+      chunkIndex: 0,
+      content: "vault",
+      embedding: vector,
+      fileHash: "h",
+      indexedAt: 9,
+    };
+    await f.t.mutation(internal.noteChunks.replaceFile, {
+      userId: f.readerLibraryId,
+      filePath: chunk.filePath,
+      chunks: [chunk],
+    });
+    const first = await f.t.run((ctx) =>
+      computeFingerprint(ctx, f.readerLibraryId),
+    );
+    await f.t.mutation(internal.noteChunks.insertBatch, {
+      userId: f.readerLibraryId,
+      chunks: [
+        { ...chunk, filePath: "Vault/b.md", fileName: "b.md", indexedAt: 10 },
+      ],
+    });
+    const second = await f.t.run((ctx) =>
+      computeFingerprint(ctx, f.readerLibraryId),
+    );
+    expect(second.vaultIndexedMax).toBeGreaterThan(first.vaultIndexedMax);
+  });
+
+  it("writes only the row it stamps, so concurrent embeddings never contend", async () => {
+    const f = await secondReaderTest(modules);
+    const dump = async () =>
+      new Map(
+        await f.t.run(async (ctx) => {
+          const rows = new Map<string, string>();
+          for (const table of Object.keys(
+            schema.tables,
+          ) as (keyof typeof schema.tables)[])
+            for (const row of await ctx.db.query(table).collect())
+              rows.set(row._id, JSON.stringify(row));
+          return [...rows.entries()];
+        }),
+      );
+    const changed = async (write: () => Promise<unknown>) => {
+      const before = await dump();
+      await write();
+      const after = await dump();
+      return [...new Set([...before.keys(), ...after.keys()])].filter(
+        (id) => before.get(id) !== after.get(id),
+      );
+    };
+    const noteId = await addNote(f, f.readerLibraryId, false);
+    const highlightId = await addHighlight(f, f.readerLibraryId);
+    const threadId = await f.t.run(async (ctx) => {
+      const article = await ctx.db.insert("articles", {
+        userId: f.readerLibraryId,
+        guid: "th",
+        url: "https://example.com/th",
+        title: "T",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: 1,
+      });
+      return ctx.db.insert("companionThreads", {
+        userId: f.readerLibraryId,
+        articleId: article,
+        mode: "ask",
+        selection: "x",
+        turns: [{ role: "user", content: "Why?" }],
+        createdAt: 5,
+        updatedAt: 5,
+      });
+    });
+    const articleId = await f.t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: f.readerLibraryId,
+        guid: "e",
+        url: "https://example.com/e",
+        title: "E",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: 1,
+      }),
+    );
+    expect(
+      await changed(() =>
+        f.t.mutation(internal.userNotes.setEmbedding, {
+          noteId,
+          embedding: vector,
+          contentPlain: "Remote teams need written culture.",
+        }),
+      ),
+    ).toEqual([noteId]);
+    expect(
+      await changed(() =>
+        f.t.mutation(internal.highlights.setEmbedding, {
+          highlightId,
+          embedding: vector,
+        }),
+      ),
+    ).toEqual([highlightId]);
+    expect(
+      await changed(() =>
+        f.t.mutation(internal.companionThreads.setEmbedding, {
+          threadId,
+          embedding: vector,
+        }),
+      ),
+    ).toEqual([threadId]);
+    expect(
+      await changed(() =>
+        f.t.mutation(internal.articles.setEmbedding, {
+          articleId,
+          embedding: vector,
+        }),
+      ),
+    ).toEqual([articleId]);
+  });
+
   it("is per reader, and compares equal to a fingerprint from before it existed", async () => {
     const f = await secondReaderTest(modules);
     const owner = await f.t.run((ctx) => computeFingerprint(ctx, OWNER));
-    await f.t.run((ctx) => bumpRetrievalRevision(ctx, f.readerLibraryId));
+    const noteId = await addNote(f, f.readerLibraryId, false);
+    await f.t.mutation(internal.userNotes.setEmbedding, {
+      noteId,
+      embedding: vector,
+      contentPlain: "Remote teams need written culture.",
+    });
     const after = await f.t.run((ctx) => computeFingerprint(ctx, OWNER));
     expect(sameFingerprint(owner, after)).toBe(true);
-    const { retrievalRevision: _omit, ...older } = owner;
-    expect(sameFingerprint(older, { ...owner, retrievalRevision: 0 })).toBe(
-      true,
-    );
+    const { embeddedMax: _omit, ...older } = owner;
+    expect(sameFingerprint(older, { ...owner, embeddedMax: 0 })).toBe(true);
   });
 });

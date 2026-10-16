@@ -87,7 +87,6 @@ import type * as lib_readingCompanion from "../lib/readingCompanion.js";
 import type * as lib_readingRoom from "../lib/readingRoom.js";
 import type * as lib_readingSections from "../lib/readingSections.js";
 import type * as lib_readwise from "../lib/readwise.js";
-import type * as lib_retrievalRevision from "../lib/retrievalRevision.js";
 import type * as lib_router from "../lib/router.js";
 import type * as lib_serverTiming from "../lib/serverTiming.js";
 import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
@@ -208,7 +207,6 @@ declare const fullApi: ApiFromModules<{
   "lib/readingRoom": typeof lib_readingRoom;
   "lib/readingSections": typeof lib_readingSections;
   "lib/readwise": typeof lib_readwise;
-  "lib/retrievalRevision": typeof lib_retrievalRevision;
   "lib/router": typeof lib_router;
   "lib/serverTiming": typeof lib_serverTiming;
   "lib/spacedRepetition": typeof lib_spacedRepetition;
