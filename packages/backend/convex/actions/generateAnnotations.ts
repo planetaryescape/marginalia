@@ -274,13 +274,19 @@ export function proposedTags(
 }
 
 export const generateForArticle = internalAction({
-  args: { articleId: v.id("articles") },
+  // `claim` is set only by the backfill: the claim this run was scheduled under
+  args: { articleId: v.id("articles"), claim: v.optional(v.number()) },
   handler: async (ctx, args) => {
     try {
-      await annotateArticle(ctx, args);
+      await annotateArticle(ctx, { articleId: args.articleId });
     } finally {
-      // Ends a backfill claim however this ended; a crash leaves it to expire
-      await ctx.runMutation(internal.reannotateBackfill.releaseClaim, args);
+      // Ends this run's own backfill claim however it ended, never a newer
+      // one; a crash leaves it to expire
+      if (args.claim !== undefined)
+        await ctx.runMutation(internal.reannotateBackfill.releaseClaim, {
+          articleId: args.articleId,
+          claim: args.claim,
+        });
     }
   },
 });

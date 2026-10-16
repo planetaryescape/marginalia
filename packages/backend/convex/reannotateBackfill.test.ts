@@ -440,6 +440,30 @@ describe("reannotateBackfill", () => {
   });
 });
 
+describe("claim ownership", () => {
+  it("a finished run releases only its own claim, not a newer one", async () => {
+    const f = await setup();
+    const id = await f.t.run((ctx) => addArticle(ctx, f.userId, "a"));
+    await f.t.run((ctx) =>
+      ctx.db.patch("articles", id, { reannotateClaimedAt: 2_000 }),
+    );
+    await f.t.mutation(internal.reannotateBackfill.releaseClaim, {
+      articleId: id,
+      claim: 1_000,
+    });
+    const claimOf = () =>
+      f.t.run(
+        async (ctx) => (await ctx.db.get("articles", id))?.reannotateClaimedAt,
+      );
+    expect(await claimOf()).toBe(2_000);
+    await f.t.mutation(internal.reannotateBackfill.releaseClaim, {
+      articleId: id,
+      claim: 2_000,
+    });
+    expect((await claimOf()) ?? undefined).toBeUndefined();
+  });
+});
+
 describe("manual re-annotation during a backfill claim", () => {
   it("refuses while the bulk run holds the article", async () => {
     const t = await ownerTest(import.meta.glob("./**/*.ts"));

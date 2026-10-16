@@ -126,6 +126,9 @@ export default defineSchema({
     // CURRENT_ANNOTATION_VERSION (lib/annotationGate.ts) it is re-annotated by
     // the one-off backfill (reannotateBackfill.ts). Absent on older rows.
     annotationVersion: v.optional(v.number()),
+    // Retries of a failed first annotation started from the desk or reader;
+    // capped so an article that always fails stops spending
+    annotationRetries: v.optional(v.number()),
     // When the backfill scheduled this article; no run schedules it again
     // until the claim is released or expires (reannotateBackfill.ts)
     reannotateClaimedAt: v.optional(v.number()),

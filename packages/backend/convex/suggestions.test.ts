@@ -253,8 +253,33 @@ describe("paged time-window suggestions", () => {
     const t = await library([{ title: "long", minutes: 40 }]);
     const { all, pages } = await pageAll(t, 5, 10);
     expect(all).toEqual([]);
-    // The annotated range, then the deferred one
-    expect(pages).toBe(2);
+    // The annotated range, then the deferred one, then the failed one
+    expect(pages).toBe(3);
+  });
+});
+
+describe("failed annotations on the desk", () => {
+  it("offers a failed article and flags it for its marginalia until the retries run out", async () => {
+    const t = await library([]);
+    const id = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "failed",
+        url: "https://example.com/failed",
+        title: "failed",
+        extractionStatus: "extracted",
+        annotationStatus: "failed",
+        estimatedReadMinutes: 9,
+        createdAt: Date.now(),
+      }),
+    );
+    const pick = () =>
+      t.query(api.suggestions.forWindow, { requestedMinutes: 10 });
+    expect(await pick()).toMatchObject([{ title: "failed", deferred: true }]);
+    await t.run((ctx) =>
+      ctx.db.patch("articles", id, { annotationRetries: 2 }),
+    );
+    expect(await pick()).toMatchObject([{ title: "failed", deferred: false }]);
   });
 });
 
@@ -365,7 +390,14 @@ describe("shortest unread article", () => {
         paginationOpts: { numItems: 10, cursor: first.continueCursor },
       });
       expect(page.page).toEqual([]);
-      expect(page.isDone).toBe(true);
+      // Then the failed range
+      expect(page.isDone).toBe(false);
+      const last = await t.query(api.suggestions.moreForWindow, {
+        requestedMinutes: 5,
+        paginationOpts: { numItems: 10, cursor: page.continueCursor },
+      });
+      expect(last.page).toEqual([]);
+      expect(last.isDone).toBe(true);
     });
   });
 });

@@ -185,6 +185,23 @@ describe("annotating ahead", () => {
     expect(await statusOf(t, only(ids[2]))).toBe("annotated");
   });
 
+  it("retries a failed article at most twice", async () => {
+    const t = await ownerTest(modules);
+    const [failed] = await seed(t, [
+      { title: "f", minutes: 5, status: "failed" },
+    ]);
+    const id = only(failed);
+    for (const expected of [1, 1, 0]) {
+      expect(
+        await t.mutation(api.articles.annotateAhead, { articleIds: [id] }),
+      ).toBe(expected);
+      // The generation failed again
+      await t.run((ctx) =>
+        ctx.db.patch("articles", id, { annotationStatus: "failed" }),
+      );
+    }
+  });
+
   it("leaves a failed article alone while the backfill holds it", async () => {
     const t = await ownerTest(modules);
     const [failed] = await seed(t, [

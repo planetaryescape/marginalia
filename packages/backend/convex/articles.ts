@@ -10,7 +10,11 @@ import {
   mutation,
   query,
 } from "./functions";
-import { annotatesAtImport, LOOKAHEAD_COUNT } from "./lib/annotationPolicy";
+import {
+  annotatesAtImport,
+  LOOKAHEAD_COUNT,
+  needsAnnotationStart,
+} from "./lib/annotationPolicy";
 import { articleUrlVariants } from "./lib/articleUrl";
 import { EXTRACT_PAGE } from "./lib/constants";
 import { unreadQueue } from "./lib/unreadQueue";
@@ -397,21 +401,22 @@ export const annotateAhead = mutation({
     const deferred: Doc<"articles">[] = [];
     for (const id of ids) {
       const article = await ownedArticle(ctx, id, ctx.readerId);
-      // A failed first annotation is retried too, unless the backfill already
-      // holds it: it is what the reader is about to open
+      // A failed first annotation is retried too, a capped number of times and
+      // not while the backfill holds it: it is what the reader is about to open
       const claimed =
         article?.reannotateClaimedAt !== undefined &&
         Date.now() - article.reannotateClaimedAt < CLAIM_TTL_MS;
-      if (
-        article?.annotationStatus === "deferred" ||
-        (article?.annotationStatus === "failed" && !claimed)
-      )
+      if (article && needsAnnotationStart(article) && !claimed)
         deferred.push(article);
     }
     if (!deferred.length) return 0;
     if (!(await spendReaderLimit(ctx, ctx.readerId, "annotateAhead")))
       throw new ConvexError(READER_LIMITS.annotateAhead.message);
     for (const article of deferred) {
+      if (article.annotationStatus === "failed")
+        await ctx.db.patch("articles", article._id, {
+          annotationRetries: (article.annotationRetries ?? 0) + 1,
+        });
       await setAnnotationStatus(ctx, article._id, "pending");
       await ctx.scheduler.runAfter(
         0,

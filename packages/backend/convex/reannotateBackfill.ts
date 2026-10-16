@@ -197,7 +197,7 @@ export const step = internalMutation({
       await ctx.scheduler.runAfter(
         index * JOB_STAGGER_MS,
         internal.actions.generateAnnotations.generateForArticle,
-        { articleId },
+        { articleId, claim: now },
       );
     }
     if (exhausted && !batch.length && status === "failed") {
@@ -227,13 +227,16 @@ export const step = internalMutation({
   },
 });
 
-/** Ends the claim on an article once its generation has finished, however it ended. */
+/**
+ * Ends a claim once the generation scheduled under it has finished, however it
+ * ended. Only that claim: a newer one belongs to a later run.
+ */
 export const releaseClaim = internalMutation({
-  args: { articleId: v.id("articles") },
+  args: { articleId: v.id("articles"), claim: v.number() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const article = await ctx.db.get("articles", args.articleId);
-    if (article?.reannotateClaimedAt !== undefined)
+    if (article?.reannotateClaimedAt === args.claim)
       await ctx.db.patch("articles", args.articleId, {
         reannotateClaimedAt: undefined,
       });

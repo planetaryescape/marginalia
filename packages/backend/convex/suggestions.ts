@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { query } from "./functions";
+import { needsAnnotationStart } from "./lib/annotationPolicy";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 
 // Nearest articles on each side of the window. Scoring weighs closeness at two
@@ -18,8 +19,9 @@ const NEIGHBOURS = 12;
 const SAVED_BOOST = 4;
 
 // Annotated articles come first, then the long ones still waiting for their
-// marginalia (D-DES-056): the desk can offer both.
-const OFFERED = ["annotated", "deferred"] as const;
+// marginalia (D-DES-056), then ones whose annotation failed: all are readable,
+// and the desk starts the marginalia of the last two ahead of time.
+const OFFERED = ["annotated", "deferred", "failed"] as const;
 type Offered = (typeof OFFERED)[number];
 
 // Deferred articles are long and each read is a whole document with its body,
@@ -119,8 +121,8 @@ export const forWindow = query({
 });
 
 // One page is one status's index range. A cursor says which status it is in,
-// so the annotated articles page first and the deferred ones follow, in an
-// order that never shifts under a client appending pages.
+// so the annotated articles page first and the deferred, then failed, ones
+// follow, in an order that never shifts under a client appending pages.
 const pageCursor = z.tuple([z.enum(OFFERED), z.string().nullable()]);
 
 function readCursor(cursor: string | null | undefined) {
@@ -169,9 +171,10 @@ export const moreForWindow = query({
         // A page pinned to the hand-over into the next status has no end here
         endCursor: end.status === status ? end.inner : null,
       });
+    const following = OFFERED[OFFERED.indexOf(status) + 1];
     const next =
-      status === "annotated" && page.isDone
-        ? writeCursor("deferred", null)
+      following && page.isDone
+        ? writeCursor(following, null)
         : writeCursor(status, page.continueCursor);
     // The index only bounds articles that have an estimate. One without it is
     // measured by word count here, so it can still be too long for the window.
@@ -179,7 +182,7 @@ export const moreForWindow = query({
     // normal result and the client asks for the next one.
     return {
       ...page,
-      isDone: status === "annotated" ? false : page.isDone,
+      isDone: following ? false : page.isDone,
       continueCursor: next,
       splitCursor: page.splitCursor
         ? writeCursor(status, page.splitCursor)
@@ -312,8 +315,7 @@ function toSuggestion(
     feedId: a.feedId,
     // Not annotated yet (long, or a failed first try); the desk asks for its
     // marginalia ahead of time
-    deferred:
-      a.annotationStatus === "deferred" || a.annotationStatus === "failed",
+    deferred: needsAnnotationStart(a),
     reason: generateReason(readMin, targetMinutes, fitsWindow),
   };
 }
