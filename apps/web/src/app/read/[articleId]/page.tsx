@@ -24,6 +24,7 @@ import { NoteUnfold } from "@/components/note-unfold";
 import { NotesPanel } from "@/components/notes-panel";
 import { FinishedLine } from "@/components/reader-finished-line";
 import { ReaderMap } from "@/components/reader-map";
+import { ReaderReturnChip } from "@/components/reader-return-chip";
 import { ReaderToolbar } from "@/components/reader-toolbar";
 import { ReflectionBox } from "@/components/reflection-box";
 import { SelectionToolbar } from "@/components/selection-toolbar";
@@ -32,7 +33,6 @@ import { SummaryPanel } from "@/components/summary-panel";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import {
-  flashParagraph,
   getArticleBody,
   getParagraphs,
   paragraphIndexOf,
@@ -55,6 +55,7 @@ import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
+import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import { cn, formatReadTime } from "@/lib/utils";
 
@@ -237,10 +238,13 @@ export default function ReadPage() {
     return () => el?.removeAttribute("data-companion");
   }, [companionParagraph, paragraphs.version]);
 
-  const jumpToParagraph = useCallback((index: number) => {
-    const el = getParagraphs(getArticleBody(articleRef.current))[index];
-    if (el) flashParagraph(el);
-  }, []);
+  // Every in-article jump (¶ links, the map, summary, idea map, cards) goes through here,
+  // so Back can return the reader to where they were.
+  const {
+    top: returnTo,
+    jump: jumpToParagraph,
+    back: backToParagraph,
+  } = useParagraphReturn(articleRef);
 
   const handleSaveCompanionNote = useCallback(
     async (note: {
@@ -307,6 +311,9 @@ export default function ReadPage() {
 
   useShortcuts(
     {
+      // Backspace has no default action outside typing targets, which the shortcut dispatcher skips;
+      // back() does nothing when there is nowhere to return to.
+      Backspace: () => backToParagraph(),
       j: () => moveParagraph(1),
       k: () => moveParagraph(-1),
       r: () => rateArticle(),
@@ -842,6 +849,8 @@ export default function ReadPage() {
           companion.open(doc);
         }}
       />
+
+      <ReaderReturnChip entry={returnTo} onBack={backToParagraph} />
 
       <ListenBar
         index={listen.index}

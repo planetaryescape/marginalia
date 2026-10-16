@@ -1101,3 +1101,32 @@ html.dark .reader-menu {
     margin: 0.08em 0.1em 0 0;
   }
 }
+
+/* "Back to ¶N" after an in-article jump: pencil on the menu surface, never over the text column's centre line */
+.reader-return-chip {
+  position: fixed;
+  z-index: 35;
+  top: calc(3.75rem + env(safe-area-inset-top));
+  left: calc(50% - var(--notes-inset, 0px) / 2);
+  transform: translateX(-50%);
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font: 400 13px/1.5 "DM Sans", system-ui, sans-serif;
+  color: var(--pencil);
+  cursor: pointer;
+}
+@media (max-width: 639px) {
+  .reader-return-chip {
+    top: auto;
+    bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .reader-return-chip {
+    animation: reader-return-in var(--motion-move);
+  }
+}
+@keyframes reader-return-in {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}

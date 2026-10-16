@@ -3,10 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { savedScroll } from "@/lib/reader-return";
-import { ReaderRoomMemory } from "./reader-room-memory";
-
-const nav = vi.hoisted(() => ({ pathname: "/library" }));
-vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname }));
+import { RoomMemoryTracker } from "./reader-room-memory";
 
 let root: Root;
 let scrollY = 0;
@@ -15,9 +12,8 @@ const frames = () => new Promise((resolve) => setTimeout(resolve, 60));
 
 /** Moves the page to a path the way the App Router does: the URL and pathname change together. */
 async function goTo(pathname: string) {
-  nav.pathname = pathname;
   window.history.replaceState({}, "", pathname);
-  await act(async () => root.render(<ReaderRoomMemory />));
+  await act(async () => root.render(<RoomMemoryTracker pathname={pathname} />));
 }
 /** A scroll event at a given position, as the browser fires them. */
 function scrollEvent(y: number) {

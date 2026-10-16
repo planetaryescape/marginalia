@@ -25,7 +25,11 @@ const USER_SCROLL_EVENTS = [
  * restores; a plain click into a room starts at the top.
  */
 export function ReaderRoomMemory() {
-  const pathname = usePathname();
+  return <RoomMemoryTracker pathname={usePathname()} />;
+}
+
+/** Takes the pathname as a prop, so tests can drive it without mocking the router. */
+export function RoomMemoryTracker({ pathname }: { pathname: string }) {
   const room = useRef<string | null>(null);
   const previous = useRef<string | null>(null);
   const restoring = useRef<(() => void) | null>(null);
