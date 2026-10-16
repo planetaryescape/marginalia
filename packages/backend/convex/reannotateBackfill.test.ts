@@ -1,12 +1,13 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ownerTest,
   runScheduled,
   saveTestCredential,
   secondReaderTest,
   TEST_ENCRYPTION_KEY,
 } from "../test/owner";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { BATCH_DELAY_MS, PAGE } from "./catchUp";
 import { CLAIM_TTL_MS, STALE_MS } from "./reannotateBackfill";
@@ -423,5 +424,33 @@ describe("reannotateBackfill", () => {
       expect(article?.reannotateClaimedAt).toBeUndefined();
       expect(article?.annotationVersion).toBe(2);
     });
+  });
+});
+
+describe("manual re-annotation during a backfill claim", () => {
+  it("refuses while the bulk run holds the article", async () => {
+    const t = await ownerTest(import.meta.glob("./**/*.ts"));
+    const articleId = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "claimed",
+        url: "https://example.com/claimed",
+        title: "Claimed",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        reannotateClaimedAt: Date.now(),
+        createdAt: 1,
+      }),
+    );
+    await expect(
+      t.action(api.articles.requestReannotate, { articleId }),
+    ).rejects.toThrow(/already re-reading/);
+    const annotations = await t.run((ctx) =>
+      ctx.db
+        .query("annotations")
+        .withIndex("by_article", (q) => q.eq("articleId", articleId))
+        .collect(),
+    );
+    expect(annotations).toEqual([]);
   });
 });

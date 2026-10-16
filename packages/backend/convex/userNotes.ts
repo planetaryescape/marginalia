@@ -16,11 +16,15 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
-    if (args.annotationId) {
+    let annotationId = args.annotationId;
+    if (annotationId) {
       // The annotation may since have been replaced, but never another reader's
-      const annotation = await ctx.db.get("annotations", args.annotationId);
+      const annotation = await ctx.db.get("annotations", annotationId);
       if (annotation && annotation.userId !== ctx.readerId)
         throw new Error("Annotation not found");
+      // Replaced while the reader was writing: keep the note as their own,
+      // anchored by its passage, so it still sits beside its line
+      if (!annotation) annotationId = undefined;
     }
     const now = Date.now();
     const noteId = await ctx.db.insert("userNotes", {
@@ -29,7 +33,7 @@ export const create = mutation({
       selectedText: args.selectedText,
       selectedStartOffset: args.selectedStartOffset,
       selectedEndOffset: args.selectedEndOffset,
-      annotationId: args.annotationId,
+      annotationId,
       prompt: args.prompt,
       content: args.content,
       contentPlain: args.contentPlain,

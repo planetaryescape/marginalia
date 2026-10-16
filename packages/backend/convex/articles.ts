@@ -16,6 +16,7 @@ import { EXTRACT_PAGE } from "./lib/constants";
 import { unreadQueue } from "./lib/unreadQueue";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
+import { CLAIM_TTL_MS } from "./reannotateBackfill";
 
 export const getById = query({
   args: { articleId: v.id("articles") },
@@ -299,6 +300,14 @@ export const requestReannotate = action({
       { articleId: args.articleId, userId: ctx.readerId },
     );
     if (!article) throw new Error("Article not found");
+    // The bulk re-annotation already has this article; a second job would race it
+    if (
+      article.reannotateClaimedAt !== undefined &&
+      Date.now() - article.reannotateClaimedAt < CLAIM_TTL_MS
+    )
+      throw new ConvexError(
+        "Marginalia is already re-reading this article. Its new notes arrive shortly.",
+      );
     // Delete existing annotations and reflection
     await ctx.runMutation(internal.annotations.deleteByArticle, {
       articleId: args.articleId,
