@@ -195,3 +195,7 @@ Change a decision only by adding a new entry that replaces the old one.
 ### D-DES-048: The idea map is designed for legibility, by the prompt and by a crossing-minimising layout. (BK)
 - **BK, 2026-10-16:** "The idea map in te summarise this article at the top is great but the connections sometimes cross each other in a confusing way and all that. Basicallly that little diagram could look better because for long complex articles it can get noisy, prompt the model to pay attention to the design of that idea map."
 - **Found:** today's layout is longest-path layering with one ordering pass (`idea-map.tsx#L61-L112`), which leaves crossings.
+
+### D-DES-049: An opened margin note pushes the notes below it down; it never floats over them. (BK)
+- **BK, 2026-10-16, on the live margin:** "this kinda looks ugly, with the popover on top of the othe marginalia, it's weird, mabe when you expand one, it pushes the other compressed ones as it opens so that it feels nicer".
+- **Replaces** S2's rule 7 (an open note floats and re-runs no collisions). The open note stays in the column at the column's width; notes below slide down by transform over `--motion-move` and back on close; notes above stay.

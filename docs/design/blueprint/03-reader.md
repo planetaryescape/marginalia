@@ -33,7 +33,7 @@ A **collapsed note**:
 
 An **open note** appears on click, Enter, or `o` on the current paragraph:
 
-- The note grows in place into today's margin card, with its full text, quoted line, sources, follow-up and actions.
+- The note grows in place into today's margin card, with its full text, quoted line, sources, follow-up and actions. It stays in the margin column at the column's width and never covers another note: the notes below slide down to make room (`--motion-move`, by transform) and slide back when it closes; the notes above don't move (D-DES-049).
 - It gains a raised surface (`--surface-raised`, 10 px radius) because it now floats.
 - The connector thickens to 1.5 px and the note's line gets a soft `--surface` wash in the text.
 - Only one note is open at a time. Esc or a click on the page collapses it.
