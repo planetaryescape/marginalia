@@ -10,6 +10,19 @@ interface Cached {
 
 let cached: Cached | null = null;
 let inflight: Promise<string | null> | null = null;
+// The session the cache belongs to, and a generation that changes with it, so
+// a token fetched for an earlier session can never land in a later one's cache
+let session: string | null = null;
+let generation = 0;
+
+/** Ties the cache to the signed-in session; a different session starts empty. */
+export function setTokenSession(sessionId: string | null) {
+  if (sessionId === session) return;
+  session = sessionId;
+  generation++;
+  cached = null;
+  inflight = null;
+}
 
 /** The JWT's `exp` in ms, or null when it can't be read. */
 export function tokenExpiry(token: string): number | null {
@@ -24,14 +37,20 @@ export function tokenExpiry(token: string): number | null {
   }
 }
 
-/** Keeps a token the Convex client obtained, so direct calls can reuse it. */
-export function rememberConvexToken(token: string | null) {
+/**
+ * Keeps a token the Convex client obtained, so direct calls can reuse it.
+ * Ignored unless it was fetched for the session the cache belongs to.
+ */
+export function rememberConvexToken(sessionId: string, token: string | null) {
+  if (sessionId !== session) return;
   const expiresAt = token ? tokenExpiry(token) : null;
   cached = token && expiresAt ? { token, expiresAt } : null;
 }
 
 export function forgetConvexToken() {
   cached = null;
+  inflight = null;
+  generation++;
 }
 
 /**
@@ -48,15 +67,22 @@ export function getConvexToken(
     return result.data?.token ?? null;
   },
 ): Promise<string | null> {
+  if (!session) return Promise.resolve(null);
   if (cached && cached.expiresAt - now() > REFRESH_MARGIN_MS)
     return Promise.resolve(cached.token);
-  inflight ??= fetchToken()
+  if (inflight) return inflight;
+  const started = generation;
+  const owner = session;
+  const pending = fetchToken()
     .then((token) => {
-      rememberConvexToken(token);
+      // The session changed while this was in flight: the token is not theirs
+      if (started !== generation) return null;
+      rememberConvexToken(owner, token);
       return token;
     })
     .finally(() => {
-      inflight = null;
+      if (inflight === pending) inflight = null;
     });
-  return inflight;
+  inflight = pending;
+  return pending;
 }

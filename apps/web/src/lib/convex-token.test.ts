@@ -6,6 +6,7 @@ import {
   forgetConvexToken,
   getConvexToken,
   rememberConvexToken,
+  setTokenSession,
   tokenExpiry,
 } from "./convex-token";
 
@@ -14,7 +15,11 @@ const jwt = (expSeconds: number) =>
 const NOW = 1_000_000_000_000;
 const now = () => NOW;
 
-beforeEach(() => forgetConvexToken());
+beforeEach(() => {
+  setTokenSession(null);
+  forgetConvexToken();
+  setTokenSession("A");
+});
 
 describe("tokenExpiry", () => {
   it("reads exp in milliseconds", () => {
@@ -29,14 +34,14 @@ describe("tokenExpiry", () => {
 describe("getConvexToken", () => {
   it("reuses a cached token that is more than 60s from expiry", async () => {
     const token = jwt(NOW / 1000 + 300);
-    rememberConvexToken(token);
+    rememberConvexToken("A", token);
     const fetchToken = vi.fn();
     expect(await getConvexToken(now, fetchToken)).toBe(token);
     expect(fetchToken).not.toHaveBeenCalled();
   });
 
   it("refreshes a token within 60s of expiry", async () => {
-    rememberConvexToken(jwt(NOW / 1000 + 30));
+    rememberConvexToken("A", jwt(NOW / 1000 + 30));
     const fresh = jwt(NOW / 1000 + 600);
     const fetchToken = vi.fn().mockResolvedValue(fresh);
     expect(await getConvexToken(now, fetchToken)).toBe(fresh);
@@ -45,7 +50,7 @@ describe("getConvexToken", () => {
   });
 
   it("refreshes an expired token and when none is cached", async () => {
-    rememberConvexToken(jwt(NOW / 1000 - 10));
+    rememberConvexToken("A", jwt(NOW / 1000 - 10));
     const fetchToken = vi.fn().mockResolvedValue(null);
     expect(await getConvexToken(now, fetchToken)).toBeNull();
     expect(fetchToken).toHaveBeenCalledTimes(1);
@@ -62,9 +67,40 @@ describe("getConvexToken", () => {
   });
 
   it("does not cache a token without a readable expiry", async () => {
-    rememberConvexToken("opaque");
+    rememberConvexToken("A", "opaque");
     const fetchToken = vi.fn().mockResolvedValue(null);
     await getConvexToken(now, fetchToken);
     expect(fetchToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("one session's token never reaches another", () => {
+  it("drops a token that arrives after the session changed", async () => {
+    let finish: (token: string) => void = () => {};
+    const slow = vi.fn(
+      () => new Promise<string>((resolve) => (finish = resolve)),
+    );
+    const pending = getConvexToken(now, slow);
+    setTokenSession("B");
+    finish(jwt(NOW / 1000 + 600));
+    expect(await pending).toBeNull();
+    const bToken = jwt(NOW / 1000 + 900);
+    const fetchB = vi.fn().mockResolvedValue(bToken);
+    expect(await getConvexToken(now, fetchB)).toBe(bToken);
+    expect(fetchB).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a remembered token for a session that is not current", async () => {
+    rememberConvexToken("other", jwt(NOW / 1000 + 600));
+    const fetchToken = vi.fn().mockResolvedValue(null);
+    await getConvexToken(now, fetchToken);
+    expect(fetchToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives no token without a session", async () => {
+    setTokenSession(null);
+    const fetchToken = vi.fn();
+    expect(await getConvexToken(now, fetchToken)).toBeNull();
+    expect(fetchToken).not.toHaveBeenCalled();
   });
 });
