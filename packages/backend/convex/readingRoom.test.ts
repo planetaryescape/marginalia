@@ -281,8 +281,22 @@ describe("readingTopics", () => {
         period: "month",
       }),
     ).toEqual([
-      { name: "attention", minutes: 35, articles: 2, finished: 1, skipped: 0 },
-      { name: "hiring", minutes: 20, articles: 1, finished: 0, skipped: 1 },
+      {
+        name: "attention",
+        minutes: 35,
+        articles: 2,
+        finished: 1,
+        skipped: 0,
+        outcomesPartial: false,
+      },
+      {
+        name: "hiring",
+        minutes: 20,
+        articles: 1,
+        finished: 0,
+        skipped: 1,
+        outcomesPartial: false,
+      },
     ]);
   });
 
@@ -303,6 +317,7 @@ describe("readingTopics", () => {
         articles: 1,
         finished: 1,
         skipped: 0,
+        outcomesPartial: false,
       },
     ]);
   });
@@ -503,7 +518,56 @@ describe("readingTopics finish and skip counts", () => {
       timeZone: "UTC",
       period: "month",
     });
-    expect(topic).toMatchObject({ name: "busy", articles: 1, skipped: 100 });
+    expect(topic).toMatchObject({
+      name: "busy",
+      articles: 1,
+      skipped: 130,
+      outcomesPartial: false,
+    });
+  });
+
+  it("keeps a finish counted when many newer browsing events follow it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    const at = Date.UTC(2026, 9, 13, 8);
+    await t.run(async (ctx) => {
+      const tagId = await ctx.db.insert("tags", {
+        userId: OWNER,
+        name: "busy",
+        key: "busy",
+        status: "active",
+        count: 1,
+        aliases: [],
+        createdAt: 1,
+      });
+      const read = await insertArticle(ctx, "read");
+      await ctx.db.insert("readingActivity", { ...visitRow(read, at) });
+      await ctx.db.insert("articleTags", {
+        userId: OWNER,
+        articleId: read,
+        tagId,
+        createdAt: 1,
+      });
+      await ctx.db.insert("articleInteractions", {
+        userId: OWNER,
+        articleId: read,
+        action: "finished",
+        createdAt: at,
+      });
+      for (let i = 0; i < 700; i++)
+        await ctx.db.insert("articleInteractions", {
+          userId: OWNER,
+          articleId: read,
+          action: "presented",
+          createdAt: at + 1 + i,
+        });
+    });
+    const [topic] = await owner.query(api.stats.readingTopics, {
+      timeZone: "UTC",
+      period: "month",
+    });
+    expect(topic).toMatchObject({ name: "busy", finished: 1 });
   });
 });
 
@@ -563,7 +627,14 @@ describe("readingTopics with many candidates", () => {
         period: "month",
       }),
     ).toEqual([
-      { name: "quiet topic", minutes: 1, articles: 1, finished: 0, skipped: 0 },
+      {
+        name: "quiet topic",
+        minutes: 1,
+        articles: 1,
+        finished: 0,
+        skipped: 0,
+        outcomesPartial: false,
+      },
     ]);
   });
 });
@@ -619,7 +690,14 @@ describe("readingTopics with candidates on every article", () => {
         period: "month",
       }),
     ).toEqual([
-      { name: "the one", minutes: 1, articles: 1, finished: 0, skipped: 0 },
+      {
+        name: "the one",
+        minutes: 1,
+        articles: 1,
+        finished: 0,
+        skipped: 0,
+        outcomesPartial: false,
+      },
     ]);
   });
 });

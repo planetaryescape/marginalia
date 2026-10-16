@@ -630,7 +630,8 @@ export default defineSchema({
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
     .index("by_user_article", ["userId", "articleId"])
-    .index("by_user_article_action", ["userId", "articleId", "action"]),
+    .index("by_user_article_action", ["userId", "articleId", "action"])
+    .index("by_user_action_created", ["userId", "action", "createdAt"]),
 
   // Cumulative checkpoints per page visit and local day make retries idempotent.
   readingActivity: defineTable({

@@ -6,13 +6,18 @@ export type Topic = {
   articles: number;
   finished: number;
   skipped: number;
+  /** The period had more outcomes than were read, so the counts are at least these */
+  outcomesPartial?: boolean;
 };
 
-/** "3 finished · 1 skipped"; a figure of nothing is left out. */
-export function outcomes(topic: Pick<Topic, "finished" | "skipped">) {
+/** "3 finished · 1 skipped"; a figure of nothing is left out, and a lower bound gets a "+". */
+export function outcomes(
+  topic: Pick<Topic, "finished" | "skipped" | "outcomesPartial">,
+) {
+  const more = topic.outcomesPartial ? "+" : "";
   return [
-    topic.finished > 0 && `${topic.finished} finished`,
-    topic.skipped > 0 && `${topic.skipped} skipped`,
+    topic.finished > 0 && `${topic.finished}${more} finished`,
+    topic.skipped > 0 && `${topic.skipped}${more} skipped`,
   ]
     .filter(Boolean)
     .join(" · ");

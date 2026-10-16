@@ -524,20 +524,26 @@ const TOPICS_SHOWN = 30;
 // new tags are resisted: a name is matched onto an existing tag or alias
 // before one is created (D-DES-059).
 const ACTIVE_TAGS = 300;
-// Interaction rows read for the finish and skip counts, newest first. A finish
-// row can carry 128 annotation ids (about 4.7 KB), so 600 rows add under 3 MB
-// to the visits the query already reads.
-const OUTCOME_EVENTS = 600;
+// Finish and skip rows read per period, newest first, each from its own index
+// range so routine browsing events can't crowd them out. A finish row can carry
+// 128 annotation ids (about 4.7 KB), so 400 finishes stay under 2 MB; a skip
+// row is a few hundred bytes.
+const OUTCOME_FINISHES = 400;
+const OUTCOME_SKIPS = 1000;
 // Articles finished or skipped but not read for a minute that also get their
-// tags looked up, so a topic's skips can include things never opened
-const OUTCOME_ARTICLES = 100;
+// tags looked up, so a topic's skips can include things never opened. Each
+// lookup reads up to TAGS_PER_ARTICLE small link rows, which keeps the query
+// well inside Convex's per-query document limit.
+const OUTCOME_ARTICLES = 500;
 
 /**
  * Topics the reader returns to, by minutes read in the period: the active tags
  * on the articles they read, with the active minutes spent and how many
  * distinct articles carried each. Candidate tags are not topics yet. Each
  * topic also says how many of its articles the reader finished and how many
- * they passed over with Another in the period, from the newest interactions.
+ * they passed over with Another in the period. When a period has more outcomes
+ * than the query reads, those counts are lower bounds and `outcomesPartial`
+ * says so.
  */
 export const readingTopics = query({
   args: roomArgs,
@@ -559,29 +565,35 @@ export const readingTopics = query({
       .slice(0, TOPIC_ARTICLES);
 
     const period = roomPeriod(Date.now(), timeZone, periodName);
-    const events = await ctx.db
-      .query("articleInteractions")
-      .withIndex("by_user_created", (q) =>
-        q
-          .eq("userId", ctx.readerId)
-          .gte("createdAt", period.start)
-          .lt("createdAt", period.end),
-      )
-      .order("desc")
-      .take(OUTCOME_EVENTS);
-    const finished = new Set<Id<"articles">>();
-    const skipped = new Set<Id<"articles">>();
-    for (const event of events) {
-      if (event.action === "finished") finished.add(event.articleId);
-      else if (event.action === "skipped") skipped.add(event.articleId);
-    }
+    const outcomeRows = (action: "finished" | "skipped", limit: number) =>
+      ctx.db
+        .query("articleInteractions")
+        .withIndex("by_user_action_created", (q) =>
+          q
+            .eq("userId", ctx.readerId)
+            .eq("action", action)
+            .gte("createdAt", period.start)
+            .lt("createdAt", period.end),
+        )
+        .order("desc")
+        .take(limit);
+    const [finishRows, skipRows] = await Promise.all([
+      outcomeRows("finished", OUTCOME_FINISHES),
+      outcomeRows("skipped", OUTCOME_SKIPS),
+    ]);
+    const finished = new Set(finishRows.map((row) => row.articleId));
+    const skipped = new Set(skipRows.map((row) => row.articleId));
     // An article the reader went on to finish was not passed over
     for (const id of finished) skipped.delete(id);
     const readIds = new Set(read.map(([id]) => id));
-    const outcomeOnly = [...finished, ...skipped]
-      .filter((id) => !readIds.has(id))
+    const unread = [...finished, ...skipped].filter((id) => !readIds.has(id));
+    const outcomeOnly = unread
       .slice(0, OUTCOME_ARTICLES)
       .map((id) => [id, 0] as const);
+    const outcomesPartial =
+      finishRows.length === OUTCOME_FINISHES ||
+      skipRows.length === OUTCOME_SKIPS ||
+      unread.length > OUTCOME_ARTICLES;
 
     // Candidates and other readers' tags are dropped before ranking, so they
     // can't use up the places that active topics need
@@ -639,6 +651,7 @@ export const readingTopics = query({
           articles: total.articles,
           finished: total.finished,
           skipped: total.skipped,
+          outcomesPartial,
         }))
     );
   },
