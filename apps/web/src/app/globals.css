@@ -166,10 +166,11 @@ article[data-margin="phone"] .annotation-mark:focus-visible {
   outline-offset: 3px;
 }
 
-/* The open note's line gets a soft wash, not the kind colour. */
+/* The open note's passage, washed in the note's own kind colour: clearly
+   there, and never the reader's pen or highlighter. */
 article[data-margin="sidenotes"] .annotation-mark[data-active][data-type] {
-  background: var(--reader-chip) !important;
-  box-shadow: 0 0 0 3px var(--reader-chip);
+  background: color-mix(in srgb, var(--kind-color) 20%, transparent) !important;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--kind-color) 70%, transparent);
 }
 
 article[data-margin="phone"] .annotation-mark::after {

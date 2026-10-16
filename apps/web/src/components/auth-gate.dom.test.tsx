@@ -2,7 +2,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ALREADY_SIGNED_IN, AuthGate, takeFragmentTokens } from "./auth-gate";
+import {
+  ALREADY_SIGNED_IN,
+  AuthGate,
+  reloadOnce,
+  takeFragmentTokens,
+} from "./auth-gate";
 
 const state = vi.hoisted(() => ({
   authenticated: false,
@@ -107,11 +112,11 @@ describe("a lost token is not a sign-out", () => {
     await act(async () => root.render(<AuthGate>reading</AuthGate>));
     expect(document.body.textContent).toContain("Reconnecting to your library");
     expect(document.body.textContent).not.toContain("Sign in");
-    const retry = [...document.querySelectorAll("button")].find(
-      (b) => b.textContent === "Try again",
-    );
-    await act(async () => retry?.click());
-    expect(rearm).toHaveBeenCalled();
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (b) => b.textContent === "Try again",
+      ),
+    ).toBe(true);
   });
 
   it("retries once by itself after a moment", async () => {
@@ -126,5 +131,20 @@ describe("a lost token is not a sign-out", () => {
   it("still shows sign-in when there is no session", async () => {
     await act(async () => root.render(<AuthGate>reading</AuthGate>));
     expect(document.body.textContent).not.toContain("Reconnecting");
+  });
+});
+
+describe("reloading a refused connection", () => {
+  it("reloads once, then not again within a minute", () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    const reload = vi.fn();
+    expect(reloadOnce(storage, reload, 1_000_000)).toBe(true);
+    expect(reloadOnce(storage, reload, 1_030_000)).toBe(false);
+    expect(reloadOnce(storage, reload, 1_070_000)).toBe(true);
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 });

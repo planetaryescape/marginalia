@@ -125,9 +125,42 @@ function useAfter(active: boolean, ms: number): boolean {
  * over, a sleeping laptop, a dropped network). Tries once by itself, then
  * offers to, rather than asking the reader to sign in again.
  */
+// The screen remounts each time a retry fails, so the count lives outside it
+let autoRetries = 0;
+const MAX_AUTO_RETRIES = 2;
+const RELOAD_KEY = "marginalia:reconnect-reload";
+const RELOAD_EVERY_MS = 60_000;
+
+/**
+ * Re-arming Convex auth fixes a token lost in passing; a page whose
+ * connection stays refused after that recovers on a full reload (seen live
+ * after a deploy). Reloads at most once a minute, so it can never loop.
+ */
+export function reloadOnce(
+  storage: Pick<Storage, "getItem" | "setItem"> = sessionStorage,
+  reload: () => void = () => window.location.reload(),
+  now = Date.now(),
+): boolean {
+  let last = 0;
+  try {
+    last = Number(storage.getItem(RELOAD_KEY) ?? 0);
+  } catch {}
+  if (now - last < RELOAD_EVERY_MS) return false;
+  try {
+    storage.setItem(RELOAD_KEY, String(now));
+  } catch {}
+  reload();
+  return true;
+}
+
 function Reconnect() {
   useEffect(() => {
-    const timer = setTimeout(rearmAuth, AUTO_RETRY_MS);
+    const timer = setTimeout(() => {
+      if (autoRetries < MAX_AUTO_RETRIES) {
+        autoRetries++;
+        rearmAuth();
+      } else reloadOnce();
+    }, AUTO_RETRY_MS);
     return () => clearTimeout(timer);
   }, []);
   return (
@@ -137,7 +170,11 @@ function Reconnect() {
         <p className="text-sm text-[var(--reader-muted)] mb-7">
           Reconnecting to your library…
         </p>
-        <button type="button" className="app-button w-full" onClick={rearmAuth}>
+        <button
+          type="button"
+          className="app-button w-full"
+          onClick={() => window.location.reload()}
+        >
           Try again
         </button>
         {/* If the library keeps refusing this session, signing in afresh is the way out */}

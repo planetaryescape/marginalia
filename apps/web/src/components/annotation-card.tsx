@@ -284,13 +284,16 @@ export function AnnotationCard({
               aria-hidden
             />
           )}
-          {heading}
-          {label.family && (
-            <span className="font-normal text-[var(--reader-muted)]">
-              {" · "}
-              {label.family}
-            </span>
-          )}
+          {/* One run of text, so a long label wraps with its family instead of beside it */}
+          <span className="min-w-0">
+            {heading}
+            {label.family && (
+              <span className="font-normal text-[var(--reader-muted)]">
+                {" · "}
+                {label.family}
+              </span>
+            )}
+          </span>
         </>
       }
       label={`${heading} annotation`}
