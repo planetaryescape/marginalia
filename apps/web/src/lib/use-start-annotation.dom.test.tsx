@@ -34,10 +34,15 @@ describe("opening an article whose marginalia were deferred", () => {
   });
 
   it("leaves every other status alone", async () => {
-    for (const status of [undefined, "pending", "annotated", "failed"]) {
+    for (const status of [undefined, "pending", "annotated", "skipped"]) {
       await act(async () => root.render(<Probe status={status} />));
     }
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it("retries marginalia that failed the first time", async () => {
+    await act(async () => root.render(<Probe status="failed" />));
+    expect(start).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the article readable when starting fails", async () => {

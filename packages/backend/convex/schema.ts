@@ -230,6 +230,9 @@ export default defineSchema({
     runId: v.number(),
     // _creationTime of the last article checked
     cursor: v.optional(v.number()),
+    // Which statuses the scan has reached: annotated articles first, then
+    // ones whose first annotation failed
+    phase: v.optional(v.literal("failed")),
     queued: v.number(),
     startedAt: v.number(),
     updatedAt: v.number(),

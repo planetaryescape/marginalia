@@ -1,7 +1,9 @@
 // One-off re-annotation of a library's unread articles of 20 minutes or less,
 // so they get the rung 2c margin: the three families, library connections,
 // tags and the one point (D-DES-052, D-DES-056). Longer articles get theirs
-// when they come up.
+// when they come up. A second phase retries short unread articles whose first
+// annotation failed: a bulk import can fail hundreds at once on provider
+// limits, and nothing else retries them before they are opened.
 //
 // It follows the catch-up's pacing (catchUp.ts): at most PAGE jobs a batch,
 // BATCH_DELAY_MS between batches, JOB_STAGGER_MS between the jobs of a batch.
@@ -69,11 +71,14 @@ export async function needsBackfill(
     now - article.reannotateClaimedAt < CLAIM_TTL_MS
   )
     return false;
-  if (
-    article.annotationStatus !== "annotated" ||
-    article.finishedAt !== undefined
-  )
-    return false;
+  if (article.finishedAt !== undefined) return false;
+  if (article.annotationStatus === "failed") {
+    // Never annotated, so there are no notes a reflection could hang on
+    if (!article.content || (article.wordCount ?? 0) < 100) return false;
+    const minutes = minutesOf(article);
+    return minutes !== null && minutes <= MAX_BACKFILL_MINUTES;
+  }
+  if (article.annotationStatus !== "annotated") return false;
   if ((article.annotationVersion ?? 0) >= CURRENT_ANNOTATION_VERSION)
     return false;
   if (!article.content || (article.wordCount ?? 0) < 100) return false;
@@ -115,6 +120,7 @@ export const start = internalMutation({
       running: true,
       runId: (row?.runId ?? 0) + 1,
       cursor: undefined,
+      phase: undefined,
       queued: 0,
       startedAt: now,
       updatedAt: now,
@@ -155,6 +161,7 @@ export const step = internalMutation({
     }
 
     let cursor = row.cursor;
+    const status = row.phase ?? "annotated";
     const batch: Doc<"articles">["_id"][] = [];
     let exhausted = false;
     for (let page = 0; page < SCAN_PAGES && batch.length < PAGE; page++) {
@@ -163,7 +170,7 @@ export const step = internalMutation({
         .withIndex("by_user_annotationStatus_finishedAt", (q) => {
           const range = q
             .eq("userId", args.userId)
-            .eq("annotationStatus", "annotated")
+            .eq("annotationStatus", status)
             .eq("finishedAt", undefined);
           return cursor === undefined
             ? range
@@ -193,8 +200,17 @@ export const step = internalMutation({
         { articleId },
       );
     }
-    if (exhausted && !batch.length) {
+    if (exhausted && !batch.length && status === "failed") {
       await finish();
+      return null;
+    }
+    if (exhausted && !batch.length) {
+      await ctx.db.patch("reannotateState", row._id, {
+        phase: "failed",
+        cursor: undefined,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.reannotateBackfill.step, args);
       return null;
     }
     await ctx.db.patch("reannotateState", row._id, {

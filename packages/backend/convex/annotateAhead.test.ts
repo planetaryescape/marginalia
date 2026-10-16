@@ -164,25 +164,40 @@ describe("overlapping extractions", () => {
 });
 
 describe("annotating ahead", () => {
-  it("starts only deferred articles, once, and leaves the rest alone", async () => {
+  it("starts deferred and failed articles, once, and leaves the rest alone", async () => {
     const t = await ownerTest(modules);
-    const [deferred, annotated, pending, failed] = await seed(t, [
+    const [deferred, failed, annotated, pending] = await seed(t, [
       { title: "d", minutes: 40, status: "deferred" },
+      { title: "f", minutes: 40, status: "failed" },
       { title: "a", minutes: 40, status: "annotated" },
       { title: "p", minutes: 40, status: "pending" },
-      { title: "f", minutes: 40, status: "failed" },
     ]);
-    const ids = [deferred, annotated, pending, failed].map(only);
+    const ids = [deferred, failed, annotated, pending].map(only);
     expect(
       await t.mutation(api.articles.annotateAhead, { articleIds: ids }),
-    ).toBe(1);
+    ).toBe(2);
     expect(
       await t.mutation(api.articles.annotateAhead, { articleIds: ids }),
     ).toBe(0);
-    expect(await jobs(t)).toHaveLength(1);
+    expect(await jobs(t)).toHaveLength(2);
     expect(await statusOf(t, only(ids[0]))).toBe("pending");
-    expect(await statusOf(t, only(ids[1]))).toBe("annotated");
-    expect(await statusOf(t, only(ids[3]))).toBe("failed");
+    expect(await statusOf(t, only(ids[1]))).toBe("pending");
+    expect(await statusOf(t, only(ids[2]))).toBe("annotated");
+  });
+
+  it("leaves a failed article alone while the backfill holds it", async () => {
+    const t = await ownerTest(modules);
+    const [failed] = await seed(t, [
+      { title: "f", minutes: 5, status: "failed" },
+    ]);
+    const id = only(failed);
+    await t.run((ctx) =>
+      ctx.db.patch("articles", id, { reannotateClaimedAt: Date.now() }),
+    );
+    expect(
+      await t.mutation(api.articles.annotateAhead, { articleIds: [id] }),
+    ).toBe(0);
+    expect(await statusOf(t, id)).toBe("failed");
   });
 
   it("does not double-schedule under concurrent calls", async () => {

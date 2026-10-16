@@ -129,7 +129,7 @@ async function setup() {
 }
 
 describe("reannotateBackfill", () => {
-  it("re-annotates unread articles of 20 minutes or less, and nothing else", async () => {
+  it("re-annotates unread articles of 20 minutes or less, retries failed ones, and nothing else", async () => {
     const f = await setup();
     const mock = mockProviders();
     await f.t.run(async (ctx) => {
@@ -150,6 +150,14 @@ describe("reannotateBackfill", () => {
       await addArticle(ctx, u, "current", { annotationVersion: 2 });
       await addArticle(ctx, u, "skipped", { annotationStatus: "skipped" });
       await addArticle(ctx, u, "failed", { annotationStatus: "failed" });
+      await addArticle(ctx, u, "failed-long", {
+        annotationStatus: "failed",
+        estimatedReadMinutes: 40,
+      });
+      await addArticle(ctx, u, "failed-finished", {
+        annotationStatus: "failed",
+        finishedAt: 5,
+      });
       await addArticle(ctx, u, "unknown-length", {
         estimatedReadMinutes: undefined,
         wordCount: undefined,
@@ -184,7 +192,7 @@ describe("reannotateBackfill", () => {
     expect(await f.start()).toBe("started");
     await runScheduled(f.t);
 
-    expect(mock.chatTimes).toHaveLength(3);
+    expect(mock.chatTimes).toHaveLength(4);
     expect(await f.versions()).toEqual({
       short: 2,
       "no-minutes": 2,
@@ -194,7 +202,9 @@ describe("reannotateBackfill", () => {
       finished: undefined,
       current: 2,
       skipped: undefined,
-      failed: undefined,
+      failed: 2,
+      "failed-long": undefined,
+      "failed-finished": undefined,
       "unknown-length": undefined,
       reflected: undefined,
       "someone-elses": undefined,
@@ -210,7 +220,7 @@ describe("reannotateBackfill", () => {
     expect(
       await f.t.run((ctx) => ctx.db.query("reannotateState").collect()),
     ).toMatchObject([
-      { running: false, queued: 3, finishedAt: expect.any(Number) },
+      { running: false, queued: 4, finishedAt: expect.any(Number) },
     ]);
   });
 
@@ -301,6 +311,9 @@ describe("reannotateBackfill", () => {
       const row = await ctx.db.query("reannotateState").first();
       await ctx.db.patch("reannotateState", row!._id, {
         running: true,
+        // Lost during the first phase, before the scan reached failed articles
+        phase: undefined,
+        cursor: undefined,
         updatedAt: Date.now() - STALE_MS - 1,
       });
       await addArticle(ctx, f.userId, "b");

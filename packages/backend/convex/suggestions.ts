@@ -310,8 +310,10 @@ function toSuggestion(
     publishedAt: a.publishedAt,
     excerpt: a.excerpt,
     feedId: a.feedId,
-    // Long and not annotated yet; the desk asks for its marginalia ahead of time
-    deferred: a.annotationStatus === "deferred",
+    // Not annotated yet (long, or a failed first try); the desk asks for its
+    // marginalia ahead of time
+    deferred:
+      a.annotationStatus === "deferred" || a.annotationStatus === "failed",
     reason: generateReason(readMin, targetMinutes, fitsWindow),
   };
 }

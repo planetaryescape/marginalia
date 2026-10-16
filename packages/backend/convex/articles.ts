@@ -397,7 +397,16 @@ export const annotateAhead = mutation({
     const deferred: Doc<"articles">[] = [];
     for (const id of ids) {
       const article = await ownedArticle(ctx, id, ctx.readerId);
-      if (article?.annotationStatus === "deferred") deferred.push(article);
+      // A failed first annotation is retried too, unless the backfill already
+      // holds it: it is what the reader is about to open
+      const claimed =
+        article?.reannotateClaimedAt !== undefined &&
+        Date.now() - article.reannotateClaimedAt < CLAIM_TTL_MS;
+      if (
+        article?.annotationStatus === "deferred" ||
+        (article?.annotationStatus === "failed" && !claimed)
+      )
+        deferred.push(article);
     }
     if (!deferred.length) return 0;
     if (!(await spendReaderLimit(ctx, ctx.readerId, "annotateAhead")))

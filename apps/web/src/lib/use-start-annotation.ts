@@ -19,8 +19,8 @@ export function marginNotesPending(article: {
 }
 
 /**
- * Opening a long article whose marginalia were deferred starts them, whichever
- * way the reader got here. A failure leaves the article readable without notes.
+ * Opening an article whose marginalia were deferred, or failed the first time,
+ * starts them, whichever way the reader got here. A failure leaves the article readable without notes.
  */
 export function useStartAnnotation(
   articleId: Id<"articles">,
@@ -28,7 +28,8 @@ export function useStartAnnotation(
 ) {
   const start = useMutation(api.articles.annotateAhead);
   useEffect(() => {
-    if (annotationStatus !== "deferred") return;
+    if (annotationStatus !== "deferred" && annotationStatus !== "failed")
+      return;
     start({ articleIds: [articleId] }).catch(() => {});
   }, [articleId, annotationStatus, start]);
 }
