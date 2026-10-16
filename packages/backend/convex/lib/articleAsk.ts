@@ -277,6 +277,20 @@ export function rankPassages(
     .sort((a, b) => b.score - a.score || a.start - b.start);
 }
 
+/** Paragraphs cited in the question and the last two turns, in the order they win the budget. */
+function citedInConversation(input: {
+  paragraphCount: number;
+  question: string;
+  history: readonly { role: string; content: string }[];
+}): number[] {
+  const { paragraphCount: count } = input;
+  const recent = input.history.slice(-2).map((turn) => turn.content);
+  return [
+    ...citedParagraphs(input.question, count),
+    ...recent.flatMap((text) => citedParagraphs(text, count)),
+  ];
+}
+
 /** The paragraphs a question needs whatever it matches. */
 export function pinnedParagraphs(input: {
   paragraphCount: number;
@@ -285,12 +299,10 @@ export function pinnedParagraphs(input: {
   history: readonly { role: string; content: string }[];
 }): number[] {
   const { paragraphCount: count } = input;
-  const recent = input.history.slice(-2).map((turn) => turn.content);
   // In the order they win the budget: what the reader cited, what is on
   // screen, then the opening
   return [
-    ...citedParagraphs(input.question, count),
-    ...recent.flatMap((text) => citedParagraphs(text, count)),
+    ...citedInConversation(input),
     ...(input.paragraphIndex !== null && input.paragraphIndex < count
       ? [input.paragraphIndex]
       : []),
@@ -370,6 +382,47 @@ async function passageVectors(
 }
 
 /**
+ * The article's passages, best match for the question first, or null when the
+ * search can't run (no embedding key, a failing provider, an article that isn't
+ * this reader's). The passages' vectors are cached, so a repeat costs one embed.
+ */
+async function rankForQuestion(
+  ctx: ActionCtx,
+  input: {
+    userId: string;
+    articleId: string | undefined;
+    paragraphs: readonly string[];
+    question: string;
+    history: readonly { role: "user" | "assistant"; content: string }[];
+    embedder: EmbeddingTarget | null;
+  },
+): Promise<RankedPassage[] | null> {
+  try {
+    if (input.embedder && input.articleId) {
+      const spans = chunkParagraphs(input.paragraphs);
+      const vectors = await passageVectors(
+        ctx,
+        { ...input, articleId: input.articleId, embedder: input.embedder },
+        spans,
+      );
+      if (vectors) {
+        const query = await embedText(
+          input.embedder,
+          retrievalQuery(input.question, input.history),
+        );
+        return rankPassages(spans, vectors, query);
+      }
+    }
+  } catch (error) {
+    console.error(
+      "Searching the article failed, answering from its summary and opening:",
+      error,
+    );
+  }
+  return null;
+}
+
+/**
  * What a question about the whole article carries. A short article keeps its
  * whole text. A long one gets the pinned paragraphs and the passages that match
  * the question; if the search can't run (no embedding key, a failing provider,
@@ -403,29 +456,7 @@ export async function retrieveArticleContext(
     question: input.question,
     history: input.history,
   });
-  let ranked: RankedPassage[] | null = null;
-  try {
-    if (input.embedder && input.articleId) {
-      const spans = chunkParagraphs(input.paragraphs);
-      const vectors = await passageVectors(
-        ctx,
-        { ...input, articleId: input.articleId, embedder: input.embedder },
-        spans,
-      );
-      if (vectors) {
-        const query = await embedText(
-          input.embedder,
-          retrievalQuery(input.question, input.history),
-        );
-        ranked = rankPassages(spans, vectors, query);
-      }
-    }
-  } catch (error) {
-    console.error(
-      "Searching the article failed, answering from its summary and opening:",
-      error,
-    );
-  }
+  const ranked = await rankForQuestion(ctx, input);
   const selection = selectWithinBudget({
     paragraphs: input.paragraphs,
     pinned,
@@ -436,5 +467,78 @@ export async function retrieveArticleContext(
     charsBefore,
     charsAfter: selection.chars,
     selection,
+  };
+}
+
+/** The most passages a passage question adds from elsewhere in the article. */
+export const MAX_RELATED_PASSAGES = 3;
+
+/**
+ * The passages from outside the reader's window that a question reaches for.
+ * A question that is best answered by the text around the passage (its best
+ * match lies in the window) adds nothing; one whose best match lies elsewhere
+ * gets the top few matches that are not in the window.
+ */
+export function relatedBeyondWindow(
+  ranked: readonly RankedPassage[],
+  window: ReadonlySet<number>,
+): PassageSpan[] {
+  const inWindow = (span: PassageSpan) => {
+    for (let i = span.start; i <= span.end; i++) if (window.has(i)) return true;
+    return false;
+  };
+  if (!ranked.length) return [];
+  // A tie with a passage in the window is not evidence the question reaches out
+  if (ranked.some((span) => span.score >= ranked[0].score && inWindow(span)))
+    return [];
+  return ranked
+    .filter((span) => !inWindow(span))
+    .slice(0, MAX_RELATED_PASSAGES);
+}
+
+export interface PassageAskContext {
+  /** The paragraphs the question cites or matches outside the window; null when there are none. */
+  related: BudgetedSelection | null;
+  searched: boolean;
+}
+
+/**
+ * What Ask about a passage adds to its window: paragraphs the question cites
+ * and, when it reaches beyond the passage, the top matches from the same
+ * article. The window counts against the budget and is never repeated; cited
+ * paragraphs win the budget first, as in a question about the whole article.
+ */
+export async function retrievePassageContext(
+  ctx: ActionCtx,
+  input: {
+    userId: string;
+    articleId: string | undefined;
+    paragraphs: readonly string[];
+    window: readonly number[];
+    question: string;
+    history: readonly { role: "user" | "assistant"; content: string }[];
+    embedder: EmbeddingTarget | null;
+  },
+): Promise<PassageAskContext> {
+  const window = new Set(input.window);
+  const beyond = input.paragraphs.length > window.size;
+  if (!beyond) return { related: null, searched: false };
+  const ranked = await rankForQuestion(ctx, input);
+  const cited = citedInConversation({
+    paragraphCount: input.paragraphs.length,
+    question: input.question,
+    history: input.history,
+  });
+  const selection = selectWithinBudget({
+    paragraphs: input.paragraphs,
+    pinned: [...cited, ...input.window],
+    ranked: relatedBeyondWindow(ranked ?? [], window),
+  });
+  const segments = selection.segments.filter((s) => !window.has(s.index));
+  return {
+    related: segments.length
+      ? { segments, chars: segments.reduce((n, s) => n + s.to - s.from, 0) }
+      : null,
+    searched: ranked !== null,
   };
 }

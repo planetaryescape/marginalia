@@ -342,6 +342,8 @@ export function buildCompanionPrompt(
   book?: BookAskContext | null,
   /** The retrieved paragraphs of a long article; absent sends the whole text. */
   retrieved?: BudgetedSelection | null,
+  /** For Ask about a passage: cited or matching text from elsewhere in the article. */
+  related?: BudgetedSelection | null,
 ): {
   system: string;
   messages: { role: "user" | "assistant"; content: string }[];
@@ -401,6 +403,20 @@ export function buildCompanionPrompt(
         ),
     "</article>",
     "",
+    // After the passage's own surroundings, so they are never displaced
+    ...(related?.segments.length && request.mode === "ask" && !book
+      ? [
+          "<elsewhere_in_the_article>",
+          "Other parts of the article that bear on the question. The ¶ numbers are the article's own.",
+          formatSegments(
+            request.title,
+            related.segments,
+            request.paragraphs.length,
+          ),
+          "</elsewhere_in_the_article>",
+          "",
+        ]
+      : []),
     ...passage,
     ...usage,
     TASKS[request.mode],

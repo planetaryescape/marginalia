@@ -4,7 +4,10 @@ import { type ActionCtx, httpAction } from "./_generated/server";
 import type { IngestExternalResult } from "./actions/ingestExternal";
 import { type ResolvedToken, TOKEN_PREFIX } from "./apiTokens";
 import { authComponent, createAuth } from "./auth";
-import { retrieveArticleContext } from "./lib/articleAsk";
+import {
+  retrieveArticleContext,
+  retrievePassageContext,
+} from "./lib/articleAsk";
 import { retrievalQuery, retrieveBookContext } from "./lib/bookAsk";
 import { isTerminalChatGPTError } from "./lib/chatgptResponses";
 import {
@@ -39,6 +42,7 @@ import { readingCheckpointSchema } from "./lib/readingActivity";
 import {
   buildCompanionPrompt,
   companionRequestSchema,
+  selectContext,
 } from "./lib/readingCompanion";
 import { loadReaderAI, type ProviderTarget } from "./lib/router";
 import { startTimings } from "./lib/serverTiming";
@@ -353,15 +357,34 @@ http.route({
             embedder: ai.embedder(),
           })
         : null;
+    // Ask about a passage can reach beyond its window into the same article.
+    // A book's parts are searched by their own path, so only an article here.
+    const nearby =
+      parsed.data.mode === "ask" && parsed.data.unitIndex === undefined
+        ? await retrievePassageContext(ctx, {
+            userId: readerId,
+            articleId: parsed.data.articleId,
+            paragraphs: parsed.data.paragraphs,
+            window: selectContext(parsed.data).indices,
+            question: parsed.data.question ?? "",
+            history: parsed.data.history,
+            embedder: ai.embedder(),
+          })
+        : null;
     if (article)
       console.log(
         `ask article context: ${article.mode}, ${article.charsBefore} chars before, ${article.charsAfter} after`,
+      );
+    if (nearby)
+      console.log(
+        `ask passage context: ${nearby.searched ? "searched" : "not searched"}, ${nearby.related?.chars ?? 0} chars from elsewhere`,
       );
     const { system, messages } = buildCompanionPrompt(
       parsed.data,
       summary,
       book,
       article?.selection,
+      nearby?.related,
     );
     const chat: ChatMessage[] = [
       { role: "system", content: system },

@@ -442,6 +442,107 @@ describe("Ask about a passage", () => {
   });
 });
 
+describe("Ask about a passage reaching into the article", () => {
+  const paragraphs = article(100, 79);
+  const passageAsk = {
+    mode: "ask",
+    selection: "PARA51 Filler",
+    paragraphIndex: 50,
+    paragraphEnd: 50,
+  };
+  const elsewhere = (prompt: string) =>
+    /<elsewhere_in_the_article>([\s\S]*?)<\/elsewhere_in_the_article>/.exec(
+      prompt,
+    )?.[1] ?? "";
+
+  it("adds the best matches from the article when the question reaches beyond the passage, after the passage's own surroundings", async () => {
+    const { f, mock, seed, ask } = await setup();
+    const articleId = await seed(OWNER);
+    const response = await ask(f.owner, {
+      ...passageAsk,
+      articleId,
+      paragraphs,
+      question: "How does this connect to the zebra stripes?",
+    });
+    expect(response.status).toBe(200);
+    const prompt = mock.prompts.at(-1) ?? "";
+    expect(elsewhere(prompt)).toContain(`¶80\n${paragraphs[79]}`);
+    // At most three passages (one paragraph each here) come from elsewhere
+    expect(new Set(elsewhere(prompt).match(/¶\d+/g)).size).toBeLessThanOrEqual(
+      3,
+    );
+    // The passage and its neighbours are not repeated and come first
+    for (const n of [49, 50, 51, 52, 53])
+      expect(elsewhere(prompt)).not.toContain(`¶${n}\n`);
+    const at = (text: string) => prompt.indexOf(text);
+    expect(at(`¶51 ← contains the highlighted passage`)).toBeGreaterThan(-1);
+    expect(at("¶51 ←")).toBeLessThan(at("<elsewhere_in_the_article>"));
+    expect(at("<elsewhere_in_the_article>")).toBeLessThan(
+      at("<highlighted_passage"),
+    );
+  });
+
+  it("adds nothing when the question is best answered by the passage's surroundings", async () => {
+    const { f, mock, seed, ask } = await setup();
+    const articleId = await seed(OWNER);
+    await ask(f.owner, {
+      ...passageAsk,
+      articleId,
+      paragraphs,
+      question: "What does this mean?",
+    });
+    expect(mock.prompts.at(-1)).not.toContain("<elsewhere_in_the_article>");
+  });
+
+  it("embeds only the question when the article's passages are cached", async () => {
+    const { f, mock, seed, ask, rows } = await setup();
+    const articleId = await seed(OWNER);
+    await ask(f.owner, { articleId, paragraphs });
+    const stored = (await rows()).length;
+    const before = mock.embedInputs.flat().length;
+    await ask(f.owner, {
+      ...passageAsk,
+      articleId,
+      paragraphs,
+      question: "How does this connect to the zebra stripes?",
+    });
+    expect(mock.embedInputs.flat().length).toBe(before + 1);
+    expect((await rows()).length).toBe(stored);
+  });
+
+  it("keeps a cited paragraph and still answers when the search fails", async () => {
+    const { f, mock, seed, ask } = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mock.breakEmbeddings();
+    const articleId = await seed(OWNER);
+    const response = await ask(f.owner, {
+      ...passageAsk,
+      articleId,
+      paragraphs,
+      question: "How does this connect to ¶12 and the zebra?",
+    });
+    expect(response.status).toBe(200);
+    const prompt = mock.prompts.at(-1) ?? "";
+    expect(elsewhere(prompt)).toContain(`¶12\n${paragraphs[11]}`);
+    expect(elsewhere(prompt)).not.toContain("PARA80 ");
+    expect(prompt).toContain("¶51 ←");
+  });
+
+  it("searches only the reader's own article", async () => {
+    const { f, mock, seed, ask, rows } = await setup();
+    const mine = await seed(OWNER);
+    const response = await ask(f.reader, {
+      ...passageAsk,
+      articleId: mine,
+      paragraphs,
+      question: "How does this connect to the zebra stripes?",
+    });
+    expect(response.status).toBe(200);
+    expect(mock.prompts.at(-1)).not.toContain("<elsewhere_in_the_article>");
+    expect(await rows()).toEqual([]);
+  });
+});
+
 describe("chunking", () => {
   it("splits only paragraphs over the limit, keeping their index and offsets", () => {
     const paragraphs = [
