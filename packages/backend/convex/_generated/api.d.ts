@@ -64,6 +64,7 @@ import type * as lib_chatgptResponses from "../lib/chatgptResponses.js";
 import type * as lib_chatgptTokens from "../lib/chatgptTokens.js";
 import type * as lib_companionStream from "../lib/companionStream.js";
 import type * as lib_constants from "../lib/constants.js";
+import type * as lib_cors from "../lib/cors.js";
 import type * as lib_embeddings from "../lib/embeddings.js";
 import type * as lib_externalApi from "../lib/externalApi.js";
 import type * as lib_feedRemoval from "../lib/feedRemoval.js";
@@ -191,6 +192,7 @@ declare const fullApi: ApiFromModules<{
   "lib/chatgptTokens": typeof lib_chatgptTokens;
   "lib/companionStream": typeof lib_companionStream;
   "lib/constants": typeof lib_constants;
+  "lib/cors": typeof lib_cors;
   "lib/embeddings": typeof lib_embeddings;
   "lib/externalApi": typeof lib_externalApi;
   "lib/feedRemoval": typeof lib_feedRemoval;
