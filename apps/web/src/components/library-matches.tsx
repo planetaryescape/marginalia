@@ -6,7 +6,34 @@ import { useListKeys } from "@/lib/list-nav";
 import { useTopicSearch } from "@/lib/use-topic-search";
 import { formatReadTime } from "@/lib/utils";
 
-const rowClass = "border-b border-[var(--reader-border)] py-3.5";
+export const matchRowClass = "border-b border-[var(--reader-border)] py-3.5";
+const rowClass = matchRowClass;
+
+/** A shelf-style row: serif title over one meta line. */
+export function MatchRow({
+  articleId,
+  title,
+  meta,
+}: {
+  articleId: string;
+  title: string;
+  meta: string;
+}) {
+  return (
+    <li className={rowClass}>
+      <Link
+        href={`/read/${articleId}`}
+        data-nav-item
+        className="line-clamp-2 block font-serif text-[17px] leading-snug underline-offset-4 hover:underline hover:decoration-[var(--pencil-rule)] sm:text-[18px]"
+      >
+        {title}
+      </Link>
+      <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)]">
+        {meta}
+      </span>
+    </li>
+  );
+}
 
 /**
  * Every article that fits a topic, as plain rows like the shelves. It is the
@@ -75,24 +102,18 @@ export function LibraryMatches({ query }: { query: string }) {
         <>
           <ul className="mt-4 border-t border-[var(--reader-border)]">
             {result.matches.map((match) => (
-              <li key={match.articleId} className={rowClass}>
-                <Link
-                  href={`/read/${match.articleId}`}
-                  data-nav-item
-                  className="line-clamp-2 block font-serif text-[17px] leading-snug underline-offset-4 hover:underline hover:decoration-[var(--pencil-rule)] sm:text-[18px]"
-                >
-                  {match.title}
-                </Link>
-                <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)]">
-                  {[
-                    match.source ?? match.author,
-                    match.minutes ? formatReadTime(match.minutes) : null,
-                    match.status,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </li>
+              <MatchRow
+                key={match.articleId}
+                articleId={match.articleId}
+                title={match.title}
+                meta={[
+                  match.source ?? match.author,
+                  match.minutes ? formatReadTime(match.minutes) : null,
+                  match.status,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              />
             ))}
           </ul>
           {result.more && (

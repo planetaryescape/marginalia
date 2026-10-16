@@ -8,11 +8,13 @@ import {
   type RoomPeriod,
   readingSentence,
 } from "@/lib/reading-sentence";
+import { HowYouRead } from "./how-you-read";
 import { ShortAndLong } from "./short-and-long";
 import { TagMergeSuggestion } from "./tag-merge-suggestion";
 import { TopicMap } from "./topic-map";
 import { useLocalToday } from "./use-local-today";
 import { WhenYouRead } from "./when-you-read";
+import { WhereYouLinger } from "./where-you-linger";
 import { YourSources } from "./your-sources";
 
 /** A mirror of how the reader reads: one sentence, then the pictures. No goals or streaks. */
@@ -24,6 +26,17 @@ export function StatsTab() {
   const today = useLocalToday();
   const room = useQuery(api.stats.readingRoom, { timeZone, period, today });
   const topics = useQuery(api.stats.readingTopics, {
+    timeZone,
+    period,
+    today,
+  });
+
+  const habits = useQuery(api.readingHabits.readingHabits, {
+    timeZone,
+    period,
+    today,
+  });
+  const linger = useQuery(api.readingHabits.readingLinger, {
     timeZone,
     period,
     today,
@@ -82,6 +95,7 @@ export function StatsTab() {
           <div>
             <WhenYouRead heat={room.heat} timeZone={timeZone} />
             <ShortAndLong weekday={room.weekday} weekend={room.weekend} />
+            {habits && <HowYouRead habits={habits} />}
           </div>
           <div className="space-y-9">
             {topics && (
@@ -91,11 +105,18 @@ export function StatsTab() {
               />
             )}
             {merge && <TagMergeSuggestion suggestion={merge} />}
+            {linger && <WhereYouLinger topics={linger} />}
             <YourSources feeds={room.feeds} />
           </div>
         </div>
       )}
 
+      {habits?.partial && (
+        <p role="status" className="mt-8 text-xs text-[var(--reader-muted)]">
+          How you read counts your most recent activity only. Choose a shorter
+          period for all of it.
+        </p>
+      )}
       {room && (room.partial || room.readsPartial) && (
         <p role="status" className="mt-8 text-xs text-[var(--reader-muted)]">
           {room.partial

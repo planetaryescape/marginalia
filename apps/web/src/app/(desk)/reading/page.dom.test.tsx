@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   todays: [] as (string | undefined)[],
   room: undefined as unknown,
   topics: undefined as unknown,
+  habits: undefined as unknown,
+  linger: undefined as unknown,
   merges: undefined as unknown,
   accept: vi.fn(),
   keepBoth: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     stats: { readingRoom: "room", readingTopics: "topics" },
+    readingHabits: { readingHabits: "habits", readingLinger: "linger" },
     dictionary: { page: "page" },
     tagMerge: { pending: "merges", accept: "accept", keepBoth: "keepBoth" },
   },
@@ -82,6 +85,8 @@ beforeEach(() => {
   mocks.todays = [];
   mocks.room = undefined;
   mocks.topics = undefined;
+  mocks.habits = undefined;
+  mocks.linger = undefined;
   mocks.merges = undefined;
   mocks.accept = vi.fn().mockResolvedValue(null);
   mocks.keepBoth = vi.fn().mockResolvedValue(null);
@@ -133,6 +138,57 @@ describe("Your reading", () => {
     expect(container.textContent).toContain("The topics you return to");
     expect(container.textContent).toContain("attention");
     expect(container.textContent).toContain("2h · 4 articles");
+  });
+
+  it("opens Library on a topic when it is clicked in the topic map", async () => {
+    mocks.room = room();
+    mocks.topics = [{ name: "deep work", minutes: 120, articles: 4 }];
+    await render();
+    const link = [...container.querySelectorAll("a")].find(
+      (a) => a.textContent === "deep work",
+    );
+    expect(link?.getAttribute("href")).toBe("/library?topic=deep%20work");
+  });
+
+  it("shows where the reader lingers and how they read, every number in text", async () => {
+    mocks.room = room();
+    mocks.topics = [];
+    mocks.linger = [
+      {
+        name: "attention",
+        secondsPerParagraph: 12.5,
+        paragraphs: 40,
+        articles: 3,
+      },
+    ];
+    mocks.habits = {
+      timesChosen: [
+        { minutes: 5, count: 3 },
+        { minutes: 20, count: 1 },
+      ],
+      anotherPresses: 7,
+      finishes: 1,
+      leftUnfinished: 2,
+      partial: false,
+    };
+    await render();
+    const text = container.textContent ?? "";
+    expect(text).toContain("Where you linger");
+    expect(text).toContain("attention");
+    expect(text).toContain("12.5 s a paragraph · 40 paragraphs");
+    expect(text).toContain("How you read");
+    expect(text).toContain("5 min × 3 · 20 min × 1");
+    expect(text).toContain("7 presses");
+    expect(text).toContain("1 article");
+    expect(text).toContain("2 articles");
+  });
+
+  it("shows nothing for how they read until the counts arrive", async () => {
+    mocks.room = room();
+    mocks.topics = [];
+    await render();
+    expect(container.textContent).not.toContain("How you read");
+    expect(container.textContent).not.toContain("Where you linger");
   });
 
   it("points a skipped feed to Sources and offers no other action", async () => {

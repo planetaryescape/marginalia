@@ -4,12 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import LibraryPage from "./page";
 
-const shelf = vi.hoisted(() => ({ value: null as string | null }));
+const shelf = vi.hoisted(() => ({
+  value: null as string | null,
+  topic: null as string | null,
+}));
 
 vi.mock("next/link", () => ({ default: "a" }));
 vi.mock("next/navigation", () => ({
-  useSearchParams: () =>
-    new URLSearchParams(shelf.value ? `shelf=${shelf.value}` : ""),
+  useSearchParams: () => {
+    const params = new URLSearchParams();
+    if (shelf.value) params.set("shelf", shelf.value);
+    if (shelf.topic) params.set("topic", shelf.topic);
+    return params;
+  },
   useRouter: () => ({ push: vi.fn() }),
 }));
 vi.mock("convex/react", () => ({
@@ -49,11 +56,24 @@ vi.mock("convex/react", () => ({
         return undefined;
     }
   },
-  usePaginatedQuery: () => ({
-    results: [],
-    status: "Exhausted",
-    loadMore: vi.fn(),
-  }),
+  usePaginatedQuery: (ref: unknown) =>
+    getFunctionName(ref as Parameters<typeof getFunctionName>[0]) ===
+    "tags:articlesForTopic"
+      ? {
+          results: [
+            {
+              _id: "t1",
+              title: "A topic piece",
+              url: "https://www.example.com/p",
+              minutes: 7,
+              finished: false,
+              annotating: false,
+            },
+          ],
+          status: "CanLoadMore",
+          loadMore: vi.fn(),
+        }
+      : { results: [], status: "Exhausted", loadMore: vi.fn() },
   useMutation: () => vi.fn(),
   useAction: () => vi.fn(),
 }));
@@ -61,6 +81,7 @@ vi.mock("convex/react", () => ({
 describe("Library shelves", () => {
   beforeEach(() => {
     shelf.value = null;
+    shelf.topic = null;
   });
 
   it("opens on Up next with the four shelves as text tabs and their counts", () => {
@@ -73,6 +94,16 @@ describe("Library shelves", () => {
     expect(tabs).toContain('href="/library?shelf=finished"');
     expect(tabs).toContain("130");
     expect(html).not.toContain("Your impressions");
+  });
+
+  it("lists the articles of a topic from ?topic= in place of the shelves", () => {
+    shelf.topic = "deep work";
+    const html = renderToStaticMarkup(<LibraryPage />);
+    expect(html).toContain("Articles about deep work");
+    expect(html).toContain("A topic piece");
+    expect(html).toContain("example.com · 7 min read");
+    expect(html).toContain("More");
+    expect(html).not.toContain('aria-label="Shelves"');
   });
 
   it("selects the Saved shelf from the URL and drops the other shelves", () => {

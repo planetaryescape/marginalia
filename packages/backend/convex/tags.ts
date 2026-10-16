@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -35,6 +36,61 @@ export const forArticle = query({
       )
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((tag) => ({ _id: tag._id, name: tag.name }));
+  },
+});
+
+// An article row can be close to a megabyte, so a page of a topic's articles
+// stays small whatever the client asks for
+const TOPIC_PAGE_MAX = 12;
+const TOPIC_NAME_MAX = 120;
+
+/**
+ * The reader's articles carrying one active topic, newest tagged first, a page
+ * at a time. The topic is found by name, scoped to the caller; an unknown
+ * name or another reader's tag lists nothing.
+ */
+export const articlesForTopic = query({
+  args: { topic: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { topic, paginationOpts }) => {
+    const empty = { page: [], isDone: true, continueCursor: "" };
+    const key = normaliseTag(topic.slice(0, TOPIC_NAME_MAX));
+    if (!key) return empty;
+    const tag = await ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) =>
+        q.eq("userId", ctx.readerId).eq("key", key),
+      )
+      .unique();
+    if (tag?.status !== "active") return empty;
+    const links = await ctx.db
+      .query("articleTags")
+      .withIndex("by_tag", (q) => q.eq("tagId", tag._id))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, TOPIC_PAGE_MAX),
+      });
+    const page = (
+      await Promise.all(
+        links.page.map(async (link) => {
+          // by_tag is not scoped to a reader, so check the owner of each link
+          if (link.userId !== ctx.readerId) return null;
+          const article = await ownedArticle(ctx, link.articleId, ctx.readerId);
+          if (!article) return null;
+          return {
+            _id: article._id,
+            title: article.title,
+            author: article.author,
+            url: article.url,
+            uploaded: Boolean(article.uploadedFileName),
+            minutes: article.estimatedReadMinutes,
+            annotating: article.annotationStatus === "pending",
+            finished: article.finishedAt !== undefined,
+          };
+        }),
+      )
+    ).filter((row) => row !== null);
+    return { ...links, page };
   },
 });
 

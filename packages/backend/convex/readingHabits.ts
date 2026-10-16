@@ -1,0 +1,192 @@
+import type { Id } from "./_generated/dataModel";
+import { query } from "./functions";
+import { roomPeriod } from "./lib/readingRoom";
+import { periodVisits, roomArgs } from "./stats";
+
+// Interaction rows read for the period, newest first. A finish or abandon row
+// can carry up to 128 annotation ids (about 4.7 KB), so 1,500 rows stay near
+// 7 MB in the worst case, well under Convex's 16 MiB read limit.
+const HABIT_EVENTS = 1500;
+// Sessions are small rows, one per time choice
+const HABIT_SESSIONS = 1000;
+
+/**
+ * How the reader reads, for the period: the times they chose, Another
+ * presses, finishes, and articles opened and left unfinished. Counts only; no
+ * row leaves the server. `partial` when a cap cut the period short.
+ *
+ * Nothing in the product records an abandon event, so "left unfinished" is
+ * the articles opened in the period that no finish followed, plus any
+ * explicitly abandoned.
+ */
+export const readingHabits = query({
+  args: roomArgs,
+  handler: async (ctx, { timeZone, period: periodName }) => {
+    const period = roomPeriod(Date.now(), timeZone, periodName);
+    const [events, sessions] = await Promise.all([
+      ctx.db
+        .query("articleInteractions")
+        .withIndex("by_user_created", (q) =>
+          q
+            .eq("userId", ctx.readerId)
+            .gte("createdAt", period.start)
+            .lt("createdAt", period.end),
+        )
+        .order("desc")
+        .take(HABIT_EVENTS + 1),
+      ctx.db
+        .query("sessions")
+        .withIndex("by_user_recent", (q) =>
+          q
+            .eq("userId", ctx.readerId)
+            .gte("startedAt", period.start)
+            .lt("startedAt", period.end),
+        )
+        .order("desc")
+        .take(HABIT_SESSIONS + 1),
+    ]);
+    const shownEvents = events.slice(0, HABIT_EVENTS);
+    const shownSessions = sessions.slice(0, HABIT_SESSIONS);
+
+    const choices = new Map<number, number>();
+    for (const session of shownSessions)
+      choices.set(
+        session.requestedMinutes,
+        (choices.get(session.requestedMinutes) ?? 0) + 1,
+      );
+
+    const opened = new Set<Id<"articles">>();
+    const finished = new Set<Id<"articles">>();
+    const abandoned = new Set<Id<"articles">>();
+    let anotherPresses = 0;
+    for (const event of shownEvents) {
+      if (event.action === "opened") opened.add(event.articleId);
+      else if (event.action === "finished") finished.add(event.articleId);
+      else if (event.action === "abandoned") abandoned.add(event.articleId);
+      else if (event.action === "skipped") anotherPresses++;
+    }
+    for (const id of opened) if (!finished.has(id)) abandoned.add(id);
+    for (const id of finished) abandoned.delete(id);
+
+    return {
+      timesChosen: [...choices.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([minutes, count]) => ({ minutes, count })),
+      anotherPresses,
+      finishes: finished.size,
+      leftUnfinished: abandoned.size,
+      partial: events.length > HABIT_EVENTS || sessions.length > HABIT_SESSIONS,
+    };
+  },
+});
+
+// Distinct articles whose dwell is read, newest read first. Each paragraphDwell
+// row holds up to 300 entries (about 4.5 KB), so 100 articles x 6 visits is
+// at most about 2.7 MB beside the 7 MB of visits `periodVisits` reads.
+const LINGER_ARTICLES = 100;
+const DWELL_VISITS_PER_ARTICLE = 6;
+const ARTICLE_BATCH = 20;
+const TAGS_PER_ARTICLE = 20;
+// A topic needs this many held paragraphs before its average means anything
+const MIN_PARAGRAPHS = 8;
+// Tag documents carry an embedding (about 15 KB), so only the topics at the
+// top of the ranking are fetched, and only this many
+const TAG_CANDIDATES = 40;
+const LINGER_SHOWN = 8;
+
+/**
+ * Where the reader lingers: for each topic, the average seconds a paragraph
+ * held them, over paragraphs they stayed on for at least a second (that is
+ * all the dwell record keeps). Topics are the active tags on the articles
+ * read in the period, as in `readingTopics`.
+ */
+export const readingLinger = query({
+  args: roomArgs,
+  handler: async (ctx, { timeZone, period: periodName }) => {
+    const { period, rows } = await periodVisits(
+      ctx,
+      ctx.readerId,
+      timeZone,
+      periodName,
+    );
+    const articleIds: Id<"articles">[] = [];
+    const seen = new Set<Id<"articles">>();
+    for (const row of rows) {
+      if (row.activeTimeMs <= 0 || seen.has(row.articleId)) continue;
+      seen.add(row.articleId);
+      articleIds.push(row.articleId);
+      if (articleIds.length === LINGER_ARTICLES) break;
+    }
+
+    const perTag = new Map<
+      Id<"tags">,
+      { ms: number; paragraphs: number; articles: number }
+    >();
+    for (let i = 0; i < articleIds.length; i += ARTICLE_BATCH)
+      await Promise.all(
+        articleIds.slice(i, i + ARTICLE_BATCH).map(async (articleId) => {
+          const [dwellRows, links] = await Promise.all([
+            ctx.db
+              .query("paragraphDwell")
+              .withIndex("by_user_article", (q) =>
+                q.eq("userId", ctx.readerId).eq("articleId", articleId),
+              )
+              .order("desc")
+              .take(DWELL_VISITS_PER_ARTICLE),
+            ctx.db
+              .query("articleTags")
+              .withIndex("by_article", (q) => q.eq("articleId", articleId))
+              .take(TAGS_PER_ARTICLE),
+          ]);
+          let ms = 0;
+          let paragraphs = 0;
+          for (const row of dwellRows) {
+            if (row.updatedAt < period.start || row.updatedAt >= period.end)
+              continue;
+            for (const held of Object.values(row.dwell)) {
+              ms += held;
+              paragraphs++;
+            }
+          }
+          if (!paragraphs) return;
+          // by_article is not scoped to a reader, so check the owner of each link
+          for (const link of links) {
+            if (link.userId !== ctx.readerId) continue;
+            const seenTag = perTag.get(link.tagId) ?? {
+              ms: 0,
+              paragraphs: 0,
+              articles: 0,
+            };
+            perTag.set(link.tagId, {
+              ms: seenTag.ms + ms,
+              paragraphs: seenTag.paragraphs + paragraphs,
+              articles: seenTag.articles + 1,
+            });
+          }
+        }),
+      );
+
+    const ranked = [...perTag.entries()]
+      .filter(([, t]) => t.paragraphs >= MIN_PARAGRAPHS)
+      .sort(
+        (a, b) =>
+          b[1].ms / b[1].paragraphs - a[1].ms / a[1].paragraphs ||
+          a[0].localeCompare(b[0]),
+      )
+      .slice(0, TAG_CANDIDATES);
+    const topics = [];
+    for (const [tagId, total] of ranked) {
+      const tag = await ctx.db.get("tags", tagId);
+      if (tag?.userId !== ctx.readerId || tag.status !== "active") continue;
+      topics.push({
+        name: tag.name,
+        secondsPerParagraph:
+          Math.round((total.ms / total.paragraphs / 1000) * 10) / 10,
+        paragraphs: total.paragraphs,
+        articles: total.articles,
+      });
+      if (topics.length === LINGER_SHOWN) break;
+    }
+    return topics;
+  },
+});

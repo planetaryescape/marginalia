@@ -360,7 +360,7 @@ export const getWeeklyStats = query({
   },
 });
 
-const roomArgs = {
+export const roomArgs = {
   timeZone: v.string(),
   // The reader's local date. The server ignores it: a query that reads the
   // clock is not re-run by the clock, so the client changes this at local
@@ -384,7 +384,7 @@ const ROOM_FEEDS = 200;
 const FEEDS_SHOWN = 30;
 
 /** The reader's newest visits in the period, capped; `partial` when more exist. */
-async function periodVisits(
+export async function periodVisits(
   ctx: QueryCtx,
   userId: string,
   timeZone: string,

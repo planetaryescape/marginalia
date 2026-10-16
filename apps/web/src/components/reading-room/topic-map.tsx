@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export type Topic = { name: string; minutes: number; articles: number };
 
 function spent(minutes: number) {
@@ -39,7 +41,13 @@ export function TopicMap({
               fontSize: `${(0.9 + 1.1 * Math.sqrt(topic.minutes / most)).toFixed(2)}rem`,
             }}
           >
-            {topic.name}
+            <Link
+              href={`/library?topic=${encodeURIComponent(topic.name)}`}
+              className="underline-offset-4 hover:text-[var(--reader-fg)] hover:underline hover:decoration-[var(--pencil-rule)]"
+              title={`Open ${topic.name} in Library`}
+            >
+              {topic.name}
+            </Link>
             <span className="ml-1 font-sans text-[11px] text-[var(--reader-muted)]">
               {spent(topic.minutes)} · {topic.articles}{" "}
               {topic.articles === 1 ? "article" : "articles"}

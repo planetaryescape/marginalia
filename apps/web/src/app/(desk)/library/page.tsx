@@ -14,6 +14,7 @@ import {
   type ShelfId,
 } from "@/components/library-shelves";
 import { LibraryThread, type LibraryTurn } from "@/components/library-thread";
+import { LibraryTopic } from "@/components/library-topic";
 import { UpNextShelf } from "@/components/up-next-shelf";
 import { ReaderRequestError, streamFromConvex } from "@/lib/companion";
 import { useTabKeys } from "@/lib/list-nav";
@@ -212,6 +213,7 @@ function Shelves() {
   const params = useSearchParams();
   const shelf = shelfFromUrl(params.get("shelf"));
   const matchesFor = params.get("q")?.trim() ?? "";
+  const topic = params.get("topic")?.trim() ?? "";
   const overview = useQuery(api.home.overview, {});
   const saved = useQuery(api.savedArticles.count, {});
   const loved = useQuery(api.lovedArticles.listAll, {});
@@ -252,6 +254,7 @@ function Shelves() {
 
   // A topic from the desk's search lists its matches; the shelves return with Back
   if (matchesFor) return <LibraryMatches query={matchesFor} />;
+  if (topic) return <LibraryTopic topic={topic} />;
 
   return (
     <>

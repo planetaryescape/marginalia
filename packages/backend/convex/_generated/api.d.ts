@@ -117,6 +117,7 @@ import type * as providerCredentials from "../providerCredentials.js";
 import type * as queryEmbeddings from "../queryEmbeddings.js";
 import type * as readers from "../readers.js";
 import type * as readingActivity from "../readingActivity.js";
+import type * as readingHabits from "../readingHabits.js";
 import type * as readingQueue from "../readingQueue.js";
 import type * as readingRoomBackfill from "../readingRoomBackfill.js";
 import type * as readwise from "../readwise.js";
@@ -251,6 +252,7 @@ declare const fullApi: ApiFromModules<{
   queryEmbeddings: typeof queryEmbeddings;
   readers: typeof readers;
   readingActivity: typeof readingActivity;
+  readingHabits: typeof readingHabits;
   readingQueue: typeof readingQueue;
   readingRoomBackfill: typeof readingRoomBackfill;
   readwise: typeof readwise;
