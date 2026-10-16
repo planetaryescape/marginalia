@@ -10,6 +10,7 @@ import {
   mutation,
   query,
 } from "./functions";
+import { articleUrlVariants } from "./lib/articleUrl";
 import { EXTRACT_PAGE } from "./lib/constants";
 import { updateQueueStats } from "./readingQueue";
 
@@ -234,18 +235,36 @@ export const getByUrl = internalQuery({
 /**
  * The reader's own copy of a web address, if it is in the library. The link menu
  * reads its title and length, and whether it is already saved, without fetching
- * the page. Matches the key `addArticleByUrl` checks, so the two agree on what
- * "already in the library" means.
+ * the page. A copy is found by its URL or by the GUID an import stored (feeds
+ * store their own GUID, which is often not the URL).
  */
 export const findByUrl = query({
   args: { url: v.string() },
   handler: async (ctx, args) => {
-    const article = await ctx.db
-      .query("articles")
-      .withIndex("by_user_guid", (q) =>
-        q.eq("userId", ctx.readerId).eq("guid", args.url),
-      )
-      .first();
+    const variants = articleUrlVariants(args.url);
+    const [byUrl, byGuid] = await Promise.all([
+      Promise.all(
+        variants.map((url) =>
+          ctx.db
+            .query("articles")
+            .withIndex("by_user_url", (q) =>
+              q.eq("userId", ctx.readerId).eq("url", url),
+            )
+            .first(),
+        ),
+      ),
+      Promise.all(
+        variants.map((guid) =>
+          ctx.db
+            .query("articles")
+            .withIndex("by_user_guid", (q) =>
+              q.eq("userId", ctx.readerId).eq("guid", guid),
+            )
+            .first(),
+        ),
+      ),
+    ]);
+    const article = [...byUrl, ...byGuid].find((a) => a !== null);
     if (!article) return null;
     const saved = await ctx.db
       .query("savedArticles")

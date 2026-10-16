@@ -132,6 +132,7 @@ export default defineSchema({
     .index("by_userId_and_readerDocumentId", ["userId", "readerDocumentId"])
     .index("by_user", ["userId"])
     .index("by_user_guid", ["userId", "guid"])
+    .index("by_user_url", ["userId", "url"])
     .index("by_extraction_status", ["userId", "extractionStatus"])
     .index("by_annotation_status", ["userId", "annotationStatus"])
     .index("by_userId_and_annotationStatus_and_skipReason", [
