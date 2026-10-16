@@ -63,6 +63,7 @@ export function AnnotationCard({
   onJump,
   onReflect,
   onDeleteReflection,
+  inline = false,
 }: {
   annotation: AnnotationCardData;
   reflections: Reflection[];
@@ -73,6 +74,8 @@ export function AnnotationCard({
   layoutVersion: number;
   onClose: () => void;
   onJump: (index: number) => void;
+  /** Sits in the sidenote column, which places it. */
+  inline?: boolean;
 }) {
   const type = ANNOTATION_TYPES[annotation.type];
   const [draft, setDraft] = useState("");
@@ -205,6 +208,7 @@ export function AnnotationCard({
 
   return (
     <MarginCard
+      inline={inline}
       containerRef={containerRef}
       layoutVersion={layoutVersion}
       anchorKey={annotation._id}

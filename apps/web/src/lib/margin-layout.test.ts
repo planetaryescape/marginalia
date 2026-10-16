@@ -148,6 +148,56 @@ describe("layoutMargin", () => {
     expect(placements.find((p) => p.id === "c")?.collapsed).toBe(false);
   });
 
+  it("pushes the notes below an open note by its open height, and leaves the notes above", () => {
+    const closed = byId([
+      note("a", 100),
+      note("b", 300),
+      note("c", 400),
+      note("d", 500),
+    ]);
+    const opened = layoutMargin(
+      [
+        note("a", 100),
+        note("b", 300, { height: 260 }),
+        note("c", 400),
+        note("d", 500),
+      ],
+      { openId: "b" },
+    );
+    const at = Object.fromEntries(opened.map((p) => [p.id, p.top]));
+    expect(at.a).toBe(closed.a.top);
+    expect(at.b).toBe(300);
+    expect(at.c).toBe(300 + 260 + NOTE_GAP);
+    expect(at.d).toBe(at.c + 70 + NOTE_GAP);
+    // Closing the note returns every position to the closed layout.
+    const reclosed = Object.fromEntries(
+      layoutMargin(
+        [note("a", 100), note("b", 300), note("c", 400), note("d", 500)],
+        {
+          openId: undefined,
+        },
+      ).map((p) => [p.id, p.top]),
+    );
+    expect(reclosed).toEqual(
+      Object.fromEntries(Object.entries(closed).map(([k, v]) => [k, v.top])),
+    );
+  });
+
+  it("never collapses or merges the open note, even when it is pushed past the collapse rule", () => {
+    const placements = layoutMargin(
+      [
+        note("a", 0, { height: 300 }),
+        note("b", 50, { height: 300, collapsedHeight: 20 }),
+      ],
+      { openId: "b" },
+    );
+    expect(placements.find((p) => p.id === "b")).toMatchObject({
+      collapsed: false,
+      connector: true,
+    });
+    expect(placements.find((p) => p.id === "b")?.top).toBe(308);
+  });
+
   it("returns nothing for no notes", () => {
     expect(layoutMargin([])).toEqual([]);
   });

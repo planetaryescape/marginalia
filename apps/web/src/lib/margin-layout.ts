@@ -77,11 +77,22 @@ interface PlacedGroup {
   height: number;
 }
 
-function place(groups: Group[], forced: ReadonlySet<Group>): PlacedGroup[] {
+function isOpen(group: Group, openId: string | undefined): boolean {
+  return group.members.some((m) => m.id === openId);
+}
+
+function place(
+  groups: Group[],
+  forced: ReadonlySet<Group>,
+  openId: string | undefined,
+): PlacedGroup[] {
   let previousBottom = Number.NEGATIVE_INFINITY;
   return groups.map((group) => {
     const top = Math.max(group.anchor, previousBottom + NOTE_GAP);
-    const collapsed = forced.has(group) || top - group.anchor > COLLAPSE_AFTER;
+    // The open note is the card: it keeps its height however far it is pushed.
+    const collapsed =
+      !isOpen(group, openId) &&
+      (forced.has(group) || top - group.anchor > COLLAPSE_AFTER);
     const height = groupHeight(group, collapsed);
     previousBottom = top + height;
     return { group, top, collapsed, height };
@@ -92,25 +103,30 @@ function place(groups: Group[], forced: ReadonlySet<Group>): PlacedGroup[] {
  * Places notes in anchor order, each at `max(anchor, previousBottom + 8)`.
  * Notes within 40px of each other merge into one box, a note pushed more than
  * 240px collapses to a line, and if the stack would end more than one note
- * below `contentEnd`, every other displaced note collapses too.
+ * below `contentEnd`, every other displaced note collapses too. The open note
+ * (`openId`) is never merged or collapsed; it takes its open height in the
+ * stack, so notes below it move down and notes above it stay put.
  */
 export function layoutMargin(
   notes: LayoutNote[],
-  options: { contentEnd?: number } = {},
+  options: { contentEnd?: number; openId?: string } = {},
 ): Placement[] {
   // Array.sort is stable, so equal anchors keep the order they came in.
   const sorted = [...notes].sort((a, b) => a.anchor - b.anchor);
   const groups = groupNotes(sorted);
-  let placed = place(groups, new Set());
+  const { openId } = options;
+  let placed = place(groups, new Set(), openId);
 
   const last = placed[placed.length - 1];
   if (last && options.contentEnd !== undefined) {
     const fullHeight = groupHeight(last.group, false);
     if (last.top + last.height > options.contentEnd + fullHeight) {
       const displaced = new Set(
-        placed.filter((p) => p.top - p.group.anchor > 1).map((p) => p.group),
+        placed
+          .filter((p) => p.top - p.group.anchor > 1 && !isOpen(p.group, openId))
+          .map((p) => p.group),
       );
-      placed = place(groups, displaced);
+      placed = place(groups, displaced, openId);
     }
   }
 

@@ -1,8 +1,7 @@
 "use client";
-import type { ReaderSettings } from "@/lib/reader-settings";
-
 
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -18,6 +17,7 @@ import {
 } from "@/lib/margin-layout";
 import { type MarginMode, measureGutter } from "@/lib/margin-mode";
 import { getArticleBody } from "@/lib/paragraphs";
+import type { ReaderSettings } from "@/lib/reader-settings";
 import { findTextRange } from "@/lib/text-range";
 import { usePrefersReducedMotion } from "@/lib/use-margin-mode";
 
@@ -90,6 +90,7 @@ export function Sidenotes({
   openId,
   onClose,
   onOpenNotes,
+  openCard,
 }: {
   containerRef: React.RefObject<HTMLElement | null>;
   mode: MarginMode;
@@ -106,6 +107,8 @@ export function Sidenotes({
   openId: string | null;
   onClose: () => void;
   onOpenNotes: () => void;
+  /** The open annotation's card; it takes the open note's place in the column. */
+  openCard?: ReactNode;
 }) {
   const active = mode === "sidenotes";
   const layerRef = useRef<HTMLDivElement>(null);
@@ -202,21 +205,25 @@ export function Sidenotes({
       if (!rect) continue;
       const para = host?.closest<HTMLElement>("[data-para]")?.dataset.para;
       if (para) labels[entry.key] = `¶${para}`;
-      const height =
-        el.querySelector<HTMLElement>(".sidenote-body")?.scrollHeight ??
-        COLLAPSED_HEIGHT;
+      // The open card is the whole note; a collapsed note measures its hidden body.
+      const isOpenNote = el.dataset.open === "true";
+      const height = isOpenNote
+        ? el.offsetHeight
+        : (el.querySelector<HTMLElement>(".sidenote-body")?.scrollHeight ??
+          COLLAPSED_HEIGHT);
       notes.push({
         id: entry.key,
         anchor: entry.kind === "waiting" ? rect.top + scrollY : centred(rect),
         height,
         collapsedHeight: entry.kind === "waiting" ? height : COLLAPSED_HEIGHT,
         hand: entry.kind === "note" ? "pen" : "pencil",
-        mergeable: entry.kind !== "waiting",
+        mergeable: entry.kind !== "waiting" && !isOpenNote,
       });
     }
 
     const placements = layoutMargin(notes, {
       contentEnd: body.getBoundingClientRect().bottom + scrollY,
+      openId: openId ? `a:${openId}` : undefined,
     });
     const ticks = marks.flatMap((m) => {
       const rect = m.range.startContainer.isConnected
@@ -236,12 +243,43 @@ export function Sidenotes({
     if (json === layoutJson.current) return;
     layoutJson.current = json;
     setLayout(next);
-  }, [containerRef, entries, marks, version]);
+  }, [containerRef, entries, marks, version, openId]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `layoutKey` asks for a re-measure
   useLayoutEffect(() => {
     if (active) run();
   }, [active, run, layoutKey]);
+
+  // The open card grows as its content streams in, and the notes below follow its height.
+  useEffect(() => {
+    const el = openId ? nodes.current.get(`a:${openId}`) : undefined;
+    if (!active || !el) return;
+    const resize = new ResizeObserver(() => run());
+    resize.observe(el);
+    return () => resize.disconnect();
+  }, [active, openId, run]);
+
+  // Notes that move slide from where they were, so they never jump.
+  const lastTops = useRef(new Map<string, number>());
+  useLayoutEffect(() => {
+    for (const [key, placement] of Object.entries(layout.placements)) {
+      const previous = lastTops.current.get(key);
+      lastTops.current.set(key, placement.top);
+      const el = nodes.current.get(key);
+      if (
+        !el ||
+        reduced ||
+        previous === undefined ||
+        previous === placement.top
+      )
+        continue;
+      el.style.transition = "none";
+      el.style.transform = `translateY(${previous - placement.top}px)`;
+      void el.offsetHeight;
+      el.style.transition = "";
+      el.style.transform = "";
+    }
+  }, [layout, reduced]);
 
   // Anything that moves lines without a React update: resize, the notes pane, web fonts.
   useEffect(() => {
@@ -373,8 +411,12 @@ export function Sidenotes({
           entry.kind === "annotation" ? KINDS[entry.type] : undefined;
         const label = isNote ? "your note" : (kind?.name ?? "");
         const paragraph = layout.labels[entry.key];
+        const isOpen = entry.kind === "annotation" && entry.id === openId;
         const isArrived =
-          reduced || entry.kind === "waiting" || arrived.has(entry.key);
+          reduced ||
+          isOpen ||
+          entry.kind === "waiting" ||
+          arrived.has(entry.key);
         const common = {
           ref: register(entry.key),
           "data-key": entry.key,
@@ -413,7 +455,6 @@ export function Sidenotes({
           );
         }
 
-        const isOpen = entry.kind === "annotation" && entry.id === openId;
         return (
           <div
             key={entry.key}
@@ -430,38 +471,48 @@ export function Sidenotes({
               } as React.CSSProperties
             }
           >
-            {(placement?.connector ?? true) && (
-              <span
-                className="sidenote-connector"
-                data-bent={placement && placement.elbow > 1 ? "true" : "false"}
-                aria-hidden="true"
-              />
+            {isOpen && openCard ? (
+              <div className="sidenote-card">{openCard}</div>
+            ) : (
+              <>
+                {(placement?.connector ?? true) && (
+                  <span
+                    className="sidenote-connector"
+                    data-bent={
+                      placement && placement.elbow > 1 ? "true" : "false"
+                    }
+                    aria-hidden="true"
+                  />
+                )}
+                <button
+                  type="button"
+                  className="sidenote-hit"
+                  // Marks are the keyboard stop for annotations (they carry this
+                  // text via aria-describedby); your own notes have no mark, so
+                  // they take a stop of their own.
+                  tabIndex={isNote ? 0 : -1}
+                  aria-label={`${label}: ${entry.text}`}
+                  onClick={() => (isNote ? onOpenNotes() : openMark(entry.id))}
+                >
+                  <span className="sidenote-body">
+                    <span className="sidenote-kind">
+                      {kind && (
+                        <i className="sidenote-dot" aria-hidden="true" />
+                      )}
+                      {label}
+                    </span>
+                    <span className="sidenote-text" id={textId(entry.key)}>
+                      {entry.text}
+                    </span>
+                  </span>
+                  <span className="sidenote-line" aria-hidden="true">
+                    <i className="sidenote-dot" />
+                    {label}
+                    {paragraph ? ` · ${paragraph}` : ""}
+                  </span>
+                </button>
+              </>
             )}
-            <button
-              type="button"
-              className="sidenote-hit"
-              // Marks are the keyboard stop for annotations (they carry this
-              // text via aria-describedby); your own notes have no mark, so
-              // they take a stop of their own.
-              tabIndex={isNote ? 0 : -1}
-              aria-label={`${label}: ${entry.text}`}
-              onClick={() => (isNote ? onOpenNotes() : openMark(entry.id))}
-            >
-              <span className="sidenote-body">
-                <span className="sidenote-kind">
-                  {kind && <i className="sidenote-dot" aria-hidden="true" />}
-                  {label}
-                </span>
-                <span className="sidenote-text" id={textId(entry.key)}>
-                  {entry.text}
-                </span>
-              </span>
-              <span className="sidenote-line" aria-hidden="true">
-                <i className="sidenote-dot" />
-                {label}
-                {paragraph ? ` · ${paragraph}` : ""}
-              </span>
-            </button>
           </div>
         );
       })}

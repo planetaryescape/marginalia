@@ -199,10 +199,14 @@ article[data-margin="phone"] .annotation-mark::after {
   color: var(--pen);
 }
 
-/* An open note is the card now; the collapsed note keeps its slot so neighbours stay put. */
-.sidenote[data-open="true"] {
-  opacity: 0;
-  pointer-events: none;
+/* Notes slide to their new place with a transform (set by the layout), never by top. */
+.sidenote {
+  transition: transform var(--motion-move);
+}
+
+/* The open annotation's card fills the note's slot in the column. */
+.sidenote-card {
+  width: 100%;
 }
 
 .sidenote-hit {
@@ -351,6 +355,7 @@ article[data-margin="phone"] .annotation-mark::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .sidenote,
   .sidenote-connector,
   .sidenote-hit {
     transition: none;

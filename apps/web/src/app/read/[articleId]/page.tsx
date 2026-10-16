@@ -694,6 +694,24 @@ export default function ReadPage() {
         openId={activeAnnotationId}
         onClose={closeAnnotation}
         onOpenNotes={() => setNotesPanelOpen(true)}
+        openCard={
+          openAnnotation && activeAnnotation ? (
+            <AnnotationCard
+              inline
+              annotation={openAnnotation}
+              paragraphIndex={activeAnnotation.paragraphIndex}
+              reflections={(articleNotes ?? [])
+                .filter((note) => note.annotationId === openAnnotation._id)
+                .sort((a, b) => a.createdAt - b.createdAt)}
+              onReflect={handleReflect}
+              onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+              containerRef={articleRef}
+              layoutVersion={paragraphs.version}
+              onClose={closeAnnotation}
+              onJump={jumpToParagraph}
+            />
+          ) : null
+        }
       />
 
       {marginMode === "phone" && (
@@ -714,6 +732,7 @@ export default function ReadPage() {
 
       {openAnnotation &&
         activeAnnotation &&
+        marginMode !== "sidenotes" &&
         (marginMode !== "phone" || phoneSheet) && (
           <AnnotationCard
             key={openAnnotation._id}

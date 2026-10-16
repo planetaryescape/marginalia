@@ -184,6 +184,19 @@ beforeEach(() => {
         height: 3000,
       }) as DOMRect,
   );
+  // An open note measures its card, which a test gives a height with data-card-height.
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.classList.contains("sidenote") && this.dataset.open === "true")
+        return Number(
+          this.querySelector("[data-card-height]")?.getAttribute(
+            "data-card-height",
+          ) ?? 70,
+        );
+      return 0;
+    },
+  });
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get(this: HTMLElement) {
@@ -495,5 +508,115 @@ describe("closing", () => {
     );
     expect(q('[data-key="a:a1"]')?.getAttribute("data-open")).toBe("true");
     expect(q('[data-key="a:a2"]')?.style.top).toBe(before);
+  });
+});
+
+describe("the open card in the column", () => {
+  const ids = ["a1", "a2", "a3", "a4"];
+  // Anchors are line top + 4: 104, 304, 404, 504. Each closed note is 70px tall.
+  function Column({
+    openId,
+    cardHeight = 260,
+  }: {
+    openId: string | null;
+    cardHeight?: number;
+  }) {
+    const ref = useRef<HTMLElement>(null);
+    return (
+      <>
+        <article ref={ref}>
+          <div data-article-body>
+            {[
+              ["a1", 100],
+              ["a2", 300],
+              ["a3", 400],
+              ["a4", 500],
+            ].map(([id, y]) => (
+              <p key={id} data-para={String(y)}>
+                <mark
+                  className="annotation-mark"
+                  data-annotation-id={id}
+                  data-y={y}
+                >
+                  mark {id}
+                </mark>
+              </p>
+            ))}
+          </div>
+        </article>
+        <Sidenotes
+          containerRef={ref}
+          mode="sidenotes"
+          version={1}
+          layoutKey={DEFAULT_SETTINGS}
+          annotations={ids.map((id) => ({
+            _id: id,
+            type: "context",
+            content: `note ${id}`,
+          }))}
+          userNotes={[]}
+          marks={[]}
+          waiting={false}
+          openId={openId}
+          openCard={
+            openId ? (
+              <div data-card-height={cardHeight}>card {openId}</div>
+            ) : undefined
+          }
+          onClose={() => {}}
+          onOpenNotes={() => {}}
+        />
+      </>
+    );
+  }
+  const tops = () =>
+    Object.fromEntries(
+      ids.map((id) => [id, q(`[data-key="a:${id}"]`)?.style.top]),
+    );
+
+  it("pushes the notes below an open note by its height and leaves the notes above in place", async () => {
+    await render(<Column openId="a2" />);
+    expect(tops()).toEqual({
+      a1: "104px",
+      a2: "304px",
+      a3: "572px",
+      a4: "650px",
+    });
+  });
+
+  it("returns every note to its closed place when the note closes", async () => {
+    await render(<Column openId="a2" />);
+    await render(<Column openId={null} />);
+    expect(tops()).toEqual({
+      a1: "104px",
+      a2: "304px",
+      a3: "404px",
+      a4: "504px",
+    });
+  });
+
+  it("collapses the open note and expands the next in one layout, matching a fresh layout", async () => {
+    await render(<Column openId="a1" cardHeight={200} />);
+    await render(<Column openId="a3" cardHeight={200} />);
+    const accordion = tops();
+    const open = all('.sidenote[data-open="true"]').map((n) => n.dataset.key);
+    expect(open).toEqual(["a:a3"]);
+    await act(async () => root.unmount());
+    root = createRoot(document.getElementById("root") as HTMLElement);
+    await render(<Column openId="a3" cardHeight={200} />);
+    expect(tops()).toEqual(accordion);
+  });
+
+  it("puts the open card in the column, not in a hit target or a connector", async () => {
+    await render(<Column openId="a2" />);
+    const note = q('[data-key="a:a2"]') as HTMLElement;
+    expect(
+      note.querySelector(".sidenote-card [data-card-height]"),
+    ).not.toBeNull();
+    expect(note.querySelector(".sidenote-hit")).toBeNull();
+    expect(note.querySelector(".sidenote-connector")).toBeNull();
+    // Column position and width come from the layer's variables, the same as collapsed notes.
+    expect(note.style.left).toBe("");
+    expect(note.style.width).toBe("");
   });
 });
