@@ -23,16 +23,16 @@
 | 3c | Ask by topic, one at a time, fast | Deployed at `9a90018`: first card ~1.05 s warm (was 6.7–8.8 s) |
 | 2d | Links wait for me, and saved things come back | Done: live; link menu verified |
 | 2e | The summary reads in layers | Done: live at `4c46980` |
-| 2c | A critical friend in the margin | Planned |
+| 2c | A critical friend in the margin | Done: live at `a2d16bc`; 111 short unread articles re-annotated. Failed first annotations now retry (`800263e`) |
 | 2f | It reads alongside me, and doesn't repeat itself | Planned (S6 first) |
-| 3b | I bring my own (PDF) | Comp approved; S7 and S8 done |
+| 3b | I bring my own (PDF) | Built; in review |
 | 4 | Four rooms | Done: live at `27cce50` |
 | 5 | Notes is my commonplace book | Done: live at `6730c0b` |
-| 5b | Your reading: stats and dictionary | Planned |
+| 5b | Your reading: stats and dictionary | Done: live at `efea4a4` |
 | 5c | It learns what I'd read | Planned |
-| 5d | My ideas, connected | Planned (comp next) |
+| 5d | My ideas, connected | Built; in review |
 | 6 | Settings are quiet | Done: live at `e1c0e30` |
-| 7 | It flies | Planned (S1 first) |
+| 7 | It flies | S1 done; comp awaiting approval |
 
 Build in the order of the table (D-DES-052). Letters keep the numbers already cited; the order, not the number, is the sequence. The product questions that gated rungs are all answered except Q3 and Q4, which BK answers before rung 4. Spikes: S6 before 2f, S9 before 2c, S3 before 3, S5 before 3c, S7 and S8 before 3b, S1 before 7. S3 and S5 are done.
 

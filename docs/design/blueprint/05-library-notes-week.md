@@ -73,12 +73,11 @@ Lookups are recorded on every Define, whether or not BK kept the answer (D-DES-0
 
 ## Your week (inside Your reading)
 
-Today's "This week" / "Activity" / "Reading activity" page becomes the opening view of the Your reading room (D-DES-060), renamed once.
+The approved rung 5b comp replaced "This week" with the Your reading room's own opening view. The room opens on one sentence ("This month you read for 1 hour 30 minutes over 5 days, mostly short reads in the afternoon."), with the period as a quiet text control ("This month ▾"), then the pictures from [Stats](#stats).
 
-- **Lead with a sentence:** "You read for 44 minutes on 4 days this week and finished 3 articles." Below it, the period selector as a quiet text control ("This week ▾").
-- **The rhythm chart** stays: daily bars in `--ink-muted`, today's bar in ink, with no pen colour. Use the `dataviz` skill's rules when restyling it.
-- **"What you kept"** becomes rows of the week's notes, linked to Notes, not counters ("5 Notes · 0 Reflections · 12 Annotations opened"). The counts move into the sentence.
-- **The tracking caveat** ("Some older visits weren't fully tracked…") becomes a footnote in `--type-meta` at the bottom, not a paragraph under the stats.
+- The hour-by-day heat map takes the place of the daily rhythm bars, because it shows when as well as how much.
+- The week's notes stay in Notes, not in a "What you kept" list, because the room is a mirror of how BK reads, not a second copy of what he kept.
+- The room says in one line when a period has more visits than it reads.
 
 ## Done when (rooms)
 
