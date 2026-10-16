@@ -156,7 +156,7 @@ export function useEngagementTracker({
     window.addEventListener("pagehide", leave);
     window.addEventListener("online", retry);
     const tick = window.setInterval(
-      () => clock.tick(Date.now(), performance.now()),
+      () => clock.heartbeat(Date.now(), performance.now()),
       1000,
     );
     const save = window.setInterval(() => {
@@ -190,13 +190,16 @@ export function useEngagementTracker({
   // biome-ignore lint/correctness/useExhaustiveDependencies: `sessionId` re-creates the clock and `paragraphVersion` renumbers paragraphs, so both need a fresh observer
   useEffect(() => {
     const body = ready ? getArticleBody(containerRef.current) : null;
-    if (!body) return;
+    // Bound to this clock, not the ref: a late delivery from an observer that
+    // has been replaced must not credit the next article's clock
+    const clock = clockRef.current;
+    if (!body || !clock) return;
     const stop = observeParagraphsInView(body, (inView) =>
-      clockRef.current?.paragraphs(inView, Date.now(), performance.now()),
+      clock.paragraphs(inView, Date.now(), performance.now()),
     );
     return () => {
       stop();
-      clockRef.current?.paragraphs([], Date.now(), performance.now());
+      clock.paragraphs([], Date.now(), performance.now());
     };
   }, [ready, articleId, sessionId, containerRef, paragraphVersion]);
   useEffect(() => {

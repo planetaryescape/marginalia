@@ -115,7 +115,6 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     });
     await ctx.db.insert("feedStatsBackfill", {
       userId: `${userId}`,
-      cutoff: now,
       ready: i === 0,
     });
     await ctx.db.insert("noteChunks", {

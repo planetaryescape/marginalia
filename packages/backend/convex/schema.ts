@@ -239,6 +239,9 @@ export default defineSchema({
     annotationsOpened: v.optional(v.array(v.string())),
     totalScrollEvents: v.optional(v.number()),
     tabHiddenCount: v.optional(v.number()),
+    // Set once the per-feed counters have decided this interaction, whether
+    // they counted it or not, so no path counts it a second time.
+    feedCounted: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
@@ -293,11 +296,9 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_user_feed", ["userId", "feedId"]),
 
-  // Splits history from live counting: interactions created before `cutoff`
-  // belong to the backfill, later ones to the live counters.
+  // Progress of the one-time count of interactions that predate the counters.
   feedStatsBackfill: defineTable({
     userId: v.string(),
-    cutoff: v.number(),
     cursor: v.optional(v.string()),
     ready: v.boolean(),
   }).index("by_user", ["userId"]),

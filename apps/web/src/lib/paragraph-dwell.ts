@@ -16,8 +16,11 @@ export function observeParagraphsInView(
   // Server render and older test environments have no observer to attach
   if (typeof IntersectionObserver === "undefined") return () => {};
   const visible = new Set<number>();
+  // An observer can still deliver queued entries after it is disconnected
+  let disposed = false;
   const observer = new IntersectionObserver(
     (entries) => {
+      if (disposed) return;
       for (const entry of entries) {
         // SAFETY: only `[data-para]` HTMLElements are ever observed below.
         const label = Number((entry.target as HTMLElement).dataset.para);
@@ -31,5 +34,8 @@ export function observeParagraphsInView(
   );
   for (const el of body.querySelectorAll<HTMLElement>("[data-para]"))
     if (!el.closest(`[${UI_HOST_ATTRIBUTE}]`)) observer.observe(el);
-  return () => observer.disconnect();
+  return () => {
+    disposed = true;
+    observer.disconnect();
+  };
 }

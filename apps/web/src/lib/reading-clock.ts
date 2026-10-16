@@ -12,6 +12,8 @@ export interface ReadingSample {
   annotationsOpened: string[];
   /** Active milliseconds per displayed paragraph number */
   dwell: Record<string, number>;
+  /** Active time not yet credited to the paragraphs on screen */
+  dwellPending: number;
 }
 export function articleProgress(
   top: number,
@@ -59,6 +61,7 @@ export class ReadingClock {
         maxScrollPercent: 0,
         annotationsOpened: [],
         dwell: {},
+        dwellPending: 0,
       };
       this.samples.set(day, s);
     }
@@ -89,14 +92,32 @@ export class ReadingClock {
       s.visibleTimeMs += visible * share;
       s.activeTimeMs += active * share;
       // Dwell takes the active share, so it stops when the tab is hidden, the
-      // window loses focus or the reader goes idle, exactly as active time does
-      for (const paragraph of this.inView)
-        s.dwell[paragraph] = (s.dwell[paragraph] ?? 0) + active * share;
+      // window loses focus or the reader goes idle, exactly as active time does.
+      // It is only totalled here; the paragraphs are credited by `creditDwell`.
+      s.dwellPending += active * share;
       s.updatedAt = end;
       from = end;
     }
     this.lastAt = Math.max(this.lastAt, at);
     this.lastTick = tick;
+  }
+  /**
+   * Hands the active time gathered since the last credit to the paragraphs
+   * on screen. Called when the set changes, on the timer and before a
+   * snapshot, never from scroll or input, which only call `tick`.
+   */
+  creditDwell() {
+    for (const s of this.samples.values()) {
+      if (s.dwellPending > 0)
+        for (const paragraph of this.inView)
+          s.dwell[paragraph] = (s.dwell[paragraph] ?? 0) + s.dwellPending;
+      s.dwellPending = 0;
+    }
+  }
+  /** The once-a-second timer: advances the clock and credits paragraph dwell. */
+  heartbeat(at: number, tick: number) {
+    this.tick(at, tick);
+    this.creditDwell();
   }
   activity(at: number, tick: number) {
     this.tick(at, tick);
@@ -113,7 +134,7 @@ export class ReadingClock {
   }
   /** Sets which paragraphs are on screen; time up to now goes to the previous set. */
   paragraphs(inView: readonly number[], at: number, tick: number) {
-    this.tick(at, tick);
+    this.heartbeat(at, tick);
     this.inView = [...inView];
   }
   progress(percent: number) {
@@ -129,12 +150,14 @@ export class ReadingClock {
       s.annotationsOpened.push(id);
   }
   snapshots(at: number, tick: number) {
-    this.tick(at, tick);
-    return [...this.samples.values()].map((s) => ({
-      ...s,
-      annotationsOpened: [...s.annotationsOpened],
-      dwell: capDwell(s.dwell),
-    }));
+    this.heartbeat(at, tick);
+    return [...this.samples.values()].map(
+      ({ dwell, dwellPending: _, ...s }) => ({
+        ...s,
+        annotationsOpened: [...s.annotationsOpened],
+        dwell: capDwell(dwell),
+      }),
+    );
   }
   acknowledge(day: string) {
     if (day !== localDay(this.lastAt)) this.samples.delete(day);

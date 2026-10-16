@@ -145,6 +145,8 @@ describe("paragraph dwell in the reader", () => {
     await act(async () => root.render(<Reader articleId="b" />));
     await advance(100);
     expect(old.disconnected).toBe(true);
+    // A queued delivery from the replaced observer, after navigation
+    await act(async () => old.show(1, 2, 3));
     expect(live().every((o) => o !== old)).toBe(true);
     await advance(3000);
     const sent = await leave();

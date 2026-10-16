@@ -7,6 +7,7 @@ import { ArticleFinder } from "./article-finder";
 const push = vi.hoisted(() => vi.fn());
 const addByUrl = vi.hoisted(() => vi.fn());
 const save = vi.hoisted(() => vi.fn());
+const record = vi.hoisted(() => vi.fn());
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("next/link", () => ({
@@ -18,12 +19,13 @@ vi.mock("next/link", () => ({
 }));
 vi.mock("convex/react", () => ({
   useAction: () => addByUrl,
-  useMutation: () => save,
+  useMutation: (fn: string) => (fn === "record" ? record : save),
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     actions: { addArticleByUrl: { add: "add" } },
     savedArticles: { save: "save" },
+    sessions: { recordInteraction: "record" },
   },
 }));
 vi.mock("sonner", () => ({ toast }));
@@ -63,6 +65,8 @@ beforeEach(() => {
   push.mockReset();
   addByUrl.mockReset();
   save.mockReset();
+  record.mockReset();
+  record.mockResolvedValue(undefined);
   toast.success.mockReset();
   toast.error.mockReset();
   vi.stubGlobal(
@@ -359,6 +363,29 @@ describe("topic picker", () => {
         .querySelector("button[aria-haspopup]")
         ?.getAttribute("aria-expanded"),
     ).toBe("false");
+  });
+
+  it("records an offer when a card is shown, once per article however it re-renders or returns", async () => {
+    await show();
+    await type("attention");
+    await settle();
+    await answer("find", {
+      more: false,
+      matches: [find("a", "Alpha", 3), find("b", "Beta", 4)],
+    });
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith({
+      articleId: "a",
+      action: "presented",
+    });
+    await click("Another");
+    expect(record).toHaveBeenCalledTimes(2);
+    expect(record).toHaveBeenLastCalledWith({
+      articleId: "b",
+      action: "presented",
+    });
+    await key("ArrowUp");
+    expect(record).toHaveBeenCalledTimes(2);
   });
 
   it("saves the shown article for later", async () => {

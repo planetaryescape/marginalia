@@ -5,7 +5,7 @@ import { useMutation } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 
 type SessionId = Id<"sessions"> | undefined;
-type Action = "skipped" | "saved";
+type Action = "presented" | "skipped" | "saved";
 
 export type SessionRecorder = {
   /** Queued until the session id exists, then sent in the order it was called. */
@@ -65,10 +65,20 @@ export function useSessionRecorder(input: {
   };
 
   return {
-    record: ({ articleId, action }) =>
-      enqueue(async (sessionId) => {
+    record: ({ articleId, action }) => {
+      const send = async (sessionId: SessionId) => {
         await recordInteraction({ articleId, sessionId, action });
-      }),
+      };
+      // An offer is not an outcome the others wait on: it joins no queue, so
+      // a slow one never delays a reader's skip, save or open
+      if (action === "presented")
+        void ready.promise
+          .then(send)
+          .catch((error) =>
+            console.error("Couldn't record that interaction", error),
+          );
+      else enqueue(send);
+    },
     open: async (articleId) => {
       const sessionId = await ready.promise;
       enqueue(async () => {

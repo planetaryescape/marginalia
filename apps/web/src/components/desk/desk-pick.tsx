@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { createSingleFlight } from "@/lib/suggestion-deck";
+import { usePresented } from "@/lib/use-presented";
 import { useSessionRecorder } from "@/lib/use-session-recorder";
 import { type Card, useSuggestionDeck } from "@/lib/use-suggestion-deck";
 
@@ -92,6 +93,13 @@ export function DeskPick({
     });
 
   const { card, index } = deck;
+  // The offer is counted when the card is on screen, in this time's session
+  usePresented(card?._id, (articleId) =>
+    recorder.record({
+      articleId,
+      action: "presented",
+    }),
+  );
   const another = () => {
     if (!card) return;
     return act(async () => {

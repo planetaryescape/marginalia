@@ -48,6 +48,10 @@ const totals = (rows: Awaited<ReturnType<typeof stats>>) =>
     skipped,
   }));
 
+const finish = async (t: Fixture["t"]) => {
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+};
+
 describe("per-feed outcome counts", () => {
   it("counts offered, opened, finished and skipped as they happen, and nothing else", async () => {
     const { t, owner } = await secondReaderTest(modules);
@@ -110,6 +114,138 @@ describe("per-feed outcome counts", () => {
     });
     const [row] = await stats(t);
     expect(row).toMatchObject({ feedId, opened: 1, finished: 1, offered: 0 });
+  });
+
+  describe("one open or finish is one outcome", () => {
+    async function setup() {
+      const f = await secondReaderTest(modules);
+      const { feedId, articleId } = await f.t.run((ctx) =>
+        feedWithArticle(ctx, OWNER, "paired"),
+      );
+      const sessionId = await f.owner.mutation(api.sessions.create, {
+        requestedMinutes: 10,
+      });
+      const startedAt = Date.now() - 20_000;
+      const checkpoint = (visitId: string, extra = {}) => ({
+        articleId,
+        sessionId,
+        visitId,
+        day: new Date(startedAt).toISOString().slice(0, 10),
+        startedAt,
+        updatedAt: startedAt + 10_000,
+        activeTimeMs: 6000,
+        visibleTimeMs: 8000,
+        timeSpentMs: 10_000,
+        maxScrollPercent: 40,
+        annotationsOpened: [],
+        ...extra,
+      });
+      return { ...f, feedId, articleId, sessionId, checkpoint };
+    }
+    const VISIT = "170d1ba0-28c2-44b1-9d97-c9f9bc9e944e";
+    const VISIT_2 = "270d1ba0-28c2-44b1-9d97-c9f9bc9e944e";
+
+    it("counts the desk's open and the reader page's first checkpoint as one", async () => {
+      const { t, owner, articleId, sessionId, checkpoint } = await setup();
+      await owner.mutation(api.sessions.recordInteraction, {
+        articleId,
+        sessionId,
+        action: "opened",
+      });
+      await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
+      await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
+      expect((await stats(t))[0].opened).toBe(1);
+    });
+
+    it("counts the same pair once when the checkpoint beats the desk's record", async () => {
+      const { t, owner, articleId, sessionId, checkpoint } = await setup();
+      await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
+      await owner.mutation(api.sessions.recordInteraction, {
+        articleId,
+        sessionId,
+        action: "opened",
+      });
+      expect((await stats(t))[0].opened).toBe(1);
+    });
+
+    it("still counts a later visit, with or without the desk", async () => {
+      const { t, owner, articleId, sessionId, checkpoint } = await setup();
+      await owner.mutation(api.sessions.recordInteraction, {
+        articleId,
+        sessionId,
+        action: "opened",
+      });
+      await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
+      await owner.mutation(api.sessions.recordInteraction, {
+        articleId,
+        sessionId,
+        action: "opened",
+      });
+      await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT_2));
+      expect((await stats(t))[0].opened).toBe(2);
+      const VISIT_3 = "370d1ba0-28c2-44b1-9d97-c9f9bc9e944e";
+      await owner.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint(VISIT_3),
+        sessionId: undefined,
+      });
+      expect((await stats(t))[0].opened).toBe(3);
+    });
+
+    it("pairs the same way when the backfill counts the history later", async () => {
+      vi.useFakeTimers();
+      const { t, articleId, sessionId } = await setup();
+      await t.run(async (ctx) => {
+        for (const visitId of [undefined, VISIT, undefined, VISIT_2])
+          await ctx.db.insert("articleInteractions", {
+            userId: OWNER,
+            articleId,
+            sessionId,
+            visitId,
+            action: "opened",
+            createdAt: Date.now(),
+          });
+      });
+      await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+      await finish(t);
+      expect((await stats(t))[0].opened).toBe(2);
+      vi.useRealTimers();
+    });
+
+    it("counts a visit's finish once when it is retried on the next day", async () => {
+      const { t, owner, articleId, checkpoint } = await setup();
+      const began = Date.now() - 3 * 24 * 3_600_000;
+      const first = checkpoint(VISIT, {
+        finished: true,
+        startedAt: began,
+        updatedAt: began + 10_000,
+        day: new Date(began).toISOString().slice(0, 10),
+      });
+      await owner.mutation(api.readingActivity.checkpoint, first);
+      // The same visit's finish, retried once the clock has passed midnight
+      const dayTwo = new Date(first.startedAt + 24 * 3_600_000);
+      await owner.mutation(api.readingActivity.checkpoint, {
+        ...first,
+        day: dayTwo.toISOString().slice(0, 10),
+        startedAt: dayTwo.getTime(),
+        updatedAt: dayTwo.getTime() + 1000,
+        activeTimeMs: 500,
+        visibleTimeMs: 800,
+        timeSpentMs: 1000,
+      });
+      const finished = await t.run((ctx) =>
+        ctx.db
+          .query("articleInteractions")
+          .withIndex("by_user_article_action", (q) =>
+            q
+              .eq("userId", OWNER)
+              .eq("articleId", articleId)
+              .eq("action", "finished"),
+          )
+          .collect(),
+      );
+      expect(finished).toHaveLength(1);
+      expect((await stats(t))[0].finished).toBe(1);
+    });
   });
 
   it("leaves articles without a feed uncounted", async () => {
@@ -215,10 +351,6 @@ describe("feed stats backfill", () => {
         });
     });
   }
-  const finish = async (t: Fixture["t"]) => {
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
-  };
-
   it("counts existing history in resumable pages, once, whatever order it was stored", async () => {
     vi.useFakeTimers();
     const { t, readerLibraryId } = await secondReaderTest(modules);
@@ -284,7 +416,7 @@ describe("feed stats backfill", () => {
     vi.useRealTimers();
   });
 
-  it("does not count an interaction twice when it arrives while the backfill is under way", async () => {
+  it("decides each interaction once, however live counting and the backfill interleave", async () => {
     vi.useFakeTimers();
     const { t, owner } = await secondReaderTest(modules);
     const a = await t.run((ctx) => feedWithArticle(ctx, OWNER, "a"));
@@ -294,22 +426,55 @@ describe("feed stats backfill", () => {
       a.articleId,
       Array.from({ length: 20 }, () => "presented" as const),
     );
-    vi.advanceTimersByTime(5);
-    // The first live interaction starts the backfill and is counted live
     await owner.mutation(api.sessions.recordInteraction, {
       articleId: a.articleId,
       action: "presented",
     });
-    vi.advanceTimersByTime(5);
     await t.mutation(internal.feedStats.backfill, { userId: OWNER });
-    vi.advanceTimersByTime(5);
     await owner.mutation(api.sessions.recordInteraction, {
       articleId: a.articleId,
       action: "presented",
     });
     await finish(t);
-    const [row] = await stats(t);
-    expect(row.offered).toBe(22);
+    expect((await stats(t))[0].offered).toBe(22);
+    // Starting over from the first interaction finds every one already decided
+    await t.run(async (ctx) => {
+      const state = await ctx.db.query("feedStatsBackfill").first();
+      if (state)
+        await ctx.db.replace(state._id, { userId: OWNER, ready: false });
+    });
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    await finish(t);
+    expect((await stats(t))[0].offered).toBe(22);
+    vi.useRealTimers();
+  });
+
+  it("counts a late-committed interaction created before its neighbours exactly once", async () => {
+    vi.useFakeTimers();
+    const { t } = await secondReaderTest(modules);
+    const a = await t.run((ctx) => feedWithArticle(ctx, OWNER, "a"));
+    await seedHistory(t, OWNER, a.articleId, ["presented"]);
+    vi.advanceTimersByTime(10);
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    await finish(t);
+    // A row an older deployment wrote after the backfill had passed is decided
+    // by its marker alone: a second run counts it once, a third adds nothing
+    await seedHistory(t, OWNER, a.articleId, ["presented"]);
+    await t.run(async (ctx) => {
+      const state = await ctx.db.query("feedStatsBackfill").first();
+      if (state)
+        await ctx.db.replace(state._id, { userId: OWNER, ready: false });
+    });
+    for (let i = 0; i < 2; i++) {
+      await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+      await finish(t);
+      await t.run(async (ctx) => {
+        const state = await ctx.db.query("feedStatsBackfill").first();
+        if (state)
+          await ctx.db.replace(state._id, { userId: OWNER, ready: false });
+      });
+    }
+    expect((await stats(t))[0].offered).toBe(2);
     vi.useRealTimers();
   });
 

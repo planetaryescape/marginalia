@@ -137,19 +137,32 @@ async function saveCheckpoint(
     });
   if (finishing) {
     // Keep existing reading history and queue semantics, but exclude these
-    // marker-only interactions from measured time in statistics.
-    await countFeedOutcome(
-      ctx,
-      article,
-      await ctx.db.insert("articleInteractions", {
-        userId: userId,
-        articleId: article._id,
-        sessionId: sessionId ?? undefined,
-        action: "finished",
-        visitId: s.visitId,
-        createdAt: s.updatedAt,
-      }),
-    );
+    // marker-only interactions from measured time in statistics. A visit
+    // finishes once: its finish retried on another day (offline, across
+    // midnight) has no row of its own to add.
+    const alreadyFinished = await ctx.db
+      .query("articleInteractions")
+      .withIndex("by_user_article_action", (q) =>
+        q
+          .eq("userId", userId)
+          .eq("articleId", article._id)
+          .eq("action", "finished"),
+      )
+      .filter((q) => q.eq(q.field("visitId"), s.visitId))
+      .first();
+    if (!alreadyFinished)
+      await countFeedOutcome(
+        ctx,
+        article,
+        await ctx.db.insert("articleInteractions", {
+          userId: userId,
+          articleId: article._id,
+          sessionId: sessionId ?? undefined,
+          action: "finished",
+          visitId: s.visitId,
+          createdAt: s.updatedAt,
+        }),
+      );
     if (article.finishedAt === undefined) {
       await ctx.db.patch(article._id, { finishedAt: s.updatedAt });
       const after = await ctx.db.get(article._id);

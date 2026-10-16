@@ -15,6 +15,7 @@ import {
   topicCard,
 } from "@/lib/topic-card";
 import { useModalDialog } from "@/lib/use-modal-dialog";
+import { usePresented } from "@/lib/use-presented";
 import { useTopicSearch } from "@/lib/use-topic-search";
 
 const URL_PATTERN = /^(https?:\/\/|www\.)\S+$/i;
@@ -97,6 +98,17 @@ export function ArticleFinder({
       ? topicCard(result.matches, position, limit)
       : null;
   const shown = card?.kind === "card" ? card : null;
+  const recordInteraction = useMutation(api.sessions.recordInteraction);
+  // SAFETY: match ids come from the library search, which returns article ids.
+  usePresented(
+    shown?.match.articleId as Id<"articles"> | undefined,
+    (articleId) => {
+      recordInteraction({
+        articleId,
+        action: "presented",
+      }).catch((error) => console.error("Couldn't record the offer", error));
+    },
+  );
   const shortest = card?.kind === "none-fit" ? card.shortest : null;
 
   const go = (articleId: string) => {

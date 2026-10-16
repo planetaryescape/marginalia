@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { articleProgress, ReadingClock } from "./reading-clock";
 
 const start = new Date(2026, 9, 12, 12).getTime();
@@ -68,15 +68,15 @@ describe("paragraph dwell", () => {
   it("credits only the paragraphs on screen, up to the moment the set changes", () => {
     const clock = new ReadingClock(start, 0, true);
     clock.paragraphs([1, 2], start, 0);
-    for (let t = 1000; t <= 5000; t += 1000) clock.tick(start + t, t);
+    for (let t = 1000; t <= 5000; t += 1000) clock.heartbeat(start + t, t);
     clock.paragraphs([2, 3], start + 5000, 5000);
-    for (let t = 6000; t <= 8000; t += 1000) clock.tick(start + t, t);
+    for (let t = 6000; t <= 8000; t += 1000) clock.heartbeat(start + t, t);
     expect(dwell(clock, 8000)).toEqual({ 1: 5000, 2: 8000, 3: 3000 });
   });
   it("is cumulative, so repeated snapshots never add up twice", () => {
     const clock = new ReadingClock(start, 0, true);
     clock.paragraphs([4], start, 0);
-    for (let t = 1000; t <= 3000; t += 1000) clock.tick(start + t, t);
+    for (let t = 1000; t <= 3000; t += 1000) clock.heartbeat(start + t, t);
     expect(dwell(clock, 3000)).toEqual({ 4: 3000 });
     expect(dwell(clock, 3000)).toEqual({ 4: 3000 });
     expect(dwell(clock, 4000)).toEqual({ 4: 4000 });
@@ -84,18 +84,18 @@ describe("paragraph dwell", () => {
   it("stops while the tab is hidden or the window loses focus, and resumes after", () => {
     const clock = new ReadingClock(start, 0, true);
     clock.paragraphs([1], start, 0);
-    clock.tick(start + 2000, 2000);
+    clock.heartbeat(start + 2000, 2000);
     clock.visibility(false, start + 2000, 2000);
-    clock.tick(start + 4000, 4000);
-    clock.tick(start + 6000, 6000);
+    clock.heartbeat(start + 4000, 4000);
+    clock.heartbeat(start + 6000, 6000);
     clock.visibility(true, start + 6000, 6000);
-    clock.tick(start + 8000, 8000);
+    clock.heartbeat(start + 8000, 8000);
     expect(dwell(clock, 8000)).toEqual({ 1: 4000 });
   });
   it("stops at the idle boundary and resumes with activity", () => {
     const clock = new ReadingClock(start, 0, true);
     clock.paragraphs([1], start, 0);
-    for (let t = 1000; t <= 100000; t += 1000) clock.tick(start + t, t);
+    for (let t = 1000; t <= 100000; t += 1000) clock.heartbeat(start + t, t);
     expect(dwell(clock, 100000)).toEqual({ 1: 90000 });
     clock.activity(start + 100000, 100000);
     expect(dwell(clock, 102000)).toEqual({ 1: 92000 });
@@ -103,9 +103,9 @@ describe("paragraph dwell", () => {
   it("records nothing for paragraphs held under a second or when none is on screen", () => {
     const clock = new ReadingClock(start, 0, true);
     clock.paragraphs([1], start, 0);
-    clock.tick(start + 900, 900);
+    clock.heartbeat(start + 900, 900);
     clock.paragraphs([], start + 900, 900);
-    clock.tick(start + 5000, 5000);
+    clock.heartbeat(start + 5000, 5000);
     expect(dwell(clock, 5000)).toBeUndefined();
   });
   it("keeps the longest 300 paragraphs", () => {
@@ -115,9 +115,9 @@ describe("paragraph dwell", () => {
       start,
       0,
     );
-    clock.tick(start + 2000, 2000);
+    clock.heartbeat(start + 2000, 2000);
     clock.paragraphs([1], start + 2000, 2000);
-    clock.tick(start + 4000, 4000);
+    clock.heartbeat(start + 4000, 4000);
     const kept = dwell(clock, 4000) ?? {};
     expect(Object.keys(kept)).toHaveLength(300);
     expect(kept[1]).toBe(4000);
@@ -126,10 +126,20 @@ describe("paragraph dwell", () => {
     const late = new Date(2026, 9, 12, 23, 59, 59).getTime();
     const clock = new ReadingClock(late, 0, true);
     clock.paragraphs([1], late, 0);
-    for (let t = 1000; t <= 4000; t += 1000) clock.tick(late + t, t);
+    for (let t = 1000; t <= 4000; t += 1000) clock.heartbeat(late + t, t);
     const days = clock.snapshots(late + 4000, 4000);
     expect(days).toHaveLength(2);
     const total = days.reduce((sum, d) => sum + (d.dwell?.[1] ?? 0), 0);
     expect(total).toBe(4000);
+  });
+  it("does no paragraph work for scroll and input, only on the timer", () => {
+    const clock = new ReadingClock(start, 0, true);
+    clock.paragraphs([1, 2], start, 0);
+    const credit = vi.spyOn(clock, "creditDwell");
+    for (let i = 1; i <= 60; i++) clock.activity(start + i * 50, i * 50);
+    expect(credit).not.toHaveBeenCalled();
+    clock.heartbeat(start + 3000, 3000);
+    expect(credit).toHaveBeenCalledTimes(1);
+    expect(dwell(clock, 3000)).toEqual({ 1: 3000, 2: 3000 });
   });
 });

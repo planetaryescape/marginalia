@@ -192,7 +192,18 @@ const advance = (ms: number) =>
   act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
-const calls = (name: string) => state.pending.filter((m) => m.name === name);
+/** Outcomes the reader caused; the offer recorded on show is checked separately. */
+const calls = (name: string) =>
+  state.pending.filter(
+    (m) =>
+      m.name === name &&
+      !(name === "sessions:recordInteraction" && m.args.action === "presented"),
+  );
+const offers = () =>
+  state.pending.filter(
+    (m) =>
+      m.name === "sessions:recordInteraction" && m.args.action === "presented",
+  );
 /** Resolves every pending mutation (session creates get ids s1, s2...) and lets React settle. */
 let sessions = 0;
 const settle = () =>
@@ -315,6 +326,28 @@ describe("choosing a time", () => {
     // The chosen time stays lit, the others dim
     expect(time("10").className).toContain("--ink)");
     expect(time("5").className).toContain("--ink-muted");
+  });
+
+  it("records each card as offered once, in the session, when it is shown", async () => {
+    await render();
+    expect(offers()).toHaveLength(0);
+    await act(async () => time("10").click());
+    await act(async () => {
+      calls("sessions:create")[0].resolve("s-first");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(offers().map((m) => m.args)).toEqual([
+      { articleId: "a", sessionId: "s-first", action: "presented" },
+    ]);
+    const sent = offers().map((m) => m.args.articleId);
+    await settle();
+    await act(async () => button("Another").click());
+    for (let i = 0; i < 4; i++) {
+      sent.push(...offers().map((m) => m.args.articleId));
+      await settle();
+    }
+    // One offer per card shown, however many times the page re-rendered
+    expect(sent).toEqual(["a", "b"]);
   });
 
   it("queues interactions until the session id arrives", async () => {
