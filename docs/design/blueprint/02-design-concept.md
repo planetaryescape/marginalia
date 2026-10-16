@@ -48,7 +48,10 @@ These are the words the reader thinks in. Every screen, button, empty state, toa
 | **Note** | Something you wrote, about a line or the whole article | user note |
 | **Impression** | Your stars, tags and "what stayed with you" after reading | rating, impressions |
 | **Library** | Every article you have, with shelves: Up next, Saved, Loved, Finished | Library, Saved |
-| **Notes** | Your commonplace book of notes and marks, plus Your week | Notes, This week, Activity, Reading activity |
+| **Notes** | Your commonplace book of notes and marks | Notes |
+| **Your reading** | The room that shows BK his own reading: stats, topics and his dictionary (D-DES-057, D-DES-060) | This week, Activity, Reading activity |
+| **Dictionary** | Every word BK looked up, as a dictionary: headwords, the sense he met, the sentence he met it in (D-DES-058) | (new) |
+| **Tag** | A topic Marginalia gave an article, from a vocabulary that resists growth (D-DES-059) | (new) |
 | **Sources** | Where articles come from: feeds, Readwise Reader, links, the API | Sources, feeds |
 
 Margin notes come in nine kinds in three families (D-DES-038, [Note kinds](#note-kinds)), named in plain words in the interface: "connection", never "cross-reference".
@@ -68,6 +71,7 @@ Margin notes come in nine kinds in three families (D-DES-038, [Note kinds](#note
                       │ came from                 │        │ Finished     │
                       └───────────────────────────┘        └──────────────┘
 
+  Your reading (header, after Notes): stats · dictionary. Never linked from the reader (D-DES-060).
   Account menu (avatar, top right): Sources · Readers (owner) · Account · Install app · Keyboard · About
 ```
 
@@ -209,6 +213,18 @@ Margin notes come in three families, each with one colour family, and the kind's
 | Connection | connection, context, question | Relates the passage to BK's notes and library, adds context he wouldn't have, or asks him something |
 
 The mix leans toward pushback, close to balance. Pushback family colours are the warm end of the existing annotation palette (terracotta), support the sage end, connection the slate and purple. Exact values are set in rung 2c with the contrast test from rung 1.
+
+### Tags
+
+Marginalia gives each article one to three topic tags in the import call, from a vocabulary that resists growth (D-DES-059):
+
+1. Seeded from BK's own vault tags (`noteChunks.tags`), so topics are named his way.
+2. The call chooses from existing tags first, and may propose a new one only with a reason.
+3. A proposal is compared by embedding against tags and their aliases; a near match becomes that tag and the new name becomes an alias.
+4. A genuinely new tag starts as a hidden candidate and becomes real only after it recurs (for example on three articles); until then the article also gets its nearest existing tag.
+5. Drifting tags are suggested for merging ("'Hiring' and 'Interviewing' cover the same 14 articles. Merge?"); BK decides.
+
+Tags are Marginalia's labels, so pencil; BK's impression reactions ("Made me think") stay his, in pen. S9 sets the similarity threshold. Tags give topic search an instant first card (D-DES-036), the topic map in Your reading, and taste.
 
 ### Materials and depth
 

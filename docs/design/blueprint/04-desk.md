@@ -78,6 +78,19 @@ Typing a topic into the bar is the second way to the same moment (D-DES-036). It
 
 Sometimes BK knows exactly what he wants (D-DES-043). The bar takes three things: a topic, a URL (as today, `addArticleByUrl`) and a PDF (dropped on the bar, or picked as a file). An article he brings opens straight away, with the margin showing "Reading alongside you…" while its notes are written. PDF import is new: today the only PDF handling is Readwise sync skipping them (`actions/readwiseSync.ts#L21`). S7 settles extraction.
 
+## Annotating only what you'll read
+
+AI work is spent on what BK will realistically read (D-DES-056):
+
+- **Articles of 20 minutes or less** are annotated at import, as today, so any 5, 10 or 20 minute pick opens with its margin ready.
+- **Longer articles** are annotated ahead of picking. When BK chooses 30+, or a topic search offers a long article, Marginalia starts annotating and summarising the first three candidates while it shows the first card, and keeps three ahead as he presses Another. Read now before they're ready opens with "Reading alongside you…", and notes arrive as he reads.
+- **A long article is offerable before it's annotated.** Today picks require `annotationStatus: "annotated"` (`suggestions.ts`); that changes for long articles, whose reason line comes from length and source until notes exist.
+- **Later, taste decides.** Once Marginalia has learned what BK reads (D-DES-057), it annotates likely reads ahead of time as well.
+
+## Books in picks
+
+A book is offered by its next section, never by a section that merely fits (D-DES-055): "Chapter 4 of *X* · 12 min", and only when chapter 4 is the one after the last BK read. Continue shows the minutes left in the current section.
+
 ## Saved gets a boost
 
 Saved is the reading list (D-DES-040). Among articles that fit the window, a saved one wins when it's close, so things BK saved from a margin connection or a link come back to him. A boost never breaks "only what fits" (D-DES-034). Today `suggestions.ts` ignores Saved.

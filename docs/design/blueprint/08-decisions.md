@@ -222,3 +222,37 @@ Change a decision only by adding a new entry that replaces the old one.
 - **BK, 2026-10-16:** "when i ask or define or whatever, it has references to other paragraphs which when i click take me to that paragraph which I like but then there's no easy simple way to go back to the paragraph I was actually on, I have to scroll there manually."
 - **Why:** losing your place is a small exit from reading (D-DES-039). A jump the reader can't undo makes following a reference a cost.
 - **Design:** one jump helper for every in-article jump; a stack of up to about five positions; a pencil chip "↩ Back to ¶N" and a key; the entry clears when he returns, by chip or by scrolling. Esc keeps its own job (back to the origin room).
+
+### D-DES-054: Every AI call gets the context its question needs, with the summary as background; the one point and short summary are written at import. (BK)
+- **BK, 2026-10-16, on long documents:** "what if someone puts a whole book as a pdf and then we ask, we can't send the whole book in our AI call and even in our annotation calls because we'll overrun the context and the thing will be noisy and expensive anyway."
+- **BK, agreeing to per-tool budgets:** "I agree, " and "maybe an addition is that we can also always send the summary if it was generated already because it gives a picture of what the piece is about broadly. Or maybe it's cheaper to just always generate the summary at import  taht way we  alway shave it for the tools. We can open the summary with it collapsed."
+- **Found:** annotation cuts at 120,000 characters (`marginaliaContext.ts#L8`); passage tools send up to 120,000 characters (`readingCompanion.ts#L6`). Details in [03 What each tool sees](03-reader.md#what-each-tool-sees).
+- **Cheapest form:** the import annotation call writes the one point and short summary, so no extra call; the idea map stays on demand.
+
+### D-DES-055: Books are indexed by section and offered only as the next section. (BK)
+- **BK, 2026-10-16:** "Your idea of offering a book chapter, something like chapter 4 of X is great. what I'd add is that when you can't offer me chapter 12 when I've only read chapter 1 even if chapter 12 fits the time. So only offer a chapter if it's the next chapter from what I've read."
+- **Consequence:** a book never fits a time window, but its next section might; a section further on is never offered. See [03 Books and long documents](03-reader.md#books-and-long-documents).
+
+### D-DES-056: Spend AI work on what BK will realistically read: 20 minutes or less at import, longer ones three ahead of picking. (BK; the 20-minute line by Claude, delegated)
+- **BK, 2026-10-16:** "Thinking about things getting expensive. I think over time this app should learn what I like to read and over time we could annotate ahead of time only things that I would realistically read. Or maybe we annotate all shorter articles, but for longer one, we annotate only when the user clicks 30min then we search and then as we present the UI for the user to choose an article, we start annotating and creating summaries for the first three results and as they click another one we do the next three ahead."
+- **BK:** "You can decide for me on the line between short an dlong."
+- **The line (Claude):** 20 minutes. Every 5, 10 and 20 minute pick is ready instantly; only 30+ reads, which BK spends longer with anyway, wait on lookahead.
+- **Consequence:** long articles become offerable before they're annotated; the post-2c re-annotation covers only the short unread articles.
+
+### D-DES-057: Record how BK reads, from now, and show it back as a mirror, not a scoreboard. (BK)
+- **BK, 2026-10-16:** "I really want to collect all kinds of stats, what times I read, what times I read short things vs long things, what topics do I linger on, what words to i ask for definitions on, maybe keep a log of my growing vocabulary (like a personal dictionary) make it look like a dictionary in it's look and formatting and even how I find words), what topics I am interested in. etc what time of day, what day of the week, etc etc etc. so that I can go to a stats page and see all kinds of visual graphics and representations of my reading. This is also useful beyond looking pretty. It can be used to learn over time the things that I will most likely read for the ahead of time annotations and even to suggest rss feeds that I should probably unsubscribe from."
+- **Found:** visits, sessions and offer outcomes are already recorded (`readingActivity`, `sessions`, `articleInteractions`); paragraph dwell, topics and a reliable lookup log are not.
+- **Why record now:** history can't be filled in later, so recording (rung 2g) ships long before the pictures (rung 5b).
+- **Rule:** no streaks, goals or nudges (the thinking partner shows; BK concludes, D-DES-051).
+
+### D-DES-058: A personal dictionary of every word BK looks up, laid out and searched like a dictionary. (BK)
+- **BK, 2026-10-16:** "maybe keep a log of my growing vocabulary (like a personal dictionary) make it look like a dictionary in it's look and formatting and even how I find words".
+- **Rule:** every Define is recorded as a lookup whether or not the answer is kept (D-DES-045), so 2b must ship the lookup log with temporary answers.
+
+### D-DES-059: Topic tags come from a vocabulary that resists growth, seeded from BK's vault. (BK; mechanism by Claude, delegated)
+- **BK, 2026-10-16:** "when we auto annotate we generate tags, that could help the quick search later. But autotag generation needs thought so that you don't end up with a million tags. You need a way of saying this is really the same thing and fits into this already existing tag, have some resistance to creating new tags and prefer adding to existing ones unless something earns it. tags would also help with a word cloud or something of the topics I'm interested in."
+- **Mechanism:** choose before creating; embedding match onto tags and aliases; new tags start as hidden candidates and need to recur; merges are suggested, never silent. See [02 Tags](02-design-concept.md#tags). Seed: vault tags already imported (`noteChunks.tags`).
+
+### D-DES-060: Stats and the dictionary live in their own room, Your reading, outside the reading path. (BK)
+- **BK, 2026-10-16:** "if you put stats and dictionary in the reader even in the notes tab they become a source of distraction."
+- **Replaces** D-DES-024's "This week becomes Notes → Your week": Your reading is a fourth room in the header, never linked from the reader or the notes pane.

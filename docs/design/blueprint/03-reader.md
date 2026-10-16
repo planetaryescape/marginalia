@@ -115,6 +115,24 @@ The menu keeps its actions (Ask, Explain, Simplify, Define, Highlight, Underline
 
 Every jump inside the article (a ¶ reference in an answer or card, the paragraph map, a summary or idea-map link) remembers where BK was reading. A quiet pencil chip, "↩ Back to ¶N", appears under the toolbar (above the bottom bar on phones) and returns him to that exact line. Jumps stack, so two jumps go back in two steps. The chip disappears once he's back, including when he scrolls back on his own; plain scrolling never adds an entry (D-DES-053).
 
+## What each tool sees
+
+Every AI call gets the context its question needs, not the whole document (D-DES-054). Today annotation reads the first 120,000 characters (`marginaliaContext.ts#L8`, `#L142`) and the passage tools send up to 120,000 characters around the selection, from the first paragraph when there's none (`readingCompanion.ts#L6`, `#L97-L118`). Both are expensive for ordinary articles and wrong for books.
+
+| Tool | Gets |
+|---|---|
+| Define | The sentence and its paragraph, plus the summary |
+| Explain, Simplify | The passage and a paragraph either side, plus the summary |
+| Ask about a passage | The passage, the passages found by searching this document for the question, plus the summary |
+| Ask about the article | The passages found by searching the document, plus the outline (for a book, the chapter summaries) |
+| Annotation | The section being annotated, plus the outline and BK's related notes |
+
+The summary is always there as background: the one point and the short summary are written at import, in the same call that annotates (D-DES-054). The idea map is generated when BK opens it. The summary at the top of the article opens collapsed.
+
+## Books and long documents
+
+A long document is indexed, not sent (D-DES-055). At import it's split into sections (chapters from PDF or HTML headings, else fixed-size parts), each embedded and given a short summary; the section summaries form the outline any call can carry cheaply. Annotation follows the reading: the import pass covers the outline and the first section, and reading alongside (D-DES-041) annotates the section ahead as BK goes. Nothing annotates a whole book up front. The book's one point and short summary come from its section summaries; it may have an idea map per chapter. S8 settles sectioning, embedding cost and retrieval quality.
+
 ## Links in the article
 
 A link in the article never navigates on click (D-DES-044). It opens a small `.reader-menu` beside the link with the link's title (when known) and domain, then:

@@ -13,6 +13,8 @@ For each spike, record what was tried, the result, the date and the conclusion u
 | S5 | How long does topic search take today from the last keystroke to the first result, and how fast can the first card appear from search alone? | The first card must land before BK bounces (D-DES-036). | [04](04-desk.md#topic-search-the-second-way-in) | Rung 3 |
 | S6 | What fingerprint tells cheaply whether anything relevant changed since an article was last annotated, and what does a reading-time pass cost per article? | The pass must cost nothing when nothing changed (D-DES-046). | [03](03-reader.md#reading-alongside) | Rung 2c |
 | S7 | Which PDF text extraction runs in Convex (or beside it) and keeps headings and paragraphs well enough to read and annotate? | PDFs become articles (D-DES-043). | [04](04-desk.md#bringing-your-own) | Rung 3b |
+| S8 | How should long documents be split (PDF outline, headings, fixed size), what does indexing a book cost in embeddings, and how well does searching within one document find the passages a question needs? | Books and long PDFs (D-DES-055). | [03](03-reader.md#books-and-long-documents) | Rung 3b |
+| S9 | What embedding similarity threshold maps a proposed tag onto an existing tag or alias without merging distinct topics, measured on BK's library and vault tags? | The tag vocabulary must resist growth without blurring topics (D-DES-059). | [02](02-design-concept.md#tags) | Rung 2c |
 
 ## Product questions for BK
 

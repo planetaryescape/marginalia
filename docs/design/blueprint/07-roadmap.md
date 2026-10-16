@@ -18,6 +18,7 @@
 | 2 | The margin talks | Done: live at `67798dc`, accordion open notes at `de6f560` (D-DES-049) |
 | 2a | The reader finishes its own redesign | Planned |
 | 2b | Answers beside the text, kept only on purpose | Planned |
+| 2g | It remembers how I read | Planned |
 | 3 | The desk asks one question and answers it | Planned |
 | 3c | Ask by topic, one at a time, fast | Planned (S5 first) |
 | 2d | Links wait for me, and saved things come back | Planned |
@@ -25,9 +26,12 @@
 | 2c | A critical friend in the margin | Planned |
 | 2f | It reads alongside me, and doesn't repeat itself | Planned (S6 first) |
 | 3b | I bring my own (PDF) | Planned (S7 first) |
-| 4–7 | Three rooms; Notes; quiet settings; it flies | Planned |
+| 4–5 | Three rooms; Notes | Planned |
+| 5b | Your reading: stats and dictionary | Planned |
+| 5c | It learns what I'd read | Planned |
+| 6–7 | Quiet settings; it flies | Planned |
 
-Build in the order of the table (D-DES-052). Letters keep the numbers already cited; the order, not the number, is the sequence. The product questions that gated rungs are all answered except Q3 and Q4, which BK answers before rung 4. Spikes: S6 before 2f, S3 before 3, S5 before 3c, S7 before 3b, S1 before 7.
+Build in the order of the table (D-DES-052). Letters keep the numbers already cited; the order, not the number, is the sequence. The product questions that gated rungs are all answered except Q3 and Q4, which BK answers before rung 4. Spikes: S6 before 2f, S9 before 2c, S3 before 3, S5 before 3c, S7 and S8 before 3b, S1 before 7. S3 and S5 are done.
 
 Two fixes shipped outside the rungs and stay: the notes pane no longer blocks the article (D-DES-050), and choosing a time keeps going through every article that fits (D-DES-031).
 
@@ -116,7 +120,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **Promise:** "When I don't know a word or a claim, I find out right here and carry on reading, and nothing is kept unless I choose."
 
-**Build:** [03 Passage menu](03-reader.md#passage-menu) and [Ask about this article](03-reader.md#ask-about-this-article). Answers in the margin column (Ask-about-article answers at the top of the margin; on phones, in the flow). Session-scoped answer storage keyed by article, surviving refresh and cleared when the article closes. **Keep** writes the existing saved-thread record. The passage menu ordered by hand. Length discipline in the tool prompts (backend snapshot and deploy).
+**Build:** [03 Passage menu](03-reader.md#passage-menu) and [Ask about this article](03-reader.md#ask-about-this-article). Each tool gets only its context budget plus the summary as background ([03 What each tool sees](03-reader.md#what-each-tool-sees), D-DES-054). Every Define lookup is recorded for the dictionary whether or not it's kept (D-DES-058). Kept answers carry a source marker so the notes pane can tell them from BK's own notes (deferred from 2a). Answers in the margin column (Ask-about-article answers at the top of the margin; on phones, in the flow). Session-scoped answer storage keyed by article, surviving refresh and cleared when the article closes. **Keep** writes the existing saved-thread record. The passage menu ordered by hand. Length discipline in the tool prompts (backend snapshot and deploy).
 
 **Design:** the approved rung 2b comp (Define, After a refresh, Kept).
 
@@ -128,6 +132,21 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **Tier:** Full (changes what is persisted).
 
+## Rung 2g: "It remembers how I read"
+
+**Previously:** visits, sessions and offer outcomes are recorded (`readingActivity`, `sessions`, `articleInteractions`), but not where BK lingers, and feeds have no outcome counts.
+**Now:** time per paragraph is sampled while reading, and per-feed outcomes are counted. Nothing new to look at yet; the history starts accruing now because it can't be filled in later (D-DES-057).
+
+**Promise:** "From today, Marginalia remembers how I read, so the stats and taste it builds later start from real history."
+
+**Build:** sampled paragraph dwell in the reader (batched with the existing checkpoints), per-feed offered/opened/finished/skipped counts. Backend snapshot and deploy.
+
+**Demo:** read an article, then see its paragraph dwell rows and the feed's counts in the Convex dashboard (no UI yet).
+
+**Done when:** dwell is recorded for every visit without measurable scroll cost; counts match `articleInteractions`.
+
+**Tier:** Full (new persisted data).
+
 ## Rung 3: Bicycle: "The desk asks one question and answers it"
 
 **Previously:** about twelve equal-weight blocks and nine keycaps. Choosing a time leaves the desk for a differently styled page.
@@ -135,7 +154,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **Promise:** "I open Marginalia, say how long I've got, and there's the thing to read."
 
-**Build:** [04](04-desk.md) in full: hierarchy, time choices, the pick in the slot (D-DES-028), prefetch on intent (S3), Continue with minutes left, no backlog count and no Up next (D-DES-034, D-DES-035), with a minimal Up next shelf and archive added to Library in the same release because the desk's rows are the only place archiving exists today (D-DES-052), empty and error states. Topic search moves to rung 3c; the Saved boost to rung 2d. Keycaps hidden, with the hold-`Alt` overlay and tooltips (D-DES-021). The right-hand column removed.
+**Build:** [04](04-desk.md) in full: hierarchy, time choices, the pick in the slot (D-DES-028), prefetch on intent (S3), Continue with minutes left, no backlog count and no Up next (D-DES-034, D-DES-035), with a minimal Up next shelf and archive added to Library in the same release because the desk's rows are the only place archiving exists today (D-DES-052), empty and error states. Picking also starts annotating long candidates three ahead, and long articles become offerable before they're annotated ([04 Annotating only what you'll read](04-desk.md#annotating-only-what-youll-read), D-DES-056). Topic search moves to rung 3c; the Saved boost to rung 2d. Keycaps hidden, with the hold-`Alt` overlay and tooltips (D-DES-021). The right-hand column removed.
 
 **Design:** desk comps at both widths. Key moments: first open, choosing time, empty.
 
@@ -201,7 +220,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **Promise:** "Beside me, something says where the argument is strong, where it's weak and what it connects to."
 
-**Build:** [02 Note kinds](02-design-concept.md#note-kinds), [03 Connections and discovery](03-reader.md#connections-and-discovery). Schema: the new kinds and an article reference on connections (mixed-version safe: the old frontend must render unknown kinds as a plain pencil note). The import-pass prompt for families, lean, density and length, retrieving library articles as well as vault notes. Family colours with the contrast test. Backend snapshot and deploy. After the deploy, re-annotate the unread library once so existing articles get the new kinds (D-DES-052).
+**Build:** [02 Note kinds](02-design-concept.md#note-kinds), [03 Connections and discovery](03-reader.md#connections-and-discovery). The same import call writes the one point and short summary (D-DES-054) and one to three tags under the vocabulary rules ([02 Tags](02-design-concept.md#tags), S9 first). Articles over 20 minutes stop being annotated at import (D-DES-056). Schema: the new kinds and an article reference on connections (mixed-version safe: the old frontend must render unknown kinds as a plain pencil note). The import-pass prompt for families, lean, density and length, retrieving library articles as well as vault notes. Family colours with the contrast test. Backend snapshot and deploy. After the deploy, re-annotate and tag the unread articles of 20 minutes or less once; longer ones get theirs when they come up (D-DES-052, D-DES-056).
 
 **Design:** comps of a margin with each family and a connection with Save for later.
 
@@ -235,7 +254,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **Promise:** "When I already know what I want to read, I hand it over and I'm reading."
 
-**Build:** [04 Bringing your own](04-desk.md#bringing-your-own). Upload to Convex storage, text extraction (S7), the article record, annotation. An article you bring opens straight away. Backend snapshot and deploy.
+**Build:** [04 Bringing your own](04-desk.md#bringing-your-own). Upload to Convex storage, text extraction (S7), the article record, annotation. Long documents and books: sections, the outline, annotation that follows the reading, and picks by next section only ([03 Books and long documents](03-reader.md#books-and-long-documents), [04 Books in picks](04-desk.md#books-in-picks), S8). An article you bring opens straight away. Backend snapshot and deploy.
 
 **Demo:** drop a PDF, read it with notes in the margin, find it later in Library.
 
@@ -265,11 +284,11 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 ## Rung 5: "Notes is my commonplace book"
 
 **Previously:** notes and saved AI answers in identical boxes, marks invisible outside the reader, and This week a separate page of counters.
-**Now:** your words lead, AI answers collapse, your highlights appear under their article, and Your week opens with one sentence about the week.
+**Now:** your words lead, AI answers collapse, and your highlights appear under their article. Your week moves to the Your reading room in rung 5b.
 
 **Promise:** "Everything I kept from my reading is in one place, in my own hand."
 
-**Build:** [05 Notes](05-library-notes-week.md#notes) and [Your week](05-library-notes-week.md#your-week). The paginated highlights query (backend: snapshot plus BK's approval). Clicking a note opens its line with the note open in the margin. `/reading` redirects to Your week.
+**Build:** [05 Notes](05-library-notes-week.md#notes). The paginated highlights query (backend snapshot and deploy). Clicking a note opens its line with the note open in the margin.
 
 **New unknowns:** the cost of the highlights query; restyling the rhythm chart under the `dataviz` rules.
 
@@ -280,6 +299,34 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 - The design gate passes.
 
 **Left out:** search within Notes (the picker already searches notes).
+
+## Rung 5b: "Your reading, seen"
+
+**Previously:** "This week" shows a few charts and counters; looked-up words aren't findable anywhere.
+**Now:** a room of its own, Your reading, with stats as real graphics and a dictionary of every word BK looked up.
+
+**Promise:** "I can see how I read and what I'm drawn to, and every word I learned is in my own dictionary."
+
+**Build:** [05 Your reading](05-library-notes-week.md#your-reading). `/reading` becomes the room; the header gains it after Notes; nothing in the reader links to it. The `dataviz` rules for every chart.
+
+**Design:** comps of the stats and of a dictionary spread, Night and Paper, both widths.
+
+**Done when:** every chart reads correctly in all six themes; a word looked up today appears in the dictionary with its sentence and opens to its line.
+
+**Tier:** Standard.
+
+## Rung 5c: "It learns what I'd read"
+
+**Previously:** picks rank by fit, recency and Saved; long articles are annotated only when they come up.
+**Now:** a taste model from recorded behaviour ranks picks and annotates likely reads ahead of time; Sources quietly suggests feeds BK almost always skips; tag merges are suggested.
+
+**Promise:** "What it offers me feels like what I'd choose, and it stops wasting effort on things I never read."
+
+**Build:** taste from finishes, dwell, skips, Another presses, ratings, loves and tags (D-DES-057); ahead-of-time annotation for likely reads (D-DES-056); feed suggestions; tag-merge suggestions (D-DES-059). Every suggestion is BK's to accept.
+
+**Done when:** pre-annotated articles are opened at a measurably higher rate than a random sample; no suggestion acts without BK.
+
+**Tier:** Full (ranking and cost behaviour).
 
 ## Rung 6: "Settings are quiet"
 
