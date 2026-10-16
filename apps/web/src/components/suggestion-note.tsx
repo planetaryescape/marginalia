@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { InlineError } from "./in-place";
 
 /**
  * A suggestion in pencil: one sentence behind a hairline rule, then the
@@ -6,9 +7,12 @@ import type { ReactNode } from "react";
  */
 export function SuggestionNote({
   sentence,
+  failure,
   children,
 }: {
   sentence: string;
+  /** A choice that failed, shown under the choices with Retry. */
+  failure?: { message: string; onRetry: () => void; busy: boolean } | null;
   children: ReactNode;
 }) {
   return (
@@ -17,6 +21,13 @@ export function SuggestionNote({
       <div className="mt-1 flex flex-wrap items-center gap-x-[18px]">
         {children}
       </div>
+      {failure && (
+        <InlineError
+          message={failure.message}
+          onRetry={failure.onRetry}
+          busy={failure.busy}
+        />
+      )}
     </div>
   );
 }

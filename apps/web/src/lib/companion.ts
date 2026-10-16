@@ -555,6 +555,10 @@ export function useCompanion({
       const current = answersRef.current.find((a) => a.id === id);
       // Dismissing while Keep is writing would leave the new record behind.
       if (!current || current.keeping) return;
+      // Deleting an older saved answer deletes its row too, or it would return.
+      // The row goes first: if that fails the answer is still here to Retry.
+      const recordId = current.savedId ?? current.legacyId;
+      if (recordId) await removeThread({ threadId: recordId });
       controllers.current.get(id)?.abort();
       controllers.current.delete(id);
       set(
@@ -562,9 +566,6 @@ export function useCompanion({
         true,
       );
       if (openIdRef.current === id) setOpenId(null);
-      // Deleting an older saved answer deletes its row too, or it would return.
-      const recordId = current.savedId ?? current.legacyId;
-      if (recordId) await removeThread({ threadId: recordId });
     },
     [removeThread, set, setOpenId],
   );

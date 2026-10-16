@@ -372,17 +372,35 @@ export default function ReadPage() {
     [createHighlight, articleId, unit],
   );
 
-  const toggleMark = useCallback(
-    async (kind: MarkKind, range: Range) => {
-      const existing = findMark(marks, kind, range);
+  // A failed toolbar or mark action is shown under the toolbar with Retry, not as a toast
+  const [toolbarFailure, setToolbarFailure] = useState<{
+    message: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [toolbarRetrying, setToolbarRetrying] = useState(false);
+  const attemptToolbar = useCallback(
+    async (message: string, run: () => Promise<void>): Promise<void> => {
       try {
-        if (existing) await removeHighlight({ highlightId: existing.doc._id });
-        else await saveMark(kind, range, defaultColor(kind, settings));
+        await run();
+        setToolbarFailure(null);
       } catch {
-        toast.error("Couldn't save that");
+        setToolbarFailure({
+          message,
+          retry: () => attemptToolbar(message, run),
+        });
       }
     },
-    [marks, removeHighlight, saveMark, settings],
+    [],
+  );
+
+  const toggleMark = useCallback(
+    (kind: MarkKind, range: Range) =>
+      attemptToolbar("Couldn't save that.", async () => {
+        const existing = findMark(marks, kind, range);
+        if (existing) await removeHighlight({ highlightId: existing.doc._id });
+        else await saveMark(kind, range, defaultColor(kind, settings));
+      }),
+    [marks, removeHighlight, saveMark, settings, attemptToolbar],
   );
 
   // Picking a colour marks the passage in it, or recolours the mark already
@@ -390,16 +408,21 @@ export default function ReadPage() {
   const markInColor = useCallback(
     async (kind: MarkKind, range: Range, color: MarkColor) => {
       await setMarkDefault(kind, color);
-      const existing = findMark(marks, kind, range);
-      try {
+      await attemptToolbar("Couldn't save that.", async () => {
+        const existing = findMark(marks, kind, range);
         if (!existing) await saveMark(kind, range, color);
         else if (markColor(existing.doc, settings) !== color)
           await recolourHighlight({ highlightId: existing.doc._id, color });
-      } catch {
-        toast.error("Couldn't save that");
-      }
+      });
     },
-    [marks, saveMark, recolourHighlight, setMarkDefault, settings],
+    [
+      marks,
+      saveMark,
+      recolourHighlight,
+      setMarkDefault,
+      settings,
+      attemptToolbar,
+    ],
   );
 
   const markedColor = useCallback(
@@ -474,21 +497,19 @@ export default function ReadPage() {
   }, [articleUrl, articleReady, articleId]);
 
   const keepAnswer = useCallback(
-    async (id: string) => {
-      if (await companion.keep(id)) toast.success("Kept in your notes");
-      else toast.error("Couldn't keep that answer");
-    },
-    [companion.keep],
+    (id: string) =>
+      attemptToolbar("Couldn't keep that answer.", async () => {
+        if (!(await companion.keep(id))) throw new Error("keep failed");
+        toast.success("Kept in your notes");
+      }),
+    [companion.keep, attemptToolbar],
   );
   const deleteAnswer = useCallback(
-    async (id: string) => {
-      try {
-        await companion.remove(id);
-      } catch {
-        toast.error("Couldn't delete the kept answer");
-      }
-    },
-    [companion.remove],
+    (id: string) =>
+      attemptToolbar("Couldn't delete the kept answer.", () =>
+        companion.remove(id),
+      ),
+    [companion.remove, attemptToolbar],
   );
   // A margin note opens whether its answer is from this visit or kept earlier.
   const openAnswer = useCallback(
@@ -694,27 +715,6 @@ export default function ReadPage() {
     />
   );
 
-  // A failed toolbar action is shown under the toolbar with Retry, not as a toast
-  const [toolbarFailure, setToolbarFailure] = useState<{
-    message: string;
-    retry: () => Promise<void>;
-  } | null>(null);
-  const [toolbarRetrying, setToolbarRetrying] = useState(false);
-  const attemptToolbar = useCallback(
-    async (message: string, run: () => Promise<void>): Promise<void> => {
-      try {
-        await run();
-        setToolbarFailure(null);
-      } catch {
-        setToolbarFailure({
-          message,
-          retry: () => attemptToolbar(message, run),
-        });
-      }
-    },
-    [],
-  );
-
   const restoreArticle = useMutation(api.articles.restore);
   const handleRestore = useCallback(
     () =>
@@ -761,21 +761,16 @@ export default function ReadPage() {
         .split(/\n{2,}/)
         .map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br>")}</p>`)
         .join("");
-      try {
-        await createNote({
-          articleId: articleId as any,
-          annotationId: openAnnotation._id as any,
-          prompt: openAnnotation.content,
-          selectedText: openAnnotation.anchorText,
-          unitIndex: unit,
-          // Keep the prompt with the reflection so the note reads on its own in the Notes panel
-          content: `<blockquote><p>${escapeHtml(openAnnotation.content)}</p></blockquote>${paragraphs}`,
-          contentPlain: text,
-        });
-      } catch {
-        toast.error("Couldn't save your reflection");
-        throw new Error("save failed");
-      }
+      await createNote({
+        articleId: articleId as any,
+        annotationId: openAnnotation._id as any,
+        prompt: openAnnotation.content,
+        selectedText: openAnnotation.anchorText,
+        unitIndex: unit,
+        // Keep the prompt with the reflection so the note reads on its own in the Notes panel
+        content: `<blockquote><p>${escapeHtml(openAnnotation.content)}</p></blockquote>${paragraphs}`,
+        contentPlain: text,
+      });
     },
     [openAnnotation, createNote, articleId, unit],
   );

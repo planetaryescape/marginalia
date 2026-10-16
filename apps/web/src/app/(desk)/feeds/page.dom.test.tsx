@@ -310,9 +310,23 @@ describe("dropping an OPML file on the page", () => {
     await act(async () => {
       drag("drop", [png]);
     });
-    expect(toast.error).toHaveBeenCalledWith(
+    expect(document.querySelector(".inline-error")?.textContent).toBe(
       "Marginalia imports OPML files, which end in .opml or .xml.",
     );
+    expect(toast.error).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("a failed Pause says so under that feed with Retry, not in a toast", async () => {
+    state.toggleActive.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(<FeedsPage />));
+    await act(async () => button("Pause")?.click());
+    expect(document.querySelector(".inline-error")?.textContent).toContain(
+      "Couldn't update the feed.",
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+    await act(async () => button("Retry")?.click());
+    expect(state.toggleActive).toHaveBeenCalledTimes(2);
+    expect(document.querySelector(".inline-error")).toBeNull();
   });
 });

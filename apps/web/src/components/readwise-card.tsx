@@ -34,6 +34,7 @@ export function ReadwiseCard() {
   const [syncing, setSyncing] = useState(false);
   const [startFailed, setStartFailed] = useState(false);
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [disconnectFailed, setDisconnectFailed] = useState(false);
 
   if (!status) return null;
 
@@ -63,6 +64,15 @@ export function ReadwiseCard() {
       setStartFailed(true);
     }
     setSyncing(false);
+  };
+
+  const tryDisconnect = async () => {
+    setDisconnectFailed(false);
+    try {
+      await disconnect({});
+    } catch {
+      setDisconnectFailed(true);
+    }
   };
 
   // The server's flag covers scheduled syncs and a reload; a sync that stopped
@@ -145,13 +155,15 @@ export function ReadwiseCard() {
             confirmLabel="Disconnect"
             open={confirmingDisconnect}
             onOpenChange={setConfirmingDisconnect}
-            onConfirm={() =>
-              void disconnect({}).catch(() =>
-                toast.error("Couldn't disconnect Readwise"),
-              )
-            }
+            onConfirm={() => void tryDisconnect()}
           />
         </div>
+      )}
+      {status.source === "saved" && disconnectFailed && (
+        <InlineError
+          message="Couldn't disconnect Readwise."
+          onRetry={() => void tryDisconnect()}
+        />
       )}
       {status.source !== "saved" && (
         <ConnectReadwise deployment={status.source === "deployment"} />

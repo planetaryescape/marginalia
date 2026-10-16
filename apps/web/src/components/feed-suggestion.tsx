@@ -24,12 +24,18 @@ export function FeedSuggestion({
   const keepFeed = useMutation(api.feedSuggestions.keep);
   const [busy, setBusy] = useState(false);
 
-  const run = async (action: () => Promise<unknown>, failure: string) => {
+  const [failure, setFailure] = useState<{
+    message: string;
+    retry: () => void;
+  } | null>(null);
+
+  const run = async (action: () => Promise<unknown>, message: string) => {
     setBusy(true);
+    setFailure(null);
     try {
       await action();
     } catch {
-      toast.error(failure);
+      setFailure({ message, retry: () => void run(action, message) });
       setBusy(false);
     }
   };
@@ -37,6 +43,13 @@ export function FeedSuggestion({
   return (
     <SuggestionNote
       sentence={`You've opened ${opened} of the ${offered} from this feed. Unsubscribe?`}
+      failure={
+        failure && {
+          message: failure.message,
+          onRetry: failure.retry,
+          busy,
+        }
+      }
     >
       <button
         type="button"

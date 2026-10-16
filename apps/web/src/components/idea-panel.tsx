@@ -4,7 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { InlineError } from "@/components/in-place";
 import { type GraphEdge, KIND_LABELS } from "@/lib/idea-kinds";
 import { readLink } from "@/lib/notes-groups";
 import { cn } from "@/lib/utils";
@@ -186,6 +186,7 @@ export function Composer({
   const write = useMutation(api.ideaLinks.writeConnected);
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   // Opening the composer is the reader asking to write
   useEffect(() => field.current?.focus(), []);
@@ -194,6 +195,7 @@ export function Composer({
     const plain = text.trim();
     if (!plain || saving) return;
     setSaving(true);
+    setFailure(null);
     try {
       const key = await write({
         from: fromKey,
@@ -203,7 +205,7 @@ export function Composer({
       });
       onSaved(key);
     } catch (error) {
-      toast.error(errorText(error, "Couldn't save the note. Try again."));
+      setFailure(errorText(error, "Couldn't save the note."));
       setSaving(false);
     }
   }
@@ -229,6 +231,15 @@ export function Composer({
         rows={5}
         className="min-h-[96px] w-full resize-y rounded-lg border border-[var(--reader-border-strong)] bg-transparent p-3 text-[14.5px] leading-relaxed text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)] focus:outline-none focus-visible:border-[var(--reader-focus)]"
       />
+      {failure && (
+        <div className="mt-2.5">
+          <InlineError
+            message={failure}
+            onRetry={() => void save()}
+            busy={saving}
+          />
+        </div>
+      )}
       <div className="mt-2.5 flex gap-2.5">
         <button
           type="button"
@@ -265,6 +276,24 @@ export function EdgePanel({
   const explain = useAction(api.actions.explainIdeaEdge.explain);
   const link = useMutation(api.ideaLinks.link);
   const unlink = useMutation(api.ideaLinks.unlink);
+  const [linkFailure, setLinkFailure] = useState<{
+    message: string;
+    retry: () => void;
+  } | null>(null);
+  // A failure belongs to the connection it happened on
+  // biome-ignore lint/correctness/useExhaustiveDependencies: edge.id is the trigger, not read inside
+  useEffect(() => setLinkFailure(null), [edge.id]);
+  const change = async (fallback: string, run: () => Promise<unknown>) => {
+    setLinkFailure(null);
+    try {
+      await run();
+    } catch (error) {
+      setLinkFailure({
+        message: errorText(error, fallback),
+        retry: () => void change(fallback, run),
+      });
+    }
+  };
   const [attempt, setAttempt] = useState(0);
   const [explained, setExplained] = useState<Explained>({ status: "loading" });
   const aVia = viaOf(edge.a);
@@ -363,8 +392,8 @@ export function EdgePanel({
             type="button"
             className={SECONDARY}
             onClick={() =>
-              unlink({ a: edge.a, b: edge.b }).catch(() =>
-                toast.error("Couldn't remove the link. Try again."),
+              change("Couldn't remove the link.", () =>
+                unlink({ a: edge.a, b: edge.b }),
               )
             }
           >
@@ -375,10 +404,8 @@ export function EdgePanel({
             type="button"
             className={SECONDARY}
             onClick={() =>
-              link({ from: edge.a, to: edge.b }).catch((error) =>
-                toast.error(
-                  errorText(error, "Couldn't keep the link. Try again."),
-                ),
+              change("Couldn't keep the link.", () =>
+                link({ from: edge.a, to: edge.b }),
               )
             }
           >
@@ -386,6 +413,14 @@ export function EdgePanel({
           </button>
         )}
       </div>
+      {linkFailure && (
+        <div className="mt-2.5">
+          <InlineError
+            message={linkFailure.message}
+            onRetry={linkFailure.retry}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -3,7 +3,6 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { quietControl, textControl } from "@/components/settings-controls";
 import { SuggestionNote } from "@/components/suggestion-note";
 
@@ -23,12 +22,18 @@ export function TagMergeSuggestion({ suggestion }: { suggestion: Pending }) {
   const keepBoth = useMutation(api.tagMerge.keepBoth);
   const [busy, setBusy] = useState(false);
 
-  const run = async (action: () => Promise<unknown>, failure: string) => {
+  const [failure, setFailure] = useState<{
+    message: string;
+    retry: () => void;
+  } | null>(null);
+
+  const run = async (action: () => Promise<unknown>, message: string) => {
     setBusy(true);
+    setFailure(null);
     try {
       await action();
     } catch {
-      toast.error(failure);
+      setFailure({ message, retry: () => void run(action, message) });
     }
     setBusy(false);
   };
@@ -36,6 +41,13 @@ export function TagMergeSuggestion({ suggestion }: { suggestion: Pending }) {
   return (
     <SuggestionNote
       sentence={`${suggestion.into} and ${suggestion.from} look like the same topic.`}
+      failure={
+        failure && {
+          message: failure.message,
+          onRetry: failure.retry,
+          busy,
+        }
+      }
     >
       {suggestion.merging ? (
         <span role="status" className="min-h-11 py-3 text-sm">

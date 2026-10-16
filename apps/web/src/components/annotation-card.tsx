@@ -7,6 +7,7 @@ import { useState } from "react";
 import { type AnnotationKind, kindLabel, kindOf } from "@/lib/margin-kinds";
 import { cn, obsidianLink } from "@/lib/utils";
 import { CompanionAnswer } from "./companion-answer";
+import { InlineError } from "./in-place";
 import { CardQuote, cardIconButton, MarginCard } from "./margin-card";
 
 export interface Reflection {
@@ -132,14 +133,19 @@ export function AnnotationCard({
   const heading = label.name.charAt(0).toUpperCase() + label.name.slice(1);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const submit = async () => {
     const text = draft.trim();
     if (!text || saving) return;
     setSaving(true);
+    setFailed(false);
     try {
       await onReflect(text);
       setDraft("");
+    } catch {
+      // The draft stays in the box; Retry sends it again
+      setFailed(true);
     } finally {
       setSaving(false);
     }
@@ -225,41 +231,52 @@ export function AnnotationCard({
   );
 
   const footer = (
-    <form
-      className="mx-3 mb-3 mt-1 flex items-end gap-2 rounded-lg bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--card-accent)]"
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-    >
-      <textarea
-        value={draft}
-        rows={1}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          e.target.style.height = "auto";
-          e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
+    <>
+      {failed && (
+        <div className="mx-3 mt-1">
+          <InlineError
+            message="Couldn't save your reflection."
+            onRetry={() => void submit()}
+            busy={saving}
+          />
+        </div>
+      )}
+      <form
+        className="mx-3 mb-3 mt-1 flex items-end gap-2 rounded-lg bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--card-accent)]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
         }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        placeholder={prompt}
-        aria-label={prompt.replace("…", "")}
-        className="flex-1 min-w-0 resize-none bg-transparent py-1.5 font-serif text-[15px] leading-snug outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)]"
-      />
-      <button
-        type="submit"
-        disabled={!draft.trim() || saving}
-        aria-label="Save"
-        title="Save (⌘↵)"
-        className="mb-0.5 w-7 h-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--card-accent)] text-white transition-opacity disabled:opacity-30"
       >
-        <ArrowUp size={14} strokeWidth={2.5} />
-      </button>
-    </form>
+        <textarea
+          value={draft}
+          rows={1}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            e.target.style.height = "auto";
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder={prompt}
+          aria-label={prompt.replace("…", "")}
+          className="flex-1 min-w-0 resize-none bg-transparent py-1.5 font-serif text-[15px] leading-snug outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)]"
+        />
+        <button
+          type="submit"
+          disabled={!draft.trim() || saving}
+          aria-label="Save"
+          title="Save (⌘↵)"
+          className="mb-0.5 w-7 h-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--card-accent)] text-white transition-opacity disabled:opacity-30"
+        >
+          <ArrowUp size={14} strokeWidth={2.5} />
+        </button>
+      </form>
+    </>
   );
 
   return (
