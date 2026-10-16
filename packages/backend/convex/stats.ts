@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { ownedArticle } from "./access";
@@ -524,12 +524,12 @@ const TOPICS_SHOWN = 30;
 // new tags are resisted: a name is matched onto an existing tag or alias
 // before one is created (D-DES-059).
 const ACTIVE_TAGS = 300;
-// Finish and skip rows read per period, newest first, each from its own index
-// range so routine browsing events can't crowd them out. A finish row can carry
-// 128 annotation ids (about 4.7 KB), so 400 finishes stay under 2 MB; a skip
-// row is a few hundred bytes.
-const OUTCOME_FINISHES = 400;
-const OUTCOME_SKIPS = 1000;
+// Bytes of finish and skip rows read per period, newest first, each from its
+// own index range so routine browsing events can't crowd them out. Either kind
+// can carry 128 annotation ids (about 4.7 KB a row), so the cap is on bytes:
+// 1 MB each keeps the query under Convex's 16 MiB read limit beside the visits
+// and tags it also reads.
+const OUTCOME_BYTES = 1_000_000;
 // Articles finished or skipped but not read for a minute that also get their
 // tags looked up, so a topic's skips can include things never opened. Each
 // lookup reads up to TAGS_PER_ARTICLE small link rows, which keeps the query
@@ -565,8 +565,10 @@ export const readingTopics = query({
       .slice(0, TOPIC_ARTICLES);
 
     const period = roomPeriod(Date.now(), timeZone, periodName);
-    const outcomeRows = (action: "finished" | "skipped", limit: number) =>
-      ctx.db
+    const outcomeRows = async (action: "finished" | "skipped") => {
+      const rows: Doc<"articleInteractions">[] = [];
+      let bytes = 0;
+      for await (const row of ctx.db
         .query("articleInteractions")
         .withIndex("by_user_action_created", (q) =>
           q
@@ -575,25 +577,35 @@ export const readingTopics = query({
             .gte("createdAt", period.start)
             .lt("createdAt", period.end),
         )
-        .order("desc")
-        .take(limit);
-    const [finishRows, skipRows] = await Promise.all([
-      outcomeRows("finished", OUTCOME_FINISHES),
-      outcomeRows("skipped", OUTCOME_SKIPS),
-    ]);
-    const finished = new Set(finishRows.map((row) => row.articleId));
-    const skipped = new Set(skipRows.map((row) => row.articleId));
-    // An article the reader went on to finish was not passed over
-    for (const id of finished) skipped.delete(id);
+        .order("desc")) {
+        bytes += getDocumentSize(row);
+        // The row that crosses the budget has been read; stopping here keeps
+        // the overshoot to one row
+        if (bytes > OUTCOME_BYTES) return { rows, complete: false };
+        rows.push(row);
+      }
+      return { rows, complete: true };
+    };
+    const finishes = await outcomeRows("finished");
+    const skips = await outcomeRows("skipped");
+    const finished = new Set(finishes.rows.map((row) => row.articleId));
+    // A skip only counts once every finish in the period has been read: an
+    // article the reader went on to finish was not passed over, and an unread
+    // finish could be that one. Leaving skips out keeps the count a lower bound.
+    const skipped = new Set(
+      finishes.complete
+        ? skips.rows
+            .map((row) => row.articleId)
+            .filter((id) => !finished.has(id))
+        : [],
+    );
     const readIds = new Set(read.map(([id]) => id));
     const unread = [...finished, ...skipped].filter((id) => !readIds.has(id));
     const outcomeOnly = unread
       .slice(0, OUTCOME_ARTICLES)
       .map((id) => [id, 0] as const);
     const outcomesPartial =
-      finishRows.length === OUTCOME_FINISHES ||
-      skipRows.length === OUTCOME_SKIPS ||
-      unread.length > OUTCOME_ARTICLES;
+      !finishes.complete || !skips.complete || unread.length > OUTCOME_ARTICLES;
 
     // Candidates and other readers' tags are dropped before ranking, so they
     // can't use up the places that active topics need

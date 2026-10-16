@@ -571,6 +571,68 @@ describe("readingTopics finish and skip counts", () => {
   });
 });
 
+describe("readingTopics when a period has more finishes than it reads", () => {
+  it("stops at the byte budget and leaves skips out rather than count a finished one", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    const at = Date.UTC(2026, 9, 13, 8);
+    const heavy = Array.from({ length: 128 }, (_, i) =>
+      `annotation-${i}`.padEnd(32, "x"),
+    );
+    await t.run(async (ctx) => {
+      const tagId = await ctx.db.insert("tags", {
+        userId: OWNER,
+        name: "busy",
+        key: "busy",
+        status: "active",
+        count: 1,
+        aliases: [],
+        createdAt: 1,
+      });
+      const read = await insertArticle(ctx, "read");
+      await ctx.db.insert("readingActivity", { ...visitRow(read, at) });
+      await ctx.db.insert("articleTags", {
+        userId: OWNER,
+        articleId: read,
+        tagId,
+        createdAt: 1,
+      });
+      // Skipped, then finished, and that finish is too old to be read
+      await ctx.db.insert("articleInteractions", {
+        userId: OWNER,
+        articleId: read,
+        action: "skipped",
+        createdAt: at,
+      });
+      await ctx.db.insert("articleInteractions", {
+        userId: OWNER,
+        articleId: read,
+        action: "finished",
+        createdAt: at + 1,
+      });
+      const other = await insertArticle(ctx, "other");
+      for (let i = 0; i < 300; i++)
+        await ctx.db.insert("articleInteractions", {
+          userId: OWNER,
+          articleId: other,
+          action: "finished",
+          annotationsOpened: heavy,
+          createdAt: at + 2 + i,
+        });
+    });
+    const [topic] = await owner.query(api.stats.readingTopics, {
+      timeZone: "UTC",
+      period: "month",
+    });
+    expect(topic).toMatchObject({
+      name: "busy",
+      skipped: 0,
+      outcomesPartial: true,
+    });
+  });
+});
+
 describe("readingTopics with many candidates", () => {
   it("keeps scanning past candidate tags to find the active one", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
