@@ -164,11 +164,14 @@ export function IdeaGraphView({
           const selected = edge.id === edgeId;
           // On a phone the lines would crowd each other; the panel says why instead
           const label = faint || narrow ? "" : edgeLabel(edge);
-          // Nearer the inner end than the middle, so the label clears the
-          // outer idea's own label
+          // An idea's label sits below it, so on a line rising to an outer
+          // idea the midpoint label would meet that idea's label: move it
+          // nearer the inner end. Falling lines keep the midpoint, where
+          // neighbouring labels are furthest apart.
           const [inner, outer] = a.hop <= b.hop ? [a, b] : [b, a];
-          const labelX = inner.x + (outer.x - inner.x) * 0.42;
-          const labelY = inner.y + (outer.y - inner.y) * 0.42;
+          const along = outer.y < inner.y ? 0.42 : 0.5;
+          const labelX = inner.x + (outer.x - inner.x) * along;
+          const labelY = inner.y + (outer.y - inner.y) * along;
           return (
             <g
               key={edge.id}
