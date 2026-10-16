@@ -1,11 +1,14 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { Star } from "lucide-react";
 import Link from "next/link";
-import { toast } from "sonner";
+import { useEffect, useState } from "react";
 import { RATINGS } from "@/components/impression-panel";
-import { useListKeys } from "@/lib/list-nav";
+import { InlineError } from "@/components/in-place";
+import { ConfirmAction } from "@/components/settings-confirm";
+import { navItems, useListKeys } from "@/lib/list-nav";
 import { cn, formatReadTime } from "@/lib/utils";
 
 export type ShelfId = "saved" | "loved" | "finished";
@@ -64,52 +67,114 @@ function Loading() {
   );
 }
 
-/** Saved shelf: the list that used to be `/saved`, with the same remove button. */
+const rowFor = (id: string) =>
+  document.querySelector<HTMLElement>(`[data-saved-row="${id}"]`);
+
+/** Saved shelf: the list that used to be `/saved`, with Remove confirmed in place. */
 export function SavedShelf() {
   const saved = useQuery(api.savedArticles.list);
   const unsave = useMutation(api.savedArticles.unsave);
-  useListKeys({ s: { action: "unsave", leaves: true } }, [
-    ["s", "Remove from saved"],
-  ]);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ id: Id<"articles">; title: string }>();
+  const [retrying, setRetrying] = useState(false);
+
+  // Opening the question puts focus on its Remove, so the keyboard can answer it
+  useEffect(() => {
+    if (confirming)
+      rowFor(confirming)
+        ?.querySelector<HTMLElement>('[role="group"] button')
+        ?.focus();
+  }, [confirming]);
+
+  const remove = async (id: Id<"articles">, title: string) => {
+    // Focus moves to the neighbour first so it never falls to <body>
+    const items = navItems();
+    const at = items.findIndex((el) => rowFor(id)?.contains(el));
+    (items[at + 1] ?? items[at - 1])?.focus({ preventScroll: true });
+    try {
+      await unsave({ articleId: id });
+      setFailed(undefined);
+    } catch {
+      setFailed({ id, title });
+      rowFor(id)?.querySelector<HTMLElement>("[data-nav-item]")?.focus();
+    }
+  };
+
+  // `s` asks the question for the focused row; Enter on Remove answers it
+  useListKeys(
+    {
+      s: () => {
+        const id = (
+          document.activeElement as HTMLElement | null
+        )?.closest<HTMLElement>("[data-saved-row]")?.dataset.savedRow;
+        if (!id) return false;
+        setConfirming(id);
+        return true;
+      },
+    },
+    [["s", "Remove from saved"]],
+  );
   if (saved === undefined) return <Loading />;
   if (saved.length === 0)
     return <p className={shelfEmpty}>No saved articles yet.</p>;
   return (
-    <ul className="border-t border-[var(--reader-border)]">
-      {saved.map((item) => {
-        if (!item?.article) return null;
-        const { article } = item;
-        return (
-          <li key={item._id} data-nav-row className={rowClass}>
-            <div className="min-w-0 flex-1">
-              <Link
-                href={`/read/${article._id}`}
-                data-nav-item
-                className={cn(titleClass, "line-clamp-2")}
-              >
-                {article.title}
-              </Link>
-              <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)]">
-                {shelfMeta(article)}
-              </span>
-            </div>
-            <button
-              type="button"
-              data-nav-action="unsave"
-              aria-label={`Remove ${article.title} from saved articles`}
-              onClick={() =>
-                unsave({ articleId: article._id }).catch(() =>
-                  toast.error("Couldn't remove the saved article. Try again."),
-                )
-              }
-              className="flex h-11 w-11 shrink-0 items-center justify-center text-lg text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-colors"
+    <>
+      {failed && (
+        <div className="mt-4">
+          <InlineError
+            message={`Couldn't remove “${failed.title}” from saved articles.`}
+            busy={retrying}
+            onRetry={async () => {
+              setRetrying(true);
+              await remove(failed.id, failed.title);
+              setRetrying(false);
+            }}
+          />
+        </div>
+      )}
+      <ul className="border-t border-[var(--reader-border)]">
+        {saved.map((item) => {
+          if (!item?.article) return null;
+          const { article } = item;
+          return (
+            <li
+              key={item._id}
+              data-nav-row
+              data-saved-row={article._id}
+              className={rowClass}
             >
-              &times;
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+              <div className="min-w-0 flex-1">
+                <Link
+                  href={`/read/${article._id}`}
+                  data-nav-item
+                  className={cn(titleClass, "line-clamp-2")}
+                >
+                  {article.title}
+                </Link>
+                <span className="mt-0.5 block text-[12px] text-[var(--reader-muted)]">
+                  {shelfMeta(article)}
+                </span>
+              </div>
+              <ConfirmAction
+                label="Remove"
+                ariaLabel={`Remove ${article.title} from saved articles`}
+                question="Remove from saved?"
+                confirmLabel="Remove"
+                open={confirming === article._id}
+                onOpenChange={(open) => {
+                  setConfirming(open ? article._id : null);
+                  if (!open)
+                    rowFor(article._id)
+                      ?.querySelector<HTMLElement>("[data-nav-item]")
+                      ?.focus();
+                }}
+                onConfirm={() => void remove(article._id, article.title)}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
