@@ -68,6 +68,29 @@ export async function updateQueueStats(
   await ctx.db.patch(after._id, { queueCounted: true, finishedAt });
 }
 
+/** Takes a deleted article out of the totals, in the same transaction as the delete. */
+export async function removeFromQueueStats(
+  ctx: MutationCtx,
+  article: Doc<"articles">,
+) {
+  // Uncounted articles were never added; initialization skips them once deleted
+  if (!article.queueCounted) return;
+  const stats = await ctx.db
+    .query("readingQueueStats")
+    .withIndex("by_user", (q) => q.eq("userId", article.userId))
+    .unique();
+  if (!stats) return;
+  const gone = contribution(article);
+  await ctx.db.patch(stats._id, {
+    annotated: stats.annotated - gone.annotated,
+    waiting: stats.waiting - gone.waiting,
+    pending: stats.pending - gone.pending,
+    fits5: stats.fits5 - gone.fits5,
+    fits10: stats.fits10 - gone.fits10,
+    fits20: stats.fits20 - gone.fits20,
+  });
+}
+
 /** Idempotent, small-page initialization of existing articles and historical finishes. */
 export const initialize = internalMutation({
   args: { userId: v.string() },

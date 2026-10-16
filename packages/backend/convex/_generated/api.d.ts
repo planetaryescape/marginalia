@@ -45,6 +45,7 @@ import type * as lib_companionStream from "../lib/companionStream.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_embeddings from "../lib/embeddings.js";
 import type * as lib_externalApi from "../lib/externalApi.js";
+import type * as lib_feedRemoval from "../lib/feedRemoval.js";
 import type * as lib_ingest from "../lib/ingest.js";
 import type * as lib_library from "../lib/library.js";
 import type * as lib_librarySearch from "../lib/librarySearch.js";
@@ -126,6 +127,7 @@ declare const fullApi: ApiFromModules<{
   "lib/constants": typeof lib_constants;
   "lib/embeddings": typeof lib_embeddings;
   "lib/externalApi": typeof lib_externalApi;
+  "lib/feedRemoval": typeof lib_feedRemoval;
   "lib/ingest": typeof lib_ingest;
   "lib/library": typeof lib_library;
   "lib/librarySearch": typeof lib_librarySearch;

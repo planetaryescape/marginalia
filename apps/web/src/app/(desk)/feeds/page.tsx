@@ -6,12 +6,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { DeskPage } from "@/components/desk-page";
 import { ReadwiseCard } from "@/components/readwise-card";
+import { RemoveFeedDialog } from "@/components/remove-feed-dialog";
 import { formatDate } from "@/lib/utils";
 
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
   const addFeed = useMutation(api.feeds.add);
-  const removeFeed = useMutation(api.feeds.remove);
   const toggleActive = useMutation(api.feeds.toggleActive);
   const pollNow = useAction(api.feeds.pollNow);
   const [polling, setPolling] = useState(false);
@@ -19,6 +19,10 @@ export default function FeedsPage() {
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [removing, setRemoving] = useState<{
+    _id: Id<"feeds">;
+    title: string;
+  } | null>(null);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,15 +43,6 @@ export default function FeedsPage() {
       );
     }
     setAdding(false);
-  };
-
-  const handleRemove = async (feedId: Id<"feeds">) => {
-    try {
-      await removeFeed({ feedId });
-      toast.success("Feed removed");
-    } catch {
-      toast.error("Couldn't remove the feed. Try again.");
-    }
   };
 
   return (
@@ -215,7 +210,7 @@ export default function FeedsPage() {
                 <button
                   type="button"
                   aria-label={`Remove ${feed.title}`}
-                  onClick={() => handleRemove(feed._id)}
+                  onClick={() => setRemoving(feed)}
                   className="text-[var(--reader-muted)] hover:text-[var(--reader-fg)] text-sm transition-colors"
                   title="Remove feed"
                 >
@@ -225,6 +220,9 @@ export default function FeedsPage() {
             </div>
           ))}
         </div>
+      )}
+      {removing && (
+        <RemoveFeedDialog feed={removing} onClose={() => setRemoving(null)} />
       )}
     </DeskPage>
   );

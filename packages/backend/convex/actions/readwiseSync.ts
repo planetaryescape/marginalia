@@ -250,6 +250,42 @@ export const deleteHighlight = internalAction({
   },
 });
 
+const READER_DELETE_ATTEMPTS = 5;
+
+/** Deletes an article's Reader document after its feed's articles are removed. */
+export const deleteReaderDocument = internalAction({
+  args: {
+    userId: v.string(),
+    readerDocumentId: v.string(),
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const readwise = await readwiseTokenFor(ctx, args.userId);
+    if (!readwise) return;
+    try {
+      await deleteDocument(readwise, args.readerDocumentId);
+    } catch (error) {
+      const attempt = args.attempt ?? 1;
+      // Otherwise a later Reader backfill would import the article again
+      if (
+        error instanceof ReadwiseRateLimitError &&
+        attempt < READER_DELETE_ATTEMPTS
+      ) {
+        await ctx.scheduler.runAfter(
+          error.retryAfterMs,
+          internal.actions.readwiseSync.deleteReaderDocument,
+          { ...args, attempt: attempt + 1 },
+        );
+        return;
+      }
+      console.error(
+        `Couldn't delete document ${args.readerDocumentId} in Reader:`,
+        error,
+      );
+    }
+  },
+});
+
 /** Archives the article in Reader when it's finished in Marginalia. */
 export const archiveArticle = internalAction({
   args: { userId: v.string(), articleId: v.id("articles") },

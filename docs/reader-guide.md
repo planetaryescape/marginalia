@@ -32,7 +32,7 @@ Focus mode, paragraph numbers and the annotation map are optional. Listen uses t
 - **Notes:** revisit saved notes and follow them back to the source article.
 - **This week:** see recent reading, time, engagement and reflections.
 - **Saved:** find your queued articles, including the empty state.
-- **Sources:** add feeds, import OPML, pause subscriptions and manage Reader sync.
+- **Sources:** add feeds, import OPML, pause subscriptions and manage Reader sync. Removing a feed asks what to do with its articles: keep them, remove the ones you never opened, or remove all of them. Articles with your highlights or notes always stay. Removed articles that are also in Readwise Reader are deleted there too.
 - **Readers** (owner only): approve access requests, copy invite links and disable readers.
 - **Your account** (header): sign-in methods, AI provider keys, connected apps, touch feedback and account deletion.
 
