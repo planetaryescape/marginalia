@@ -767,6 +767,111 @@ describe("choosing a time", () => {
   });
 });
 
+describe("keys on a pick", () => {
+  const choose = async () => {
+    await render();
+    await press("2");
+    await act(async () => {
+      calls("sessions:create")[0].resolve("s1");
+      await vi.advanceTimersByTimeAsync(SETTLE_MS + 1);
+    });
+  };
+  const typeIn = (key: string) => {
+    const input = document.body.appendChild(document.createElement("input"));
+    input.focus();
+    return act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  };
+
+  it("n and the right arrow show another, the left arrow goes back", async () => {
+    await choose();
+    expect(text()).toContain("Title a");
+    await press("n");
+    await advance(SETTLE_MS + 1);
+    expect(text()).toContain("Title b");
+    await press("ArrowRight");
+    await advance(SETTLE_MS + 1);
+    expect(text()).toContain("Title c");
+    await press("ArrowLeft");
+    await advance(SETTLE_MS + 1);
+    expect(text()).toContain("Title b");
+    await press("ArrowLeft");
+    await advance(SETTLE_MS + 1);
+    expect(text()).toContain("Title a");
+    // Nothing before the first pick, so the arrow is left to the browser
+    let prevented = false;
+    await act(async () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "ArrowLeft",
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(event);
+      prevented = event.defaultPrevented;
+    });
+    expect(prevented).toBe(false);
+    expect(text()).toContain("Title a");
+  });
+
+  it("Enter and o read the pick", async () => {
+    await choose();
+    await press("Enter");
+    await advance(0);
+    expect(state.push).toHaveBeenLastCalledWith("/read/a?session=s1", {
+      transitionTypes: ["open-article"],
+    });
+    await advance(SETTLE_MS + 1);
+    await press("o");
+    await advance(0);
+    expect(state.push).toHaveBeenCalledTimes(2);
+  });
+
+  it("Enter on a focused button is that button's own", async () => {
+    await choose();
+    const another = button("Another");
+    another.focus();
+    await act(async () => {
+      another.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(state.push).not.toHaveBeenCalled();
+  });
+
+  it("s saves the pick", async () => {
+    await choose();
+    await press("s");
+    expect(calls("savedArticles:save")).toHaveLength(1);
+    expect(calls("savedArticles:save")[0].args).toEqual({ articleId: "a" });
+  });
+
+  it("none of these fire while typing in a field", async () => {
+    await choose();
+    for (const key of ["n", "o", "s", "Enter", "ArrowRight"]) await typeIn(key);
+    await advance(SETTLE_MS + 1);
+    expect(text()).toContain("Title a");
+    expect(state.push).not.toHaveBeenCalled();
+    expect(calls("savedArticles:save")).toHaveLength(0);
+  });
+
+  it("shows the keycaps for the pick while Alt is held", async () => {
+    await choose();
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Alt", altKey: true }),
+      );
+    });
+    await advance(ALT_HOLD_MS);
+    expect(button(/^Read now/).querySelector("kbd")?.textContent).toBe("o");
+    expect(button(/^Another/).querySelector("kbd")?.textContent).toBe("n");
+  });
+});
+
 describe("annotating ahead", () => {
   const deferred = (id: string) => ({ ...card(id, 25), deferred: true });
   const asked = () =>

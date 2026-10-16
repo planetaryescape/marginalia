@@ -28,6 +28,8 @@ export type SuggestionDeck = {
     | undefined;
   /** Moves past the card at `fromIndex`; a stale index can't skip a second card. */
   advance: (fromIndex: number) => void;
+  /** Steps back to the card before `fromIndex`; the deck keeps what was shown. */
+  back: (fromIndex: number) => void;
 };
 
 /**
@@ -98,5 +100,6 @@ export function useSuggestionDeck(requestedMinutes: number): SuggestionDeck {
     exhausted,
     shortest,
     advance: (fromIndex) => setIndex(fromIndex + 1),
+    back: (fromIndex) => setIndex(Math.max(0, fromIndex - 1)),
   };
 }

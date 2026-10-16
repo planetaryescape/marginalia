@@ -29,7 +29,8 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   },
 }));
 vi.mock("sonner", () => ({ toast }));
-vi.mock("@/lib/shortcuts", () => ({
+vi.mock("@/lib/shortcuts", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/shortcuts")>()),
   useShortcuts: vi.fn(),
   useCommand: vi.fn(),
 }));
@@ -345,6 +346,81 @@ describe("topic picker", () => {
         );
     });
     expect(push).toHaveBeenCalledWith("/read/b");
+  });
+
+  describe("keyboard", () => {
+    const matches = [
+      find("a", "Alpha", 3),
+      find("b", "Beta", 4),
+      find("c", "Gamma", 5),
+    ];
+    const results = async () => {
+      await show();
+      await type("attention");
+      await settle();
+      await answer("find", { more: false, matches });
+    };
+    const press = async (name: string, target: Element) => {
+      await act(async () => {
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: name,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    };
+    const readButton = () =>
+      [...host.querySelectorAll("button")].find(
+        (b) => b.textContent === "Read now",
+      ) as HTMLButtonElement;
+
+    it("marks the highlighted result as the input's active descendant", async () => {
+      await results();
+      const input = host.querySelector("input") as HTMLInputElement;
+      const option = host.querySelector('[role="option"]') as HTMLElement;
+      expect(input.getAttribute("role")).toBe("combobox");
+      expect(input.getAttribute("aria-activedescendant")).toBe(option.id);
+      expect(
+        host
+          .querySelector('[role="listbox"]')
+          ?.contains(host.querySelector("h3")),
+      ).toBe(true);
+      await key("ArrowDown");
+      expect(option.textContent).toContain("Beta");
+      expect(input.getAttribute("aria-activedescendant")).toBe(
+        host.querySelector('[role="option"]')?.id,
+      );
+    });
+
+    it("moves with the arrows while typing, and j k s do not steal letters from the input", async () => {
+      await results();
+      const input = host.querySelector("input") as HTMLInputElement;
+      await press("j", input);
+      await press("s", input);
+      expect(title()).toBe("Alpha");
+      expect(save).not.toHaveBeenCalled();
+      await press("ArrowDown", input);
+      expect(title()).toBe("Beta");
+    });
+
+    it("j, k, s and Enter work once focus leaves the input", async () => {
+      await results();
+      const button = readButton();
+      await press("j", button);
+      expect(title()).toBe("Beta");
+      await press("k", button);
+      expect(title()).toBe("Alpha");
+      save.mockResolvedValue(undefined);
+      await press("s", button);
+      expect(save).toHaveBeenCalledWith({ articleId: "a" });
+      // Enter on a button is the button's own; on the dialog it reads
+      await press("Enter", button);
+      expect(push).not.toHaveBeenCalled();
+      await press("Enter", host.querySelector("dialog") as HTMLElement);
+      expect(push).toHaveBeenCalledWith("/read/a");
+    });
   });
 
   it("closes on Escape", async () => {

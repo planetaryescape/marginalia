@@ -4,13 +4,14 @@ import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { Check } from "lucide-react";
 import Link from "next/link";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { InlineError, SavedMark } from "@/components/in-place";
 import {
   FAILURE_COPY,
   type ImportFailure,
   importSteps,
 } from "@/lib/pdf-import";
+import { isOnControl, useShortcuts } from "@/lib/shortcuts";
 import type { UploadState } from "@/lib/use-pdf-import";
 import { PdfPickerButton } from "./pdf-picker";
 
@@ -57,6 +58,9 @@ function Refusal({
   onFile: (file: File) => void;
   onDismiss: () => void;
 }) {
+  useShortcuts({ Escape: onDismiss }, true, {
+    help: { group: "PDF", keys: [["Esc", "Dismiss"]] },
+  });
   return (
     <div className="max-w-[620px]" role="alert">
       <p className={LABEL}>Couldn't read this PDF</p>
@@ -87,6 +91,30 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [failed, setFailed] = useState(false);
+  const startRef = useRef<HTMLAnchorElement>(null);
+  const ready = Boolean(row.articleId);
+  useShortcuts(
+    {
+      Enter: (event) => {
+        if (isOnControl(event)) return false;
+        startRef.current?.click();
+      },
+      o: () => startRef.current?.click(),
+      s: () => (saved || saving ? false : void saveForLater()),
+      Escape: onDismiss,
+    },
+    ready,
+    {
+      help: {
+        group: "PDF",
+        keys: [
+          ["Enter  o", "Start reading"],
+          ["s", "Save for later"],
+          ["Esc", "Dismiss"],
+        ],
+      },
+    },
+  );
   if (!row.articleId) return null;
   const articleId = row.articleId;
   const isBook = row.units !== undefined;
@@ -104,7 +132,7 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
   ]
     .filter(Boolean)
     .join(" · ");
-  const saveForLater = async () => {
+  async function saveForLater() {
     setSaving(true);
     setFailed(false);
     try {
@@ -114,7 +142,7 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
       setFailed(true);
     }
     setSaving(false);
-  };
+  }
   return (
     <div className="max-w-[620px]">
       <p className={LABEL}>Ready to read</p>
@@ -129,6 +157,7 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
       </p>
       <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link
+          ref={startRef}
           href={`/read/${articleId}`}
           onClick={onDismiss}
           className={PRIMARY}

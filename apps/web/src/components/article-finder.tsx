@@ -9,7 +9,12 @@ import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PdfPickerButton } from "@/components/desk/pdf-picker";
 import { InlineError } from "@/components/in-place";
-import { useCommand, useShortcuts } from "@/lib/shortcuts";
+import {
+  isOnControl,
+  isTypingTarget,
+  useCommand,
+  useShortcuts,
+} from "@/lib/shortcuts";
 import {
   nextPosition,
   previousPosition,
@@ -81,7 +86,12 @@ export function ArticleFinder({
   const searching = open && text.length >= 2 && !isLink;
   const result = useTopicSearch(text, searching, retry);
   const limit = limitCleared ? null : windowMinutes;
-  useShortcuts({ "/": () => setOpen(true) });
+  useShortcuts({ "/": () => setOpen(true) }, true, {
+    help: {
+      group: "Desk",
+      keys: [["/", "Search, paste a link or choose a PDF"]],
+    },
+  });
   useCommand("open-finder", () => setOpen(true));
   // Search from another room lands on the desk with ?find=1; open the picker once
   useEffect(() => {
@@ -182,6 +192,24 @@ export function ArticleFinder({
   };
 
   const reason = shown && result.reasons[shown.match.articleId];
+  const savedShown = shown ? saved.has(shown.match.articleId) : false;
+
+  // Arrows work while typing; the letters and a bare Enter only when the
+  // input isn't focused, so they never type over the query.
+  const onDialogKey = (e: React.KeyboardEvent) => {
+    const native = e.nativeEvent;
+    if (native.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+    const typing = isTypingTarget(e.target);
+    if (e.key === "ArrowDown" || (!typing && e.key === "j")) another();
+    else if (e.key === "ArrowUp" || (!typing && e.key === "k")) previous();
+    else if (!typing && e.key === "s") {
+      if (isLink) void fromLink(false);
+      else if (shown && !savedShown) void save(shown.match.articleId);
+      else return;
+    } else if (!typing && e.key === "Enter" && !isOnControl(native)) readNow();
+    else return;
+    e.preventDefault();
+  };
 
   return (
     <>
@@ -213,6 +241,7 @@ export function ArticleFinder({
           setOpen(false);
         }}
         onClose={() => setOpen(false)}
+        onKeyDown={onDialogKey}
         className="mx-auto mt-[calc(var(--app-viewport-top)+env(safe-area-inset-top)+1rem)] md:mt-[12dvh] mb-auto w-[calc(100%-2rem)] max-w-[640px] max-h-[calc(var(--app-viewport-height)-env(safe-area-inset-top)-2rem)] rounded-[10px] p-0 overflow-hidden bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border-strong)] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.6)] backdrop:bg-black/40 font-sans"
       >
         <form
@@ -236,18 +265,14 @@ export function ArticleFinder({
               setQuery(e.target.value);
               setPosition(0);
             }}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={Boolean(shown)}
+            aria-controls={`${id}-results`}
+            aria-activedescendant={shown ? `${id}-option` : undefined}
             onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing) {
-                if (e.key === "Enter") e.preventDefault();
-                return;
-              }
-              if (e.key === "ArrowDown") {
+              if (e.nativeEvent.isComposing && e.key === "Enter")
                 e.preventDefault();
-                another();
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                previous();
-              }
             }}
             placeholder="Science, a quick read, that piece about cows…"
             className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[var(--reader-muted)]"
@@ -342,32 +367,41 @@ export function ArticleFinder({
           )}
           {shown && (
             <div className="px-[18px] pb-4 pt-[18px]">
-              <p className={labelClass}>
-                About {text}
-                {limit !== null && `, within ${limit} min`}
-              </p>
-              <h3
-                key={shown.match.articleId}
-                className="mb-1.5 font-serif text-[22px] leading-tight md:text-[26px]"
+              <div
+                id={`${id}-results`}
+                role="listbox"
+                aria-label={`Results about ${text}`}
               >
-                {shown.match.title}
-              </h3>
-              <p className="mb-2 text-[13.5px] text-[var(--reader-muted)]">
-                {metaLine(shown.match)}
-              </p>
-              <p className="mb-4 min-h-[22px] text-[14.5px] text-[var(--pencil)]">
-                {reason ||
-                  (!result.explained && (
-                    <span
-                      aria-hidden
-                      className="inline-block h-2.5 w-[180px] animate-pulse rounded-full bg-[var(--reader-chip)] align-middle"
-                    />
-                  ))}
-              </p>
+                <div id={`${id}-option`} role="option" aria-selected="true">
+                  <p className={labelClass}>
+                    About {text}
+                    {limit !== null && `, within ${limit} min`}
+                  </p>
+                  <h3
+                    key={shown.match.articleId}
+                    className="mb-1.5 font-serif text-[22px] leading-tight md:text-[26px]"
+                  >
+                    {shown.match.title}
+                  </h3>
+                  <p className="mb-2 text-[13.5px] text-[var(--reader-muted)]">
+                    {metaLine(shown.match)}
+                  </p>
+                  <p className="mb-4 min-h-[22px] text-[14.5px] text-[var(--pencil)]">
+                    {reason ||
+                      (!result.explained && (
+                        <span
+                          aria-hidden
+                          className="inline-block h-2.5 w-[180px] animate-pulse rounded-full bg-[var(--reader-chip)] align-middle"
+                        />
+                      ))}
+                  </p>
+                </div>
+              </div>
               <div className="flex flex-wrap items-center gap-2.5">
                 <button
                   type="button"
                   className={primaryClass}
+                  aria-keyshortcuts="Enter"
                   onClick={readNow}
                 >
                   Read now
@@ -376,6 +410,7 @@ export function ArticleFinder({
                   <button
                     type="button"
                     className={secondaryClass}
+                    aria-keyshortcuts="ArrowDown"
                     onClick={another}
                   >
                     Another
@@ -384,7 +419,8 @@ export function ArticleFinder({
                 <button
                   type="button"
                   className={quietClass}
-                  disabled={saved.has(shown.match.articleId)}
+                  disabled={savedShown}
+                  aria-keyshortcuts="s"
                   onClick={() => void save(shown.match.articleId)}
                 >
                   {saved.has(shown.match.articleId)

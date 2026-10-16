@@ -87,13 +87,25 @@ function Desk() {
       extendSubscriptionFor: PREFETCH_FOR_MS,
     });
 
-  useShortcuts({
-    "1": () => choose(TIME_KEYS["1"]),
-    "2": () => choose(TIME_KEYS["2"]),
-    "3": () => choose(TIME_KEYS["3"]),
-    "4": () => choose(TIME_KEYS["4"]),
-    Escape: () => setChosen(null),
-  });
+  useShortcuts(
+    {
+      "1": () => choose(TIME_KEYS["1"]),
+      "2": () => choose(TIME_KEYS["2"]),
+      "3": () => choose(TIME_KEYS["3"]),
+      "4": () => choose(TIME_KEYS["4"]),
+      Escape: () => (chosen ? setChosen(null) : false),
+    },
+    true,
+    {
+      help: {
+        group: "Desk",
+        keys: [
+          ["1 – 4", "Read for 5, 10, 20 or 30+ minutes"],
+          ["Esc", "Clear the chosen time"],
+        ],
+      },
+    },
+  );
 
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long",
@@ -146,6 +158,7 @@ function Desk() {
             minutes={chosen.minutes}
             sessionId={chosen.sessionId}
             onClose={() => setChosen(null)}
+            showKeys={showKeys}
           />
         ) : (
           <QueryBoundary fallback={(retry) => <SlotFailure retry={retry} />}>

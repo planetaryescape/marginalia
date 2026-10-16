@@ -5,9 +5,10 @@ import { useMutation } from "convex/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { InlineError, SavedMark } from "@/components/in-place";
 import { OPEN_ARTICLE, ViewTransition } from "@/components/view-transition";
+import { isOnControl, useShortcuts } from "@/lib/shortcuts";
 import { createSingleFlight } from "@/lib/suggestion-deck";
 import { articleTitleName, rememberTitle } from "@/lib/title-handoff";
 import { usePresented } from "@/lib/use-presented";
@@ -43,14 +44,24 @@ function useAfter(active: boolean, ms: number) {
   return active && elapsed;
 }
 
+function Cap({ show, children }: { show: boolean; children: string }) {
+  return show ? (
+    <kbd aria-hidden className="reader-kbd ml-2 text-[11px]">
+      {children}
+    </kbd>
+  ) : null;
+}
+
 function Quiet({
   children,
   onClick,
   hidden,
+  cap,
 }: {
   children: string;
   onClick: () => void;
   hidden?: boolean;
+  cap?: ReactNode;
 }) {
   return (
     <button
@@ -60,6 +71,7 @@ function Quiet({
       className="text-[14.5px] text-[var(--ink-soft)] underline decoration-[color-mix(in_srgb,var(--ink)_20%,transparent)] underline-offset-[3px] hover:text-[var(--ink)]"
     >
       {children}
+      {cap}
     </button>
   );
 }
@@ -73,7 +85,9 @@ export function DeskPick({
   minutes,
   sessionId,
   onClose,
+  showKeys = false,
 }: {
+  showKeys?: boolean;
   minutes: number;
   sessionId?: Id<"sessions">;
   /** Back to the slot's resting state. */
@@ -146,6 +160,42 @@ export function DeskPick({
       });
     });
   };
+
+  const previous = () => {
+    if (!card || index === 0) return;
+    return act(async () => {
+      setSaveFailed(false);
+      clearSaved();
+      setDirection(-1);
+      deck.back(index);
+    });
+  };
+
+  useShortcuts(
+    {
+      Enter: (event) => {
+        if (isOnControl(event)) return false;
+        void readNow();
+      },
+      o: () => void readNow(),
+      n: () => void another(),
+      ArrowRight: () => void another(),
+      ArrowLeft: () => (index === 0 ? false : void previous()),
+      s: () => void saveForLater(),
+    },
+    deck.view === "card" && Boolean(card),
+    {
+      help: {
+        group: "Your pick",
+        keys: [
+          ["Enter  o", "Read it"],
+          ["n  →", "Show another"],
+          ["←", "Back to the previous pick"],
+          ["s", "Save it for later"],
+        ],
+      },
+    },
+  );
 
   const label = <p className={LABEL}>For {minutes} minutes</p>;
 
@@ -256,6 +306,7 @@ export function DeskPick({
           className="rounded-md bg-[var(--ink)] px-[18px] py-[9px] text-[14.5px] text-[var(--reader-bg)] hover:opacity-90"
         >
           Read now
+          <Cap show={showKeys}>o</Cap>
         </button>
         <button
           type="button"
@@ -263,8 +314,13 @@ export function DeskPick({
           className="rounded-md bg-[var(--reader-chip)] px-[18px] py-[9px] text-[14.5px] text-[var(--ink-soft)] hover:text-[var(--ink)]"
         >
           Another
+          <Cap show={showKeys}>n</Cap>
         </button>
-        <Quiet onClick={saveForLater} hidden={saved}>
+        <Quiet
+          onClick={saveForLater}
+          hidden={saved}
+          cap={<Cap show={showKeys}>s</Cap>}
+        >
           Save for later
         </Quiet>
         <SavedMark visible={saved} />

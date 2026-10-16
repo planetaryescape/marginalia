@@ -28,11 +28,15 @@ function lovedAgo(days: number) {
 export function ContinueShortcut() {
   const router = useRouter();
   const inProgress = useQuery(api.sessions.getInProgress);
-  useShortcuts({
-    c: () => {
-      if (inProgress) router.push(`/read/${inProgress.article._id}`);
+  useShortcuts(
+    {
+      c: () => {
+        if (inProgress) router.push(`/read/${inProgress.article._id}`);
+      },
     },
-  });
+    Boolean(inProgress),
+    { help: { group: "Desk", keys: [["c", "Continue reading"]] } },
+  );
   return null;
 }
 
