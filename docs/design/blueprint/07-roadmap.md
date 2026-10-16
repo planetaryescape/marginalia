@@ -19,7 +19,7 @@
 | 2a | The reader finishes its own redesign | Done: live at `fac7694` (notes-pane split moved to 2b) |
 | 2b | Answers beside the text, kept only on purpose | Deployed at `6471b14` (backend and frontend); BK's hand journey pending. Edge cases in `docs/issues/companion-keep-edge-cases.md` |
 | 2g | It remembers how I read | Planned |
-| 3 | The desk asks one question and answers it | Planned |
+| 3 | The desk asks one question and answers it | Building (comp approved 2026-10-16) |
 | 3c | Ask by topic, one at a time, fast | Planned (S5 first) |
 | 2d | Links wait for me, and saved things come back | Planned |
 | 2e | The summary reads in layers | Planned |
@@ -154,7 +154,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **Promise:** "I open Marginalia, say how long I've got, and there's the thing to read."
 
-**Build:** [04](04-desk.md) in full: hierarchy, time choices, the pick in the slot (D-DES-028), prefetch on intent (S3), Continue with minutes left, no backlog count and no Up next (D-DES-034, D-DES-035), with a minimal Up next shelf and archive added to Library in the same release because the desk's rows are the only place archiving exists today (D-DES-052), empty and error states. Picking also starts annotating long candidates three ahead, and long articles become offerable before they're annotated ([04 Annotating only what you'll read](04-desk.md#annotating-only-what-youll-read), D-DES-056). Topic search moves to rung 3c; the Saved boost to rung 2d. Keycaps hidden, with the hold-`Alt` overlay and tooltips (D-DES-021). The right-hand column removed.
+**Build:** [04](04-desk.md) in full: hierarchy, time choices, the pick in the slot (D-DES-028), prefetch on intent (S3), Continue with minutes left, no backlog count and no Up next (D-DES-034, D-DES-035), with a minimal Up next shelf and archive added to Library in the same release because the desk's rows are the only place archiving exists today (D-DES-052), empty and error states. Topic search moves to rung 3c; the Saved boost to rung 2d. Keycaps hidden, with the hold-`Alt` overlay and tooltips (D-DES-021). The right-hand column removed.
 
 **Design:** desk comps at both widths. Key moments: first open, choosing time, empty.
 
@@ -220,7 +220,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **Promise:** "Beside me, something says where the argument is strong, where it's weak and what it connects to."
 
-**Build:** [02 Note kinds](02-design-concept.md#note-kinds), [03 Connections and discovery](03-reader.md#connections-and-discovery). The same import call writes the one point and short summary (D-DES-054) and one to three tags under the vocabulary rules ([02 Tags](02-design-concept.md#tags), S9 first). Articles over 20 minutes stop being annotated at import (D-DES-056). Schema: the new kinds and an article reference on connections (mixed-version safe: the old frontend must render unknown kinds as a plain pencil note). The import-pass prompt for families, lean, density and length, retrieving library articles as well as vault notes. Family colours with the contrast test. Backend snapshot and deploy. After the deploy, re-annotate and tag the unread articles of 20 minutes or less once; longer ones get theirs when they come up (D-DES-052, D-DES-056).
+**Build:** [02 Note kinds](02-design-concept.md#note-kinds), [03 Connections and discovery](03-reader.md#connections-and-discovery). The same import call writes the one point and short summary (D-DES-054) and one to three tags under the vocabulary rules ([02 Tags](02-design-concept.md#tags), S9 first). Articles over 20 minutes stop being annotated at import; instead picking starts annotating long candidates three ahead, and long articles become offerable before they're annotated ([04 Annotating only what you'll read](04-desk.md#annotating-only-what-youll-read), D-DES-056). This moved here from rung 3 because until this rung every article is annotated at import, so there's nothing to look ahead for. Schema: the new kinds and an article reference on connections (mixed-version safe: the old frontend must render unknown kinds as a plain pencil note). The import-pass prompt for families, lean, density and length, retrieving library articles as well as vault notes. Family colours with the contrast test. Backend snapshot and deploy. After the deploy, re-annotate and tag the unread articles of 20 minutes or less once; longer ones get theirs when they come up (D-DES-052, D-DES-056).
 
 **Design:** comps of a margin with each family and a connection with Save for later.
 
