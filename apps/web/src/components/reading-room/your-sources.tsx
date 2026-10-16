@@ -17,7 +17,12 @@ const BARS = [
 
 /** What each feed offered, what was opened and what was finished. The hint only points to Sources. */
 export function YourSources({ feeds }: { feeds: SourceRow[] }) {
-  const most = Math.max(1, ...feeds.map((f) => f.offered));
+  // One scale for all three bars: a feed's articles can be opened from Library
+  // or search as well as the desk, so opened can exceed offered
+  const most = Math.max(
+    1,
+    ...feeds.map((f) => Math.max(f.offered, f.opened, f.finished)),
+  );
   return (
     <section aria-labelledby="your-sources">
       <h2
@@ -52,7 +57,7 @@ export function YourSources({ feeds }: { feeds: SourceRow[] }) {
                     key={key}
                     className="h-[5px] rounded-sm"
                     style={{
-                      width: `${Math.max(feed[key] ? 1 : 0, (feed[key] / most) * 100)}%`,
+                      width: `${Math.min(100, Math.max(feed[key] ? 1 : 0, (feed[key] / most) * 100))}%`,
                       background: `color-mix(in srgb, var(--reader-fg) ${tone}%, transparent)`,
                     }}
                   />

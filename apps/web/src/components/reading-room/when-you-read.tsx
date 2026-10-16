@@ -1,3 +1,6 @@
+"use client";
+import { useState } from "react";
+
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const HOUR_LABELS = new Map([
   [0, "12a"],
@@ -28,6 +31,9 @@ export function WhenYouRead({
   timeZone: string;
 }) {
   const max = Math.max(0, ...heat);
+  // The hour under the pointer, read out under the grid; hovering any hour,
+  // even an empty one, answers straight away
+  const [hovered, setHovered] = useState<number | null>(null);
   const busiest = heat
     .map((minutes, slot) => ({ minutes, slot }))
     .filter((c) => c.minutes > 0)
@@ -57,6 +63,7 @@ export function WhenYouRead({
             aria-label={`Active reading minutes by weekday and hour. Busiest: ${busiest.join("; ")}.`}
             className="grid gap-[3px] text-[10.5px] text-[var(--reader-muted)]"
             style={{ gridTemplateColumns: "2rem repeat(24, minmax(0, 1fr))" }}
+            onMouseLeave={() => setHovered(null)}
           >
             <span />
             {Array.from({ length: 24 }, (_, hour) => (
@@ -77,7 +84,8 @@ export function WhenYouRead({
                           ? `${day} ${hourName(hour)}: ${Math.round(minutes)} min`
                           : undefined
                       }
-                      className="h-4 rounded-[2px]"
+                      onMouseEnter={() => setHovered(weekday * 24 + hour)}
+                      className={`h-4 rounded-[2px] ${hovered === weekday * 24 + hour ? "outline outline-1 outline-[var(--reader-fg)]" : ""}`}
                       style={{ background: cellShade(minutes, max) }}
                     />
                   );
@@ -85,7 +93,19 @@ export function WhenYouRead({
               </div>
             ))}
           </div>
-          <p className="mt-2 text-xs text-[var(--reader-muted)]">
+          <p
+            aria-live="polite"
+            className="mt-2 h-4 text-xs tabular-nums text-[var(--reader-fg)]"
+          >
+            {hovered === null
+              ? ""
+              : `${DAYS[Math.floor(hovered / 24)]}, ${hourName(hovered % 24)} · ${
+                  (heat[hovered] ?? 0) > 0
+                    ? `${Math.round(heat[hovered] ?? 0)} min`
+                    : "no reading"
+                }`}
+          </p>
+          <p className="mt-1 text-xs text-[var(--reader-muted)]">
             Darker is more minutes, up to {Math.round(max)} in one hour. Hours
             are local ({timeZone}); a visit counts toward the hour it started.
           </p>
