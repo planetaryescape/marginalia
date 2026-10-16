@@ -71,6 +71,7 @@ import type * as lib_constants from "../lib/constants.js";
 import type * as lib_cors from "../lib/cors.js";
 import type * as lib_embeddings from "../lib/embeddings.js";
 import type * as lib_externalApi from "../lib/externalApi.js";
+import type * as lib_feedArticleCount from "../lib/feedArticleCount.js";
 import type * as lib_feedRemoval from "../lib/feedRemoval.js";
 import type * as lib_ideaGraph from "../lib/ideaGraph.js";
 import type * as lib_ideaNodes from "../lib/ideaNodes.js";
@@ -204,6 +205,7 @@ declare const fullApi: ApiFromModules<{
   "lib/cors": typeof lib_cors;
   "lib/embeddings": typeof lib_embeddings;
   "lib/externalApi": typeof lib_externalApi;
+  "lib/feedArticleCount": typeof lib_feedArticleCount;
   "lib/feedRemoval": typeof lib_feedRemoval;
   "lib/ideaGraph": typeof lib_ideaGraph;
   "lib/ideaNodes": typeof lib_ideaNodes;
