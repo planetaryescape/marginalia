@@ -64,6 +64,7 @@ import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
+import { useQuoteLanding } from "@/lib/use-quote-landing";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import { cn, formatReadTime } from "@/lib/utils";
 
@@ -128,6 +129,8 @@ export default function ReadPage() {
   const createNote = useMutation(api.userNotes.create);
   const { settings, update: updateSettings, resetText } = useReaderSettings();
   const paragraphs = useParagraphs(articleRef, Boolean(article));
+  // A link from Notes names the passage to land on, e.g. `?quote=`.
+  useQuoteLanding(articleRef, searchParams.get("quote"), paragraphs.version);
   const position = useReadingPosition(articleRef, paragraphs.version);
   const summary = useQuery(api.summaries.getByArticle, {
     articleId: articleId as any,

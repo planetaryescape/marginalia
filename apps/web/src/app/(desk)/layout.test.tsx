@@ -64,6 +64,11 @@ vi.mock("convex/react", () => ({
   useConvex: () => ({ prewarmQuery: vi.fn() }),
   useMutation: () => vi.fn(),
   useAction: () => vi.fn(),
+  usePaginatedQuery: () => ({
+    results: [],
+    status: "Exhausted",
+    loadMore: vi.fn(),
+  }),
 }));
 
 describe("Reading desk navigation", () => {

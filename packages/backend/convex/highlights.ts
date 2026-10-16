@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
@@ -11,6 +12,32 @@ export const listByArticle = query({
       .query("highlights")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
       .take(500);
+  },
+});
+
+/**
+ * The reader's marks across every article, newest inserted first (index order), one page at a time.
+ * Each row carries a 1536-number embedding, so the projection below is what
+ * keeps the vector off the wire, though each read still loads the whole document, so keep pages at 50 or fewer.
+ */
+export const listMine = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("highlights")
+      .withIndex("by_userId", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .paginate(args.paginationOpts);
+    return {
+      ...page,
+      page: page.page.map((row) => ({
+        _id: row._id,
+        articleId: row.articleId,
+        kind: row.kind,
+        text: row.text,
+        createdAt: row.createdAt,
+      })),
+    };
   },
 });
 

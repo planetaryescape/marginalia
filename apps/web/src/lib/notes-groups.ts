@@ -3,42 +3,76 @@ import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 /** A kept answer as the Notes page receives it: the record without its embedding. */
 export type KeptThread = Omit<Doc<"companionThreads">, "embedding">;
 
+/** A highlight or underline as the Notes page receives it, from `highlights.listMine`. */
+export type KeptMark = Pick<
+  Doc<"highlights">,
+  "_id" | "articleId" | "kind" | "text" | "createdAt"
+>;
+
+export type GroupItem =
+  | { type: "note"; at: number; note: Doc<"userNotes"> }
+  | { type: "mark"; at: number; mark: KeptMark }
+  | { type: "answer"; at: number; thread: KeptThread };
+
 export interface ArticleGroup {
   articleId: Id<"articles">;
-  notes: Doc<"userNotes">[];
-  answers: KeptThread[];
+  /** Newest activity in the article, which orders the groups. */
+  latest: number;
+  /** The reader's notes, marks and kept answers in the order they were made. */
+  items: GroupItem[];
 }
 
 /**
- * Notes and kept answers grouped under their article. Articles come in the
- * order of their most recent note or kept answer, and within an article the
- * reader's own notes come before Marginalia's answers, each newest first.
+ * Notes, marks and kept answers grouped under their article. Articles come
+ * newest activity first. Within an article, items run oldest first, the way
+ * the reader made them, so the page reads like a commonplace book.
  */
 export function groupByArticle(
   notes: Doc<"userNotes">[],
   kept: KeptThread[],
+  marks: KeptMark[] = [],
 ): ArticleGroup[] {
-  const latest = new Map<Id<"articles">, number>();
-  const seen = (articleId: Id<"articles">, at: number) =>
-    latest.set(articleId, Math.max(latest.get(articleId) ?? 0, at));
   const groups = new Map<Id<"articles">, ArticleGroup>();
-  const group = (articleId: Id<"articles">) => {
+  // `activity` orders the groups; an edited note is newer activity than its creation.
+  const add = (
+    articleId: Id<"articles">,
+    activity: number,
+    item: GroupItem,
+  ) => {
     let g = groups.get(articleId);
     if (!g) {
-      g = { articleId, notes: [], answers: [] };
+      g = { articleId, latest: 0, items: [] };
       groups.set(articleId, g);
     }
-    return g;
+    g.items.push(item);
+    g.latest = Math.max(g.latest, activity);
   };
-  for (const note of notes) {
-    group(note.articleId).notes.push(note);
-    seen(note.articleId, note.updatedAt);
-  }
+  for (const note of notes)
+    add(note.articleId, note.updatedAt, {
+      type: "note",
+      at: note.createdAt,
+      note,
+    });
+  for (const mark of marks)
+    add(mark.articleId, mark.createdAt, {
+      type: "mark",
+      at: mark.createdAt,
+      mark,
+    });
   for (const thread of kept) {
-    group(thread.articleId).answers.push(thread);
-    seen(thread.articleId, thread.keptAt ?? thread.updatedAt);
+    const keptAt = thread.keptAt ?? thread.updatedAt;
+    add(thread.articleId, keptAt, { type: "answer", at: keptAt, thread });
   }
-  return [...groups.values()].sort(
-    (a, b) => (latest.get(b.articleId) ?? 0) - (latest.get(a.articleId) ?? 0),
-  );
+  for (const g of groups.values()) g.items.sort((a, b) => a.at - b.at);
+  return [...groups.values()].sort((a, b) => b.latest - a.latest);
+}
+
+/**
+ * The reader at a passage. The quote is what the reader finds again in the
+ * article, so it survives re-rendering in a way a paragraph number does not.
+ */
+export function readLink(articleId: Id<"articles">, quote?: string): string {
+  const base = `/read/${articleId}`;
+  if (!quote) return base;
+  return `${base}?${new URLSearchParams({ quote }).toString()}`;
 }
