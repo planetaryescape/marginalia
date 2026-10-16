@@ -106,7 +106,7 @@ export function NoteEditor({
       {selectedText && (
         <div className="px-4 py-3 border-b border-[var(--reader-border)]">
           <p className="text-[11px] font-sans font-semibold text-[var(--reader-muted)] mb-1.5">
-            Highlighting
+            On this passage
           </p>
           <blockquote className="text-xs font-serif text-[var(--reader-fg-soft)] leading-relaxed line-clamp-3 border-l border-[var(--reader-border-strong)] pl-3 italic">
             {selectedText}
