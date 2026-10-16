@@ -100,9 +100,11 @@ export const saveOverview = internalMutation({
       });
     if (existing.thesis?.trim()) return null;
     const hasMap = Boolean(existing.ideas?.length || existing.claims?.length);
+    // An older summary with a map keeps its own gist
+    const keepGist = hasMap && existing.gist.trim() !== "";
     await ctx.db.patch("summaries", existing._id, {
       thesis,
-      ...(hasMap && existing.gist.trim() ? {} : { gist }),
+      gist: keepGist ? existing.gist : gist,
     });
     return existing._id;
   },

@@ -107,6 +107,19 @@
   border-bottom-color: theme("colors.annotation.question");
 }
 
+/* The wider sheet layout still underlines; the underline follows the kind. */
+.annotation-mark[data-type="fallacy"],
+.annotation-mark[data-type="assumption"],
+.annotation-mark[data-type="unsupported"],
+.annotation-mark[data-type="other_explanation"] {
+  border-bottom-color: theme("colors.annotation.tension");
+}
+
+.annotation-mark[data-type="strong_point"],
+.annotation-mark[data-type="crux"] {
+  border-bottom-color: theme("colors.annotation.context");
+}
+
 /* Weight tiers */
 .annotation-mark[data-weight="resonant"] {
   border-bottom-width: 3px;
@@ -127,6 +140,12 @@
 .annotation-mark[data-type="context"] { --kind-color: var(--kind-context); }
 .annotation-mark[data-type="tension"] { --kind-color: var(--kind-tension); }
 .annotation-mark[data-type="question"] { --kind-color: var(--kind-question); }
+.annotation-mark[data-type="fallacy"] { --kind-color: var(--kind-fallacy); }
+.annotation-mark[data-type="assumption"] { --kind-color: var(--kind-assumption); }
+.annotation-mark[data-type="unsupported"] { --kind-color: var(--kind-unsupported); }
+.annotation-mark[data-type="other_explanation"] { --kind-color: var(--kind-other-explanation); }
+.annotation-mark[data-type="strong_point"] { --kind-color: var(--kind-strong-point); }
+.annotation-mark[data-type="crux"] { --kind-color: var(--kind-crux); }
 
 article[data-margin="sidenotes"] .annotation-mark,
 article[data-margin="phone"] .annotation-mark {
@@ -255,6 +274,15 @@ article[data-margin="phone"] .annotation-mark::after {
   line-height: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* The kind's name carries its colour; the family after it stays muted. */
+.sidenote-kind[data-family] {
+  color: var(--kind-color);
+}
+.sidenote-family {
+  color: var(--ink-muted);
+  letter-spacing: 0.04em;
 }
 
 .sidenote-dot {
@@ -612,6 +640,16 @@ html[data-reader-theme="paper"] {
   --reader-border-strong: rgba(32, 29, 27, 0.2);
   --reader-chip: rgba(32, 29, 27, 0.05);
   --pencil: #5e5751;
+  --kind-tension: #945e43;
+  --kind-fallacy: #94512f;
+  --kind-assumption: #9d5a3b;
+  --kind-unsupported: #9a5941;
+  --kind-other-explanation: #9c5a38;
+  --kind-strong-point: #58714c;
+  --kind-crux: #597048;
+  --kind-connection: #4b6e83;
+  --kind-context: #5a6a83;
+  --kind-question: #72609d;
 }
 
 .dark,
@@ -625,6 +663,16 @@ html[data-reader-theme="night"] {
   --reader-border-strong: rgba(255, 255, 255, 0.17);
   --reader-chip: rgba(255, 255, 255, 0.06);
   --pencil: #bdb3aa;
+  --kind-tension: #c08c72;
+  --kind-fallacy: #ce8864;
+  --kind-assumption: #c7886b;
+  --kind-unsupported: #c48873;
+  --kind-other-explanation: #c98a69;
+  --kind-strong-point: #92ad85;
+  --kind-crux: #95af83;
+  --kind-connection: #7ea0b4;
+  --kind-context: #8998ae;
+  --kind-question: #9d90bb;
 }
 
 html[data-reader-theme="sepia"] {
@@ -637,6 +685,16 @@ html[data-reader-theme="sepia"] {
   --reader-border-strong: rgba(74, 59, 42, 0.26);
   --reader-chip: rgba(74, 59, 42, 0.07);
   --pencil: #5f4f3e;
+  --kind-tension: #8a573e;
+  --kind-fallacy: #94512f;
+  --kind-assumption: #8e5135;
+  --kind-unsupported: #90523c;
+  --kind-other-explanation: #8d5133;
+  --kind-strong-point: #516846;
+  --kind-crux: #516742;
+  --kind-connection: #466579;
+  --kind-context: #53637a;
+  --kind-question: #6b5a93;
 }
 
 html[data-reader-theme="snow"] {
@@ -649,6 +707,16 @@ html[data-reader-theme="snow"] {
   --reader-border-strong: rgba(0, 0, 0, 0.18);
   --reader-chip: rgba(0, 0, 0, 0.045);
   --pencil: #55555c;
+  --kind-tension: #986045;
+  --kind-fallacy: #94512f;
+  --kind-assumption: #a15c3c;
+  --kind-unsupported: #a25d44;
+  --kind-other-explanation: #9c5a38;
+  --kind-strong-point: #5a744e;
+  --kind-crux: #5e764c;
+  --kind-connection: #4f7389;
+  --kind-context: #5e6f89;
+  --kind-question: #7766a1;
 }
 
 /* A softer dark: warm charcoal rather than near-black */
@@ -662,6 +730,16 @@ html[data-reader-theme="dusk"] {
   --reader-border-strong: rgba(255, 255, 255, 0.18);
   --reader-chip: rgba(255, 255, 255, 0.07);
   --pencil: #c8bfb5;
+  --kind-tension: #cea692;
+  --kind-fallacy: #d8a083;
+  --kind-assumption: #d4a38c;
+  --kind-unsupported: #d2a493;
+  --kind-other-explanation: #d4a187;
+  --kind-strong-point: #9ab38e;
+  --kind-crux: #9db58c;
+  --kind-connection: #94b0c1;
+  --kind-context: #a1adbf;
+  --kind-question: #b3aacb;
 }
 
 html[data-reader-theme="ink"] {
@@ -674,6 +752,16 @@ html[data-reader-theme="ink"] {
   --reader-border-strong: rgba(255, 255, 255, 0.16);
   --reader-chip: rgba(255, 255, 255, 0.06);
   --pencil: #aab1bd;
+  --kind-tension: #c08c72;
+  --kind-fallacy: #ce8864;
+  --kind-assumption: #c7886b;
+  --kind-unsupported: #c3856f;
+  --kind-other-explanation: #c98a69;
+  --kind-strong-point: #92ad85;
+  --kind-crux: #95af83;
+  --kind-connection: #7ea0b4;
+  --kind-context: #8695ac;
+  --kind-question: #9284b3;
 }
 
 /* Print, pencil and pen (blueprint 02). Ink is the author and the chrome, pencil
@@ -684,10 +772,6 @@ html[data-reader-theme="ink"] {
   --ink-muted: var(--reader-muted);
   --pencil-rule: color-mix(in srgb, var(--reader-fg) 18%, transparent);
   --danger: #b0503a;
-  --kind-connection: #5b7f95;
-  --kind-context: #7a8f6f;
-  --kind-tension: #b07050;
-  --kind-question: #8b7bb0;
   --motion-press: 90ms ease-out;
   --motion-quick: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-move: 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -700,10 +784,6 @@ html[data-reader-theme="dusk"],
 html[data-reader-theme="ink"] {
   --pencil-rule: color-mix(in srgb, var(--reader-fg) 22%, transparent);
   --danger: #e07a5f;
-  --kind-connection: #7a9bb0;
-  --kind-context: #93a688;
-  --kind-tension: #c68a6c;
-  --kind-question: #a396c4;
 }
 
 :root {

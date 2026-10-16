@@ -268,7 +268,9 @@ export function SummaryPanel({
               <span className="text-[12px] text-[var(--reader-muted)]">
                 {summary.ideas
                   ? `${summary.ideas.length} ideas · ${summary.links?.length ?? 0} connections`
-                  : `${summary.claims?.length ?? 0} claims`}
+                  : summary.claims
+                    ? `${summary.claims.length} claims`
+                    : "the map on request"}
               </span>
               <ChevronDown
                 size={15}

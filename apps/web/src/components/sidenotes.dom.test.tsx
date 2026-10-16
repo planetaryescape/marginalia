@@ -240,12 +240,14 @@ describe("Sidenotes at a wide width", () => {
     const notes = all(".sidenote:not(.sidenote-waiting)");
     expect(notes).toHaveLength(3);
     expect(q('[data-key="a:a1"] .sidenote-kind')?.textContent).toBe(
-      "connection",
+      "connection · in your notes",
     );
     expect(q('[data-key="a:a1"] .sidenote-text')?.textContent).toBe(
       "Ties to your earlier note. ¶14",
     );
-    expect(q('[data-key="a:a2"] .sidenote-kind')?.textContent).toBe("tension");
+    expect(q('[data-key="a:a2"] .sidenote-kind')?.textContent).toBe(
+      "tension · pushback",
+    );
     // Numbers are removed by stylesheet, so check the rule rather than the markup.
     const css = readFileSync(
       resolve(process.cwd(), "src/app/globals.css"),
@@ -834,5 +836,82 @@ describe("Marginalia's answers in the column", () => {
     expect(
       all('.sidenote[data-open="true"]').map((n) => n.dataset.key),
     ).toEqual(["c:d1"]);
+  });
+});
+
+describe("Sidenotes kinds", () => {
+  const kinds = [
+    ["tension", "pushback", "tension", "pushback"],
+    ["fallacy", "pushback", "fallacy", "pushback"],
+    ["assumption", "pushback", "assumption", "pushback"],
+    ["unsupported", "pushback", "unsupported", "pushback"],
+    ["other_explanation", "pushback", "other explanation", "pushback"],
+    ["strong_point", "support", "strong point", "support"],
+    ["crux", "support", "crux", "support"],
+    ["cross_reference", "connection", "connection", "in your notes"],
+    ["context", "connection", "context", "connection"],
+    ["question", "connection", "question", "for you"],
+  ] as const;
+
+  it.each(
+    kinds,
+  )("draws %s with its family, label and colour", async (type, family, name, suffix) => {
+    await render(
+      <Article notes={[{ _id: "a1", type, content: "A short note." }]} />,
+    );
+    const label = q('[data-key="a:a1"] .sidenote-kind');
+    expect(label?.textContent).toBe(`${name} · ${suffix}`);
+    expect(label?.getAttribute("data-family")).toBe(family);
+    expect(label?.querySelector(".sidenote-dot")).not.toBeNull();
+    expect(
+      q('[data-key="a:a1"]')?.style.getPropertyValue("--kind-color"),
+    ).toMatch(/^var\(--kind-[a-z-]+\)$/);
+  });
+
+  it("names a fallacy, and says a connection points into the library", async () => {
+    await render(
+      <Article
+        notes={[
+          {
+            _id: "a1",
+            type: "fallacy",
+            fallacyName: "false dilemma",
+            content: "Leaves out hybrid.",
+          },
+          {
+            _id: "a2",
+            type: "cross_reference",
+            articleRefId: "art1",
+            content: "Argues the opposite.",
+          },
+        ]}
+      />,
+    );
+    expect(q('[data-key="a:a1"] .sidenote-kind')?.textContent).toBe(
+      "fallacy · false dilemma · pushback",
+    );
+    expect(q('[data-key="a:a2"] .sidenote-kind')?.textContent).toBe(
+      "connection · in your library",
+    );
+  });
+
+  it("draws a kind it doesn't know as a plain pencil note, without failing", async () => {
+    await render(
+      <Article
+        notes={[
+          {
+            _id: "a1",
+            type: "something_new" as never,
+            content: "From a newer backend.",
+          },
+        ]}
+      />,
+    );
+    const label = q('[data-key="a:a1"] .sidenote-kind');
+    expect(label?.textContent).toBe("note");
+    expect(label?.querySelector(".sidenote-dot")).toBeNull();
+    expect(q('[data-key="a:a1"] .sidenote-text')?.textContent).toBe(
+      "From a newer backend.",
+    );
   });
 });

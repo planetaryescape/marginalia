@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { KINDS } from "@/lib/margin-kinds";
 
 const css = readFileSync(
   fileURLToPath(new URL("./globals.css", import.meta.url)),
@@ -48,5 +49,61 @@ describe("--pencil contrast", () => {
     expect(
       contrast(vars["--pencil"], vars["--reader-bg"]),
     ).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+const tokenOf = (color: string) => color.replace(/^var\((.+)\)$/, "$1");
+
+describe("margin kind colours", () => {
+  const cases = THEMES.flatMap((theme) =>
+    Object.entries(KINDS).map(
+      ([kind, info]) => [theme, kind, info.color] as const,
+    ),
+  );
+
+  it.each(
+    cases,
+  )("%s: the %s label reaches 4.5:1 on the page and on a raised card", (theme, _kind, color) => {
+    const vars = themeVars(theme);
+    const value = vars[tokenOf(color)];
+    expect(value, `${theme} defines ${tokenOf(color)}`).toMatch(
+      /^#[0-9a-f]{6}$/i,
+    );
+    expect(contrast(value, vars["--reader-bg"])).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(value, vars["--reader-surface"])).toBeGreaterThanOrEqual(
+      4.5,
+    );
+  });
+
+  it.each(THEMES)("%s: the muted family words reach 4.5:1 too", (theme) => {
+    const vars = themeVars(theme);
+    expect(
+      contrast(vars["--reader-muted"], vars["--reader-bg"]),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      contrast(vars["--reader-muted"], vars["--reader-surface"]),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keeps one colour family per family", () => {
+    const hue = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) =>
+        Number.parseInt(hex.slice(i, i + 2), 16),
+      );
+      return { r, g, b };
+    };
+    const vars = themeVars("paper");
+    for (const [, info] of Object.entries(KINDS)) {
+      const { r, g, b } = hue(vars[tokenOf(info.color)]);
+      if (info.family === "pushback") expect(r).toBeGreaterThan(b + 20);
+      if (info.family === "support") expect(g).toBeGreaterThan(b);
+    }
+  });
+
+  it("colours every kind's mark and dot from its own token", () => {
+    for (const [kind, info] of Object.entries(KINDS))
+      expect(css).toContain(
+        `.annotation-mark[data-type="${kind}"] { --kind-color: ${info.color}; }`,
+      );
   });
 });

@@ -154,7 +154,7 @@ export const assign = internalMutation({
           tag.aliases = [...tag.aliases, match.alias];
           await ctx.db.patch("tags", tag._id, { aliases: tag.aliases });
         }
-        await link(match.tagId as Id<"tags">);
+        await link(match.tagId);
         continue;
       }
       const id = await ctx.db.insert("tags", {
@@ -166,14 +166,14 @@ export const assign = internalMutation({
         status: "candidate",
         count: 0,
         aliases: [],
-        nearestTagId: match.nearestTagId as Id<"tags"> | undefined,
+        nearestTagId: match.nearestTagId,
         createdAt: now,
       });
       const created = await ctx.db.get("tags", id);
       if (created) known.push(created);
       await link(id);
       // A near miss also takes its nearest tag, so the article is findable meanwhile
-      if (match.nearestTagId) await link(match.nearestTagId as Id<"tags">);
+      if (match.nearestTagId) await link(match.nearestTagId);
     }
     return [...linked];
   },

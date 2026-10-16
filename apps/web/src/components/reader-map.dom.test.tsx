@@ -72,6 +72,25 @@ describe("paragraph map", () => {
     expect(dots()).toEqual(["var(--kind-question)", "var(--kind-connection)"]);
   });
 
+  it("colours the new kinds, and draws no dot for a kind it doesn't know", async () => {
+    const paragraphs = container.querySelectorAll("p");
+    const kinds = [
+      ["fallacy", "var(--kind-fallacy)"],
+      ["other_explanation", "var(--kind-other-explanation)"],
+      ["strong_point", "var(--kind-strong-point)"],
+      ["crux", "var(--kind-crux)"],
+      ["something_new", null],
+    ] as const;
+    // Re-mark five paragraphs, each with one kind
+    for (const [i, [type]] of kinds.entries())
+      paragraphs[i].innerHTML =
+        `Invented <span class="annotation-mark" data-type="${type}">text</span>.`;
+    await render();
+    expect(dots()).toEqual(
+      kinds.flatMap(([, color]) => (color ? [color] : [])),
+    );
+  });
+
   it("marks the reader's highlighted paragraphs with a pen tick, 6 by 2", async () => {
     await render({ ticks: [2] });
     expect(ticks()).toHaveLength(1);

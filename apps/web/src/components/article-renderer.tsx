@@ -16,12 +16,17 @@ function sanitizeArticleHtml(html: string): string {
   });
 }
 
-export function ArticleRenderer(
-  props: Omit<
-    React.ComponentProps<typeof SharedArticleRenderer>,
-    "sanitize" | "onViewed" | "className"
-  >,
-) {
+type SharedProps = React.ComponentProps<typeof SharedArticleRenderer>;
+
+export function ArticleRenderer({
+  annotations,
+  ...props
+}: Omit<SharedProps, "sanitize" | "onViewed" | "className" | "annotations"> & {
+  // The reader package types `type` as the four original kinds; the margin has ten.
+  annotations: (Omit<SharedProps["annotations"][number], "type"> & {
+    type: string;
+  })[];
+}) {
   const markViewed = useMutation(api.annotations.markViewed);
   const onViewed = useCallback(
     (annotationId: string) =>
@@ -33,6 +38,8 @@ export function ArticleRenderer(
   return (
     <SharedArticleRenderer
       {...props}
+      // SAFETY: the package only reads `type` as a string (a colour and label lookup with a fallback) and writes it to data-type, so a kind it doesn't list renders as a generic mark.
+      annotations={annotations as SharedProps["annotations"]}
       sanitize={sanitizeArticleHtml}
       onViewed={onViewed}
       className="prose prose-lg md:prose-xl dark:prose-invert max-w-none

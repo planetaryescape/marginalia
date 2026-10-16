@@ -1,19 +1,16 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { KINDS } from "@/lib/margin-kinds";
+import { kindOf } from "@/lib/margin-kinds";
 import { getArticleBody, getParagraphs, paragraphText } from "@/lib/paragraphs";
 import type { ReadingPosition } from "@/lib/reading-modes";
 
 interface Block {
   length: number;
   heading: boolean;
-  /** The margin note's kind (a key of KINDS), or null when the paragraph has none. */
+  /** The margin note's stored type, or null when the paragraph has none. */
   kind: string | null;
   snippet: string;
 }
-
-const isKind = (value: string | null): value is keyof typeof KINDS =>
-  value !== null && Object.hasOwn(KINDS, value);
 
 const WIDTH = 34;
 
@@ -180,17 +177,19 @@ export function ReaderMap({
               />
             );
           })}
-          {blocks.map((block, i) =>
-            isKind(block.kind) ? (
+          {blocks.map((block, i) => {
+            // A kind this build doesn't know gets no dot
+            const kind = block.kind === null ? undefined : kindOf(block.kind);
+            return kind ? (
               <circle
                 key={`kind-${i}`}
                 cx={WIDTH + 5}
                 cy={i * pitch + pitch / 2}
                 r={2.5}
-                fill={KINDS[block.kind].color}
+                fill={kind.color}
               />
-            ) : null,
-          )}
+            ) : null;
+          })}
           {[...new Set(ticks)]
             .filter((i) => i >= 0 && i < blocks.length)
             .map((i) => (

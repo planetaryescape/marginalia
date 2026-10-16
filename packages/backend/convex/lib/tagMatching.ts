@@ -93,18 +93,18 @@ export function cosine(a: readonly number[], b: readonly number[]): number {
   return normA && normB ? dot / Math.sqrt(normA * normB) : 0;
 }
 
-export interface KnownTag {
-  id: string;
+export interface KnownTag<Id extends string = string> {
+  id: Id;
   key: string;
   aliases: readonly string[];
   embedding?: readonly number[];
 }
 
-export type TagMatch =
+export type TagMatch<Id extends string = string> =
   /** The proposal is this tag; `alias` is its key when the tag didn't know it yet. */
-  | { kind: "existing"; tagId: string; alias?: string }
+  | { kind: "existing"; tagId: Id; alias?: string }
   /** A new candidate; `nearestTagId` is also linked when it was a near miss. */
-  | { kind: "candidate"; nearestTagId?: string }
+  | { kind: "candidate"; nearestTagId?: Id }
   /** Nothing to compare and no way to compare it: don't grow the vocabulary. */
   | { kind: "skip" };
 
@@ -112,11 +112,11 @@ export type TagMatch =
  * Where one proposed tag lands. Order: exact key or alias, then embedding. A
  * Map keeps names like "constructor" and "__proto__" ordinary.
  */
-export function matchTag(
+export function matchTag<Id extends string>(
   proposal: { key: string; embedding?: readonly number[] },
-  tags: readonly KnownTag[],
-): TagMatch {
-  const byKey = new Map<string, string>();
+  tags: readonly KnownTag<Id>[],
+): TagMatch<Id> {
+  const byKey = new Map<string, Id>();
   for (const tag of tags) {
     byKey.set(tag.key, tag.id);
     for (const alias of tag.aliases)
@@ -126,7 +126,7 @@ export function matchTag(
   if (exact) return { kind: "existing", tagId: exact };
 
   if (!proposal.embedding) return { kind: "skip" };
-  let best: { id: string; score: number } | null = null;
+  let best: { id: Id; score: number } | null = null;
   for (const tag of tags) {
     if (!tag.embedding) continue;
     const score = cosine(proposal.embedding, tag.embedding);

@@ -9,7 +9,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { type AnnotationKind, KINDS, plainNote } from "@/lib/margin-kinds";
+import {
+  type AnnotationKind,
+  kindLabel,
+  kindOf,
+  plainNote,
+} from "@/lib/margin-kinds";
 import {
   type LayoutNote,
   layoutMargin,
@@ -32,6 +37,8 @@ export interface SidenoteAnnotation {
   _id: string;
   type: AnnotationKind;
   content: string;
+  fallacyName?: string;
+  articleRefId?: string;
 }
 
 export interface SidenoteUserNote {
@@ -64,6 +71,8 @@ type Entry =
       kind: "annotation";
       id: string;
       type: AnnotationKind;
+      fallacyName?: string;
+      articleRefId?: string;
       text: string;
     }
   | {
@@ -191,6 +200,8 @@ export function Sidenotes({
         kind: "annotation",
         id: a._id,
         type: a.type,
+        fallacyName: a.fallacyName,
+        articleRefId: a.articleRefId,
         text: plainNote(a.content),
       });
     }
@@ -558,13 +569,16 @@ export function Sidenotes({
         const placement = layout.placements[entry.key];
         const isNote = entry.kind === "note";
         const isAnswer = entry.kind === "answer";
+        // A kind this build doesn't know draws as a plain pencil note
         const kind =
-          entry.kind === "annotation" ? KINDS[entry.type] : undefined;
+          entry.kind === "annotation" ? kindOf(entry.type) : undefined;
+        const detail =
+          entry.kind === "annotation" ? kindLabel(entry.type, entry) : null;
         const label = isNote
           ? "your note"
           : entry.kind === "answer"
             ? entry.label
-            : (kind?.name ?? "");
+            : (detail?.name ?? "");
         const paragraph = layout.labels[entry.key];
         const isOpen = entry.key === openKey;
         const isClosing = closing?.key === entry.key && !isOpen;
@@ -668,11 +682,17 @@ export function Sidenotes({
                   }
                 >
                   <span className="sidenote-body">
-                    <span className="sidenote-kind">
+                    <span className="sidenote-kind" data-family={kind?.family}>
                       {kind && (
                         <i className="sidenote-dot" aria-hidden="true" />
                       )}
                       {label}
+                      {detail?.family && (
+                        <span className="sidenote-family">
+                          {" · "}
+                          {detail.family}
+                        </span>
+                      )}
                     </span>
                     <span className="sidenote-text" id={textId(entry.key)}>
                       {entry.text}

@@ -77,7 +77,7 @@ describe("NoteUnfold", () => {
     const unfold = host();
     expect(unfold?.previousElementSibling?.getAttribute("data-para")).toBe("2");
     expect(unfold?.nextElementSibling?.getAttribute("data-para")).toBe("3");
-    expect(unfold?.textContent).toContain("question · ¶2");
+    expect(unfold?.textContent).toContain("question · for you · ¶2");
     expect(unfold?.textContent).toContain(
       "Which interruptions do you invite? See source. ¶14",
     );
@@ -167,5 +167,80 @@ describe("NoteUnfold", () => {
     expect(
       [...(host()?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
     ).toEqual(["Ask a follow-up"]);
+  });
+});
+
+describe("NoteUnfold kinds", () => {
+  const kinds = [
+    ["tension", "pushback"],
+    ["fallacy", "pushback"],
+    ["assumption", "pushback"],
+    ["unsupported", "pushback"],
+    ["other_explanation", "pushback"],
+    ["strong_point", "support"],
+    ["crux", "support"],
+    ["cross_reference", "connection"],
+    ["context", "connection"],
+    ["question", "connection"],
+  ] as const;
+
+  it.each(
+    kinds,
+  )("unfolds %s in its family and colour", async (type, family) => {
+    await render(
+      <Phone annotation={{ _id: "a1", type, content: "A short note." }} />,
+    );
+    const label = host()?.querySelector<HTMLElement>(".sidenote-kind");
+    expect(label?.getAttribute("data-family")).toBe(family);
+    expect(label?.querySelector(".sidenote-dot")).not.toBeNull();
+    expect(
+      host()
+        ?.querySelector<HTMLElement>(".note-unfold")
+        ?.style.getPropertyValue("--kind-color"),
+    ).toMatch(/^var\(--kind-/);
+  });
+
+  it("names the fallacy and where a connection points", async () => {
+    await render(
+      <Phone
+        annotation={{
+          _id: "a1",
+          type: "fallacy",
+          fallacyName: "false dilemma",
+          content: "Leaves out hybrid.",
+        }}
+      />,
+    );
+    expect(host()?.textContent).toContain("fallacy · false dilemma · pushback");
+    await render(
+      <Phone
+        annotation={{
+          _id: "a1",
+          type: "cross_reference",
+          articleRefId: "art1",
+          content: "Argues the opposite.",
+        }}
+      />,
+    );
+    expect(host()?.textContent).toContain("connection · in your library");
+    // A connection to an article opens its card for Save for later
+    expect(host()?.textContent).toContain("Sources");
+  });
+
+  it("draws a kind it doesn't know as a plain pencil note, without failing", async () => {
+    await render(
+      <Phone
+        annotation={{
+          _id: "a1",
+          type: "something_new" as never,
+          content: "From a newer backend.",
+        }}
+      />,
+    );
+    const label = host()?.querySelector(".sidenote-kind");
+    expect(label?.textContent).toContain("note · ¶2");
+    expect(label?.querySelector(".sidenote-dot")).toBeNull();
+    expect(label?.hasAttribute("data-family")).toBe(false);
+    expect(host()?.textContent).toContain("From a newer backend.");
   });
 });

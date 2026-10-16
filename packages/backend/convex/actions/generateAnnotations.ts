@@ -368,6 +368,7 @@ export const generateForArticle = internalAction({
           type: a.type,
           fallacyName: a.fallacyName,
           // Checked against the offered candidates by the gate, and again in the mutation
+          // SAFETY: gateNotes kept it only because it is the id of a library article offered in this prompt (an Id<"articles"> from the context query).
           articleRefId: a.articleRefId as Id<"articles"> | undefined,
           anchorText: a.anchorText,
           anchorStartOffset: a.startOffset,
@@ -399,7 +400,7 @@ export const generateForArticle = internalAction({
       });
 
       const pushback = notes.filter((n) =>
-        (KIND_FAMILIES.pushback as readonly string[]).includes(n.type),
+        KIND_FAMILIES.pushback.some((kind) => kind === n.type),
       ).length;
       console.log(
         `Annotated "${article.title}" with ${modelId}: ${notes.length} of ${object.annotations.length} candidates kept (${pushback} pushback)`,

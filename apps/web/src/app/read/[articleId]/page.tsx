@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { AnnotationCard } from "@/components/annotation-card";
 import { ArticleAsk } from "@/components/article-ask";
 import { ArticleRenderer } from "@/components/article-renderer";
+import { ArticleTags } from "@/components/article-tags";
 import { CompanionCard } from "@/components/companion-card";
 import {
   ImpressionPanel,
@@ -812,6 +813,7 @@ export default function ReadPage() {
                 </>
               )}
             </div>
+            <ArticleTags articleId={articleId as any} />
             {impression && <ImpressionSummary impression={impression} />}
           </header>
 

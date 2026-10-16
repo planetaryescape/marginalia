@@ -241,7 +241,9 @@ export async function buildMarginaliaContext(
       })
     : [];
   // The query drops anything outside this library; keep the similarity order
-  const rank = new Map(nearest.map((match, i) => [match.id as string, i]));
+  const rank = new Map<string, number>(
+    nearest.map((match, i) => [match.id, i]),
+  );
   const libraryCandidates = found
     .filter((candidate) => candidate.id !== article._id)
     .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));

@@ -7,7 +7,12 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { type AnnotationKind, KINDS, plainNote } from "@/lib/margin-kinds";
+import {
+  type AnnotationKind,
+  kindLabel,
+  kindOf,
+  plainNote,
+} from "@/lib/margin-kinds";
 import {
   getArticleBody,
   getParagraphs,
@@ -18,6 +23,8 @@ export interface UnfoldAnnotation {
   _id: string;
   type: AnnotationKind;
   content: string;
+  fallacyName?: string;
+  articleRefId?: string;
   notePath?: string;
   noteExcerpt?: string;
 }
@@ -155,18 +162,28 @@ export function NoteUnfold({
   useFoldOnEscape(Boolean(id) && !sheetOpen, onFold);
 
   if (!annotation || !host) return null;
-  const kind = KINDS[annotation.type];
-  const hasSource = Boolean(annotation.notePath || annotation.noteExcerpt);
+  // A kind this build doesn't know draws as a plain pencil note
+  const kind = kindOf(annotation.type);
+  const label = kindLabel(annotation.type, annotation);
+  const hasSource = Boolean(
+    annotation.notePath || annotation.noteExcerpt || annotation.articleRefId,
+  );
 
   return createPortal(
     <div
       className="note-unfold"
       // SAFETY: custom properties are valid inline style keys; React types only know CSS properties.
-      style={{ "--kind-color": kind.color } as React.CSSProperties}
+      style={{ "--kind-color": kind?.color } as React.CSSProperties}
     >
-      <div className="sidenote-kind">
-        <i className="sidenote-dot" aria-hidden="true" />
-        {kind.name}
+      <div className="sidenote-kind" data-family={kind?.family}>
+        {kind && <i className="sidenote-dot" aria-hidden="true" />}
+        {label.name}
+        {label.family && (
+          <span className="sidenote-family">
+            {" · "}
+            {label.family}
+          </span>
+        )}
         {paragraph !== null && ` · ¶${paragraph}`}
       </div>
       <div className="note-unfold-text">{plainNote(annotation.content)}</div>
