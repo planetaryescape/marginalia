@@ -29,12 +29,34 @@ function dateLabel(at: number) {
   }).format(d);
 }
 
+/**
+ * Takes the reader to a letter's first word. When the word is already on
+ * screen nothing would move, so the word always washes briefly and takes
+ * focus: every click visibly lands somewhere.
+ */
+function jumpToLetter(letter: string) {
+  const entry = document.getElementById(`letter-${letter}`);
+  if (!entry) return;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  entry.scrollIntoView({
+    block: "nearest",
+    behavior: reduced ? "auto" : "smooth",
+  });
+  entry.focus({ preventScroll: true });
+  entry.removeAttribute("data-washing");
+  // Reading layout restarts the animation when the same letter is clicked again
+  void entry.offsetWidth;
+  entry.setAttribute("data-washing", "");
+  window.setTimeout(() => entry.removeAttribute("data-washing"), 800);
+}
+
 function EntryView({ entry, anchor }: { entry: Entry; anchor: boolean }) {
   const numbered = entry.senses.length > 1;
   return (
     <article
       id={anchor ? `letter-${entry.letter}` : undefined}
-      className="mb-5 scroll-mt-16 font-serif text-[15px] leading-normal text-[var(--reader-fg-soft)]"
+      tabIndex={anchor ? -1 : undefined}
+      className="letter-jump -mx-2 mb-5 scroll-mt-16 rounded px-2 font-serif outline-none text-[15px] leading-normal text-[var(--reader-fg-soft)]"
     >
       <h3 className="text-[17px] font-semibold text-[var(--reader-fg)]">
         {entry.headword}
@@ -198,11 +220,7 @@ export function DictionaryTab() {
                 <button
                   key={letter}
                   type="button"
-                  onClick={() =>
-                    document
-                      .getElementById(`letter-${letter}`)
-                      ?.scrollIntoView({ block: "start" })
-                  }
+                  onClick={() => jumpToLetter(letter)}
                   className="flex h-[22px] w-7 shrink-0 items-center justify-center rounded-l border border-r-0 border-[var(--reader-border-strong)] text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] md:w-[26px]"
                 >
                   {letter}

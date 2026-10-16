@@ -1397,6 +1397,13 @@ html.dark .reader-menu {
 .inline-error-retry:disabled { opacity: 0.5; }
 
 .change-wash[data-washing] { animation: change-wash 600ms ease-out; }
+/* A dictionary letter jump: a little stronger than the change wash, so a word
+   already on screen still shows where the click landed */
+.letter-jump[data-washing] { animation: letter-jump 600ms ease-out; }
+@keyframes letter-jump {
+  from { background-color: color-mix(in srgb, var(--reader-fg) 12%, transparent); }
+  to { background-color: transparent; }
+}
 @keyframes change-wash {
   from { background-color: var(--reader-chip); }
   to { background-color: transparent; }
@@ -1429,6 +1436,7 @@ html.dark .reader-menu {
   .saved-mark[data-hold] { animation: vt-fade-in 120ms ease-out both; }
   .inline-error { animation: vt-fade-in 120ms ease-out backwards; }
   .change-wash[data-washing] { animation: change-wash-reduced 720ms ease-out; }
+  .letter-jump[data-washing] { animation: none; background-color: color-mix(in srgb, var(--reader-fg) 12%, transparent); }
 }
 @keyframes saved-mark-reduced {
   0% { opacity: 0; }
