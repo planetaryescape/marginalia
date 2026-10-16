@@ -32,6 +32,8 @@ export async function loadNode(
   budget: ReadBudget = UNLIMITED,
   // The key was derived from the reader's own ideas, not typed by the client
   trusted = false,
+  // For a vault idea: the chunk (passage) that matched, when one did
+  via?: string,
 ): Promise<LoadedNode | null> {
   const ref = parseKey(key);
   if (!ref || budget.allow(1) === 0) return null;
@@ -41,6 +43,7 @@ export async function loadNode(
     case "note": {
       const id = db.normalizeId("userNotes", ref.id);
       const row = id && (await db.get("userNotes", id));
+      budget.charge(row);
       if (!row || row.userId !== userId) return null;
       return {
         key,
@@ -55,6 +58,7 @@ export async function loadNode(
     case "highlight": {
       const id = db.normalizeId("highlights", ref.id);
       const row = id && (await db.get("highlights", id));
+      budget.charge(row);
       if (!row || row.userId !== userId) return null;
       return {
         key,
@@ -69,6 +73,7 @@ export async function loadNode(
     case "answer": {
       const id = db.normalizeId("companionThreads", ref.id);
       const row = id && (await db.get("companionThreads", id));
+      budget.charge(row);
       // Only answers the reader chose to keep are ideas of theirs
       if (!row || row.userId !== userId || !row.keptAt) return null;
       const reply = [...row.turns]
@@ -94,6 +99,7 @@ export async function loadNode(
         return articleFromSummary(ctx, userId, id, key, budget, trusted);
       budget.spendArticle();
       const row = await db.get("articles", id);
+      budget.charge(row);
       if (!row || row.userId !== userId) return null;
       return {
         key,
@@ -107,13 +113,24 @@ export async function loadNode(
     }
     case "vault": {
       // A vault idea is its file, so it survives the file being reindexed
-      // (which replaces its chunks); the first chunk stands for it now
-      const row = await db
-        .query("noteChunks")
-        .withIndex("by_user_file", (q) =>
-          q.eq("userId", userId).eq("filePath", ref.id),
-        )
-        .first();
+      // (which replaces its chunks). The passage that matched stands for it
+      // when that chunk still exists in the file; otherwise the first chunk does.
+      const matched = via ? db.normalizeId("noteChunks", via) : null;
+      const chunk = matched ? await db.get("noteChunks", matched) : null;
+      budget.charge(chunk);
+      let row =
+        chunk && chunk.userId === userId && chunk.filePath === ref.id
+          ? chunk
+          : null;
+      if (!row) {
+        row = await db
+          .query("noteChunks")
+          .withIndex("by_user_file", (q) =>
+            q.eq("userId", userId).eq("filePath", ref.id),
+          )
+          .first();
+        budget.charge(row);
+      }
       if (!row) return null;
       return {
         key,
@@ -173,6 +190,7 @@ export async function articleTitle(
   if (!budget.mayReadArticle) return null;
   budget.spendArticle();
   const article = await ctx.db.get("articles", articleId);
+  budget.charge(article);
   return article && article.userId === userId ? article.title : null;
 }
 

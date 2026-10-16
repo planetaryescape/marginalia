@@ -49,10 +49,12 @@ function useWidth(fallback: number) {
  */
 export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   const [centre, setCentre] = useState<string | undefined>();
+  // For a vault idea: the passage it was chosen by
+  const [centreVia, setCentreVia] = useState<string | undefined>();
   const [panel, setPanel] = useState<Panel>({ kind: "node" });
   const [similar, setSimilar] = useState<{
     for: string;
-    keys: string[];
+    hints: { key: string; via?: string }[];
   } | null>(null);
   const [addedKey, setAddedKey] = useState<string | null>(null);
   // The note just written, asked to be on the map whatever else is near it
@@ -67,9 +69,10 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   const [resolved, setResolved] = useState<string | undefined>();
   const live = useQuery(api.ideaGraph.graph, {
     centre,
+    centreVia,
     similar:
       similar && similar.for === (centre ?? resolved)
-        ? similar.keys
+        ? similar.hints
         : undefined,
     pin: pinned,
   });
@@ -82,17 +85,21 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   }, [live, centre]);
 
   // Vector search only runs in actions: ask once per centre, and the map folds it in
+  // A vault idea is recentred from the passage that matched, not the file's opening
+  const viaOf = (key: string | undefined) =>
+    graph?.nodes.find((n) => n.key === key)?.via;
+  const graphCentreVia = viaOf(graphCentre);
   useEffect(() => {
     if (!graphCentre) return;
     let current = true;
-    findSimilar({ key: graphCentre })
-      .then((keys) => current && setSimilar({ for: graphCentre, keys }))
+    findSimilar({ key: graphCentre, via: graphCentreVia })
+      .then((hints) => current && setSimilar({ for: graphCentre, hints }))
       // Without neighbours by meaning the other connections still draw the map
-      .catch(() => current && setSimilar({ for: graphCentre, keys: [] }));
+      .catch(() => current && setSimilar({ for: graphCentre, hints: [] }));
     return () => {
       current = false;
     };
-  }, [graphCentre, findSimilar]);
+  }, [graphCentre, graphCentreVia, findSimilar]);
 
   const openKey = centre ?? graphCentre;
   const labels = useMemo(
@@ -104,8 +111,9 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
       ? graph?.edges.find((e) => e.id === panel.edgeId)
       : undefined;
 
-  function open(key: string) {
+  function open(key: string, via = viaOf(key)) {
     setCentre(key);
+    setCentreVia(via);
     setPinned(undefined);
     setPanel({ kind: "node" });
     setFocusKey(key);
@@ -199,6 +207,7 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
               {panel.kind === "node" && (
                 <NodePanel
                   nodeKey={openKey}
+                  via={centre ? centreVia : graphCentreVia}
                   onWrite={(prompt) => {
                     setSaved(false);
                     setPanel({ kind: "compose", prompt });
@@ -222,7 +231,7 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
                 />
               )}
               {panel.kind === "edge" && edge && (
-                <EdgePanel edge={edge} labels={labels} />
+                <EdgePanel edge={edge} labels={labels} viaOf={viaOf} />
               )}
             </aside>
           )}
@@ -232,7 +241,7 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   );
 }
 
-function Search({ onPick }: { onPick: (key: string) => void }) {
+function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
   const [text, setText] = useState("");
   const [term, setTerm] = useState("");
   useEffect(() => {
@@ -246,10 +255,10 @@ function Search({ onPick }: { onPick: (key: string) => void }) {
     api.ideaGraph.search,
     term.length >= 2 ? { query: term } : "skip",
   );
-  const pick = (key: string) => {
+  const pick = (key: string, via?: string) => {
     setText("");
     setTerm("");
-    onPick(key);
+    onPick(key, via);
   };
   return (
     <div className="relative w-full max-w-[520px] flex-1">
@@ -263,7 +272,8 @@ function Search({ onPick }: { onPick: (key: string) => void }) {
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && hits?.[0]) pick(hits[0].key);
+          if (event.key === "Enter" && hits?.[0])
+            pick(hits[0].key, hits[0].via);
           if (event.key === "Escape" && text) {
             event.stopPropagation();
             setText("");
@@ -285,7 +295,7 @@ function Search({ onPick }: { onPick: (key: string) => void }) {
             <li key={hit.key}>
               <button
                 type="button"
-                onClick={() => pick(hit.key)}
+                onClick={() => pick(hit.key, hit.via)}
                 className="block w-full px-3.5 py-2 text-left text-[14px] text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]"
               >
                 <span className="mr-2 text-[11.5px] uppercase tracking-[0.06em] text-[var(--reader-muted)]">

@@ -39,6 +39,7 @@ async function latestNode(ctx: Db, userId: string, budget: ReadBudget) {
     .order("desc")
     .first();
   budget.spend(1);
+  budget.charge(row);
   return row ? loadNode(ctx, userId, nodeKey("note", row._id), budget) : null;
 }
 
@@ -49,6 +50,8 @@ export interface GraphNode {
   /** 0 is the centre, 1 its neighbours, 2 the faint ring beyond. */
   hop: 0 | 1 | 2;
   createdAt: number;
+  /** For a vault idea: the passage (chunk) it is shown by, to send back with it. */
+  via?: string;
 }
 
 export interface GraphEdge {
@@ -74,17 +77,24 @@ const view = (node: LoadedNode, hop: 0 | 1 | 2): GraphNode => ({
   label: node.label,
   hop,
   createdAt: node.createdAt,
+  via: node.kind === "vault" ? node.id : undefined,
 });
 
 export async function buildGraph(
   ctx: Db,
   userId: string,
-  args: { centre?: string; similar?: string[]; pin?: string },
+  args: {
+    centre?: string;
+    centreVia?: string;
+    similar?: { key: string; via?: string }[];
+    pin?: string;
+  },
   budget: ReadBudget = new ReadBudget(),
 ): Promise<Graph> {
   const centre =
-    (args.centre ? await loadNode(ctx, userId, args.centre, budget) : null) ??
-    (await latestNode(ctx, userId, budget));
+    (args.centre
+      ? await loadNode(ctx, userId, args.centre, budget, false, args.centreVia)
+      : null) ?? (await latestNode(ctx, userId, budget));
   if (!centre) return EMPTY;
 
   const found = await gatherCandidates(
@@ -106,7 +116,14 @@ export async function buildGraph(
 
   for (const candidate of found.ranked(CANDIDATES_LOADED)) {
     if (ring.length >= FIRST_RING) break;
-    const node = await loadNode(ctx, userId, candidate.key, budget, true);
+    const node = await loadNode(
+      ctx,
+      userId,
+      candidate.key,
+      budget,
+      true,
+      candidate.via,
+    );
     if (!node) continue;
     // Several chunks of one vault file are one idea
     if (node.filePath) {
@@ -245,7 +262,10 @@ export async function buildGraph(
 export const graph = query({
   args: {
     centre: v.optional(v.string()),
-    similar: v.optional(v.array(v.string())),
+    centreVia: v.optional(v.string()),
+    similar: v.optional(
+      v.array(v.object({ key: v.string(), via: v.optional(v.string()) })),
+    ),
     // The note just written from the map, which must show whatever else is near
     pin: v.optional(v.string()),
   },
@@ -256,6 +276,8 @@ export interface SearchHit {
   key: string;
   kind: NodeKind;
   label: string;
+  /** For a vault idea: the passage that matched the search. */
+  via?: string;
 }
 
 /** Finds an idea to start from, across notes, highlights, kept answers and vault notes. */
@@ -291,18 +313,27 @@ export const search = query({
         )
         .take(4),
     ]);
-    const keys = [
-      ...notes.map((r) => nodeKey("note", r._id)),
-      ...marks.map((r) => nodeKey("highlight", r._id)),
-      ...threads.filter((r) => r.keptAt).map((r) => nodeKey("answer", r._id)),
-      ...[...new Set(chunks.map((r) => r.filePath))].map((path) =>
-        nodeKey("vault", path),
+    const found: { key: string; via?: string }[] = [
+      ...notes.map((r) => ({ key: nodeKey("note", r._id) })),
+      ...marks.map((r) => ({ key: nodeKey("highlight", r._id) })),
+      ...threads
+        .filter((r) => r.keptAt)
+        .map((r) => ({ key: nodeKey("answer", r._id) })),
+      // Several chunks of one file are one idea, shown by the first that matched
+      ...[...new Map(chunks.map((r) => [r.filePath, r._id])).entries()].map(
+        ([path, via]) => ({ key: nodeKey("vault", path), via: via as string }),
       ),
     ];
     const hits: SearchHit[] = [];
-    for (const key of keys) {
-      const node = await loadNode(ctx, userId, key);
-      if (node) hits.push({ key, kind: node.kind, label: node.label });
+    for (const { key, via } of found) {
+      const node = await loadNode(ctx, userId, key, undefined, false, via);
+      if (node)
+        hits.push({
+          key,
+          kind: node.kind,
+          label: node.label,
+          via: node.kind === "vault" ? node.id : undefined,
+        });
     }
     return hits.slice(0, 8);
   },
@@ -310,9 +341,16 @@ export const search = query({
 
 /** One idea in full, for the side panel. */
 export const node = query({
-  args: { key: v.string() },
+  args: { key: v.string(), via: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const found = await loadNode(ctx, ctx.readerId, args.key);
+    const found = await loadNode(
+      ctx,
+      ctx.readerId,
+      args.key,
+      undefined,
+      false,
+      args.via,
+    );
     if (!found) return null;
     const row = found.articleId
       ? await ctx.db.get("articles", found.articleId)
@@ -354,9 +392,16 @@ export const node = query({
 
 /** The embedding of the idea a key names, for ideaNeighbours.similar. */
 export const embeddingOf = internalQuery({
-  args: { userId: v.string(), key: v.string() },
+  args: { userId: v.string(), key: v.string(), via: v.optional(v.string()) },
   handler: async (ctx, args): Promise<number[] | null> => {
-    const node = await loadNode(ctx, args.userId, args.key);
+    const node = await loadNode(
+      ctx,
+      args.userId,
+      args.key,
+      undefined,
+      false,
+      args.via,
+    );
     if (!node) return null;
     switch (node.kind) {
       case "note":

@@ -8,11 +8,18 @@ import { articleTitle, type LoadedNode, loadNode } from "./lib/ideaNodes";
 import { pairReasons } from "./lib/ideaSignals";
 
 export const edgeContext = internalQuery({
-  args: { userId: v.string(), a: v.string(), b: v.string() },
+  args: {
+    userId: v.string(),
+    a: v.string(),
+    b: v.string(),
+    // For a vault idea: the passage it is shown by, so the reason is about that passage
+    aVia: v.optional(v.string()),
+    bVia: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const [a, b] = await Promise.all([
-      loadNode(ctx, args.userId, args.a),
-      loadNode(ctx, args.userId, args.b),
+      loadNode(ctx, args.userId, args.a, undefined, false, args.aVia),
+      loadNode(ctx, args.userId, args.b, undefined, false, args.bVia),
     ]);
     if (!a || !b || a.key === b.key) return null;
     const structural = await pairReasons(ctx, args.userId, a, b);

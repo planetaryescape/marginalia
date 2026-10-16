@@ -9,12 +9,18 @@ import { nodeKey, SIMILARITY_FLOOR } from "../lib/ideaGraph";
 const LIMITS = { notes: 6, highlights: 6, answers: 4, vault: 8 } as const;
 const RETURNED = 12;
 
+export interface SimilarHit {
+  key: string;
+  via?: string;
+}
+
 export const similar = action({
-  args: { key: v.string() },
-  handler: async (ctx, args): Promise<string[]> => {
+  args: { key: v.string(), via: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<SimilarHit[]> => {
+    // For a vault idea, from the passage it is shown by
     const vector: number[] | null = await ctx.runQuery(
       internal.ideaGraph.embeddingOf,
-      { userId: ctx.readerId, key: args.key },
+      { userId: ctx.readerId, key: args.key, via: args.via },
     );
     // Not embedded yet (or no embedding key): the other signals still draw the map
     if (!vector) return [];
@@ -44,7 +50,8 @@ export const similar = action({
       internal.ideaGraph.vaultFiles,
       { userId: ctx.readerId, chunkIds: vault.map((hit) => hit._id) },
     );
-    return [
+    // A vault hit is the file, shown by the passage that matched
+    const hits: { key: string; via?: string; score: number }[] = [
       ...notes.map((hit) => ({
         key: nodeKey("note", hit._id),
         score: hit._score,
@@ -59,14 +66,21 @@ export const similar = action({
       })),
       ...vault.flatMap((hit) =>
         files[hit._id]
-          ? [{ key: nodeKey("vault", files[hit._id]), score: hit._score }]
+          ? [
+              {
+                key: nodeKey("vault", files[hit._id]),
+                via: hit._id as string,
+                score: hit._score,
+              },
+            ]
           : [],
       ),
-    ]
+    ];
+    return hits
       .filter((hit) => hit.key !== args.key && hit.score >= SIMILARITY_FLOOR)
       .sort((a, b) => b.score - a.score)
-      .map((hit) => hit.key)
-      .filter((key, i, all) => all.indexOf(key) === i)
-      .slice(0, RETURNED);
+      .filter((hit, i, all) => all.findIndex((h) => h.key === hit.key) === i)
+      .slice(0, RETURNED)
+      .map(({ key, via }) => ({ key, via }));
   },
 });

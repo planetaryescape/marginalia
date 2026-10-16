@@ -30,12 +30,19 @@ export type EdgeExplanation =
  * model call, and the sentence is cached until either idea's text changes.
  */
 export const explain = action({
-  args: { a: v.string(), b: v.string() },
+  args: {
+    a: v.string(),
+    b: v.string(),
+    aVia: v.optional(v.string()),
+    bVia: v.optional(v.string()),
+  },
   handler: async (ctx, args): Promise<EdgeExplanation> => {
     const context = await ctx.runQuery(internal.ideaEdgeReasons.edgeContext, {
       userId: ctx.readerId,
       a: args.a,
       b: args.b,
+      aVia: args.aVia,
+      bVia: args.bVia,
     });
     if (!context) throw new ConvexError("Those ideas aren't in your notes.");
     if (context.structural.length)

@@ -1,6 +1,7 @@
 // Pure helpers for the idea graph (rung 5d): node keys, how signals score,
 // and the text that explains each kind of connection. The reads live in
 // ideaGraph.ts; keeping these free of the database lets them be tested alone.
+import { getConvexSize, type Value } from "convex/values";
 
 export const NODE_KINDS = [
   "note",
@@ -39,9 +40,31 @@ export const LOAD_RESERVE = 60;
  */
 export const ARTICLE_READS = 8;
 
+/**
+ * Bytes one graph query may read. A document is not a fixed size (a note or an
+ * article can approach the 1MiB document limit), so counting documents alone
+ * lets a few dozen large ones read tens of megabytes. Every document read is
+ * charged its size after the fact, and a read is refused unless the remaining
+ * bytes could hold every document it may return at the largest size a
+ * document can have. The worst case is therefore 12MB, under the 16MiB limit.
+ */
+export const GRAPH_READ_BYTES = 12 * 1024 * 1024;
+/** The largest a single Convex document can be. */
+export const MAX_DOCUMENT_BYTES = 1024 * 1024;
+
 interface BudgetState {
   left: number;
   articles: number;
+  bytes: number;
+}
+
+/** A document's size as Convex counts it, or its JSON length where that can't be measured. */
+function sizeOf(doc: unknown): number {
+  try {
+    return getConvexSize(doc as Value);
+  } catch {
+    return JSON.stringify(doc)?.length ?? 0;
+  }
 }
 
 export class ReadBudget {
@@ -51,8 +74,9 @@ export class ReadBudget {
     total = GRAPH_READ_BUDGET,
     articles = ARTICLE_READS,
     shared?: { state: BudgetState; floor: number },
+    bytes = GRAPH_READ_BYTES,
   ) {
-    this.state = shared?.state ?? { left: total, articles };
+    this.state = shared?.state ?? { left: total, articles, bytes };
     this.floor = shared?.floor ?? 0;
   }
   /** The same budget, but leaving `reserve` documents untouched: for discovery. */
@@ -65,9 +89,17 @@ export class ReadBudget {
   get remaining() {
     return Math.max(0, this.state.left - this.floor);
   }
-  /** The most documents the next read may take: what it wants, capped by what is left. */
+  get remainingBytes() {
+    return this.state.bytes;
+  }
+  /**
+   * The most documents the next read may take: what it wants, capped by the
+   * documents left and by how many could still fit in the bytes left if each
+   * were as large as a document can be. Zero below one such document.
+   */
   allow(want: number): number {
-    return Math.max(0, Math.min(want, this.remaining));
+    const byBytes = Math.floor(this.state.bytes / MAX_DOCUMENT_BYTES);
+    return Math.max(0, Math.min(want, this.remaining, byBytes));
   }
   /** Runs a read of up to `want` documents if any budget is left, and charges what it returned. */
   async take<T>(
@@ -78,11 +110,16 @@ export class ReadBudget {
     if (limit === 0) return [];
     const rows = await read(limit);
     this.spend(rows.length);
+    this.charge(...rows);
     return rows;
   }
   /** Even an empty read costs one, so the number of queries is bounded too. */
   spend(read: number) {
     this.state.left -= Math.max(1, read);
+  }
+  /** Charges the size of documents already read. */
+  charge(...docs: unknown[]) {
+    for (const doc of docs) if (doc) this.state.bytes -= sizeOf(doc);
   }
   /** Whether another whole article may be read; see ARTICLE_READS. */
   get mayReadArticle() {
@@ -97,6 +134,8 @@ export class ReadBudget {
 /** For reads outside the graph query, which have their own small fixed bounds. */
 export const UNLIMITED = new ReadBudget(
   Number.POSITIVE_INFINITY,
+  Number.POSITIVE_INFINITY,
+  undefined,
   Number.POSITIVE_INFINITY,
 );
 
@@ -177,14 +216,24 @@ export function connectionReason(what: string): Reason {
 export class Candidates {
   private readonly byKey = new Map<
     string,
-    { reasons: Reason[]; score: number }
+    { reasons: Reason[]; score: number; via?: string }
   >();
 
   constructor(private readonly self: string) {}
 
-  add(key: string, reason: Reason, score = SIGNAL_SCORE[reason.type]) {
+  /**
+   * `via` is the vault chunk that brought a vault idea in: the passage that
+   * matched. The first to name one keeps it.
+   */
+  add(
+    key: string,
+    reason: Reason,
+    score = SIGNAL_SCORE[reason.type],
+    via?: string,
+  ) {
     if (key === this.self) return;
     const entry = this.byKey.get(key) ?? { reasons: [], score: 0 };
+    entry.via ??= via;
     if (!entry.reasons.some((r) => r.text === reason.text)) {
       entry.reasons.push(reason);
       entry.score += score;

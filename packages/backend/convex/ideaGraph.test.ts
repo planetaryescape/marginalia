@@ -8,6 +8,7 @@ import { buildGraph } from "./ideaGraph";
 import {
   ARTICLE_READS,
   GRAPH_READ_BUDGET,
+  GRAPH_READ_BYTES,
   MAX_NODES,
   nodeKey,
   ReadBudget,
@@ -249,6 +250,48 @@ describe("idea graph read budget", () => {
     expect(counted.nodes).toBeGreaterThan(1);
   });
 
+  it("stops reading once the bytes spent could leave the next document over the limit", async () => {
+    const { t } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      const home = await addArticle(ctx, OWNER, "Home");
+      for (let i = 0; i < 20; i++) {
+        const other = await addArticle(ctx, OWNER, `Other ${i}`);
+        // Two ~190,000-character notes each: 69 documents of this size read 22MB
+        for (const j of [0, 1])
+          await addNote(ctx, OWNER, other, `${j}`.repeat(190_000));
+        await addAnnotation(ctx, home, { articleRefId: other });
+      }
+      // The latest note, so the map centres on it
+      await addNote(ctx, OWNER, home, "centre");
+    });
+    const read = (budget: ReadBudget) =>
+      t.run(async (ctx) => {
+        const { reads, db } = countingDb(ctx.db);
+        const g = await buildGraph({ db }, OWNER, {}, budget);
+        return { ...reads, nodes: g.nodes.length };
+      });
+    // The same library with no byte limit reads far more than 12MB
+    const unbounded = await read(
+      new ReadBudget(160, 8, undefined, Number.POSITIVE_INFINITY),
+    );
+    expect(unbounded.bytes).toBeGreaterThan(GRAPH_READ_BYTES);
+    const counted = await read(new ReadBudget());
+    expect(counted.bytes).toBeLessThanOrEqual(GRAPH_READ_BYTES);
+    expect(counted.nodes).toBeGreaterThan(1);
+  });
+
+  it("charges what it reads and refuses a read the remaining bytes can't cover", () => {
+    const budget = new ReadBudget();
+    expect(budget.allow(6)).toBe(6);
+    budget.charge({ text: "x".repeat(7.5 * 1024 * 1024) });
+    // About 4.5MiB left: room for four documents of the largest size, not six
+    expect(budget.allow(6)).toBe(4);
+    budget.charge({ text: "x".repeat(3.8 * 1024 * 1024) });
+    // Under 1MiB: nothing more may be read, so the worst overshoot stays under the limit
+    expect(budget.allow(1)).toBe(0);
+    expect(budget.mayReadArticle).toBe(false);
+  });
+
   it("labels an article from its summary, or plainly, once whole-article reads are spent", async () => {
     const { t } = await secondReaderTest(modules);
     const ids = await t.run(async (ctx) => ({
@@ -454,9 +497,9 @@ describe("idea graph edges", () => {
     });
     const g = await owner.query(api.ideaGraph.graph, {
       similar: [
-        nodeKey("note", ids.far),
-        nodeKey("note", ids.theirNote),
-        "nonsense",
+        { key: nodeKey("note", ids.far) },
+        { key: nodeKey("note", ids.theirNote) },
+        { key: "nonsense" },
       ],
     });
     const edge = g.edges.find((e) => e.b === nodeKey("note", ids.far));
@@ -535,7 +578,7 @@ describe("idea graph edges", () => {
     });
     const g = await owner.query(api.ideaGraph.graph, {
       similar: (await t.run((ctx) => ctx.db.query("noteChunks").collect())).map(
-        (c) => nodeKey("vault", c.filePath),
+        (c) => ({ key: nodeKey("vault", c.filePath), via: c._id }),
       ),
     });
     expect(g.nodes.filter((n) => n.kind === "vault")).toHaveLength(1);
@@ -679,6 +722,115 @@ describe("idea graph edges", () => {
     for (const e of g.edges) {
       expect(keys.has(e.a) && keys.has(e.b)).toBe(true);
     }
+  });
+
+  it("keeps the passage that matched: its text, its explanation and its embedding", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const ids = await t.run(async (ctx) => {
+      const note = await addNote(
+        ctx,
+        OWNER,
+        await addArticle(ctx, OWNER, "Alpha"),
+        "centre",
+      );
+      const chunk = (index: number, content: string, embedding: number[]) =>
+        ctx.db.insert("noteChunks", {
+          userId: OWNER,
+          filePath: "vault/Notes.md",
+          fileName: "Notes.md",
+          chunkIndex: index,
+          content,
+          embedding,
+          fileHash: "h",
+          indexedAt: Date.now(),
+        });
+      return {
+        note,
+        intro: await chunk(0, "An unrelated introduction", [1, 0]),
+        sleep: await chunk(1, "Sleep and consensus", [0, 1]),
+      };
+    });
+    const key = nodeKey("vault", "vault/Notes.md");
+    const g = await owner.query(api.ideaGraph.graph, {
+      similar: [{ key, via: ids.sleep }],
+    });
+    // The file is the node, the passage that matched is how it is shown
+    expect(g.nodes.find((n) => n.key === key)).toMatchObject({
+      via: ids.sleep,
+    });
+    expect(
+      await owner.query(api.ideaGraph.node, { key, via: ids.sleep }),
+    ).toMatchObject({ text: "Sleep and consensus" });
+    // Without a passage, or when it is gone, the first chunk stands in
+    expect(await owner.query(api.ideaGraph.node, { key })).toMatchObject({
+      text: "An unrelated introduction",
+    });
+    await t.run((ctx) => ctx.db.delete(ids.sleep));
+    expect(
+      await owner.query(api.ideaGraph.node, { key, via: ids.sleep }),
+    ).toMatchObject({ text: "An unrelated introduction" });
+    await t.run((ctx) =>
+      ctx.db.insert("noteChunks", {
+        userId: OWNER,
+        filePath: "vault/Notes.md",
+        fileName: "Notes.md",
+        chunkIndex: 1,
+        content: "Sleep and consensus",
+        embedding: [0, 1],
+        fileHash: "h",
+        indexedAt: Date.now(),
+      }),
+    );
+    const sleep = (
+      await t.run((ctx) => ctx.db.query("noteChunks").collect())
+    ).find((c) => c.chunkIndex === 1)?._id as Id<"noteChunks">;
+    // Recentring from the passage uses that passage's embedding
+    expect(
+      await t.query(internal.ideaGraph.embeddingOf, {
+        userId: OWNER,
+        key,
+        via: sleep,
+      }),
+    ).toEqual([0, 1]);
+    expect(
+      await t.query(internal.ideaGraph.embeddingOf, { userId: OWNER, key }),
+    ).toEqual([1, 0]);
+    // And the reason is asked about the passage, not the file's opening
+    const context = await t.query(internal.ideaEdgeReasons.edgeContext, {
+      userId: OWNER,
+      a: nodeKey("note", ids.note),
+      b: key,
+      bVia: sleep,
+    });
+    expect(context?.b.text).toBe("Sleep and consensus");
+  });
+
+  it("a search hit on a later passage carries that passage", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run(async (ctx) => {
+      for (const [i, content] of [
+        "An opening",
+        "Sleep and consensus",
+      ].entries())
+        await ctx.db.insert("noteChunks", {
+          userId: OWNER,
+          filePath: "vault/Notes.md",
+          fileName: "Notes.md",
+          chunkIndex: i,
+          content,
+          embedding: [1, 0],
+          fileHash: "h",
+          indexedAt: Date.now(),
+        });
+    });
+    const [hit] = await owner.query(api.ideaGraph.search, {
+      query: "consensus",
+    });
+    const node = await owner.query(api.ideaGraph.node, {
+      key: hit.key,
+      via: hit.via,
+    });
+    expect(node?.text).toBe("Sleep and consensus");
   });
 
   it("keeps a vault idea and its links when the file is reindexed", async () => {

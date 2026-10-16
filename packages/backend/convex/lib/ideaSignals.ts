@@ -132,6 +132,7 @@ export async function activeTags(
     if (row.userId !== userId || budget.allow(1) === 0) continue;
     budget.spend(1);
     const tag = await ctx.db.get("tags", row.tagId);
+    budget.charge(tag);
     if (tag && tag.userId === userId && tag.status === "active") tags.push(tag);
   }
   return tags.sort((a, b) => a.count - b.count);
@@ -160,7 +161,7 @@ export async function gatherCandidates(
   ctx: Db,
   userId: string,
   centre: LoadedNode,
-  similar: string[],
+  similar: { key: string; via?: string }[],
   budget: ReadBudget = UNLIMITED,
 ) {
   const found = new Candidates(centre.key);
@@ -177,10 +178,13 @@ export async function gatherCandidates(
   for (const [rank, key] of linked.entries())
     found.add(key, linkedReason(), SIGNAL_SCORE.linked - rank * 0.5);
 
-  similar.forEach((key, rank) => {
-    const reason = similarityReason();
-    found.add(key, reason, SIGNAL_SCORE.similar - rank * 3);
-  });
+  for (const [rank, hint] of similar.entries())
+    found.add(
+      hint.key,
+      similarityReason(),
+      SIGNAL_SCORE.similar - rank * 3,
+      hint.via,
+    );
 
   if (centre.articleId) {
     const articleId = centre.articleId;
@@ -211,6 +215,9 @@ export async function gatherCandidates(
         found.add(
           nodeKey("vault", row.notePath),
           connectionReason("this article to this vault note"),
+          undefined,
+          // A connection that names a passage keeps it
+          row.noteChunkId,
         );
       else if (row.articleRefId) {
         const other = await articleTitle(ctx, userId, row.articleRefId, budget);

@@ -188,6 +188,29 @@ describe("Notes as a map", () => {
     expect(host.querySelector("svg")?.getAttribute("width")).toBe("350");
   });
 
+  it("recentres a vault idea from the passage that matched, not the file's opening", async () => {
+    mocks.similar.mockClear();
+    mocks.graph = {
+      centre: "vault:v/x.md",
+      nodes: [
+        {
+          key: "vault:v/x.md",
+          kind: "vault",
+          label: "x",
+          hop: 0,
+          createdAt: 1,
+          via: "chunk2",
+        },
+      ],
+      edges: [],
+    };
+    await render();
+    expect(mocks.similar).toHaveBeenCalledWith({
+      key: "vault:v/x.md",
+      via: "chunk2",
+    });
+  });
+
   it("offers no writing beside a vault note with no article", async () => {
     mocks.node = {
       ...detail,

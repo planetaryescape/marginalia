@@ -42,12 +42,15 @@ export function draftToHtml(text: string): string {
 /** One idea, read in full, with the ways to carry on from it. */
 export function NodePanel({
   nodeKey,
+  via,
   onWrite,
 }: {
   nodeKey: string;
+  /** For a vault idea: the passage it is shown by. */
+  via?: string;
   onWrite: (prompt?: string) => void;
 }) {
-  const node = useQuery(api.ideaGraph.node, { key: nodeKey });
+  const node = useQuery(api.ideaGraph.node, { key: nodeKey, via });
   if (node === undefined)
     return (
       <p role="status" className="text-sm text-[var(--reader-muted)]">
@@ -245,15 +248,20 @@ type Explained =
 export function EdgePanel({
   edge,
   labels,
+  viaOf,
 }: {
   edge: GraphEdge;
   labels: Map<string, string>;
+  /** The passage a vault idea is shown by, so the reason is about that passage. */
+  viaOf: (key: string) => string | undefined;
 }) {
   const explain = useAction(api.actions.explainIdeaEdge.explain);
   const link = useMutation(api.ideaLinks.link);
   const unlink = useMutation(api.ideaLinks.unlink);
   const [attempt, setAttempt] = useState(0);
   const [explained, setExplained] = useState<Explained>({ status: "loading" });
+  const aVia = viaOf(edge.a);
+  const bVia = viaOf(edge.b);
   const linked = edge.reasons.some((r) => r.type === "linked");
 
   // Only a pair that embeddings alone put together costs a model call
@@ -262,7 +270,12 @@ export function EdgePanel({
     if (!edge.needsAi) return;
     let live = true;
     setExplained({ status: "loading" });
-    explain({ a: edge.a, b: edge.b })
+    explain({
+      a: edge.a,
+      b: edge.b,
+      aVia,
+      bVia,
+    })
       .then((result) => {
         if (!live) return;
         if (result.source === "generated") {
@@ -283,7 +296,7 @@ export function EdgePanel({
     return () => {
       live = false;
     };
-  }, [edge.id, edge.a, edge.b, edge.needsAi, explain, attempt]);
+  }, [edge.id, edge.a, edge.b, edge.needsAi, explain, attempt, aVia, bVia]);
 
   return (
     <div aria-live="polite">
