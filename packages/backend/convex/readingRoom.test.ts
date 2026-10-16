@@ -235,12 +235,38 @@ describe("readingTopics", () => {
       await link(OWNER, a1, maybe);
       await link(OWNER, old, hiring);
 
+      // a1 finished in the period; the older finish and the other reader's don't count
+      const interaction = (
+        userId: string,
+        articleId: Awaited<ReturnType<typeof article>>,
+        action: "finished" | "skipped",
+        createdAt: number,
+      ) =>
+        ctx.db.insert("articleInteractions", {
+          userId,
+          articleId,
+          action,
+          createdAt,
+        });
+      await interaction(OWNER, a1, "finished", at + 1000);
+      await interaction(OWNER, old, "finished", Date.UTC(2026, 8, 1));
+      await interaction(readerLibraryId, a2, "finished", at + 1000);
+      await interaction(readerLibraryId, a2, "skipped", at + 1000);
+      // Passed over with Another and never opened; its topic still shows it
+      const passed = await article(OWNER, "passed");
+      await link(OWNER, passed, hiring);
+      await interaction(OWNER, passed, "skipped", at + 2000);
+      await interaction(OWNER, passed, "skipped", at + 3000);
+      // A skip that was later finished is a finish
+      await interaction(OWNER, a1, "skipped", at - 1000);
+
       // Another reader's tag on the same article, and their own reading
       const theirs = await tag(readerLibraryId, "secret topic", "active");
       await link(readerLibraryId, a1, theirs);
       const theirArticle = await article(readerLibraryId, "theirs");
       await visit(readerLibraryId, theirArticle, at, 90);
       await link(readerLibraryId, theirArticle, theirs);
+      await interaction(readerLibraryId, theirArticle, "finished", at + 500);
     });
   }
 
@@ -255,8 +281,8 @@ describe("readingTopics", () => {
         period: "month",
       }),
     ).toEqual([
-      { name: "attention", minutes: 35, articles: 2 },
-      { name: "hiring", minutes: 20, articles: 1 },
+      { name: "attention", minutes: 35, articles: 2, finished: 1, skipped: 0 },
+      { name: "hiring", minutes: 20, articles: 1, finished: 0, skipped: 1 },
     ]);
   });
 
@@ -270,7 +296,15 @@ describe("readingTopics", () => {
         timeZone: "UTC",
         period: "month",
       }),
-    ).toEqual([{ name: "secret topic", minutes: 90, articles: 1 }]);
+    ).toEqual([
+      {
+        name: "secret topic",
+        minutes: 90,
+        articles: 1,
+        finished: 1,
+        skipped: 0,
+      },
+    ]);
   });
 
   it("has no topics for a reader with no tags", async () => {
@@ -425,6 +459,54 @@ describe("readingRoom article reads", () => {
   });
 });
 
+describe("readingTopics finish and skip counts", () => {
+  it("looks up the tags of a bounded number of articles that were only skipped", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { t, owner } = await secondReaderTest(modules);
+    const at = Date.UTC(2026, 9, 13, 8);
+    await t.run(async (ctx) => {
+      const tagId = await ctx.db.insert("tags", {
+        userId: OWNER,
+        name: "busy",
+        key: "busy",
+        status: "active",
+        count: 1,
+        aliases: [],
+        createdAt: 1,
+      });
+      const read = await insertArticle(ctx, "read");
+      await ctx.db.insert("readingActivity", { ...visitRow(read, at) });
+      await ctx.db.insert("articleTags", {
+        userId: OWNER,
+        articleId: read,
+        tagId,
+        createdAt: 1,
+      });
+      for (let i = 0; i < 130; i++) {
+        const articleId = await insertArticle(ctx, `skipped-${i}`);
+        await ctx.db.insert("articleTags", {
+          userId: OWNER,
+          articleId,
+          tagId,
+          createdAt: 1,
+        });
+        await ctx.db.insert("articleInteractions", {
+          userId: OWNER,
+          articleId,
+          action: "skipped",
+          createdAt: at + i,
+        });
+      }
+    });
+    const [topic] = await owner.query(api.stats.readingTopics, {
+      timeZone: "UTC",
+      period: "month",
+    });
+    expect(topic).toMatchObject({ name: "busy", articles: 1, skipped: 100 });
+  });
+});
+
 describe("readingTopics with many candidates", () => {
   it("keeps scanning past candidate tags to find the active one", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -480,7 +562,9 @@ describe("readingTopics with many candidates", () => {
         timeZone: "UTC",
         period: "month",
       }),
-    ).toEqual([{ name: "quiet topic", minutes: 1, articles: 1 }]);
+    ).toEqual([
+      { name: "quiet topic", minutes: 1, articles: 1, finished: 0, skipped: 0 },
+    ]);
   });
 });
 
@@ -534,6 +618,8 @@ describe("readingTopics with candidates on every article", () => {
         timeZone: "UTC",
         period: "month",
       }),
-    ).toEqual([{ name: "the one", minutes: 1, articles: 1 }]);
+    ).toEqual([
+      { name: "the one", minutes: 1, articles: 1, finished: 0, skipped: 0 },
+    ]);
   });
 });

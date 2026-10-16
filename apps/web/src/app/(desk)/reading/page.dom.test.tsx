@@ -133,16 +133,35 @@ describe("Your reading", () => {
     mocks.topics = [];
     await render();
     expect(container.textContent).not.toContain("The topics you return to");
-    mocks.topics = [{ name: "attention", minutes: 120, articles: 4 }];
+    mocks.topics = [
+      { name: "attention", minutes: 120, articles: 4, finished: 0, skipped: 0 },
+    ];
     await render();
     expect(container.textContent).toContain("The topics you return to");
     expect(container.textContent).toContain("attention");
     expect(container.textContent).toContain("2h · 4 articles");
   });
 
+  it("says what was finished and skipped under a topic, and nothing when there is none", async () => {
+    mocks.room = room();
+    mocks.topics = [
+      { name: "attention", minutes: 120, articles: 4, finished: 3, skipped: 1 },
+      { name: "hiring", minutes: 60, articles: 2, finished: 0, skipped: 2 },
+      { name: "quiet", minutes: 30, articles: 1, finished: 0, skipped: 0 },
+    ];
+    await render();
+    const text = container.textContent ?? "";
+    expect(text).toContain("3 finished · 1 skipped");
+    expect(text).toContain("2 skipped");
+    expect(text).not.toContain("0 finished");
+    expect(text).not.toContain("0 skipped");
+  });
+
   it("opens Library on a topic when it is clicked in the topic map", async () => {
     mocks.room = room();
-    mocks.topics = [{ name: "deep work", minutes: 120, articles: 4 }];
+    mocks.topics = [
+      { name: "deep work", minutes: 120, articles: 4, finished: 0, skipped: 0 },
+    ];
     await render();
     const link = [...container.querySelectorAll("a")].find(
       (a) => a.textContent === "deep work",
@@ -246,9 +265,9 @@ describe("two tags that look like one topic", () => {
   beforeEach(() => {
     mocks.room = room();
     mocks.topics = [
-      { name: "llm", minutes: 120, articles: 4 },
-      { name: "llms", minutes: 60, articles: 2 },
-      { name: "attention", minutes: 90, articles: 3 },
+      { name: "llm", minutes: 120, articles: 4, finished: 0, skipped: 0 },
+      { name: "llms", minutes: 60, articles: 2, finished: 0, skipped: 0 },
+      { name: "attention", minutes: 90, articles: 3, finished: 0, skipped: 0 },
     ];
   });
 

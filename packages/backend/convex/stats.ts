@@ -524,11 +524,20 @@ const TOPICS_SHOWN = 30;
 // new tags are resisted: a name is matched onto an existing tag or alias
 // before one is created (D-DES-059).
 const ACTIVE_TAGS = 300;
+// Interaction rows read for the finish and skip counts, newest first. A finish
+// row can carry 128 annotation ids (about 4.7 KB), so 600 rows add under 3 MB
+// to the visits the query already reads.
+const OUTCOME_EVENTS = 600;
+// Articles finished or skipped but not read for a minute that also get their
+// tags looked up, so a topic's skips can include things never opened
+const OUTCOME_ARTICLES = 100;
 
 /**
  * Topics the reader returns to, by minutes read in the period: the active tags
  * on the articles they read, with the active minutes spent and how many
- * distinct articles carried each. Candidate tags are not topics yet.
+ * distinct articles carried each. Candidate tags are not topics yet. Each
+ * topic also says how many of its articles the reader finished and how many
+ * they passed over with Another in the period, from the newest interactions.
  */
 export const readingTopics = query({
   args: roomArgs,
@@ -549,6 +558,31 @@ export const readingTopics = query({
       .filter(([, ms]) => ms > 0)
       .slice(0, TOPIC_ARTICLES);
 
+    const period = roomPeriod(Date.now(), timeZone, periodName);
+    const events = await ctx.db
+      .query("articleInteractions")
+      .withIndex("by_user_created", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .gte("createdAt", period.start)
+          .lt("createdAt", period.end),
+      )
+      .order("desc")
+      .take(OUTCOME_EVENTS);
+    const finished = new Set<Id<"articles">>();
+    const skipped = new Set<Id<"articles">>();
+    for (const event of events) {
+      if (event.action === "finished") finished.add(event.articleId);
+      else if (event.action === "skipped") skipped.add(event.articleId);
+    }
+    // An article the reader went on to finish was not passed over
+    for (const id of finished) skipped.delete(id);
+    const readIds = new Set(read.map(([id]) => id));
+    const outcomeOnly = [...finished, ...skipped]
+      .filter((id) => !readIds.has(id))
+      .slice(0, OUTCOME_ARTICLES)
+      .map((id) => [id, 0] as const);
+
     // Candidates and other readers' tags are dropped before ranking, so they
     // can't use up the places that active topics need
     const active = new Map(
@@ -561,10 +595,14 @@ export const readingTopics = query({
           .take(ACTIVE_TAGS)
       ).map((tag) => [tag._id, tag.name]),
     );
-    const perTag = new Map<Id<"tags">, { ms: number; articles: number }>();
-    for (let i = 0; i < read.length; i += ARTICLE_BATCH)
+    const perTag = new Map<
+      Id<"tags">,
+      { ms: number; articles: number; finished: number; skipped: number }
+    >();
+    const counted = [...read, ...outcomeOnly];
+    for (let i = 0; i < counted.length; i += ARTICLE_BATCH)
       await Promise.all(
-        read.slice(i, i + ARTICLE_BATCH).map(async ([articleId, ms]) => {
+        counted.slice(i, i + ARTICLE_BATCH).map(async ([articleId, ms]) => {
           const links = await ctx.db
             .query("articleTags")
             .withIndex("by_article", (q) => q.eq("articleId", articleId))
@@ -573,22 +611,35 @@ export const readingTopics = query({
           for (const link of links) {
             if (link.userId !== ctx.readerId || !active.has(link.tagId))
               continue;
-            const seen = perTag.get(link.tagId) ?? { ms: 0, articles: 0 };
+            const seen = perTag.get(link.tagId) ?? {
+              ms: 0,
+              articles: 0,
+              finished: 0,
+              skipped: 0,
+            };
             perTag.set(link.tagId, {
               ms: seen.ms + ms,
-              articles: seen.articles + 1,
+              articles: seen.articles + (ms > 0 ? 1 : 0),
+              finished: seen.finished + (finished.has(articleId) ? 1 : 0),
+              skipped: seen.skipped + (skipped.has(articleId) ? 1 : 0),
             });
           }
         }),
       );
 
-    return [...perTag.entries()]
-      .sort((a, b) => b[1].ms - a[1].ms || a[0].localeCompare(b[0]))
-      .slice(0, TOPICS_SHOWN)
-      .map(([tagId, total]) => ({
-        name: active.get(tagId) ?? "",
-        minutes: Math.round((total.ms / 60_000) * 10) / 10,
-        articles: total.articles,
-      }));
+    return (
+      [...perTag.entries()]
+        // A topic is one the reader spent time on; outcomes alone don't make one
+        .filter(([, total]) => total.articles > 0)
+        .sort((a, b) => b[1].ms - a[1].ms || a[0].localeCompare(b[0]))
+        .slice(0, TOPICS_SHOWN)
+        .map(([tagId, total]) => ({
+          name: active.get(tagId) ?? "",
+          minutes: Math.round((total.ms / 60_000) * 10) / 10,
+          articles: total.articles,
+          finished: total.finished,
+          skipped: total.skipped,
+        }))
+    );
   },
 });
