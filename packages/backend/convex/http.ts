@@ -167,6 +167,16 @@ http.route({
   }),
 });
 
+/** Said in the answer itself, since a cut-off stream otherwise looks finished. */
+const TRUNCATED_NOTICE =
+  "\n\n(The answer was cut short. Ask again for the rest.)";
+
+/**
+ * Output budget for a librarian answer. The answer is short, but a reasoning
+ * model spends the same budget thinking and the reply links 40 long ids.
+ */
+const LIBRARY_MAX_TOKENS = 4000;
+
 /**
  * Streams a chat completion as plain text, trying each model in turn. It waits
  * for the first token so a failing model can fall back before the response
@@ -178,6 +188,7 @@ async function streamWithFallback(
   web: boolean,
   signal: AbortSignal,
   onFailure: (error: unknown) => Promise<void>,
+  maxTokens = 1200,
 ): Promise<Response> {
   for (const target of targets) {
     const modelId = target.id;
@@ -185,7 +196,7 @@ async function streamWithFallback(
       target,
       messages: chat,
       web,
-      maxTokens: 1200,
+      maxTokens,
       signal,
     });
     const citations: { url: string; title?: string }[] = [];
@@ -197,7 +208,7 @@ async function streamWithFallback(
         if (next.done) break;
         if (next.value.type === "text") first = next.value.text;
         else if (next.value.type === "citation") citations.push(next.value);
-        else failed = next.value.error;
+        else if (next.value.type === "error") failed = next.value.error;
       }
     } catch (error) {
       failed = error;
@@ -230,6 +241,11 @@ async function streamWithFallback(
               controller.enqueue(encoder.encode(next.value.text));
             } else if (next.value.type === "citation") {
               citations.push(next.value);
+            } else if (next.value.type === "truncated") {
+              console.error(
+                `Streamed answer: ${modelId} hit ${maxTokens} tokens`,
+              );
+              controller.enqueue(encoder.encode(TRUNCATED_NOTICE));
             } else {
               console.error(
                 `Streamed answer: ${modelId} failed mid-answer`,
@@ -477,6 +493,7 @@ http.route({
       readerId,
       parsed.data.question,
       embedder,
+      parsed.data.history,
     );
     const chat: ChatMessage[] = [
       { role: "system", content: LIBRARY_SYSTEM },
@@ -504,6 +521,7 @@ http.route({
       false,
       request.signal,
       ai.noteFailure,
+      LIBRARY_MAX_TOKENS,
     );
   }),
 });

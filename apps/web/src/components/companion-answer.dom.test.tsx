@@ -58,4 +58,23 @@ describe("a companion answer", () => {
     expect(host.querySelector("em")).toBeNull();
     expect(host.querySelector("strong")?.textContent).toBe("fifteen");
   });
+
+  it("shows the text alone when a link was cut off before its closing paren", () => {
+    render(
+      "Lead.\n\n- [A fine one](/read/abc123)\n- [Authorization in Next.js](/read/jd7ceet10d",
+    );
+    const items = [...host.querySelectorAll("li")];
+    expect(items[0].querySelector("a")?.getAttribute("href")).toBe(
+      "/read/abc123",
+    );
+    expect(items[1].textContent).toBe("Authorization in Next.js");
+    expect(items[1].querySelector("a")).toBeNull();
+    expect(host.textContent).not.toContain("](");
+  });
+
+  it("shows the text alone for a link whose address can't be opened", () => {
+    render("Lead.\n\nSee [this](not a url) and [that](/read/ABC).");
+    expect(host.querySelector("a")).toBeNull();
+    expect(host.textContent).toBe("Lead.See this and that.");
+  });
 });

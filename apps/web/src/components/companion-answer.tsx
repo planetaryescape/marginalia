@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 
+// The last alternative is a link whose address is unusable or cut off (a
+// stream that ended mid-link); it falls through to showing the text alone.
 const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(¶\s?\d+(?:\s*[–-]\s*\d+)?)|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|\/read\/[a-z0-9]+)\)|(?<![*\w])\*([^*\n]+)\*(?![*\w])/g;
+  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(¶\s?\d+(?:\s*[–-]\s*\d+)?)|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|\/read\/[a-z0-9]+)\)|(?<![*\w])\*([^*\n]+)\*(?![*\w])|\[([^\]\n]+)\]\((?:[^)\n]*\)|[^)\n]*$)/g;
 
 function renderInline(
   text: string,
@@ -13,7 +15,8 @@ function renderInline(
   for (const match of text.matchAll(INLINE)) {
     const index = match.index ?? 0;
     if (index > last) nodes.push(text.slice(last, index));
-    const [token, code, bold, ref, linkText, linkUrl, italic] = match;
+    const [token, code, bold, ref, linkText, linkUrl, italic, brokenLinkText] =
+      match;
     if (code) {
       nodes.push(
         <code
@@ -68,6 +71,8 @@ function renderInline(
           {linkText}
         </a>,
       );
+    } else if (brokenLinkText) {
+      nodes.push(brokenLinkText);
     } else {
       nodes.push(token);
     }

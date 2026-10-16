@@ -240,14 +240,37 @@ export async function retrieveLibraryContext(
   };
 }
 
+/**
+ * What to search the library for. A follow-up like "anything else?" means
+ * nothing on its own, so it is searched together with what the reader already
+ * asked; that keeps the notes and highlights the first answer drew on.
+ */
+export function libraryRetrievalQuery(
+  question: string,
+  history: LibraryRequest["history"],
+): string {
+  const earlier = history
+    .filter((turn) => turn.role === "user")
+    .slice(-3)
+    .map((turn) => turn.content);
+  return [...earlier, question].join("\n").slice(-4000);
+}
+
 export async function buildLibraryContext(
   ctx: ActionCtx,
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
+  history: LibraryRequest["history"] = [],
 ): Promise<string> {
-  return (await retrieveLibraryContext(ctx, userId, question, embedder))
-    .context;
+  return (
+    await retrieveLibraryContext(
+      ctx,
+      userId,
+      libraryRetrievalQuery(question, history),
+      embedder,
+    )
+  ).context;
 }
 
 const FIND_LIMIT = 24;

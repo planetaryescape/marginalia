@@ -39,6 +39,8 @@ export interface ChatTarget {
 export type StreamEvent =
   | { type: "text"; text: string }
   | { type: "citation"; url: string; title?: string }
+  /** The model stopped because it hit the output cap, not because it was done. */
+  | { type: "truncated" }
   | { type: "error"; error: unknown };
 
 function anthropicHeaders(apiKey: string) {
@@ -112,11 +114,13 @@ function chatRequest(
 async function* chatCompletionEvents(
   body: ResponseBody,
 ): AsyncGenerator<StreamEvent> {
+  let truncated = false;
   for await (const data of dataLines(body)) {
-    if (data === "[DONE]") return;
+    if (data === "[DONE]") break;
     const chunk = parse<{
       error?: unknown;
       choices?: {
+        finish_reason?: string | null;
         delta?: {
           content?: string | null;
           annotations?: {
@@ -132,6 +136,7 @@ async function* chatCompletionEvents(
       return;
     }
     const delta = chunk.choices?.[0]?.delta;
+    if (chunk.choices?.[0]?.finish_reason === "length") truncated = true;
     if (delta?.content) yield { type: "text", text: delta.content };
     for (const annotation of delta?.annotations ?? []) {
       if (annotation.type === "url_citation" && annotation.url_citation) {
@@ -139,23 +144,30 @@ async function* chatCompletionEvents(
       }
     }
   }
+  if (truncated) yield { type: "truncated" };
 }
 
 async function* anthropicEvents(
   body: ResponseBody,
 ): AsyncGenerator<StreamEvent> {
+  let truncated = false;
   for await (const data of dataLines(body)) {
     const event = parse<{
       type?: string;
       error?: unknown;
-      delta?: { type?: string; text?: string };
+      delta?: { type?: string; text?: string; stop_reason?: string };
     }>(data);
     if (!event) continue;
     if (event.type === "error") {
       yield { type: "error", error: event.error };
       return;
     }
-    if (event.type === "message_stop") return;
+    if (
+      event.type === "message_delta" &&
+      event.delta?.stop_reason === "max_tokens"
+    )
+      truncated = true;
+    if (event.type === "message_stop") break;
     if (
       event.type === "content_block_delta" &&
       event.delta?.type === "text_delta" &&
@@ -163,6 +175,7 @@ async function* anthropicEvents(
     )
       yield { type: "text", text: event.delta.text };
   }
+  if (truncated) yield { type: "truncated" };
 }
 
 export async function* streamChat({

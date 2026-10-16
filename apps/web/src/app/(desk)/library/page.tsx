@@ -2,7 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useQuery } from "convex/react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowUp, RotateCcw } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -13,13 +13,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { CompanionAnswer } from "@/components/companion-answer";
 import {
   FinishedShelf,
   LovedShelf,
   SavedShelf,
   type ShelfId,
 } from "@/components/library-shelves";
+import { LibraryThread, type LibraryTurn } from "@/components/library-thread";
 import { UpNextShelf } from "@/components/up-next-shelf";
 import { ReaderRequestError, streamFromConvex } from "@/lib/companion";
 import { useTabKeys } from "@/lib/list-nav";
@@ -30,10 +30,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 /** Two plain phrases, not buttons: they ask the question for you when clicked. */
 const EXAMPLES = ["what did I love recently?", "a short read for tonight"];
 
-interface Turn {
-  role: "user" | "assistant";
-  content: string;
-}
+type Turn = LibraryTurn;
 
 function Librarian() {
   const searchParams = useSearchParams();
@@ -140,44 +137,17 @@ function Librarian() {
       </p>
 
       {turns.length > 0 && (
-        <div className="mt-10 space-y-8">
-          {turns.map((turn, i) =>
-            turn.role === "user" ? (
-              <p
-                key={i}
-                className="font-serif text-[21px] leading-snug text-[var(--reader-fg)]"
-              >
-                {turn.content}
-              </p>
-            ) : turn.content ? (
-              <div
-                key={i}
-                className="pl-4 border-l-2 border-[var(--pencil-rule)] max-w-2xl"
-              >
-                <CompanionAnswer
-                  text={turn.content}
-                  lead
-                  streaming={streaming && i === turns.length - 1}
-                  onJump={() => {}}
-                />
-              </div>
-            ) : (
-              <div
-                key={i}
-                className="pl-4 border-l-2 border-[var(--pencil-rule)] max-w-2xl space-y-2 py-1"
-                role="status"
-                aria-label="Looking through your library"
-              >
-                <div className="companion-shimmer h-3 w-[86%] rounded" />
-                <div className="companion-shimmer h-3 w-[70%] rounded" />
-                <div className="companion-shimmer h-3 w-[48%] rounded" />
-              </div>
-            ),
-          )}
+        <>
+          {/* Keyed by the question count so a new question folds the earlier ones */}
+          <LibraryThread
+            key={turns.length}
+            turns={turns}
+            streaming={streaming}
+          />
           {error && (
-            <p className="text-[13px] text-annotation-tension">{error}</p>
+            <p className="mt-6 text-[13px] text-annotation-tension">{error}</p>
           )}
-        </div>
+        </>
       )}
 
       <form
@@ -203,21 +173,6 @@ function Librarian() {
           aria-label="Ask your library"
           className="flex-1 min-w-0 bg-transparent text-[15px] outline-none placeholder:text-[var(--reader-muted)]"
         />
-        {turns.length > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              abortRef.current?.abort();
-              setTurns([]);
-              setError(null);
-            }}
-            title="Start over"
-            aria-label="Start over"
-            className="w-11 h-11 md:w-9 md:h-9 shrink-0 flex items-center justify-center rounded-full text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
-          >
-            <RotateCcw size={15} />
-          </button>
-        )}
         <button
           type="submit"
           disabled={!draft.trim() || streaming}
@@ -227,6 +182,24 @@ function Librarian() {
           <ArrowUp size={16} strokeWidth={2.5} />
         </button>
       </form>
+
+      {turns.length > 0 && (
+        <p className="mt-3 text-[13px]">
+          <button
+            type="button"
+            onClick={() => {
+              abortRef.current?.abort();
+              setTurns([]);
+              setError(null);
+              setStreaming(false);
+              inputRef.current?.focus();
+            }}
+            className="py-2 text-[var(--reader-muted)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px] hover:text-[var(--reader-fg)]"
+          >
+            New question
+          </button>
+        </p>
+      )}
 
       {turns.length === 0 && (
         <p className="mt-3 text-[13px] text-[var(--reader-muted)]">
