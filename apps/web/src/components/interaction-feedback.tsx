@@ -6,6 +6,8 @@ import {
   touchFeedback,
   writeFeedback,
 } from "@/lib/interaction-feedback";
+import { quietControl } from "./settings-controls";
+import { SettingsSection } from "./settings-section";
 
 export function InteractionFeedback() {
   useEffect(() => {
@@ -44,51 +46,54 @@ export function FeedbackPreferences() {
   const [tested, setTested] = useState(false);
   useEffect(() => setSettings(readFeedback()), []);
   return (
-    <section className="account-section">
-      <h2 className="font-serif text-2xl mb-3">Touch feedback</h2>
-      <p className="text-sm text-[var(--reader-muted)] mb-4">
-        Brief feedback for touch actions. On iPhone, taps use a best-effort
-        Safari switch fallback. Sounds are off by default; reduced-motion
-        preferences disable feedback.
-      </p>
-      {(["haptics", "sound"] as const).map((key) => (
-        <label
-          key={key}
-          className="flex min-h-12 items-center justify-between gap-4 text-sm"
+    <SettingsSection
+      title="Touch feedback"
+      description="Brief feedback for touch actions. On iPhone, taps use a best-effort Safari switch fallback. Sounds are off by default; reduced-motion preferences disable feedback."
+    >
+      <div>
+        {(["haptics", "sound"] as const).map((key) => (
+          <label
+            key={key}
+            className="flex min-h-12 items-center justify-between gap-4 border-b border-[var(--reader-border)] text-sm"
+          >
+            <span>
+              {key === "haptics"
+                ? "Haptics, where supported"
+                : "Soft tap sounds"}
+            </span>
+            <input
+              type="checkbox"
+              checked={settings[key]}
+              onChange={(e) => {
+                const next = { ...settings, [key]: e.target.checked };
+                setSettings(next);
+                writeFeedback(next);
+              }}
+              className="h-5 w-5 accent-[var(--ink)]"
+            />
+          </label>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className={quietControl}
+          data-feedback-test
+          disabled={!settings.haptics && !settings.sound}
+          onClick={() => {
+            touchFeedback(settings);
+            setTested(true);
+          }}
         >
-          <span>
-            {key === "haptics" ? "Haptics, where supported" : "Soft tap sounds"}
-          </span>
-          <input
-            type="checkbox"
-            checked={settings[key]}
-            onChange={(e) => {
-              const next = { ...settings, [key]: e.target.checked };
-              setSettings(next);
-              writeFeedback(next);
-            }}
-            className="w-5 h-5 accent-[var(--ink)]"
-          />
-        </label>
-      ))}
-      <button
-        type="button"
-        className="app-button secondary mt-4"
-        data-feedback-test
-        disabled={!settings.haptics && !settings.sound}
-        onClick={() => {
-          touchFeedback(settings);
-          setTested(true);
-        }}
-      >
-        Test feedback
-      </button>
+          Test feedback
+        </button>
+      </div>
       {tested && (
-        <p role="status" className="text-sm text-[var(--reader-muted)] mt-3">
+        <p role="status" className="text-sm text-[var(--reader-muted)]">
           If you didn't feel a tap, your browser or device settings may not
           support it. Soft tap sounds are an optional alternative.
         </p>
       )}
-    </section>
+    </SettingsSection>
   );
 }

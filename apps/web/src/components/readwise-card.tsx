@@ -5,7 +5,13 @@ import { ConvexError } from "convex/values";
 import { RefreshCw } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { ConfirmAction } from "./settings-confirm";
+import {
+  fieldControl,
+  primaryControl,
+  quietControl,
+} from "./settings-controls";
+import { SettingsSection, type SettingsStatus } from "./settings-section";
 
 export function ago(timestamp: number) {
   const minutes = Math.round((Date.now() - timestamp) / 60_000);
@@ -19,99 +25,124 @@ export function ago(timestamp: number) {
   });
 }
 
-/** Readwise Reader connection: status, last sync and a manual sync. */
+/** Readwise Reader connection: status at the right, a sync control, Details for the counts. */
 export function ReadwiseCard() {
   const status = useQuery(api.readwise.status, {});
   const syncNow = useAction(api.readwise.syncNow);
+  const disconnect = useMutation(api.readwise.disconnect);
   const [syncing, setSyncing] = useState(false);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 
   if (!status) return null;
 
+  const sectionStatus: SettingsStatus = !status.connected
+    ? { tone: "quiet", label: "Not connected" }
+    : status.error
+      ? {
+          tone: "failed",
+          label:
+            `Last sync failed ${status.checkedAt ? ago(status.checkedAt) : ""}`.trim(),
+        }
+      : status.progress?.active
+        ? {
+            tone: "progress",
+            label: `${status.progress.backfilling ? "Importing full library" : "Syncing updates"} · ${status.progress.phase}`,
+          }
+        : status.syncedAt
+          ? { tone: "quiet", label: `Synced ${ago(status.syncedAt)}` }
+          : { tone: "quiet", label: "Connected · first sync pending" };
+
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      await syncNow({});
+      toast.success(
+        "Syncing from Reader… new articles appear as they're imported.",
+      );
+    } catch {
+      toast.error("Couldn't start the sync");
+    }
+    setSyncing(false);
+  };
+
   return (
-    <section className="mb-10 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)] p-4 font-sans">
-      <div className="flex items-center gap-3">
-        <span
-          className={cn(
-            "w-2 h-2 rounded-full",
-            !status.connected
-              ? "bg-[var(--reader-muted)]"
-              : status.error
-                ? "bg-annotation-tension"
-                : "bg-annotation-context",
+    <SettingsSection
+      title="Readwise Reader"
+      status={sectionStatus}
+      description={
+        !status.connected
+          ? "Connect Readwise to import your Inbox, Later and Shortlist. Finishing an article archives it in Reader, and highlights sync both ways."
+          : status.error
+            ? status.error
+            : "Imports your Inbox, Later and Shortlist. Finishing an article archives it in Reader."
+      }
+      details={
+        status.connected && status.progress ? (
+          <p role="status">
+            {status.progress.scanned} documents checked ·{" "}
+            {status.progress.imported} newly imported ·{" "}
+            {status.progress.skipped} skipped (unsupported, missing text or too
+            large).
+            {status.progress.backfilling &&
+              " Older items are imported in small batches; you can close the app."}
+            {status.progress.active &&
+              status.error &&
+              " Progress is saved; Sync now retries the current page."}
+            {status.pendingAnnotations !== null &&
+              ` ${status.pendingAnnotations} articles awaiting annotation across your library.`}
+          </p>
+        ) : undefined
+      }
+    >
+      {status.connected && (
+        <div className="flex flex-wrap items-center gap-2">
+          {status.error ? (
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={sync}
+              className={primaryControl}
+            >
+              Try again
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={sync}
+              className={quietControl}
+            >
+              <RefreshCw
+                size={13}
+                aria-hidden
+                className={syncing ? "motion-safe:animate-spin" : undefined}
+              />
+              Sync now
+            </button>
           )}
-          aria-hidden
-        />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-[var(--reader-fg)]">
-            Readwise Reader
-          </p>
-          <p className="text-xs text-[var(--reader-muted)]">
-            {!status.connected
-              ? "Not connected"
-              : status.error
-                ? `Last sync failed ${status.checkedAt ? ago(status.checkedAt) : ""}`
-                : status.progress?.active
-                  ? `${status.progress.backfilling ? "Importing full library" : "Syncing updates"} · ${status.progress.phase}`
-                  : status.syncedAt
-                    ? `Synced ${ago(status.syncedAt)} · Inbox, Later and Shortlist`
-                    : "Connected · first sync pending"}
-          </p>
         </div>
-        {status.connected && (
-          <button
-            type="button"
-            disabled={syncing}
-            onClick={async () => {
-              setSyncing(true);
-              try {
-                await syncNow({});
-                toast.success(
-                  "Syncing from Reader… new articles appear as they're imported.",
-                );
-              } catch {
-                toast.error("Couldn't start the sync");
-              }
-              setSyncing(false);
-            }}
-            className="shrink-0 flex items-center gap-1.5 text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:underline disabled:opacity-40"
-          >
-            <RefreshCw
-              size={13}
-              className={syncing ? "animate-spin" : undefined}
-            />
-            Sync now
-          </button>
-        )}
-      </div>
-      {status.connected && status.progress && (
-        <p
-          className="mt-2 text-xs leading-relaxed text-[var(--reader-muted)]"
-          role="status"
-        >
-          {status.progress.scanned} documents checked ·{" "}
-          {status.progress.imported} newly imported · {status.progress.skipped}{" "}
-          skipped (unsupported, missing text or too large).
-          {status.progress.backfilling &&
-            " Older items are imported in small batches; you can close the app."}
-          {status.progress.active &&
-            status.error &&
-            " Progress is saved; Sync now retries the current page."}
-          {status.pendingAnnotations !== null &&
-            ` ${status.pendingAnnotations} articles awaiting annotation across your library.`}
-        </p>
-      )}
-      {status.connected && status.error && (
-        <p className="mt-2 text-xs text-annotation-tension break-words">
-          {status.error}
-        </p>
       )}
       {status.source === "saved" && status.last4 && (
-        <DisconnectReadwise last4={status.last4} />
+        <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-[var(--reader-muted)]">
+          <span>Your token, ending {status.last4}</span>
+          <ConfirmAction
+            label="Disconnect"
+            question="Disconnect Readwise? Articles already imported stay in your library."
+            confirmLabel="Disconnect"
+            open={confirmingDisconnect}
+            onOpenChange={setConfirmingDisconnect}
+            onConfirm={() =>
+              void disconnect({}).catch(() =>
+                toast.error("Couldn't disconnect Readwise"),
+              )
+            }
+          />
+        </div>
       )}
       {status.source !== "saved" && (
         <ConnectReadwise deployment={status.source === "deployment"} />
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -123,7 +154,6 @@ function ConnectReadwise({ deployment }: { deployment: boolean }) {
   const [error, setError] = useState("");
   return (
     <form
-      className="mt-3"
       onSubmit={async (e) => {
         e.preventDefault();
         if (!token.trim()) return;
@@ -147,11 +177,11 @@ function ConnectReadwise({ deployment }: { deployment: boolean }) {
     >
       <label
         htmlFor={id}
-        className="block text-xs leading-relaxed text-[var(--reader-muted)]"
+        className="block text-[13px] leading-relaxed text-[var(--reader-muted)]"
       >
         {deployment
           ? "Using the reader's built-in Readwise token. Connect your own to replace it. "
-          : "Connect Readwise to import your Inbox, Later and Shortlist. Finishing an article archives it in Reader, and highlights sync both ways. "}
+          : ""}
         Get your token at{" "}
         <a
           className="underline"
@@ -170,7 +200,7 @@ function ConnectReadwise({ deployment }: { deployment: boolean }) {
           autoComplete="off"
           spellCheck={false}
           placeholder="Readwise access token"
-          className="app-input max-w-sm flex-1"
+          className={`${fieldControl} max-w-sm flex-1`}
           value={token}
           disabled={busy}
           aria-invalid={Boolean(error)}
@@ -178,46 +208,17 @@ function ConnectReadwise({ deployment }: { deployment: boolean }) {
         />
         <button
           type="submit"
-          className="app-button secondary"
+          className={primaryControl}
           disabled={busy || !token.trim()}
         >
           {busy ? "Checking…" : "Connect"}
         </button>
       </div>
       {error && (
-        <p role="alert" className="mt-2 text-xs text-annotation-tension">
+        <p role="alert" className="mt-2 text-sm text-[var(--danger)]">
           {error}
         </p>
       )}
     </form>
-  );
-}
-
-function DisconnectReadwise({ last4 }: { last4: string }) {
-  const disconnect = useMutation(api.readwise.disconnect);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[var(--reader-muted)]">
-      <span>Your token, ending {last4}</span>
-      <button
-        type="button"
-        className="min-h-11 px-3 text-sm text-[var(--reader-fg)]"
-        disabled={busy}
-        onClick={() => {
-          if (
-            !confirm(
-              "Disconnect Readwise? Articles already imported stay in your library.",
-            )
-          )
-            return;
-          setBusy(true);
-          disconnect({})
-            .catch(() => toast.error("Couldn't disconnect Readwise"))
-            .finally(() => setBusy(false));
-        }}
-      >
-        Disconnect
-      </button>
-    </div>
   );
 }

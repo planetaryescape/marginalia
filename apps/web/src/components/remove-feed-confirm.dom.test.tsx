@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RemoveFeedDialog } from "./remove-feed-dialog";
+import { RemoveFeedConfirm } from "./remove-feed-confirm";
 
 const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
@@ -31,7 +31,7 @@ let root: Root;
 
 async function render() {
   await act(async () =>
-    root.render(<RemoveFeedDialog feed={feed} onClose={onClose} />),
+    root.render(<RemoveFeedConfirm feed={feed} onClose={onClose} />),
   );
 }
 const button = (name: string) =>
@@ -67,7 +67,7 @@ describe("removing a feed", () => {
       "Removes 10 articles, 2 of them also from Readwise Reader.",
     );
 
-    await act(async () => button("Remove feed")?.click());
+    await act(async () => button("Remove")?.click());
     expect(mocks.remove).toHaveBeenCalledWith({
       feedId: "f1",
       articles: "keep",
@@ -79,7 +79,7 @@ describe("removing a feed", () => {
     await render();
     const all = document.querySelector<HTMLInputElement>("input[value='all']");
     await act(async () => all?.click());
-    await act(async () => button("Remove feed")?.click());
+    await act(async () => button("Remove")?.click());
     expect(mocks.remove).toHaveBeenCalledWith({
       feedId: "f1",
       articles: "all",
@@ -89,8 +89,8 @@ describe("removing a feed", () => {
   it("stays open when the removal fails", async () => {
     mocks.remove.mockRejectedValue(new Error("offline"));
     await render();
-    await act(async () => button("Remove feed")?.click());
+    await act(async () => button("Remove")?.click());
     expect(onClose).not.toHaveBeenCalled();
-    expect(button("Remove feed")).toBeDefined();
+    expect(button("Remove")).toBeDefined();
   });
 });

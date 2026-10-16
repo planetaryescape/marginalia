@@ -4,9 +4,17 @@ import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { DeskPage } from "@/components/desk-page";
+import { ApiTokens } from "@/components/api-tokens";
 import { ReadwiseCard } from "@/components/readwise-card";
-import { RemoveFeedDialog } from "@/components/remove-feed-dialog";
+import { RemoveFeedConfirm } from "@/components/remove-feed-confirm";
+import {
+  destructiveControl,
+  fieldControl,
+  primaryControl,
+  quietControl,
+  textControl,
+} from "@/components/settings-controls";
+import { SettingsPage, SettingsSection } from "@/components/settings-section";
 import { formatDate } from "@/lib/utils";
 
 export default function FeedsPage() {
@@ -19,14 +27,13 @@ export default function FeedsPage() {
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [removing, setRemoving] = useState<{
-    _id: Id<"feeds">;
-    title: string;
-  } | null>(null);
+  // One feed's removal is open at a time; touching another row closes it.
+  const [removingId, setRemovingId] = useState<Id<"feeds"> | null>(null);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) return;
+    setRemovingId(null);
 
     setAdding(true);
     try {
@@ -46,184 +53,187 @@ export default function FeedsPage() {
   };
 
   return (
-    <DeskPage
-      title="Sources"
-      action={
-        <button
-          type="button"
-          onClick={async () => {
-            setPolling(true);
-            try {
-              await pollNow({});
-              toast.success("Polling feeds... articles will appear shortly.");
-            } catch {
-              toast.error("Failed to poll");
-            }
-            setPolling(false);
-          }}
-          disabled={polling || !feeds?.length}
-          className="shrink-0 text-[var(--ink-soft)] hover:text-[var(--ink)] hover:underline text-sm disabled:opacity-40"
-        >
-          {polling ? "Polling..." : "Poll now"}
-        </button>
-      }
-    >
+    <SettingsPage page="Sources" title="Sources">
       <ReadwiseCard />
 
-      {/* Add feed */}
-      <form onSubmit={handleAdd} className="mb-10">
-        <div className="flex gap-2">
+      <SettingsSection
+        title="Feeds"
+        description="Add a feed URL, or import an OPML file from another reader. New posts arrive in your library."
+        action={
+          <button
+            type="button"
+            onClick={async () => {
+              setRemovingId(null);
+              setPolling(true);
+              try {
+                await pollNow({});
+                toast.success("Polling feeds... articles will appear shortly.");
+              } catch {
+                toast.error("Failed to poll");
+              }
+              setPolling(false);
+            }}
+            disabled={polling || !feeds?.length}
+            className={quietControl}
+          >
+            {polling ? "Checking…" : "Check now"}
+          </button>
+        }
+      >
+        <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
           <input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://example.com/feed.xml"
             aria-label="Feed URL"
-            className="min-w-0 flex-1 px-4 py-3 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)] text-[var(--reader-fg)] text-sm placeholder:text-[var(--reader-muted)] focus:outline-none focus:border-[var(--reader-focus)]"
+            className={`${fieldControl} max-w-sm flex-1`}
           />
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="px-5 py-3 bg-[var(--reader-fg)] text-[var(--reader-bg)] rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
+            className={primaryControl}
           >
             {adding ? "Adding…" : "Add"}
           </button>
-        </div>
-      </form>
+        </form>
 
-      {/* OPML Import */}
-      <div className="mb-10">
-        <label className="relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[var(--reader-border-strong)] cursor-pointer hover:border-[var(--ink-muted)] focus-within:outline focus-within:outline-1 focus-within:outline-[var(--reader-focus)] focus-within:outline-offset-2 transition-colors">
-          <span className="text-xs text-[var(--reader-muted)]">
-            {importing ? "Importing feeds…" : "Import OPML file"}
-          </span>
-          <input
-            type="file"
-            accept=".opml,.xml"
-            className="sr-only"
-            disabled={importing}
-            onChange={async (e) => {
-              const input = e.currentTarget;
-              const file = input.files?.[0];
-              if (!file) return;
-              setImporting(true);
-              try {
-                const text = await file.text();
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(text, "text/xml");
-                if (doc.querySelector("parsererror"))
-                  throw new Error("This OPML file isn't valid XML.");
-                const outlines = doc.querySelectorAll("outline[xmlUrl]");
-                if (!outlines.length)
-                  throw new Error("No feed URLs found in this OPML file.");
-                let added = 0;
-                let skipped = 0;
-                for (const outline of outlines) {
-                  const feedUrl = outline.getAttribute("xmlUrl");
-                  const title =
-                    outline.getAttribute("title") ||
-                    outline.getAttribute("text") ||
-                    "";
-                  if (!feedUrl) continue;
-                  try {
-                    await addFeed({
-                      url: feedUrl,
-                      title: title || new URL(feedUrl).hostname,
-                    });
-                    added++;
-                  } catch {
-                    skipped++;
+        <p className="text-sm text-[var(--reader-muted)]">
+          or{" "}
+          <label
+            className={`${textControl} cursor-pointer focus-within:outline focus-within:outline-1 focus-within:outline-[var(--reader-focus)] focus-within:outline-offset-2`}
+          >
+            {importing ? "Importing feeds…" : "import an OPML file"}
+            <input
+              type="file"
+              accept=".opml,.xml"
+              className="sr-only"
+              disabled={importing}
+              onChange={async (e) => {
+                const input = e.currentTarget;
+                const file = input.files?.[0];
+                if (!file) return;
+                setRemovingId(null);
+                setImporting(true);
+                try {
+                  const text = await file.text();
+                  const parser = new DOMParser();
+                  const doc = parser.parseFromString(text, "text/xml");
+                  if (doc.querySelector("parsererror"))
+                    throw new Error("This OPML file isn't valid XML.");
+                  const outlines = doc.querySelectorAll("outline[xmlUrl]");
+                  if (!outlines.length)
+                    throw new Error("No feed URLs found in this OPML file.");
+                  let added = 0;
+                  let skipped = 0;
+                  for (const outline of outlines) {
+                    const feedUrl = outline.getAttribute("xmlUrl");
+                    const title =
+                      outline.getAttribute("title") ||
+                      outline.getAttribute("text") ||
+                      "";
+                    if (!feedUrl) continue;
+                    try {
+                      await addFeed({
+                        url: feedUrl,
+                        title: title || new URL(feedUrl).hostname,
+                      });
+                      added++;
+                    } catch {
+                      skipped++;
+                    }
                   }
+                  toast.success(
+                    `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
+                  );
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Couldn't read the OPML file.",
+                  );
+                } finally {
+                  input.value = "";
+                  setImporting(false);
                 }
-                toast.success(
-                  `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
-                );
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Couldn't read the OPML file.",
-                );
-              } finally {
-                input.value = "";
-                setImporting(false);
-              }
-            }}
-          />
-        </label>
-      </div>
+              }}
+            />
+          </label>
+        </p>
 
-      {/* Feed list */}
-      {feeds === undefined && (
-        <p role="status" className="py-8 text-sm text-[var(--reader-muted)]">
-          Loading sources…
-        </p>
-      )}
-      {feeds && feeds.length === 0 ? (
-        <p className="text-center text-[var(--reader-muted)] text-sm py-12">
-          No feeds yet. Add one above.
-        </p>
-      ) : (
-        <div className="space-y-3">
+        {feeds === undefined && (
+          <p role="status" className="text-sm text-[var(--reader-muted)]">
+            Loading sources…
+          </p>
+        )}
+        {feeds && feeds.length === 0 && (
+          <p className="text-sm text-[var(--reader-muted)]">
+            No feeds yet. Add one above.
+          </p>
+        )}
+        <div>
           {feeds?.map((feed) => (
-            <div
-              key={feed._id}
-              className="flex flex-wrap sm:flex-nowrap items-center gap-4 p-4 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)]"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[var(--reader-fg)] truncate">
-                  {feed.title}
-                </p>
-                <p className="text-xs text-[var(--reader-muted)] truncate">
-                  {feed.url}
-                </p>
-                <div className="flex gap-3 mt-1 text-xs text-[var(--reader-muted)]">
+            <div key={feed._id}>
+              <div className="group flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-[var(--reader-border)] py-3">
+                <div className="min-w-0 flex-1 text-sm">
+                  <p className="truncate font-medium">{feed.title}</p>
+                  <p className="truncate text-[13px] text-[var(--reader-muted)]">
+                    {feed.url}
+                  </p>
                   {feed.lastFetchedAt && (
-                    <span>Fetched {formatDate(feed.lastFetchedAt)}</span>
+                    <p className="text-[13px] text-[var(--reader-muted)]">
+                      Fetched {formatDate(feed.lastFetchedAt)}
+                    </p>
+                  )}
+                  {!feed.isActive && (
+                    <p className="text-[13px] text-[var(--reader-muted)]">
+                      Paused
+                    </p>
                   )}
                   {feed.lastError && (
-                    <span className="text-annotation-tension">
+                    <p className="text-[13px] text-[var(--danger)]">
                       Error: {feed.lastError}
-                    </span>
+                    </p>
                   )}
                 </div>
+                {/* Shown on hover and focus, and always on touch screens */}
+                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                  <button
+                    type="button"
+                    aria-pressed={feed.isActive}
+                    aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
+                    onClick={() => {
+                      setRemovingId(null);
+                      toggleActive({ feedId: feed._id }).catch(() =>
+                        toast.error("Couldn't update the feed. Try again."),
+                      );
+                    }}
+                    className={textControl}
+                  >
+                    {feed.isActive ? "Pause" : "Resume"}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${feed.title}`}
+                    onClick={() => setRemovingId(feed._id)}
+                    className={destructiveControl}
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-pressed={feed.isActive}
-                  aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
-                  onClick={() =>
-                    toggleActive({ feedId: feed._id }).catch(() =>
-                      toast.error("Couldn't update the feed. Try again."),
-                    )
-                  }
-                  className={`px-3 py-1 rounded-full text-xs font-sans font-medium transition-colors ${
-                    feed.isActive
-                      ? "bg-annotation-context/10 text-annotation-context"
-                      : "bg-[var(--reader-chip)] text-[var(--reader-muted)]"
-                  }`}
-                >
-                  {feed.isActive ? "Active" : "Paused"}
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove ${feed.title}`}
-                  onClick={() => setRemoving(feed)}
-                  className="text-[var(--reader-muted)] hover:text-[var(--reader-fg)] text-sm transition-colors"
-                  title="Remove feed"
-                >
-                  &times;
-                </button>
-              </div>
+              {removingId === feed._id && (
+                <RemoveFeedConfirm
+                  feed={feed}
+                  onClose={() => setRemovingId(null)}
+                />
+              )}
             </div>
           ))}
         </div>
-      )}
-      {removing && (
-        <RemoveFeedDialog feed={removing} onClose={() => setRemoving(null)} />
-      )}
-    </DeskPage>
+      </SettingsSection>
+
+      <ApiTokens />
+    </SettingsPage>
   );
 }

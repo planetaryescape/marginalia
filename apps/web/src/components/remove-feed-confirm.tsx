@@ -2,9 +2,9 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { useModalDialog } from "@/lib/use-modal-dialog";
+import { confirmControl, quietControl } from "./settings-controls";
 
 type Choice = "keep" | "unread" | "all";
 
@@ -14,20 +14,22 @@ const plural = (n: number, partial: boolean) =>
 const alsoInReader = (n: number) =>
   n ? `, ${n} of them also from Readwise Reader` : "";
 
-/** Asks what happens to a feed's articles before unsubscribing from it. */
-export function RemoveFeedDialog({
+/**
+ * Asks what happens to a feed's articles before unsubscribing, in place under
+ * its row. Keep closes it without changing anything.
+ */
+export function RemoveFeedConfirm({
   feed,
   onClose,
 }: {
   feed: { _id: Id<"feeds">; title: string };
   onClose: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const preview = useQuery(api.feeds.removalPreview, { feedId: feed._id });
   const removeFeed = useMutation(api.feeds.remove);
   const [choice, setChoice] = useState<Choice>("keep");
   const [removing, setRemoving] = useState(false);
-  useModalDialog(dialogRef, true);
+  const [error, setError] = useState("");
 
   const partial = preview?.partial ?? false;
   const options: { value: Choice; label: string; detail: string }[] = [
@@ -56,6 +58,7 @@ export function RemoveFeedDialog({
 
   const confirm = async () => {
     setRemoving(true);
+    setError("");
     try {
       await removeFeed({ feedId: feed._id, articles: choice });
       toast.success(
@@ -65,42 +68,28 @@ export function RemoveFeedDialog({
       );
       onClose();
     } catch {
-      toast.error("Couldn't remove the feed. Try again.");
+      setError("Couldn't remove the feed. Try again.");
       setRemoving(false);
     }
   };
 
   return (
-    <dialog
-      ref={dialogRef}
-      aria-labelledby="remove-feed-title"
-      onCancel={(e) => {
-        e.preventDefault();
-        if (!removing) onClose();
+    <div
+      className="flex flex-col gap-3 border-b border-[var(--reader-border)] py-3 text-sm"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !removing) onClose();
       }}
-      className="m-auto w-[calc(100%-2rem)] max-w-[520px] rounded-2xl p-6 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)] backdrop:bg-black/40"
     >
-      <h2
-        id="remove-feed-title"
-        className="font-serif text-[22px] tracking-tight"
-      >
-        Remove {feed.title}?
-      </h2>
-      <p className="mt-1 text-sm text-[var(--reader-muted)]">
-        No new posts will arrive. What should happen to the ones already here?
+      <p className="text-sm">
+        <span className="font-medium">Remove this feed?</span>{" "}
+        <span className="text-[var(--reader-muted)]">
+          No new posts will arrive. What should happen to the ones already here?
+        </span>
       </p>
-
-      <fieldset className="mt-5 space-y-2">
+      <fieldset className="space-y-2">
         <legend className="sr-only">Its articles</legend>
         {options.map((option) => (
-          <label
-            key={option.value}
-            className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-              choice === option.value
-                ? "border-[var(--reader-focus)]"
-                : "border-[var(--reader-border)] hover:border-[var(--reader-border-strong)]"
-            }`}
-          >
+          <label key={option.value} className="flex gap-3 text-sm">
             <input
               type="radio"
               name="feed-articles"
@@ -110,7 +99,7 @@ export function RemoveFeedDialog({
               className="mt-1 accent-[var(--reader-fg)]"
             />
             <span>
-              <span className="block text-sm font-medium">{option.label}</span>
+              <span className="block">{option.label}</span>
               <span className="block text-xs text-[var(--reader-muted)]">
                 {option.detail}
               </span>
@@ -118,25 +107,29 @@ export function RemoveFeedDialog({
           </label>
         ))}
       </fieldset>
-
-      <div className="mt-6 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={removing}
-          className="px-4 py-2 rounded-xl text-sm text-[var(--reader-muted)] hover:text-[var(--reader-fg)] disabled:opacity-40"
-        >
-          Cancel
-        </button>
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={confirm}
           disabled={removing}
-          className="px-4 py-2 bg-[var(--reader-fg)] text-[var(--reader-bg)] rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
+          className={confirmControl}
         >
-          {removing ? "Removing…" : "Remove feed"}
+          {removing ? "Removing…" : "Remove"}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={removing}
+          className={quietControl}
+        >
+          Keep
         </button>
       </div>
-    </dialog>
+      {error && (
+        <p role="alert" className="text-sm text-[var(--danger)]">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
