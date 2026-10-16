@@ -6,6 +6,8 @@ import { UpNextShelf } from "./up-next-shelf";
 
 const state = vi.hoisted(() => ({
   overview: undefined as unknown,
+  status: "Exhausted" as string,
+  loadMore: vi.fn(),
   saved: [] as unknown[],
   calls: [] as { name: string; args: unknown }[],
   fail: false,
@@ -21,6 +23,12 @@ vi.mock("convex/react", async () => {
       getFunctionName(fn as never) === "savedArticles:list"
         ? state.saved
         : state.overview,
+    usePaginatedQuery: () => ({
+      results:
+        (state.overview as { upNext: unknown[] } | undefined)?.upNext ?? [],
+      status: state.status,
+      loadMore: state.loadMore,
+    }),
     useMutation: (fn: unknown) => async (args: unknown) => {
       state.calls.push({ name: getFunctionName(fn as never), args });
       if (state.fail) throw new Error("no");
@@ -80,6 +88,8 @@ beforeEach(() => {
     ],
   };
   state.saved = [];
+  state.status = "Exhausted";
+  state.loadMore = vi.fn();
   state.calls = [];
   state.fail = false;
   state.toast = vi.fn();
@@ -122,7 +132,7 @@ describe("Up next shelf", () => {
     });
   });
 
-  it("keeps the row and says so when archiving fails", async () => {
+  it("keeps the row and shows the failure on the shelf with Retry", async () => {
     state.fail = true;
     await render();
     await act(async () =>
@@ -132,8 +142,36 @@ describe("Up next shelf", () => {
         )
         ?.click(),
     );
-    expect(state.toastError).toHaveBeenCalled();
+    expect(state.toastError).not.toHaveBeenCalled();
     expect(state.toast).not.toHaveBeenCalled();
+    const alert = document.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Couldn't archive “First piece”");
+    expect(document.querySelectorAll("li")).toHaveLength(2);
+    state.fail = false;
+    await act(async () =>
+      alert?.querySelector<HTMLButtonElement>("button")?.click(),
+    );
+    expect(state.calls.at(-1)).toEqual({
+      name: "articles:archive",
+      args: { articleId: "a" },
+    });
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("offers More while pages remain, and loads the next one", async () => {
+    state.status = "CanLoadMore";
+    await render();
+    const more = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent === "More",
+    );
+    expect(more).toBeDefined();
+    await act(async () => more?.click());
+    expect(state.loadMore).toHaveBeenCalledWith(20);
+  });
+
+  it("has no More once every article is listed", async () => {
+    await render();
+    expect(document.body.textContent).not.toContain("More");
   });
 
   it("is reachable by keyboard and always shown on touch", async () => {

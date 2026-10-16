@@ -1,13 +1,16 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Archive, Bookmark } from "lucide-react";
 import Link from "next/link";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { InlineError } from "@/components/in-place";
 import { useListKeys } from "@/lib/list-nav";
+
+const PAGE = 20;
 
 /**
  * Unread articles, newest first, as plain rows. Archiving lives here because
@@ -15,7 +18,11 @@ import { useListKeys } from "@/lib/list-nav";
  */
 export function UpNextShelf() {
   const reduced = useReducedMotion();
-  const overview = useQuery(api.home.overview, {});
+  const { results, status, loadMore } = usePaginatedQuery(
+    api.home.upNextPage,
+    {},
+    { initialNumItems: PAGE },
+  );
   const archiveArticle = useMutation(api.articles.archive);
   const restoreArticle = useMutation(api.articles.restore);
   const saved = useQuery(api.savedArticles.list);
@@ -24,6 +31,28 @@ export function UpNextShelf() {
   const savedIds = new Set(saved?.map((item) => item?.articleId));
   // `u` undoes the latest archive, the same as the toast's Undo button
   const lastArchived = useRef<Id<"articles"> | null>(null);
+  // A failed archive or save is shown on the shelf, where Retry can run it again
+  const [failure, setFailure] = useState<{
+    message: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  // Loads the next page as the end of the list nears, so the reader just scrolls
+  const end = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new page re-observes the end, so a still-visible end loads the next page
+  useEffect(() => {
+    const target = end.current;
+    if (status !== "CanLoadMore" || !target) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore(PAGE);
+      },
+      { rootMargin: "0px 0px 600px 0px" },
+    );
+    watcher.observe(target);
+    return () => watcher.disconnect();
+  }, [status, loadMore, results.length]);
 
   const undo = (articleId: Id<"articles">) => {
     if (lastArchived.current === articleId) lastArchived.current = null;
@@ -35,19 +64,31 @@ export function UpNextShelf() {
     try {
       await archiveArticle({ articleId });
     } catch {
-      toast.error("Couldn't archive that article. Try again.");
+      setFailure({
+        message: `Couldn't archive “${title}”.`,
+        retry: () => archive(articleId, title),
+      });
       return;
     }
+    setFailure(null);
     lastArchived.current = articleId;
     toast(`Archived “${title}”`, {
       action: { label: "Undo", onClick: () => void undo(articleId) },
     });
   };
-  const toggleSaved = (articleId: Id<"articles">) =>
-    (savedIds.has(articleId)
-      ? unsaveArticle({ articleId })
-      : saveArticle({ articleId })
-    ).catch(() => toast.error("Couldn't update saved articles. Try again."));
+  const toggleSaved = async (articleId: Id<"articles">, title: string) => {
+    try {
+      await (savedIds.has(articleId)
+        ? unsaveArticle({ articleId })
+        : saveArticle({ articleId }));
+      setFailure(null);
+    } catch {
+      setFailure({
+        message: `Couldn't update saved articles for “${title}”.`,
+        retry: () => toggleSaved(articleId, title),
+      });
+    }
+  };
 
   useListKeys(
     {
@@ -66,13 +107,26 @@ export function UpNextShelf() {
     ],
   );
 
-  if (!overview || overview.upNext.length === 0) return null;
+  if (results.length === 0) return null;
   return (
     // The shelf tab above already names it, so no heading of its own
     <section aria-label="Up next" className="mt-6">
+      {failure && (
+        <div className="mb-3">
+          <InlineError
+            message={failure.message}
+            busy={retrying}
+            onRetry={async () => {
+              setRetrying(true);
+              await failure.retry();
+              setRetrying(false);
+            }}
+          />
+        </div>
+      )}
       <ul className="border-t border-[var(--reader-border)]">
         <AnimatePresence initial={false}>
-          {overview.upNext.map((article) => (
+          {results.map((article) => (
             <motion.li
               key={article._id}
               layout={reduced ? false : "position"}
@@ -101,7 +155,7 @@ export function UpNextShelf() {
               {/* Shown on hover and keyboard focus where there is a pointer, always on touch */}
               <button
                 type="button"
-                onClick={() => void toggleSaved(article._id)}
+                onClick={() => void toggleSaved(article._id, article.title)}
                 data-nav-action="save"
                 aria-pressed={savedIds.has(article._id)}
                 aria-label={`Save ${article.title} for later`}
@@ -127,6 +181,19 @@ export function UpNextShelf() {
           ))}
         </AnimatePresence>
       </ul>
+      {status !== "Exhausted" && (
+        <div ref={end} className="py-3">
+          <button
+            type="button"
+            data-nav-item
+            onClick={() => loadMore(PAGE)}
+            disabled={status !== "CanLoadMore"}
+            className="py-2 text-[13px] text-[var(--reader-muted)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px] hover:text-[var(--reader-fg)] disabled:no-underline"
+          >
+            {status === "LoadingMore" ? "Loading more" : "More"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

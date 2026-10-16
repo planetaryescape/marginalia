@@ -48,6 +48,11 @@ vi.mock("convex/react", () => ({
         return undefined;
     }
   },
+  usePaginatedQuery: () => ({
+    results: [],
+    status: "Exhausted",
+    loadMore: vi.fn(),
+  }),
   useMutation: () => vi.fn(),
   useAction: () => vi.fn(),
 }));
