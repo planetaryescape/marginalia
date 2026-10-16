@@ -16,8 +16,8 @@
 |---|---|---|
 | 1 | The pen colour is mine; the reader gets out of the way | Done: live at origin/main `6e2e49a` |
 | 2 | The margin talks | Done: live at `67798dc`, accordion open notes at `de6f560` (D-DES-049) |
-| 2a | The reader finishes its own redesign | Planned |
-| 2b | Answers beside the text, kept only on purpose | Planned |
+| 2a | The reader finishes its own redesign | Done: live at `fac7694` (notes-pane split moved to 2b) |
+| 2b | Answers beside the text, kept only on purpose | Deployed at `6471b14` (backend and frontend); BK's hand journey pending. Edge cases in `docs/issues/companion-keep-edge-cases.md` |
 | 2g | It remembers how I read | Planned |
 | 3 | The desk asks one question and answers it | Planned |
 | 3c | Ask by topic, one at a time, fast | Planned (S5 first) |
