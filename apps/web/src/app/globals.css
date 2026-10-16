@@ -1074,10 +1074,11 @@ html ::highlight(user-underline) {
 .sync-bar {
   position: relative;
   overflow: hidden;
-  height: 2px;
+  /* Clearly visible while work runs; a hairline read as nothing happening */
+  height: 3px;
   margin-bottom: 0.75rem;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
 }
 .sync-bar::after {
   content: "";
@@ -1086,12 +1087,12 @@ html ::highlight(user-underline) {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--ink) 55%, transparent) 50%,
+    color-mix(in srgb, var(--ink) 85%, transparent) 50%,
     transparent 100%
   );
   background-size: 50% 100%;
   background-repeat: no-repeat;
-  animation: sync-bar-sweep 1.4s linear infinite;
+  animation: sync-bar-sweep 1.2s linear infinite;
 }
 @keyframes sync-bar-sweep {
   from { background-position: -100% 0; }
