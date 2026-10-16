@@ -71,6 +71,11 @@ export const MODEL_CATALOG: readonly CatalogModel[] = [
   entry("openrouter", "deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
   entry("openrouter", "openai/gpt-6-luna", "GPT-6 Luna"),
   entry("openrouter", "google/gemini-3.8-flash", "Gemini 3.8 Flash"),
+  // Stronger and slower, for readers who want depth over speed
+  entry("openrouter", "anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"),
+  // OpenRouter has no GPT-6 Terra yet; this alias always runs the newest
+  // Terra (GPT-5.6 Terra on 2026-10-16) and moves up when 6 Terra lands
+  entry("openrouter", "~openai/gpt-terra-latest", "GPT Terra (latest)"),
   entry("openai", "gpt-6-luna", "GPT-6 Luna"),
   entry("openai", "gpt-6.1-sol", "GPT-6.1 Sol"),
   entry("anthropic", "claude-haiku-5-5", "Claude Haiku 5.5"),
