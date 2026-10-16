@@ -203,18 +203,26 @@ export const updateExtracted = internalMutation({
     embedding: v.optional(v.array(v.float64())),
   },
   // Whether the caller should schedule annotation: long articles are deferred
-  // here, in the same transaction that records their length.
+  // here, in the same transaction that records their length. Only the first
+  // extraction to finish decides: a second, overlapping one finds the article
+  // already extracted and must not touch an annotation status that has moved on
+  // (pending here can mean annotation is underway).
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const { articleId, ...updates } = args;
     const before = await ctx.db.get(articleId);
-    const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
+    const firstExtraction = before?.extractionStatus === "pending";
+    const annotateNow =
+      firstExtraction && annotatesAtImport(args.estimatedReadMinutes);
     await ctx.db.patch(articleId, {
       ...updates,
       extractionStatus: "extracted" as const,
     });
-    // Only a fresh import waits; an article already annotated keeps its status
-    if (!annotateNow && before?.annotationStatus === "pending")
+    if (
+      firstExtraction &&
+      !annotateNow &&
+      before?.annotationStatus === "pending"
+    )
       await ctx.db.patch(articleId, { annotationStatus: "deferred" });
     const after = await ctx.db.get(articleId);
     if (after) await updateQueueStats(ctx, before, after);

@@ -25,6 +25,7 @@ async function seed(
     minutes: number;
     status: Status;
     userId?: string;
+    extraction?: "pending" | "extracted";
   }[],
 ) {
   return t.run(async (ctx) => {
@@ -36,7 +37,7 @@ async function seed(
           guid: `guid-${i}`,
           url: `https://example.com/${i}`,
           title: a.title,
-          extractionStatus: "extracted",
+          extractionStatus: a.extraction ?? "extracted",
           annotationStatus: a.status,
           estimatedReadMinutes: a.minutes,
           createdAt: Date.now(),
@@ -96,8 +97,8 @@ describe("the 20-minute line at import", () => {
   it("defers a long feed article when extraction records its length", async () => {
     const t = await ownerTest(modules);
     const [short, long] = await seed(t, [
-      { title: "short", minutes: 0, status: "pending" },
-      { title: "long", minutes: 0, status: "pending" },
+      { title: "short", minutes: 0, status: "pending", extraction: "pending" },
+      { title: "long", minutes: 0, status: "pending", extraction: "pending" },
     ]);
     const extract = (articleId: Id<"articles">, minutes: number) =>
       t.mutation(internal.articles.updateExtracted, {
@@ -112,6 +113,53 @@ describe("the 20-minute line at import", () => {
     expect(await extract(only(long), 45)).toBe(false);
     expect(await statusOf(t, only(short))).toBe("pending");
     expect(await statusOf(t, only(long))).toBe("deferred");
+  });
+});
+
+describe("overlapping extractions", () => {
+  it("schedule one annotation when the article is opened in between", async () => {
+    const t = await ownerTest(modules);
+    const [id] = await seed(t, [
+      { title: "long", minutes: 0, status: "pending", extraction: "pending" },
+    ]);
+    const articleId = only(id);
+    const extract = () =>
+      t.mutation(internal.articles.updateExtracted, {
+        articleId,
+        content: "x",
+        contentHtml: "<p>x</p>",
+        excerpt: "x",
+        wordCount: 5000,
+        estimatedReadMinutes: 45,
+      });
+    expect(await extract()).toBe(false);
+    expect(await statusOf(t, articleId)).toBe("deferred");
+    await t.mutation(api.articles.annotateAhead, { articleIds: [articleId] });
+    // The second worker finishes after annotation has started
+    expect(await extract()).toBe(false);
+    expect(await statusOf(t, articleId)).toBe("pending");
+    expect(
+      await t.mutation(api.articles.annotateAhead, { articleIds: [articleId] }),
+    ).toBe(0);
+    expect(await jobs(t)).toHaveLength(1);
+  });
+
+  it("leaves annotation to the first short extraction only", async () => {
+    const t = await ownerTest(modules);
+    const [id] = await seed(t, [
+      { title: "short", minutes: 0, status: "pending", extraction: "pending" },
+    ]);
+    const extract = () =>
+      t.mutation(internal.articles.updateExtracted, {
+        articleId: only(id),
+        content: "x",
+        contentHtml: "<p>x</p>",
+        excerpt: "x",
+        wordCount: 500,
+        estimatedReadMinutes: 3,
+      });
+    expect(await extract()).toBe(true);
+    expect(await extract()).toBe(false);
   });
 });
 
