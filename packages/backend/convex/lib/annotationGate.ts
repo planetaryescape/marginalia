@@ -4,9 +4,10 @@ import { MIN_RELEVANCE_SCORE } from "./constants";
 /**
  * Bumped when the margin's contract changes. Articles annotated below it are
  * re-annotated by reannotateBackfill.ts. 2 = the three families, library
- * connections, tags and the import-time summary (rung 2c).
+ * connections, tags and the import-time summary (rung 2c). 3 = notes that
+ * say what was noticed and why it matters, not terse labels (2026-10-17).
  */
-export const CURRENT_ANNOTATION_VERSION = 2;
+export const CURRENT_ANNOTATION_VERSION = 3;
 
 // A screen of text is about this many words at reading size.
 const WORDS_PER_SCREEN = 350;

@@ -78,5 +78,5 @@ ${said}
 
 ## Budget
 
-This section is about ${input.wordCount} words. Aim for about ${target} new notes, and no more than ${cap}; fewer, or none, if nothing new is worth saying. Lean toward pushback, close to balance. Keep every note short. Return only the annotations: no thesis, gist, tags or reflection.`;
+This section is about ${input.wordCount} words. Aim for about ${target} new notes, and no more than ${cap}; fewer, or none, if nothing new is worth saying. Lean toward pushback, close to balance. Each note says what you noticed and why it matters here, usually two to four sentences; never a bare label, never padding. Return only the annotations: no thesis, gist, tags or reflection.`;
 }

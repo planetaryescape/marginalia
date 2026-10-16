@@ -56,11 +56,14 @@ describe("the annotation prompt and schema", () => {
       expect(SYSTEM_PROMPT).toContain(word);
   });
 
-  it("leans toward pushback, names fallacies, budgets by density and keeps notes short", () => {
+  it("leans toward pushback, names fallacies, budgets by density and asks for notes with substance", () => {
     expect(SYSTEM_PROMPT).toMatch(/55 to 60 percent/);
     expect(SYSTEM_PROMPT).toMatch(/Name the specific fallacy/);
     expect(SYSTEM_PROMPT).toMatch(/one per screen of text/);
-    expect(SYSTEM_PROMPT).toMatch(/as short as it can be/i);
+    // Notes say what was noticed and why it matters, not bare labels (2026-10-17)
+    expect(SYSTEM_PROMPT).toMatch(/why it matters/i);
+    expect(SYSTEM_PROMPT).toMatch(/two to four sentences/i);
+    expect(SYSTEM_PROMPT).not.toMatch(/as short as it can be/i);
     expect(SYSTEM_PROMPT).not.toMatch(/3-7|3 to 7/);
   });
 
@@ -362,7 +365,7 @@ describe("generateForArticle", () => {
       await result.t.run((ctx) => ctx.db.get(result.target)),
     ).toMatchObject({
       annotationStatus: "annotated",
-      annotationVersion: 2,
+      annotationVersion: 3,
     });
     expect(
       await result.t.run((ctx) =>

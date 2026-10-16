@@ -68,7 +68,7 @@ export const annotationCandidateSchema = z.object({
       content: z
         .string()
         .describe(
-          "The note shown to the reader. As short as it can be: usually one or two sentences.",
+          "The note shown to the reader: what you noticed and why it matters here, usually two to four sentences. No preamble and no restating the anchor.",
         ),
       fallacyName: z
         .string()
@@ -165,7 +165,7 @@ Lean toward pushback, close to balance: roughly 55 to 60 percent of the notes sh
 
 Budget notes by density, not by a fixed count: about one per screen of text on average, more where the argument is dense, fewer where the text is narrative or filler. The user message gives this article's target and ceiling. Never pad to reach the target; zero notes is acceptable if nothing meaningful connects.
 
-Keep every note as short as it can be: usually one or two sentences, and never more than three. Say the thing; skip setup like "This passage..." and do not restate the anchor.
+Each note must say enough to be worth stopping for: what you noticed, and why it matters to this argument or to the reader (what it changes, what it would take to test, what it connects to). That is usually two to four sentences. A note that only names a problem ("this is unsupported", "a strong point") without saying what exactly and why is too short. Don't pad either: skip setup like "This passage...", don't restate the anchor, and don't summarise what the reader just read.
 
 ## Rules
 
@@ -221,7 +221,7 @@ ${input.vocabulary.length ? input.vocabulary.join("\n") : "None yet."}
 
 ## Budget
 
-The article is about ${input.wordCount} words. Aim for about ${target} notes, and no more than ${cap}. Lean toward pushback, close to balance. Keep every note short. Also return the thesis, the gist and one to three tags.`;
+The article is about ${input.wordCount} words. Aim for about ${target} notes, and no more than ${cap}. Lean toward pushback, close to balance. Make each note substantive, not terse. Also return the thesis, the gist and one to three tags.`;
 }
 
 /** Resolves a note path the model wrote to the vault path it was shown. */

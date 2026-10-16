@@ -96,7 +96,7 @@ describe("annotations.replaceForArticle", () => {
     );
     expect(await f.t.run((ctx) => ctx.db.get(f.articleId))).toMatchObject({
       annotationStatus: "annotated",
-      annotationVersion: 2,
+      annotationVersion: 3,
     });
   });
 
@@ -245,7 +245,7 @@ describe("annotations the reader has responded to", () => {
     expect(rows.find((r) => r._id === answered)?.content).toBe("old answered");
     expect(
       (await f.t.run((ctx) => ctx.db.get(f.articleId)))?.annotationVersion,
-    ).toBe(2);
+    ).toBe(3);
     // Their note still points at a live annotation
     const userNote = await f.t.run((ctx) => ctx.db.query("userNotes").first());
     expect(userNote?.annotationId).toBe(answered);

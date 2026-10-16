@@ -147,7 +147,7 @@ describe("reannotateBackfill", () => {
         wordCount: 8_000,
       });
       await addArticle(ctx, u, "finished", { finishedAt: 5 });
-      await addArticle(ctx, u, "current", { annotationVersion: 2 });
+      await addArticle(ctx, u, "current", { annotationVersion: 3 });
       await addArticle(ctx, u, "skipped", { annotationStatus: "skipped" });
       await addArticle(ctx, u, "failed", { annotationStatus: "failed" });
       await addArticle(ctx, u, "failed-long", {
@@ -194,15 +194,15 @@ describe("reannotateBackfill", () => {
 
     expect(mock.chatTimes).toHaveLength(4);
     expect(await f.versions()).toEqual({
-      short: 2,
-      "no-minutes": 2,
-      twenty: 2,
+      short: 3,
+      "no-minutes": 3,
+      twenty: 3,
       long: undefined,
       "very-long-no-minutes": undefined,
       finished: undefined,
-      current: 2,
+      current: 3,
       skipped: undefined,
-      failed: 2,
+      failed: 3,
       "failed-long": undefined,
       "failed-finished": undefined,
       "unknown-length": undefined,
@@ -294,7 +294,7 @@ describe("reannotateBackfill", () => {
     failing = false;
     await f.start();
     await runScheduled(f.t);
-    expect((await f.versions()).flaky).toBe(2);
+    expect((await f.versions()).flaky).toBe(3);
     expect(mock.chatTimes.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -320,7 +320,7 @@ describe("reannotateBackfill", () => {
     });
     expect(await f.start()).toBe("resumed");
     await runScheduled(f.t);
-    expect((await f.versions()).b).toBe(2);
+    expect((await f.versions()).b).toBe(3);
   });
 
   it("does not start without both a text and an embedding key", async () => {
@@ -435,7 +435,7 @@ describe("reannotateBackfill", () => {
       await runScheduled(f.t);
       article = await f.t.run((ctx) => ctx.db.get(id));
       expect(article?.reannotateClaimedAt).toBeUndefined();
-      expect(article?.annotationVersion).toBe(2);
+      expect(article?.annotationVersion).toBe(3);
     });
   });
 });
