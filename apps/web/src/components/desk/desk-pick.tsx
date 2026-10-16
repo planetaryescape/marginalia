@@ -6,11 +6,14 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { InlineError, SavedMark } from "@/components/in-place";
+import { OPEN_ARTICLE, ViewTransition } from "@/components/view-transition";
 import { createSingleFlight } from "@/lib/suggestion-deck";
+import { articleTitleName, rememberTitle } from "@/lib/title-handoff";
 import { usePresented } from "@/lib/use-presented";
 import { useSessionRecorder } from "@/lib/use-session-recorder";
 import { type Card, useSuggestionDeck } from "@/lib/use-suggestion-deck";
+import { SAVED_MS, useTimedFlag } from "@/lib/use-timed-flag";
 
 /** A pick that hasn't arrived by now gets a skeleton in its place. */
 export const SKELETON_DELAY_MS = 150;
@@ -43,13 +46,16 @@ function useAfter(active: boolean, ms: number) {
 function Quiet({
   children,
   onClick,
+  hidden,
 }: {
   children: string;
   onClick: () => void;
+  hidden?: boolean;
 }) {
   return (
     <button
       type="button"
+      hidden={hidden}
       onClick={onClick}
       className="text-[14.5px] text-[var(--ink-soft)] underline decoration-[color-mix(in_srgb,var(--ink)_20%,transparent)] underline-offset-[3px] hover:text-[var(--ink)]"
     >
@@ -82,6 +88,8 @@ export function DeskPick({
   });
   const saveArticle = useMutation(api.savedArticles.save);
   const [direction, setDirection] = useState(0);
+  const [saved, flashSaved, clearSaved] = useTimedFlag(SAVED_MS);
+  const [saveFailed, setSaveFailed] = useState(false);
   const showSkeleton = useAfter(deck.view === "loading", SKELETON_DELAY_MS);
 
   // One action at a time: a second click while one is running is dropped, and
@@ -104,6 +112,8 @@ export function DeskPick({
   const another = () => {
     if (!card) return;
     return act(async () => {
+      setSaveFailed(false);
+      clearSaved();
       recorder.record({ articleId: card._id, action: "skipped" });
       setDirection(1);
       deck.advance(index);
@@ -115,9 +125,11 @@ export function DeskPick({
       try {
         await saveArticle({ articleId: card._id });
       } catch {
-        toast.error("Couldn't save that. Try again.");
+        setSaveFailed(true);
         return;
       }
+      setSaveFailed(false);
+      flashSaved();
       recorder.record({ articleId: card._id, action: "saved" });
       setDirection(1);
       deck.advance(index);
@@ -126,8 +138,12 @@ export function DeskPick({
   const readNow = () => {
     if (!card) return;
     return act(async () => {
+      // The reader draws this title in the same commit, so the morph has a destination
+      rememberTitle(card._id, card.title);
       const id = await recorder.open(card._id);
-      router.push(`/read/${card._id}${id ? `?session=${id}` : ""}`);
+      router.push(`/read/${card._id}${id ? `?session=${id}` : ""}`, {
+        transitionTypes: [OPEN_ARTICLE],
+      });
     });
   };
 
@@ -216,9 +232,15 @@ export function DeskPick({
           exit={{ opacity: 0, x: reduced ? 0 : -24 }}
           transition={MOVE}
         >
-          <h2 className="mt-2 font-serif text-[24px] lg:text-[30px] leading-tight text-[var(--ink)]">
-            {card.title}
-          </h2>
+          <ViewTransition
+            name={articleTitleName(card._id)}
+            share="article-title"
+            default="none"
+          >
+            <h2 className="mt-2 font-serif text-[24px] lg:text-[30px] leading-tight text-[var(--ink)]">
+              {card.title}
+            </h2>
+          </ViewTransition>
           <p className="mt-1.5 text-[13.5px] text-[var(--ink-muted)]">{meta}</p>
           {card.reason && (
             <p className="mt-3 text-[15px] text-[var(--pencil)]">
@@ -242,13 +264,24 @@ export function DeskPick({
         >
           Another
         </button>
-        <Quiet onClick={saveForLater}>Save for later</Quiet>
+        <Quiet onClick={saveForLater} hidden={saved}>
+          Save for later
+        </Quiet>
+        <SavedMark visible={saved} />
         {/* Never a total while more can still load */}
         <span className="ml-auto hidden text-[12.5px] text-[var(--ink-muted)] sm:inline">
           {index + 1} of {deck.size}
           {deck.exhausted ? "" : "+"}
         </span>
       </div>
+      {saveFailed && (
+        <div className="mt-3">
+          <InlineError
+            message="Couldn't save that article."
+            onRetry={() => void saveForLater()}
+          />
+        </div>
+      )}
     </div>
   );
 }

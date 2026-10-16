@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PdfPickerButton } from "@/components/desk/pdf-picker";
+import { InlineError } from "@/components/in-place";
 import { useCommand, useShortcuts } from "@/lib/shortcuts";
 import {
   nextPosition,
@@ -66,6 +67,10 @@ export function ArticleFinder({
   const [position, setPosition] = useState(0);
   const [limitCleared, setLimitCleared] = useState(false);
   const [saved, setSaved] = useState<ReadonlySet<string>>(new Set());
+  const [saveFailed, setSaveFailed] = useState<{
+    articleId: string;
+    message: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -135,11 +140,15 @@ export function ArticleFinder({
     try {
       await saveArticle({ articleId: articleId as Id<"articles"> });
       setSaved((ids) => new Set(ids).add(articleId));
-      toast.success("Saved for later");
+      setSaveFailed(null);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Couldn't save that article",
-      );
+      setSaveFailed({
+        articleId,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Couldn't save that article.",
+      });
     }
   };
   const fromLink = async (andRead: boolean) => {
@@ -387,6 +396,14 @@ export function ArticleFinder({
                   {result.more && "+"}
                 </span>
               </div>
+              {saveFailed?.articleId === shown.match.articleId && (
+                <div className="mt-3">
+                  <InlineError
+                    message={saveFailed.message}
+                    onRetry={() => void save(shown.match.articleId)}
+                  />
+                </div>
+              )}
             </div>
           )}
           {card?.kind === "none-fit" && (

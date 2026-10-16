@@ -535,10 +535,6 @@ html {
 .mobile-reader-bar button:disabled { opacity: 0.5; }
 .desk-route { scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 @media (prefers-reduced-motion: no-preference) {
-  ::view-transition-old(root) { animation: view-away 140ms ease-out both; }
-  ::view-transition-new(root) { animation: view-arrive 180ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-  @keyframes view-away { to { opacity: 0; } }
-  @keyframes view-arrive { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
   .desk-route { animation: desk-arrival 160ms cubic-bezier(0.16, 1, 0.3, 1); }
   @keyframes desk-arrival { from { opacity: 0.7; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 }
@@ -776,8 +772,12 @@ html[data-reader-theme="ink"] {
   --motion-press: 90ms ease-out;
   --motion-quick: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-move: 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  --motion-page: 320ms cubic-bezier(0.4, 0, 0.2, 1);
-  --motion-sweep: 180ms linear;
+  /* Page and sweep are split so a delay or a group duration can use the bare time */
+  --page-duration: 320ms;
+  --page-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-page: var(--page-duration) var(--page-ease);
+  --sweep-duration: 180ms;
+  --motion-sweep: var(--sweep-duration) linear;
 }
 html.dark,
 html[data-reader-theme="night"],
@@ -965,9 +965,14 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 .impression-wash {
   animation: impression-wash 600ms ease-out;
 }
+@keyframes impression-wash-reduced {
+  0%, 83.333% { background-color: var(--reader-chip); }
+  100% { background-color: var(--reader-surface); }
+}
 @media (prefers-reduced-motion: reduce) {
+  /* The tint holds for 600 ms, then clears over 120 ms */
   .impression-wash {
-    animation: none;
+    animation: impression-wash-reduced 720ms ease-out;
   }
 }
 
@@ -1143,7 +1148,6 @@ html.dark .reader-menu {
   .reader-popover,
   .reader-menu { animation: none !important; }
   .reader-toolbar { transition: none; }
-  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
 }
 
 /* ───────────────────────── Reader: summary ───────────────────────── */
@@ -1257,4 +1261,147 @@ html.dark .reader-menu {
   from {
     opacity: 0;
   }
+}
+
+/* ───────────────────────── Moving between pages (rung 7) ─────────────────────────
+   React's <ViewTransition> starts the browser transition on a navigation; the
+   navigation's type (open-article, finish-article) picks the choreography. A
+   browser without View Transitions swaps instantly and runs none of this. */
+
+@keyframes vt-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes vt-fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* Clicks reach the live page while the snapshots play */
+::view-transition { pointer-events: none; }
+/* The page background stays under the groups while the old root has gone and the new one has not arrived */
+:root::view-transition { background-color: var(--reader-bg); }
+
+/* The title: one group travelling from the desk row to the reader heading */
+::view-transition-group(.article-title) {
+  animation-duration: var(--page-duration);
+  animation-timing-function: var(--page-ease);
+}
+/* The two snapshots differ in size and wrapping, so they overlap only briefly instead of ghosting */
+::view-transition-old(.article-title) { animation: vt-fade-out 192ms linear both; }
+::view-transition-new(.article-title) { animation: vt-fade-in 224ms linear 96ms both; }
+
+/* The toolbar has its own group above the title and is never moved */
+::view-transition-group(.reader-toolbar) { z-index: 100; animation: none; }
+::view-transition-old(.reader-toolbar) { animation: vt-fade-out var(--motion-page) both; }
+::view-transition-new(.reader-toolbar) { animation: vt-fade-in var(--motion-quick) 160ms both; }
+
+/* Opening: the desk dissolves, then the body fades in after the title lands */
+:root:active-view-transition-type(open-article)::view-transition-old(root) {
+  animation: vt-fade-out var(--motion-quick) both;
+}
+:root:active-view-transition-type(open-article)::view-transition-new(root) {
+  animation: vt-fade-in var(--motion-move) var(--page-duration) both;
+}
+
+/* Finishing: the reader turns back to the desk with a soft cross-fade */
+:root:active-view-transition-type(finish-article)::view-transition-old(root) {
+  animation: vt-fade-out var(--motion-page) both;
+}
+:root:active-view-transition-type(finish-article)::view-transition-new(root) {
+  animation: vt-fade-in var(--motion-page) both;
+}
+
+/* The reader's live elements fade in as the article arrives behind the morph */
+@media (prefers-reduced-motion: no-preference) {
+  .reader-toolbar { animation: vt-fade-in var(--motion-quick) backwards; }
+  .reader-arriving > :not(header) { animation: vt-fade-in var(--motion-move) backwards; }
+
+  /* After Done the next pick slides into the slot once the page has turned */
+  [data-arrival="finish"] > * {
+    animation: slot-arrive var(--motion-move) var(--page-duration) backwards;
+  }
+  [data-arrival="finish-swap"] > * { animation: slot-arrive var(--motion-move) backwards; }
+  @keyframes slot-arrive {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* A new highlight's pen tick appears once the sweep has passed */
+  .sidenote-tick { animation: vt-fade-in var(--motion-quick) var(--sweep-duration) backwards; }
+}
+
+/* Shared patterns: Saved, errors and the change wash, at the place that changed */
+.saved-mark {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  /* 160 ms in, 1.6 s held, 160 ms out */
+  animation: saved-mark 1920ms linear both;
+}
+.saved-mark[data-hold] { animation: vt-fade-in var(--motion-quick) both; }
+@keyframes saved-mark {
+  0% { opacity: 0; }
+  8.333%, 91.667% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.inline-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  font-size: 14.5px;
+  color: var(--ink);
+  animation: vt-fade-in var(--motion-quick) backwards;
+}
+.inline-error-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.inline-error-retry {
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+.inline-error-retry:hover { color: var(--ink); }
+.inline-error-retry:disabled { opacity: 0.5; }
+
+.change-wash[data-washing] { animation: change-wash 600ms ease-out; }
+@keyframes change-wash {
+  from { background-color: var(--reader-chip); }
+  to { background-color: transparent; }
+}
+@keyframes change-wash-reduced {
+  0%, 83.333% { background-color: var(--reader-chip); }
+  100% { background-color: transparent; }
+}
+
+/* Reduced motion: no travel. The route swaps at once, and each state change is a 120 ms fade at most */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+  :root:active-view-transition-type(finish-article)::view-transition-old(root),
+  ::view-transition-old(.reader-toolbar) {
+    animation: vt-fade-out 120ms ease-out both !important;
+  }
+  :root:active-view-transition-type(finish-article)::view-transition-new(root) {
+    animation: vt-fade-in 120ms ease-out both !important;
+  }
+
+  .reader-arriving > :not(header) { animation: vt-fade-in 120ms ease-out backwards; }
+  [data-arrival^="finish"] > * { animation: vt-fade-in 120ms ease-out 120ms backwards; }
+
+  .saved-mark { animation: saved-mark-reduced 1840ms linear both; }
+  .saved-mark[data-hold] { animation: vt-fade-in 120ms ease-out both; }
+  .inline-error { animation: vt-fade-in 120ms ease-out backwards; }
+  .change-wash[data-washing] { animation: change-wash-reduced 720ms ease-out; }
+}
+@keyframes saved-mark-reduced {
+  0% { opacity: 0; }
+  6.522%, 93.478% { opacity: 1; }
+  100% { opacity: 0; }
 }

@@ -11,6 +11,11 @@ import {
   ReaderSettingsPanel,
   type ReaderSettingsPanelProps,
 } from "./reader-settings-panel";
+import {
+  FINISH_ARTICLE,
+  OPEN_ARTICLE,
+  ViewTransition,
+} from "./view-transition";
 
 const ICON = { size: 18, strokeWidth: 1.5 } as const;
 const BUTTON =
@@ -92,153 +97,160 @@ export function ReaderToolbar({
   };
 
   return (
-    <div
-      data-testid="reader-toolbar"
-      data-hidden={hidden}
-      {...focusProps}
-      className="reader-toolbar fixed top-0 left-0 right-[var(--notes-inset)] transition-[right] duration-200 pt-[env(safe-area-inset-top)] z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm"
+    <ViewTransition
+      name="reader-toolbar"
+      default="none"
+      enter={{ [OPEN_ARTICLE]: "reader-toolbar", default: "none" }}
+      exit={{ [FINISH_ARTICLE]: "reader-toolbar", default: "none" }}
     >
       <div
-        className="mx-auto px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between"
-        style={{ maxWidth }}
+        data-testid="reader-toolbar"
+        data-hidden={hidden}
+        {...focusProps}
+        className="reader-toolbar fixed top-0 left-0 right-[var(--notes-inset)] transition-[right] duration-200 pt-[env(safe-area-inset-top)] z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm"
       >
-        <Link
-          href={backHref}
-          scroll={false}
-          className="flex min-h-11 sm:min-h-0 items-center gap-1.5 font-sans text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors"
-          aria-label={`Back to ${backLabel}`}
+        <div
+          className="mx-auto px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between"
+          style={{ maxWidth }}
         >
-          <ArrowLeft size={16} strokeWidth={1.5} aria-hidden />
-          <span className="hidden sm:inline">{backLabel}</span>
-        </Link>
-
-        <span className="sm:hidden flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]">
-          {title}
-        </span>
-
-        <div className="flex items-center gap-0.5">
-          <ReaderSettingsPanel {...settings} onOpenChange={setSettingsOpen} />
-
-          <button
-            type="button"
-            onClick={onRate}
-            className={cn(
-              BUTTON,
-              // The rating is the reader's own mark, so it is the one place the pen shows here.
-              rating && "text-[var(--pen)] hover:text-[var(--pen)]",
-            )}
-            title={
-              rating
-                ? `You rated this ${RATINGS[rating - 1]}`
-                : "Rate this article"
-            }
-            aria-label="Rate this article"
-            aria-keyshortcuts="r"
+          <Link
+            href={backHref}
+            scroll={false}
+            className="flex min-h-11 sm:min-h-0 items-center gap-1.5 font-sans text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors"
+            aria-label={`Back to ${backLabel}`}
           >
-            <Star {...ICON} fill={rating ? "currentColor" : "none"} />
-          </button>
+            <ArrowLeft size={16} strokeWidth={1.5} aria-hidden />
+            <span className="hidden sm:inline">{backLabel}</span>
+          </Link>
 
-          <button
-            type="button"
-            onClick={onToggleLove}
-            aria-pressed={loved}
-            className={cn(
-              BUTTON,
-              "hidden sm:inline-flex",
-              loved && "text-[var(--pen)]",
-            )}
-            title={loved ? "Remove from loved" : "Love this article"}
-            aria-label={loved ? "Remove from loved" : "Love this article"}
-          >
-            <Heart {...ICON} fill={loved ? "currentColor" : "none"} />
-          </button>
+          <span className="sm:hidden flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]">
+            {title}
+          </span>
 
-          <DropdownMenu.Root
-            modal={false}
-            open={menuOpen}
-            onOpenChange={setMenuOpen}
-          >
-            <DropdownMenu.Trigger asChild>
-              <button
-                type="button"
-                className={BUTTON}
-                aria-label="More actions"
-                title="More actions"
-              >
-                <MoreHorizontal {...ICON} />
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="end"
-                sideOffset={8}
-                collisionPadding={12}
-                aria-label="More actions"
-                className="reader-menu z-50 w-60 p-1.5 outline-none"
-              >
-                <DropdownMenu.Item
-                  className={MENU_ITEM}
-                  onSelect={onToggleNotes}
-                  aria-keyshortcuts="n"
+          <div className="flex items-center gap-0.5">
+            <ReaderSettingsPanel {...settings} onOpenChange={setSettingsOpen} />
+
+            <button
+              type="button"
+              onClick={onRate}
+              className={cn(
+                BUTTON,
+                // The rating is the reader's own mark, so it is the one place the pen shows here.
+                rating && "text-[var(--pen)] hover:text-[var(--pen)]",
+              )}
+              title={
+                rating
+                  ? `You rated this ${RATINGS[rating - 1]}`
+                  : "Rate this article"
+              }
+              aria-label="Rate this article"
+              aria-keyshortcuts="r"
+            >
+              <Star {...ICON} fill={rating ? "currentColor" : "none"} />
+            </button>
+
+            <button
+              type="button"
+              onClick={onToggleLove}
+              aria-pressed={loved}
+              className={cn(
+                BUTTON,
+                "hidden sm:inline-flex",
+                loved && "text-[var(--pen)]",
+              )}
+              title={loved ? "Remove from loved" : "Love this article"}
+              aria-label={loved ? "Remove from loved" : "Love this article"}
+            >
+              <Heart {...ICON} fill={loved ? "currentColor" : "none"} />
+            </button>
+
+            <DropdownMenu.Root
+              modal={false}
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+            >
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className={BUTTON}
+                  aria-label="More actions"
+                  title="More actions"
                 >
-                  Notes{noteCount > 0 ? ` · ${noteCount}` : ""}
-                  <Kbd>n</Kbd>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  className={MENU_ITEM}
-                  onSelect={onToggleSummary}
+                  <MoreHorizontal {...ICON} />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  aria-label="More actions"
+                  className="reader-menu z-50 w-60 p-1.5 outline-none"
                 >
-                  Summary
-                  <Kbd>u</Kbd>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  className={MENU_ITEM}
-                  onSelect={onToggleListen}
-                >
-                  {listening ? "Stop listening" : "Listen"}
-                  <Kbd>l</Kbd>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  className={cn(MENU_ITEM, "sm:hidden")}
-                  onSelect={onToggleLove}
-                >
-                  {loved ? "Remove from loved" : "Love"}
-                </DropdownMenu.Item>
-                <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
-                <DropdownMenu.Item className={MENU_ITEM} onSelect={copyLink}>
-                  Copy link
-                </DropdownMenu.Item>
-                {originalUrl && (
-                  <DropdownMenu.Item className={MENU_ITEM} asChild>
-                    <a href={originalUrl} target="_blank" rel="noreferrer">
-                      Open original
-                    </a>
-                  </DropdownMenu.Item>
-                )}
-                {onMarkUnread && (
                   <DropdownMenu.Item
                     className={MENU_ITEM}
-                    onSelect={onMarkUnread}
+                    onSelect={onToggleNotes}
+                    aria-keyshortcuts="n"
                   >
-                    Mark unread
+                    Notes{noteCount > 0 ? ` · ${noteCount}` : ""}
+                    <Kbd>n</Kbd>
                   </DropdownMenu.Item>
-                )}
-                {onReannotate && (
-                  <>
-                    <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
-                    <DropdownMenu.Item
-                      className={cn(MENU_ITEM, "text-[var(--ink-soft)]")}
-                      onSelect={onReannotate}
-                    >
-                      Re-annotate with latest vault
+                  <DropdownMenu.Item
+                    className={MENU_ITEM}
+                    onSelect={onToggleSummary}
+                  >
+                    Summary
+                    <Kbd>u</Kbd>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className={MENU_ITEM}
+                    onSelect={onToggleListen}
+                  >
+                    {listening ? "Stop listening" : "Listen"}
+                    <Kbd>l</Kbd>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className={cn(MENU_ITEM, "sm:hidden")}
+                    onSelect={onToggleLove}
+                  >
+                    {loved ? "Remove from loved" : "Love"}
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
+                  <DropdownMenu.Item className={MENU_ITEM} onSelect={copyLink}>
+                    Copy link
+                  </DropdownMenu.Item>
+                  {originalUrl && (
+                    <DropdownMenu.Item className={MENU_ITEM} asChild>
+                      <a href={originalUrl} target="_blank" rel="noreferrer">
+                        Open original
+                      </a>
                     </DropdownMenu.Item>
-                  </>
-                )}
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+                  )}
+                  {onMarkUnread && (
+                    <DropdownMenu.Item
+                      className={MENU_ITEM}
+                      onSelect={onMarkUnread}
+                    >
+                      Mark unread
+                    </DropdownMenu.Item>
+                  )}
+                  {onReannotate && (
+                    <>
+                      <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
+                      <DropdownMenu.Item
+                        className={cn(MENU_ITEM, "text-[var(--ink-soft)]")}
+                        onSelect={onReannotate}
+                      >
+                        Re-annotate with latest vault
+                      </DropdownMenu.Item>
+                    </>
+                  )}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
         </div>
       </div>
-    </div>
+    </ViewTransition>
   );
 }

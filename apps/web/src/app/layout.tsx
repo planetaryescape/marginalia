@@ -12,7 +12,6 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { InteractionFeedback } from "@/components/interaction-feedback";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
-import { PageTransitions } from "@/components/page-transitions";
 import { PwaRuntime } from "@/components/pwa-runtime";
 import { ReaderRoomMemory } from "@/components/reader-room-memory";
 import { ConvexClientProvider } from "@/lib/convex";
@@ -132,7 +131,6 @@ export default function RootLayout({
           </ConvexClientProvider>
           <PwaRuntime />
           <InteractionFeedback />
-          <PageTransitions />
           <ReaderRoomMemory />
         </ThemeProvider>
       </body>

@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { Check } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
-import { toast } from "sonner";
+import { InlineError, SavedMark } from "@/components/in-place";
 import {
   FAILURE_COPY,
   type ImportFailure,
@@ -85,6 +85,8 @@ function Refusal({
 function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
   const save = useMutation(api.savedArticles.save);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [failed, setFailed] = useState(false);
   if (!row.articleId) return null;
   const articleId = row.articleId;
   const isBook = row.units !== undefined;
@@ -104,14 +106,14 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
     .join(" · ");
   const saveForLater = async () => {
     setSaving(true);
+    setFailed(false);
     try {
       await save({ articleId });
-      toast.success("Saved for later");
-      onDismiss();
+      setSaved(true);
     } catch {
-      toast.error("Couldn't save that. Try again.");
-      setSaving(false);
+      setFailed(true);
     }
+    setSaving(false);
   };
   return (
     <div className="max-w-[620px]">
@@ -133,18 +135,31 @@ function Ready({ row, onDismiss }: { row: Latest; onDismiss: () => void }) {
         >
           Start reading
         </Link>
-        <button
-          type="button"
-          className={SECONDARY}
-          disabled={saving}
-          onClick={() => void saveForLater()}
-        >
-          Save for later
-        </button>
+        {saved ? (
+          <SavedMark visible hold />
+        ) : (
+          <button
+            type="button"
+            className={SECONDARY}
+            disabled={saving}
+            onClick={() => void saveForLater()}
+          >
+            Save for later
+          </button>
+        )}
         <button type="button" className={QUIET} onClick={onDismiss}>
           Dismiss
         </button>
       </div>
+      {failed && (
+        <div className="mt-3">
+          <InlineError
+            message="Couldn't save that PDF."
+            onRetry={() => void saveForLater()}
+            busy={saving}
+          />
+        </div>
+      )}
     </div>
   );
 }

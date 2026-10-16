@@ -5,6 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiTokens } from "@/components/api-tokens";
+import { ChangeWash, InlineError } from "@/components/in-place";
 import { ReadwiseCard } from "@/components/readwise-card";
 import { RemoveFeedConfirm } from "@/components/remove-feed-confirm";
 import {
@@ -23,12 +24,26 @@ export default function FeedsPage() {
   const toggleActive = useMutation(api.feeds.toggleActive);
   const pollNow = useAction(api.feeds.pollNow);
   const [polling, setPolling] = useState(false);
+  const [pollFailed, setPollFailed] = useState(false);
 
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   // One feed's removal is open at a time; touching another row closes it.
   const [removingId, setRemovingId] = useState<Id<"feeds"> | null>(null);
+
+  // A successful check shows itself: each feed it updated takes the change wash
+  const checkNow = async () => {
+    setRemovingId(null);
+    setPolling(true);
+    setPollFailed(false);
+    try {
+      await pollNow({});
+    } catch {
+      setPollFailed(true);
+    }
+    setPolling(false);
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,17 +77,7 @@ export default function FeedsPage() {
         action={
           <button
             type="button"
-            onClick={async () => {
-              setRemovingId(null);
-              setPolling(true);
-              try {
-                await pollNow({});
-                toast.success("Polling feeds... articles will appear shortly.");
-              } catch {
-                toast.error("Failed to poll");
-              }
-              setPolling(false);
-            }}
+            onClick={checkNow}
             disabled={polling || !feeds?.length}
             className={quietControl}
           >
@@ -80,6 +85,13 @@ export default function FeedsPage() {
           </button>
         }
       >
+        {pollFailed && (
+          <InlineError
+            message="Couldn't check your feeds."
+            onRetry={() => void checkNow()}
+            busy={polling}
+          />
+        )}
         <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
           <input
             type="url"
@@ -174,7 +186,10 @@ export default function FeedsPage() {
         <div>
           {feeds?.map((feed) => (
             <div key={feed._id}>
-              <div className="group flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-[var(--reader-border)] py-3">
+              <ChangeWash
+                value={feed.lastFetchedAt}
+                className="change-wash group flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-[var(--reader-border)] py-3"
+              >
                 <div className="min-w-0 flex-1 text-sm">
                   <p className="truncate font-medium">{feed.title}</p>
                   <p className="truncate text-[13px] text-[var(--reader-muted)]">
@@ -221,7 +236,7 @@ export default function FeedsPage() {
                     Remove
                   </button>
                 </div>
-              </div>
+              </ChangeWash>
               {removingId === feed._id && (
                 <RemoveFeedConfirm
                   feed={feed}

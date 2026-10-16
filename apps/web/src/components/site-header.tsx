@@ -111,7 +111,6 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
     <header className="shrink-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 h-14 md:h-16 flex items-center gap-4 md:gap-6">
       <Link
         href="/"
-        data-reader-transition
         aria-current={pathname === "/" ? "page" : undefined}
         className={roomClass}
       >
@@ -127,7 +126,6 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
             <Link
               key={room.href}
               href={room.href}
-              data-reader-transition
               aria-current={current ? "page" : undefined}
               className={cn(
                 "hover:text-[var(--reader-fg)] transition-colors",
@@ -190,7 +188,6 @@ export function MobileNav() {
           <Link
             key={href}
             href={href}
-            data-reader-transition
             aria-current={current ? "page" : undefined}
             className={slotClass}
           >

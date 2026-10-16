@@ -418,7 +418,26 @@ describe("topic picker", () => {
     await answer("find", { more: false, matches: [find("a", "Alpha", 3)] });
     await click("Save for later");
     expect(save).toHaveBeenCalledWith({ articleId: "a" });
-    expect(toast.success).toHaveBeenCalledWith("Saved for later");
+    // Saved shows in place of the action; no toast
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Saved");
+  });
+
+  it("a failed save says so in place with Retry", async () => {
+    save.mockRejectedValueOnce(new Error("Couldn't save that article."));
+    await show();
+    await type("attention");
+    await settle();
+    await answer("find", { more: false, matches: [find("a", "Alpha", 3)] });
+    await click("Save for later");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't save that article.",
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+    save.mockResolvedValue("saved-id");
+    await click("Retry");
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.textContent).toContain("Saved");
   });
 

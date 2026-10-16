@@ -143,18 +143,14 @@ export function AccountMenu() {
             <DropdownMenu.Separator className={HAIRLINE} />
             {/* The header shows Your reading from md up; the phone bar has no slot for it */}
             <DropdownMenu.Item className={cn(MENU_ITEM, "md:hidden")} asChild>
-              <Link href="/reading" data-reader-transition>
-                Your reading
-              </Link>
+              <Link href="/reading">Your reading</Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item className={MENU_ITEM} asChild>
-              <Link href="/feeds" data-reader-transition>
-                Sources
-              </Link>
+              <Link href="/feeds">Sources</Link>
             </DropdownMenu.Item>
             {isOwner && (
               <DropdownMenu.Item className={MENU_ITEM} asChild>
-                <Link href="/readers" data-reader-transition>
+                <Link href="/readers">
                   Readers
                   {waiting > 0 && (
                     <span className="text-[var(--reader-muted)]">
@@ -165,9 +161,7 @@ export function AccountMenu() {
               </DropdownMenu.Item>
             )}
             <DropdownMenu.Item className={MENU_ITEM} asChild>
-              <Link href="/account" data-reader-transition>
-                Account
-              </Link>
+              <Link href="/account">Account</Link>
             </DropdownMenu.Item>
             <DropdownMenu.Separator className={HAIRLINE} />
             {!installed && (

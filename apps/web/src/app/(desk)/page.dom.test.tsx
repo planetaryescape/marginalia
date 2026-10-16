@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SETTLE_MS, SKELETON_DELAY_MS } from "@/components/desk/desk-pick";
+import { rememberedTitle } from "@/lib/title-handoff";
 import { ALT_HOLD_MS } from "@/lib/use-alt-hint";
+import { SAVED_MS } from "@/lib/use-timed-flag";
 import DeskRoute, { DOUBLE_CHOICE_MS } from "./page";
 
 type Pending = {
@@ -693,6 +696,53 @@ describe("choosing a time", () => {
     });
   });
 
+  it("Save for later says Saved in place of the action, with no toast", async () => {
+    await render();
+    await act(async () => time("10").click());
+    await act(async () => button("Save for later").click());
+    await act(async () => {
+      calls("savedArticles:save")[0].resolve();
+      calls("sessions:create")[0].resolve("s1");
+      await vi.advanceTimersByTimeAsync(SETTLE_MS + 1);
+    });
+    expect(document.querySelector(".saved-mark")?.textContent).toBe("Saved");
+    expect(
+      [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === "Save for later",
+      )?.hidden,
+    ).toBe(true);
+    // It clears itself after its fade, 1.6 s held
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SAVED_MS + 1);
+    });
+    expect(document.querySelector(".saved-mark")).toBeNull();
+    expect(toast).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("a failed save says so in place with Retry, and Retry tries again", async () => {
+    await render();
+    await act(async () => time("10").click());
+    await act(async () => button("Save for later").click());
+    await act(async () => {
+      calls("savedArticles:save")[0].reject(new Error("offline"));
+      await vi.advanceTimersByTimeAsync(SETTLE_MS + 1);
+    });
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't save that article.",
+    );
+    expect(text()).toContain("Title a");
+    expect(toast.error).not.toHaveBeenCalled();
+    await act(async () => button("Retry").click());
+    expect(calls("savedArticles:save")).toHaveLength(2);
+    await act(async () => {
+      calls("savedArticles:save")[1].resolve();
+      await vi.advanceTimersByTimeAsync(SETTLE_MS + 1);
+    });
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(document.querySelector(".saved-mark")?.textContent).toBe("Saved");
+  });
+
   it("Read now opens the article in the session, after the session id is known", async () => {
     await render();
     await act(async () => time("10").click());
@@ -702,7 +752,11 @@ describe("choosing a time", () => {
       calls("sessions:create")[0].resolve("s-open");
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(state.push).toHaveBeenCalledWith("/read/a?session=s-open");
+    expect(state.push).toHaveBeenCalledWith("/read/a?session=s-open", {
+      transitionTypes: ["open-article"],
+    });
+    // The reader draws this title in the same commit, so the morph has a destination
+    expect(rememberedTitle("a")).toBe("Title a");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });

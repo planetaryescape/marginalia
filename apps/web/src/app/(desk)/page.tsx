@@ -13,6 +13,7 @@ import { QueryBoundary } from "@/components/desk/query-boundary";
 import { type Fits, TimeChoices } from "@/components/desk/time-choices";
 import { parseDeskLink } from "@/lib/desk-link";
 import { useShortcuts } from "@/lib/shortcuts";
+import { arrivedFromFinish } from "@/lib/title-handoff";
 import { useAltHint } from "@/lib/use-alt-hint";
 import { usePdfImport } from "@/lib/use-pdf-import";
 
@@ -44,6 +45,14 @@ function Desk() {
   const showKeys = useAltHint();
   const link = parseDeskLink(params);
   const pdf = usePdfImport();
+  // Done brought us here: the slot slides its next pick in (globals.css)
+  const [arrival] = useState(() =>
+    !arrivedFromFinish()
+      ? undefined
+      : typeof document.startViewTransition === "function"
+        ? "finish"
+        : "finish-swap",
+  );
   const keyCounter = useRef(0);
   const lastChoice = useRef<{ minutes: number; at: number } | null>(null);
 
@@ -126,6 +135,7 @@ function Desk() {
       <section
         aria-label="Your pick"
         className="min-h-[7rem] border-t border-[var(--reader-border)] pt-[22px] lg:col-start-1 lg:row-start-2"
+        data-arrival={arrival}
       >
         <QueryBoundary fallback={() => null}>
           <ContinueShortcut />

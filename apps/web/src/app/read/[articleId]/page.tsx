@@ -22,6 +22,7 @@ import {
   ImpressionPanel,
   ImpressionSummary,
 } from "@/components/impression-panel";
+import { InlineError } from "@/components/in-place";
 import { ListenBar } from "@/components/listen-bar";
 import {
   AnswerUnfold,
@@ -32,13 +33,16 @@ import { NotesPanel } from "@/components/notes-panel";
 import { FinishedLine } from "@/components/reader-finished-line";
 import { ReaderLinkMenu } from "@/components/reader-link-menu";
 import { ReaderMap } from "@/components/reader-map";
+import { ReaderOpening, ReaderTitle } from "@/components/reader-opening";
 import { ReaderReturnChip } from "@/components/reader-return-chip";
 import { ReaderToolbar } from "@/components/reader-toolbar";
 import { ReflectionBox } from "@/components/reflection-box";
 import { SelectionToolbar } from "@/components/selection-toolbar";
 import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
+import { FINISH_ARTICLE } from "@/components/view-transition";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
+import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import { answerNotes, articleHistory } from "@/lib/margin-answers";
 import {
@@ -64,6 +68,7 @@ import { useListen, useReadingPosition } from "@/lib/reading-modes";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { findTextRange } from "@/lib/text-range";
+import { markFinished, rememberedTitle } from "@/lib/title-handoff";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
@@ -314,6 +319,8 @@ export default function ReadPage() {
         if (existing) {
           await removeHighlight({ highlightId: existing.doc._id });
         } else {
+          // Sweeps at once; the saved mark takes over when the doc arrives
+          if (kind === "highlight") sweepHighlight(range);
           await createHighlight({
             articleId: articleId as any,
             kind,
@@ -549,20 +556,28 @@ export default function ReadPage() {
     return () => window.removeEventListener("keydown", onEscape);
   }, [readerPanelOpen, back.href, router]);
 
+  const [doneFailed, setDoneFailed] = useState(false);
   const handleDone = useCallback(async () => {
     if (finishing) return;
     setFinishing(true);
+    setDoneFailed(false);
     try {
       await finish();
-      router.push("/");
+      markFinished();
+      router.push("/", { transitionTypes: [FINISH_ARTICLE] });
     } catch {
-      toast.error(
-        "Couldn't save your reading activity. Check your connection and try again.",
-      );
+      setDoneFailed(true);
     } finally {
       setFinishing(false);
     }
   }, [finish, finishing, router]);
+  const doneError = doneFailed && (
+    <InlineError
+      message="Couldn't save your reading activity. Check your connection."
+      onRetry={() => void handleDone()}
+      busy={finishing}
+    />
+  );
 
   const restoreArticle = useMutation(api.articles.restore);
   const handleRestore = useCallback(async () => {
@@ -638,6 +653,22 @@ export default function ReadPage() {
   );
 
   if (!article) {
+    // Opened from the desk, the heading is already known: it is there for the
+    // morph to land on while the body loads.
+    const opening = (
+      <ReaderOpening
+        articleId={articleId}
+        columnStyle={
+          {
+            maxWidth: MAX_WIDTHS[settings.width],
+            "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
+            "--reader-size": `${settings.size}px`,
+            "--reader-leading": LINE_HEIGHTS[settings.spacing],
+          } as React.CSSProperties
+        }
+      />
+    );
+    if (rememberedTitle(articleId)) return opening;
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-ink-400 font-sans text-sm">Loading article...</p>
@@ -769,6 +800,11 @@ export default function ReadPage() {
           </button>
         )}
       </nav>
+      {doneError && (
+        <div className="fixed z-40 left-3 right-3 bottom-20 rounded-xl bg-[var(--reader-surface)] p-3 text-sm font-sans ring-1 ring-[var(--reader-border)] sm:hidden">
+          {doneError}
+        </div>
+      )}
       {saveError && (
         <div
           role="status"
@@ -827,7 +863,7 @@ export default function ReadPage() {
         <article
           ref={articleRef}
           className={cn(
-            "article-column mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
+            "article-column reader-arriving mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
             settings.numbers && "reader-numbers",
             settings.focus && "reader-focus",
             settings.align === "justify" && "reader-justify",
@@ -855,12 +891,7 @@ export default function ReadPage() {
           }
         >
           <header className="mb-10">
-            <h1
-              className="text-3xl sm:text-4xl font-medium text-[var(--reader-fg)] leading-tight mb-4"
-              style={{ fontFamily: "var(--reader-font)" }}
-            >
-              {article.title}
-            </h1>
+            <ReaderTitle articleId={articleId} title={article.title} />
             <div className="flex flex-wrap gap-3 text-sm font-sans text-ink-400 dark:text-ink-500">
               {isBook && outline && unitIndex !== null && (
                 <span>
@@ -931,6 +962,7 @@ export default function ReadPage() {
                 >
                   Done
                 </button>
+                {doneError && <div className="mt-4">{doneError}</div>}
               </div>
             )}
 
