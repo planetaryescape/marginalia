@@ -34,6 +34,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => state.pathname,
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
+  redirect: (url: string) => {
+    throw Object.assign(new Error("NEXT_REDIRECT"), {
+      digest: `NEXT_REDIRECT;replace;${url};307;`,
+    });
+  },
 }));
 vi.mock("@/lib/reader-settings", () => ({
   useReaderSettings: () => ({ settings: { theme: "ink" } }),
@@ -95,11 +100,11 @@ describe("Reading desk navigation", () => {
       </DeskLayout>,
     );
     const header = html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? "";
-    for (const path of ["/library", "/notes", "/reading", "/saved", "/feeds"]) {
+    for (const path of ["/library", "/notes", "/reading"]) {
       expect(header).toContain(`href="${path}"`);
     }
     expect(header).toContain('aria-current="page"');
-    expect(html.match(/href="\/library"/g)).toHaveLength(2);
+    expect(header.match(/aria-current="page"/g)).toHaveLength(1);
     expect(applyTheme).toHaveBeenCalledWith({ theme: "ink" });
     if (status === "populated") {
       expect(html).toContain("My existing note");
@@ -112,7 +117,6 @@ describe("Reading desk navigation", () => {
     ["/library", LibraryPage],
     ["/notes", NotesPage],
     ["/reading", ReadingPage],
-    ["/saved", SavedPage],
     ["/feeds", FeedsPage],
   ] as const)("renders one shared shell around %s", (pathname, Page) => {
     state.pathname = pathname;
@@ -123,16 +127,32 @@ describe("Reading desk navigation", () => {
     );
     expect(html.match(/<header/g)).toHaveLength(1);
     expect(html.match(/<main/g)).toHaveLength(1);
-    expect(html.match(/href="\/library"/g)).toHaveLength(2);
     expect(html).toContain("h-dvh flex flex-col overflow-hidden");
     expect(html).not.toContain("← Back");
     expect(applyTheme).toHaveBeenCalledTimes(1);
   });
 
+  it("shows four rooms and no retired links in the header", () => {
+    const html = renderToStaticMarkup(
+      <DeskLayout>
+        <NotesPage />
+      </DeskLayout>,
+    );
+    const header = html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? "";
+    expect(header).toContain(">Your reading<");
+    expect(header).not.toMatch(/href="\/(saved|feeds|readers)"/);
+    expect(header).not.toContain("This week");
+    expect(header).not.toContain("Saved");
+    expect(header).not.toContain("Sources");
+    expect(header).not.toContain("Keyboard shortcuts");
+    expect(header).not.toContain("Install Marginalia");
+    expect(header).not.toContain("github.com");
+  });
+
   it.each([
-    [false, 6],
-    [true, 7],
-  ])("gives the owner (%s) Readers in the bottom navigation", (isOwner, count) => {
+    false,
+    true,
+  ])("shows four phone slots, with Readers only in the avatar menu (owner %s)", (isOwner) => {
     state.isOwner = isOwner;
     const html = renderToStaticMarkup(
       <DeskLayout>
@@ -141,11 +161,20 @@ describe("Reading desk navigation", () => {
     );
     const mobile =
       html.match(/<nav[^>]*mobile-app-nav[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(mobile.match(/<a /g)).toHaveLength(count);
-    expect(mobile).toContain(`repeat(${count}, minmax(0, 1fr))`);
-    expect(mobile.includes('href="/readers"')).toBe(isOwner);
-    // On the narrowest phones the seven labels stay as accessible names
-    expect(mobile.includes("max-[359px]:sr-only")).toBe(isOwner);
-    if (isOwner) expect(mobile).toMatch(/<span[^>]*>Readers<\/span>/);
+    expect(mobile.match(/<a /g)).toHaveLength(3);
+    expect(mobile).toContain(">Search<");
+    expect(mobile).toContain("grid-cols-4");
+    expect(mobile).not.toContain('href="/readers"');
+    expect(mobile).not.toContain('href="/feeds"');
+  });
+
+  it("sends /saved to the Saved shelf", () => {
+    let digest = "";
+    try {
+      SavedPage();
+    } catch (error) {
+      digest = String((error as { digest?: string }).digest);
+    }
+    expect(digest).toBe("NEXT_REDIRECT;replace;/library?shelf=saved;307;");
   });
 });

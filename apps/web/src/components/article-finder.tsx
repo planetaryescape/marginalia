@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useCommand, useShortcuts } from "@/lib/shortcuts";
 import {
   nextPosition,
   previousPosition,
@@ -72,6 +72,15 @@ export function ArticleFinder({
   const result = useTopicSearch(text, searching, retry);
   const limit = limitCleared ? null : windowMinutes;
   useShortcuts({ "/": () => setOpen(true) });
+  useCommand("open-finder", () => setOpen(true));
+  // Search from another room lands on the desk with ?find=1; open the picker once
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("find") !== "1") return;
+    url.searchParams.delete("find");
+    window.history.replaceState(window.history.state, "", url);
+    setOpen(true);
+  }, []);
 
   useModalDialog(dialogRef, open, triggerRef);
 

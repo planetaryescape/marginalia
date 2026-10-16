@@ -7,7 +7,7 @@ import { useId, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-function ago(timestamp: number) {
+export function ago(timestamp: number) {
   const minutes = Math.round((Date.now() - timestamp) / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;

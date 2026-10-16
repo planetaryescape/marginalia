@@ -28,15 +28,23 @@ Focus mode, paragraph numbers and the annotation map are optional. Listen uses t
 
 ## Main navigation
 
-- **Library:** ask questions across imported articles, notes and reading context.
-- **Notes:** revisit saved notes and follow them back to the source article.
-- **This week:** see recent reading, time, engagement and reflections.
-- **Saved:** find your queued articles, including the empty state.
-- **Sources:** add feeds, import OPML, pause subscriptions and manage Reader sync. Removing a feed asks what to do with its articles: keep them, remove the ones you never opened, or remove all of them. Articles with your highlights or notes always stay. Removed articles that are also in Readwise Reader are deleted there too.
-- **Readers** (owner only): approve access requests, copy invite links and disable readers.
-- **Your account** (header): sign-in methods, AI provider keys, connected apps, touch feedback and account deletion.
+The header has four rooms. **Marginalia** (the wordmark) opens the desk, the page where you choose what to read next. The current room is underlined.
 
-These pages preserve Home's navigation and selected palette. Longer content scrolls below the header; mobile navigation stays at the bottom.
+- **Library:** ask questions across your articles, and browse shelves in the URL (`?shelf=`): **Up next** (unread, with archive), **Saved** (articles you queued), **Loved** and **Finished** (your impressions, with stars and what stayed with you). `/saved` opens the Saved shelf.
+- **Notes:** revisit saved notes and follow them back to the source article.
+- **Your reading:** recent reading, time, engagement and reflections. It stays out of the reader and Notes.
+
+The avatar at the right of the header opens the account menu:
+
+- Your email, whether you own this library, and one line of source status. When a source fails, the avatar shows a small red dot and the line says what failed.
+- **Sources:** add feeds, import OPML, pause subscriptions and manage Readwise Reader sync. Removing a feed asks what to do with its articles: keep them, remove the ones you never opened, or remove all of them. Articles with your highlights or notes always stay. Removed articles that are also in Readwise Reader are deleted there too.
+- **Readers** (owner only): approve access requests, copy invite links and disable readers. The menu shows how many requests are waiting.
+- **Account:** sign-in methods, AI provider keys, connected apps, touch feedback and account deletion.
+- **Install app**, **Keyboard shortcuts** (`?`) and **About Marginalia**, which links to the source repository.
+
+The menu opens with Enter or Space, moves with the arrow keys, and closes with Escape, which returns focus to the avatar.
+
+Settings pages keep the desk frame, so the header stays in place. Longer content scrolls below the header; mobile navigation stays at the bottom.
 
 ## Keyboard reference
 
@@ -44,7 +52,7 @@ Press `?` for the current shortcut sheet. Single-key shortcuts pause while typin
 
 | Where | Keys | Action |
 | --- | --- | --- |
-| Everywhere | `g h`, `g l`, `g n`, `g w`, `g s` | Home, Library, Notes, This week, Sources |
+| Everywhere | `g h`, `g l`, `g n`, `g w`, `g s` | Desk, Library, Notes, Your reading, Saved shelf |
 | Everywhere | `Escape` | Close the active card, panel or menu |
 | Home | `/`, `↑`/`↓`, `Enter` | Search, choose a result and open it |
 | Home | `1`–`4`, `c`, `j`/`k` | Time window, continue, move through Up next |

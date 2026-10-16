@@ -27,7 +27,10 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   },
 }));
 vi.mock("sonner", () => ({ toast }));
-vi.mock("@/lib/shortcuts", () => ({ useShortcuts: vi.fn() }));
+vi.mock("@/lib/shortcuts", () => ({
+  useShortcuts: vi.fn(),
+  useCommand: vi.fn(),
+}));
 vi.mock("@/lib/use-modal-dialog", () => ({ useModalDialog: vi.fn() }));
 
 interface Pending {

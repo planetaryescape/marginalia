@@ -14,108 +14,24 @@ import {
   useState,
 } from "react";
 import { CompanionAnswer } from "@/components/companion-answer";
-import { RATINGS } from "@/components/impression-panel";
+import {
+  FinishedShelf,
+  LovedShelf,
+  SavedShelf,
+  type ShelfId,
+} from "@/components/library-shelves";
 import { UpNextShelf } from "@/components/up-next-shelf";
 import { ReaderRequestError, streamFromConvex } from "@/lib/companion";
 import { useShortcuts } from "@/lib/shortcuts";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-const SUGGESTIONS = [
-  "Something about science",
-  "What did I love recently?",
-  "A short read for tonight",
-  "What have I started and not finished?",
-];
+/** Two plain phrases, not buttons: they ask the question for you when clicked. */
+const EXAMPLES = ["what did I love recently?", "a short read for tonight"];
 
 interface Turn {
   role: "user" | "assistant";
   content: string;
-}
-
-function RatingMarks({ rating }: { rating: number }) {
-  return (
-    <span
-      className="flex gap-[3px]"
-      role="img"
-      aria-label={RATINGS[rating - 1]}
-    >
-      {RATINGS.map((label, i) => (
-        <span
-          key={label}
-          className="w-[7px] h-[7px] rounded-[2px]"
-          style={{
-            background:
-              i < rating ? "var(--pen)" : "var(--reader-border-strong)",
-          }}
-        />
-      ))}
-    </span>
-  );
-}
-
-function Impressions() {
-  const impressions = useQuery(api.impressions.listRecent, {});
-  if (impressions === undefined) return null;
-
-  const byMonth = new Map<string, typeof impressions>();
-  for (const item of impressions) {
-    const month = new Date(item.updatedAt).toLocaleDateString(undefined, {
-      month: "long",
-      year: "numeric",
-    });
-    byMonth.set(month, [...(byMonth.get(month) ?? []), item]);
-  }
-
-  return (
-    <section aria-label="Your impressions">
-      <h2 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--reader-muted)]">
-        Your impressions
-      </h2>
-      {impressions.length === 0 ? (
-        <p className="mt-3 text-[13px] leading-relaxed text-[var(--reader-muted)]">
-          Rate articles at the end of each read, or with the star at the top.
-          Your ratings and what stayed with you gather here, and the librarian
-          uses them.
-        </p>
-      ) : (
-        [...byMonth.entries()].map(([month, items]) => (
-          <div key={month} className="mt-5">
-            <p className="font-serif text-[15px] text-[var(--reader-fg-soft)]">
-              {month}
-            </p>
-            <ul className="mt-2 space-y-3">
-              {items.map((item) => (
-                <li
-                  key={item._id}
-                  className="pl-3 border-l-2 border-[var(--reader-border)]"
-                >
-                  <Link
-                    href={`/read/${item.articleId}`}
-                    className="font-serif text-[15.5px] leading-snug hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4 transition-colors"
-                  >
-                    {item.title}
-                  </Link>
-                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[var(--reader-muted)]">
-                    {item.rating && <RatingMarks rating={item.rating} />}
-                    {item.rating && <span>{RATINGS[item.rating - 1]}</span>}
-                    {item.tags.length > 0 && (
-                      <span>· {item.tags.join(", ")}</span>
-                    )}
-                  </p>
-                  {item.note && (
-                    <p className="mt-1 font-serif italic text-[14px] leading-snug text-[var(--reader-fg-soft)] line-clamp-2">
-                      “{item.note}”
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))
-      )}
-    </section>
-  );
 }
 
 function Librarian() {
@@ -310,37 +226,119 @@ function Librarian() {
       </form>
 
       {turns.length === 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {SUGGESTIONS.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              onClick={() => ask(suggestion)}
-              className="min-h-11 md:min-h-8 px-3.5 py-1 rounded-full text-left text-[13px] text-[var(--reader-fg-soft)] ring-1 ring-[var(--reader-border)] hover:ring-[var(--reader-border-strong)] hover:text-[var(--reader-fg)] transition-colors"
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
+        <p className="mt-3 text-[13px] text-[var(--reader-muted)]">
+          Try{" "}
+          <button
+            type="button"
+            onClick={() => ask(EXAMPLES[0])}
+            className="py-2 text-[var(--reader-fg-soft)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px] hover:text-[var(--reader-fg)]"
+          >
+            “{EXAMPLES[0]}”
+          </button>{" "}
+          or{" "}
+          <button
+            type="button"
+            onClick={() => ask(EXAMPLES[1])}
+            className="py-2 text-[var(--reader-fg-soft)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px] hover:text-[var(--reader-fg)]"
+          >
+            “{EXAMPLES[1]}”
+          </button>
+        </p>
       )}
       <div ref={endRef} />
     </div>
   );
 }
 
+const SHELVES: ShelfId[] = ["saved", "loved", "finished"];
+
+/** The shelf named in `?shelf=`; anything else is Up next. */
+function shelfFromUrl(value: string | null): ShelfId | "up-next" {
+  return SHELVES.find((shelf) => shelf === value) ?? "up-next";
+}
+
+function Shelves() {
+  const shelf = shelfFromUrl(useSearchParams().get("shelf"));
+  const overview = useQuery(api.home.overview, {});
+  const saved = useQuery(api.savedArticles.count, {});
+  const loved = useQuery(api.lovedArticles.listAll, {});
+  const finished = useQuery(api.impressions.listRecent, {});
+  const tabs: {
+    id: ShelfId | "up-next";
+    label: string;
+    href: string;
+    count: number | null;
+  }[] = [
+    {
+      id: "up-next",
+      label: "Up next",
+      href: "/library",
+      count: overview?.waiting ?? null,
+    },
+    {
+      id: "saved",
+      label: "Saved",
+      href: "/library?shelf=saved",
+      count: saved ?? null,
+    },
+    {
+      id: "loved",
+      label: "Loved",
+      href: "/library?shelf=loved",
+      count: loved?.length ?? null,
+    },
+    {
+      id: "finished",
+      label: "Finished",
+      href: "/library?shelf=finished",
+      count: finished?.length ?? null,
+    },
+  ];
+
+  return (
+    <>
+      <nav
+        aria-label="Shelves"
+        className="mt-10 flex flex-wrap gap-x-6 gap-y-1 border-b border-[var(--reader-border)] pb-2.5 text-[14.5px] text-[var(--reader-muted)]"
+      >
+        {tabs.map((tab) => {
+          const current = tab.id === shelf;
+          return (
+            <Link
+              key={tab.id}
+              href={tab.href}
+              scroll={false}
+              aria-current={current ? "page" : undefined}
+              className="py-1 hover:text-[var(--reader-fg)] aria-[current=page]:font-medium aria-[current=page]:text-[var(--reader-fg)]"
+            >
+              {tab.label}
+              {tab.count !== null && (
+                <small className="ml-1.5 text-[12px] font-normal tabular-nums text-[var(--reader-muted)]">
+                  {tab.count}
+                </small>
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+      {shelf === "up-next" && <UpNextShelf />}
+      {shelf === "saved" && <SavedShelf />}
+      {shelf === "loved" && <LovedShelf />}
+      {shelf === "finished" && <FinishedShelf />}
+    </>
+  );
+}
+
 export default function LibraryPage() {
   return (
-    <main className="mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3rem)] pb-10 grid gap-14 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-[72px]">
+    <main className="mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3rem)] pb-10">
       {/* useSearchParams needs a Suspense boundary for static rendering */}
       <Suspense fallback={null}>
         <div className="min-w-0">
           <Librarian />
-          <UpNextShelf />
+          <Shelves />
         </div>
       </Suspense>
-      <aside className="lg:pt-3">
-        <Impressions />
-      </aside>
     </main>
   );
 }

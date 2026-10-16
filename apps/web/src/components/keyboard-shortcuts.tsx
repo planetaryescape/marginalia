@@ -13,8 +13,8 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ["g h", "Go home"],
       ["g l", "Go to your library"],
       ["g n", "Go to notes"],
-      ["g w", "Go to this week"],
-      ["g s", "Go to sources"],
+      ["g w", "Go to your reading"],
+      ["g s", "Go to your saved articles"],
       ["Esc", "Close a card, panel or menu"],
     ],
   },
@@ -90,7 +90,7 @@ export function KeyboardShortcuts() {
     "g l": () => router.push("/library"),
     "g n": () => router.push("/notes"),
     "g w": () => router.push("/reading"),
-    "g s": () => router.push("/feeds"),
+    "g s": () => router.push("/library?shelf=saved"),
   });
   useCommand("open-shortcuts", () => setOpen(true));
 

@@ -4,7 +4,7 @@ Open your deployed Marginalia URL in your phone's browser. Use Home to choose a 
 
 ## Install on your home screen
 
-Tap the download icon in the desk header for installation instructions.
+Open the avatar at the right of the header and choose **Install app** for installation instructions.
 
 - **iPhone or iPad:** open in Safari, tap **Share → Add to Home Screen**, then **Add**. Keep **Open as Web App** enabled if Safari offers it.
 - **Android:** tap **Install app** in Marginalia when offered, or use **Install app / Add to Home screen** in Chrome's menu.
@@ -14,7 +14,7 @@ Launch the new home-screen icon. A supporting browser opens Marginalia in a stan
 
 ## Read and write with touch
 
-Use the icon-labelled bottom navigation for Home, Library, Notes, Activity, Saved and Sources. The owner also gets Readers; with seven items, phones narrower than 360px show icons only, and the labels remain for screen readers. Activity opens the reading report; desktop navigation calls it **This week**. Open **Your account** in the header to manage credentials and interaction feedback.
+The bottom bar has four slots: **Desk**, **Library**, **Notes** and **Search**. Search opens the article picker; from another room it opens on the desk. **Your reading** is not on the bar: it's the first item in the avatar menu at the top right on phones (or press `g w`). Sources, Readers and Account sit in the same menu, which also shows a red dot when a source fails. Open **Your account** there to manage credentials and interaction feedback.
 
 While reading:
 

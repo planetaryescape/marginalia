@@ -1,15 +1,14 @@
 "use client";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { MobileNav, SiteHeader, useMainNav } from "@/components/site-header";
+import { MobileNav, SiteHeader } from "@/components/site-header";
 import { useReaderSettings } from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 
-/** Persistent chrome for every destination in the main navigation. */
+/** Persistent chrome for every destination in the desk frame. */
 export default function DeskLayout({ children }: { children: ReactNode }) {
   const { settings } = useReaderSettings();
   useReaderTheme(settings);
-  const nav = useMainNav();
   const pathname = usePathname();
 
   return (
@@ -22,7 +21,7 @@ export default function DeskLayout({ children }: { children: ReactNode }) {
       >
         {children}
       </div>
-      <MobileNav items={nav} />
+      <MobileNav />
     </div>
   );
 }

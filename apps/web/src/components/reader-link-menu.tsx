@@ -196,10 +196,7 @@ export function ReaderLinkMenu({
         ) : null}
       </button>
       {error ? (
-        <p
-          role="alert"
-          className="px-2.5 pb-1 text-xs text-[var(--danger)]"
-        >
+        <p role="alert" className="px-2.5 pb-1 text-xs text-[var(--danger)]">
           {error}
         </p>
       ) : null}

@@ -115,7 +115,11 @@ export function registerShortcuts(ref: { current: ShortcutMap }) {
   };
 }
 
-type Command = "open-settings" | "toggle-summary" | "open-shortcuts";
+type Command =
+  | "open-settings"
+  | "toggle-summary"
+  | "open-shortcuts"
+  | "open-finder";
 export function emitCommand(name: Command) {
   document.dispatchEvent(new CustomEvent(`marginalia:${name}`));
 }
