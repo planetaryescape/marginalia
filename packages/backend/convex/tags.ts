@@ -156,8 +156,34 @@ export const assign = internalMutation({
         }
         await link(match.tagId);
         // A candidate waiting for promotion keeps its nearest visible tag
-        if (tag?.status === "candidate" && tag.nearestTagId)
-          await link(tag.nearestTagId);
+        if (tag?.status === "candidate" && tag.nearestTagId) {
+          if (known.some((t) => t._id === tag.nearestTagId))
+            await link(tag.nearestTagId);
+          else {
+            // That tag was merged away: find where its name went (an alias
+            // of the kept tag, or the closest by embedding) and point there
+            const moved = matchTag(
+              { key: tag.key, embedding: tag.embedding },
+              known
+                .filter((t) => t._id !== tag._id)
+                .map((t) => ({
+                  id: t._id,
+                  key: t.key,
+                  aliases: t.aliases,
+                  embedding: t.embedding,
+                })),
+            );
+            const nearest =
+              moved.kind === "existing"
+                ? moved.tagId
+                : moved.kind === "candidate"
+                  ? moved.nearestTagId
+                  : undefined;
+            tag.nearestTagId = nearest;
+            await ctx.db.patch("tags", tag._id, { nearestTagId: nearest });
+            if (nearest) await link(nearest);
+          }
+        }
         continue;
       }
       const id = await ctx.db.insert("tags", {

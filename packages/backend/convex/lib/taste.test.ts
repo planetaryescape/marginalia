@@ -100,7 +100,7 @@ describe("evidenceOf", () => {
 
 describe("tallyEntries", () => {
   it("keeps the strongest entries up to the cap, deterministically", () => {
-    const tally: Tally = {};
+    const tally: Tally = new Map();
     for (let i = 0; i < PROFILE_CAP + 20; i++)
       addTally(tally, `author ${String(i).padStart(3, "0")}`, {
         pos: 1 + (i % 7),
@@ -116,7 +116,7 @@ describe("tallyEntries", () => {
   });
 
   it("drops entries that say nothing", () => {
-    const tally: Tally = {};
+    const tally: Tally = new Map();
     addTally(tally, "even", { pos: 5, neg: 5 });
     addTally(tally, "none", { pos: 0, neg: 0 });
     expect(tallyEntries(tally)).toEqual([]);

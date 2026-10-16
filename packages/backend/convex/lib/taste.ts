@@ -115,7 +115,9 @@ export function evidenceOf(s: ArticleSignals): { pos: number; neg: number } {
   return { pos, neg };
 }
 
-export type Tally = Record<string, { pos: number; neg: number }>;
+/** A Map, because author names are reader data and "__proto__" must be an ordinary key. */
+export type Tally = Map<string, { pos: number; neg: number }>;
+export type TallyRows = { key: string; pos: number; neg: number }[];
 
 export function addTally(
   tally: Tally,
@@ -123,13 +125,22 @@ export function addTally(
   evidence: { pos: number; neg: number },
 ) {
   if (evidence.pos === 0 && evidence.neg === 0) return;
-  const seen = tally[key] ?? { pos: 0, neg: 0 };
-  tally[key] = { pos: seen.pos + evidence.pos, neg: seen.neg + evidence.neg };
+  const seen = tally.get(key) ?? { pos: 0, neg: 0 };
+  tally.set(key, {
+    pos: seen.pos + evidence.pos,
+    neg: seen.neg + evidence.neg,
+  });
 }
+
+/** Tallies travel between transactions as rows: Convex record keys must be ASCII, names are not. */
+export const tallyToRows = (tally: Tally): TallyRows =>
+  [...tally].map(([key, { pos, neg }]) => ({ key, pos, neg }));
+export const tallyFromRows = (rows: TallyRows): Tally =>
+  new Map(rows.map(({ key, pos, neg }) => [key, { pos, neg }]));
 
 export function tallyEntries(tally: Tally, cap = PROFILE_CAP): TasteEntry[] {
   return strongest(
-    Object.entries(tally).map(([key, { pos, neg }]) => ({
+    [...tally].map(([key, { pos, neg }]) => ({
       key,
       affinity: round3(entityAffinity(pos, neg)),
       n: Math.round(pos + neg),

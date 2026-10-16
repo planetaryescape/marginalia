@@ -28,6 +28,7 @@ type T = Awaited<ReturnType<typeof ownerWithKey>>;
 const job = {
   "preAnnotate:scan": internal.preAnnotate.scan,
   "preAnnotate:commit": internal.preAnnotate.commit,
+  "preAnnotate:startOne": internal.preAnnotate.startOne,
 };
 const run = async (t: T, userId = OWNER) => {
   await t.mutation(internal.preAnnotate.start, { userId });
@@ -155,7 +156,7 @@ describe("annotating likely reads ahead of time", () => {
 
   it("spends the cap once a day, however many times the job runs", async () => {
     const t = await ownerWithKey(modules);
-    const { ada } = await twoKinds(t, 12);
+    const { ada } = await twoKinds(t, 20);
     await t.run((ctx) => likeAda(ctx, OWNER));
     await run(t);
     await run(t);
@@ -253,6 +254,29 @@ describe("annotating likely reads ahead of time", () => {
     ).toEqual(["deferred", "pending", "deferred", "deferred"]);
   });
 
+  it("starts each article in a transaction of its own", async () => {
+    const t = await ownerWithKey(modules);
+    const { ada } = await twoKinds(t, 8);
+    await t.run((ctx) => likeAda(ctx, OWNER));
+    await t.mutation(internal.preAnnotate.start, { userId: OWNER });
+    await drain(t, {
+      "preAnnotate:scan": internal.preAnnotate.scan,
+      "preAnnotate:commit": internal.preAnnotate.commit,
+    });
+    const jobs = (
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").take(500),
+      )
+    ).filter((j) => j.name === "preAnnotate:startOne");
+    expect(jobs).toHaveLength(DAILY_CAP);
+    // Committing read no article, so nothing is pending until each job runs
+    expect(await statuses(t, ada)).toEqual(ada.map(() => "deferred"));
+    await drain(t, job);
+    expect(
+      (await statuses(t, ada)).filter((s) => s === "pending"),
+    ).toHaveLength(DAILY_CAP);
+  });
+
   it("rechecks each article where it starts it: one opened since the scan is not started", async () => {
     const t = await ownerWithKey(modules);
     const { ada } = await twoKinds(t, 2);
@@ -260,18 +284,37 @@ describe("annotating likely reads ahead of time", () => {
       await likeAda(ctx, OWNER);
       await ctx.db.patch(ada[0], { annotationStatus: "annotated" });
     });
-    const started = await t.mutation(internal.preAnnotate.commit, {
-      userId: OWNER,
-      best: ada.map((articleId) => ({
+    const start = (articleId: Id<"articles">) =>
+      t.mutation(internal.preAnnotate.startOne, {
+        userId: OWNER,
         articleId,
         term: 0.6,
-        source: "author" as const,
-      })),
-      controls: [],
-    });
-    expect(started).toBe(1);
+        source: "author",
+      });
+    expect(await start(ada[0])).toBe(false);
+    expect(await start(ada[1])).toBe(true);
+    // Twice is once
+    expect(await start(ada[1])).toBe(false);
     expect(await statuses(t, ada)).toEqual(["annotated", "pending"]);
     expect(await generating(t)).toHaveLength(1);
+  });
+
+  it("spends the daily allowance inside the transaction that starts an article", async () => {
+    const t = await ownerWithKey(modules);
+    const { ada } = await twoKinds(t, DAILY_CAP + 3);
+    await t.run((ctx) => likeAda(ctx, OWNER));
+    const results = await Promise.all(
+      ada.map((articleId) =>
+        t.mutation(internal.preAnnotate.startOne, {
+          userId: OWNER,
+          articleId,
+          term: 0.6,
+          source: "author",
+        }),
+      ),
+    );
+    expect(results.filter(Boolean)).toHaveLength(DAILY_CAP);
+    expect(await generating(t)).toHaveLength(DAILY_CAP);
   });
 
   it("serves one reader without touching another's articles", async () => {

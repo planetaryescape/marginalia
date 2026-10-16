@@ -5,7 +5,12 @@ import { secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { findMergePairs, LINK_BATCH, MAX_SUGGESTIONS } from "./tagMerge";
+import {
+  findMergePairs,
+  LINK_BATCH,
+  MAX_SUGGESTIONS,
+  REDIRECT_BATCH,
+} from "./tagMerge";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -295,7 +300,10 @@ describe("Keep both", () => {
 });
 
 describe("accepting a merge", () => {
-  const handlers = { "tagMerge:moveLinks": internal.tagMerge.moveLinks };
+  const handlers = {
+    "tagMerge:moveLinks": internal.tagMerge.moveLinks,
+    "tagMerge:finishMerge": internal.tagMerge.finishMerge,
+  };
 
   async function manyLinks(links: number, both: number) {
     const fixture = await secondReaderTest(modules);
@@ -415,6 +423,69 @@ describe("accepting a merge", () => {
       proposals: [{ name: "llms" }],
     });
     expect(assigned).toEqual([into]);
+  });
+
+  it("points candidates that named the merged tag as nearest at the kept one, in batches", async () => {
+    const { t, owner, into, from } = await manyLinks(3, 0);
+    const candidates = await t.run(async (ctx) => {
+      const ids: Id<"tags">[] = [];
+      for (let i = 0; i < REDIRECT_BATCH + 15; i++)
+        ids.push(
+          await tag(ctx, OWNER, `candidate ${i}`, {
+            status: "candidate",
+            nearestTagId: i % 2 === 0 ? from : into,
+          }),
+        );
+      return ids;
+    });
+    const [s] = await suggestions(t, OWNER);
+    await owner.mutation(api.tagMerge.accept, { suggestionId: s._id });
+    await drain(t, handlers);
+    const rows = await t.run((ctx) =>
+      Promise.all(candidates.map((id) => ctx.db.get(id))),
+    );
+    expect(rows.every((r) => r?.nearestTagId === into)).toBe(true);
+    const passes = (
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").take(500),
+      )
+    ).filter((j) => j.name === "tagMerge:finishMerge");
+    expect(passes.length).toBeGreaterThan(1);
+    expect(await t.run((ctx) => ctx.db.get(from))).toBeNull();
+  });
+
+  it("lets a candidate whose nearest tag was merged away land on the kept tag", async () => {
+    const { t, owner, into, from } = await manyLinks(3, 0);
+    const [s] = await suggestions(t, OWNER);
+    await owner.mutation(api.tagMerge.accept, { suggestionId: s._id });
+    await drain(t, handlers);
+    // A race left this candidate pointing at the removed tag
+    const stale = await t.run((ctx) =>
+      tag(ctx, OWNER, "candidate", {
+        status: "candidate",
+        nearestTagId: from,
+        embedding: at(5),
+      }),
+    );
+    const article = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: OWNER,
+        guid: "late",
+        url: "https://example.com/late",
+        title: "late",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      }),
+    );
+    const assigned = await t.mutation(internal.tags.assign, {
+      userId: OWNER,
+      articleId: article,
+      proposals: [{ name: "candidate" }],
+    });
+    expect(assigned).toContain(stale);
+    expect(assigned).toContain(into);
+    expect((await t.run((ctx) => ctx.db.get(stale)))?.nearestTagId).toBe(into);
   });
 
   it("leaves another reader's tags and links alone", async () => {

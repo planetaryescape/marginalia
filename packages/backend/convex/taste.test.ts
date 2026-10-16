@@ -258,6 +258,51 @@ describe("the taste profile", () => {
     ).toBeLessThan(0);
   });
 
+  it("handles authors whose names are not ASCII or look like object keys", async () => {
+    const t = await ownerTest(modules);
+    await t.run(async (ctx) => {
+      for (const [i, author] of [
+        "José García",
+        "José García",
+        "__proto__",
+        "constructor",
+        "李小龍",
+      ].entries()) {
+        const id = await article(
+          ctx,
+          OWNER,
+          { title: `n${i}`, minutes: 5, author },
+          i,
+        );
+        await interact(ctx, OWNER, id, "finished");
+      }
+      // More articles than one step reads, so the tally crosses transactions
+      for (let i = 0; i < 12; i++) {
+        const id = await article(
+          ctx,
+          OWNER,
+          { title: `m${i}`, minutes: 5, author: "Zoë Müller" },
+          50 + i,
+        );
+        await interact(ctx, OWNER, id, "finished");
+      }
+    });
+    await t.mutation(internal.taste.recompute, { userId: OWNER });
+    await drainTaste(t);
+    const authors = (await profileOf(t, OWNER))?.authors ?? [];
+    const keys = authors.map((a) => a.key);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "josé garcía",
+        "__proto__",
+        "constructor",
+        "李小龍",
+        "zoë müller",
+      ]),
+    );
+    expect(authors.find((a) => a.key === "josé garcía")?.n).toBe(2);
+  });
+
   it("keeps each reader's profile to their own history", async () => {
     const { t, readerLibraryId } = await secondReaderTest(modules);
     await t.run(async (ctx) => {
@@ -510,8 +555,8 @@ describe("taste in picks", () => {
   });
 });
 
-describe("taste in paged picks", () => {
-  it("pages through every article once, with taste ordering only within a page", async () => {
+describe("paged picks", () => {
+  it("stay in index order whatever the taste profile, so paging cannot shift", async () => {
     const t = await ownerTest(modules);
     const rows: ArticleSeed[] = [];
     for (let i = 0; i < 12; i++)
@@ -521,47 +566,32 @@ describe("taste in paged picks", () => {
         author: i % 4 === 0 ? "Ada Lovelace" : "Zed",
       });
     await library(t, rows);
-    const all = async () => {
-      const seen: string[] = [];
+    const all = async (numItems: number) => {
+      const seen: { title: string; reason: string }[] = [];
       let cursor: string | null = null;
       for (let i = 0; i < 40; i++) {
-        const page: PaginationResult<{ title: string }> = await t.query(
-          api.suggestions.moreForWindow,
-          { requestedMinutes: 10, paginationOpts: { numItems: 4, cursor } },
-        );
-        seen.push(...page.page.map((p) => p.title));
+        const page: PaginationResult<{ title: string; reason: string }> =
+          await t.query(api.suggestions.moreForWindow, {
+            requestedMinutes: 10,
+            paginationOpts: { numItems, cursor },
+          });
+        seen.push(...page.page);
         if (page.isDone) break;
         cursor = page.continueCursor;
       }
       return seen;
     };
-    const before = await all();
+    const before = await all(4);
     await setProfile(t, OWNER, {
       authors: [{ key: "ada lovelace", affinity: 0.9, n: 9 }],
     });
-    const after = await all();
-    expect(new Set(after).size).toBe(after.length);
-    expect([...after].sort()).toEqual([...before].sort());
-    // The same, run again: the order is a function of the data alone
-    expect(await all()).toEqual(after);
-  });
-
-  it("fits first: a closer article stays ahead of a better-liked, shorter one", async () => {
-    const t = await ownerTest(modules);
-    await library(t, [
-      { title: "ten", minutes: 10, author: "Zed" },
-      { title: "six, adored", minutes: 6, author: "Ada Lovelace" },
-    ]);
-    await setProfile(t, OWNER, {
-      authors: [{ key: "ada lovelace", affinity: 1, n: 50 }],
-    });
-    const page = await t.query(api.suggestions.moreForWindow, {
-      requestedMinutes: 10,
-      paginationOpts: { numItems: 10, cursor: null },
-    });
-    expect(page.page.map((p) => p.title)).toEqual(["ten", "six, adored"]);
-    expect(page.page[1].reason).toBe(
-      "You usually finish pieces like this from this writer.",
+    const after = await all(4);
+    expect(after.map((p) => p.title)).toEqual(before.map((p) => p.title));
+    // Nor does the page size change the order
+    expect((await all(5)).map((p) => p.title)).toEqual(
+      before.map((p) => p.title),
     );
+    expect(after.every((p) => !p.reason.startsWith("You "))).toBe(true);
+    expect(new Set(after.map((p) => p.title)).size).toBe(after.length);
   });
 });

@@ -239,7 +239,9 @@ function writeCursor(status: Offered, inner: string | null | undefined) {
  * a time: annotated articles, then the deferred ones. The client appends pages
  * to the list it already shows, so the order must not shift between pages.
  * Articles of equal length are ordered by the index key; the paging test checks
- * that no page repeats or skips one.
+ * that no page repeats or skips one. Taste shapes only the deck's first picks
+ * (forWindow): re-ranking inside a page would make the order depend on where
+ * Convex splits it.
  */
 export const moreForWindow = query({
   args: {
@@ -289,55 +291,18 @@ export const moreForWindow = query({
         ? writeCursor(status, page.splitCursor)
         : page.splitCursor,
       page: [
-        ...(await rankPage(
-          ctx,
-          page.page
-            .filter((a) => a.bookUnitCount === undefined)
-            .map((article) => ({ article, readMin: readMinutesOf(article) }))
-            .filter(({ readMin }) => readMin <= targetMinutes),
-          targetMinutes,
-        )),
+        ...page.page
+          .filter((a) => a.bookUnitCount === undefined)
+          .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
+          .filter(({ readMin }) => readMin <= targetMinutes)
+          .map(({ article, readMin }) =>
+            toSuggestion(article, readMin, targetMinutes, true),
+          ),
         ...books,
       ],
     };
   },
 });
-
-/**
- * One page, closest length first with taste breaking near-ties: the same
- * bounded term as the deck, so fit still wins. Only this page's order moves,
- * never which articles are on it, so paging cannot repeat or skip one; an
- * equal score keeps the index order.
- */
-async function rankPage(
-  ctx: Reader,
-  fitting: { article: Doc<"articles">; readMin: number }[],
-  targetMinutes: number,
-) {
-  const taste = await loadTaste(
-    ctx,
-    fitting.map((f) => f.article),
-  );
-  const ranked = fitting
-    .map((f, position) => ({
-      ...f,
-      position,
-      taste: taste.get(f.article._id),
-      score:
-        -(targetMinutes - f.readMin) * 2 +
-        (taste.get(f.article._id)?.term ?? 0) * TASTE_MAX,
-    }))
-    .sort((a, b) => b.score - a.score || a.position - b.position);
-  return Promise.all(
-    ranked.map(async ({ article, readMin, taste }) => {
-      const suggestion = toSuggestion(article, readMin, targetMinutes, true);
-      return {
-        ...suggestion,
-        reason: (await tasteReason(ctx, taste)) ?? suggestion.reason,
-      };
-    }),
-  );
-}
 
 /**
  * The single shortest unread article, by the same length `readMinutesOf` gives

@@ -293,6 +293,75 @@ export const moveLinks = internalMutation({
       return null;
     }
 
+    await ctx.scheduler.runAfter(0, internal.tagMerge.finishMerge, {
+      userId,
+      suggestionId,
+    });
+    return null;
+  },
+});
+
+// Candidate tags read per transaction while their nearest-tag references move.
+// Each carries an embedding (about 15 KB).
+export const REDIRECT_BATCH = 30;
+
+/**
+ * Last phase of a merge. First points every candidate whose nearest tag was
+ * the merged one at the kept tag, a batch at a time (a candidate may link its
+ * nearest tag later, and a dangling ID would drop that link). Then, in one
+ * transaction that also checks no link to the merged tag is left, the kept tag
+ * takes the other's names as aliases and the other is removed, so a tag
+ * proposed under the old name from then on lands on the kept one.
+ */
+export const finishMerge = internalMutation({
+  args: {
+    userId: v.string(),
+    suggestionId: v.id("tagMergeSuggestions"),
+    cursor: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { userId, suggestionId, cursor }) => {
+    const sug = await ctx.db.get("tagMergeSuggestions", suggestionId);
+    if (sug?.userId !== userId || !sug.merging) return null;
+    if (!(await libraryIsActive(ctx, userId))) return null;
+    const [into, from] = await Promise.all([
+      ctx.db.get("tags", sug.into),
+      ctx.db.get("tags", sug.from),
+    ]);
+    if (into?.userId !== userId || from?.userId !== userId) {
+      await ctx.db.delete("tagMergeSuggestions", sug._id);
+      return null;
+    }
+    const page = await ctx.db
+      .query("tags")
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", userId).eq("status", "candidate"),
+      )
+      .paginate({ numItems: REDIRECT_BATCH, cursor: cursor ?? null });
+    for (const candidate of page.page)
+      if (candidate.nearestTagId === from._id)
+        await ctx.db.patch("tags", candidate._id, { nearestTagId: into._id });
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.tagMerge.finishMerge, {
+        userId,
+        suggestionId,
+        cursor: page.continueCursor,
+      });
+      return null;
+    }
+
+    // A link added while the candidates were being walked: move it first
+    const straggler = await ctx.db
+      .query("articleTags")
+      .withIndex("by_tag", (q) => q.eq("tagId", from._id))
+      .first();
+    if (straggler) {
+      await ctx.scheduler.runAfter(0, internal.tagMerge.moveLinks, {
+        userId,
+        suggestionId,
+      });
+      return null;
+    }
     const aliases = new Set([...into.aliases, from.key, ...from.aliases]);
     aliases.delete(into.key);
     await ctx.db.patch("tags", into._id, { aliases: [...aliases] });

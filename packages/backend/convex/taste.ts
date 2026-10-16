@@ -10,10 +10,11 @@ import {
   feedAffinities,
   normaliseAuthor,
   PROFILE_CAP,
-  type Tally,
   type Taste,
   type TasteProfile,
   tallyEntries,
+  tallyFromRows,
+  tallyToRows,
   tasteOf,
   whyLine,
 } from "./lib/taste";
@@ -37,9 +38,8 @@ const REFRESH_LAPSE_MS = 15 * 60_000;
 
 type Reader = Pick<QueryCtx, "db"> & { readerId: string };
 
-const tally = v.record(
-  v.string(),
-  v.object({ pos: v.number(), neg: v.number() }),
+const tally = v.array(
+  v.object({ key: v.string(), pos: v.number(), neg: v.number() }),
 );
 const event = v.object({
   articleId: v.id("articles"),
@@ -191,8 +191,8 @@ export const recompute = internalMutation({
       userId,
       events,
       offset: 0,
-      authors: {},
-      tags: {},
+      authors: [],
+      tags: [],
     });
     return null;
   },
@@ -211,8 +211,8 @@ export const accumulate = internalMutation({
   handler: async (ctx, args) => {
     const { userId } = args;
     if (!(await libraryIsActive(ctx, userId))) return null;
-    const authors: Tally = { ...args.authors };
-    const tags: Tally = { ...args.tags };
+    const authors = tallyFromRows(args.authors);
+    const tags = tallyFromRows(args.tags);
     for (const e of args.events.slice(args.offset, args.offset + STEP)) {
       const article = await ctx.db.get("articles", e.articleId);
       // Deleted articles keep their history rows but have nothing to credit
@@ -232,8 +232,8 @@ export const accumulate = internalMutation({
       await ctx.scheduler.runAfter(0, internal.taste.accumulate, {
         ...args,
         offset: next,
-        authors,
-        tags,
+        authors: tallyToRows(authors),
+        tags: tallyToRows(tags),
       });
       return null;
     }

@@ -3,6 +3,10 @@ import type { ownerTest } from "./owner";
 
 type Runner = Pick<Awaited<ReturnType<typeof ownerTest>>, "run" | "mutation">;
 
+// Jobs run by hand stay "pending" in the scheduler, so what was run is
+// remembered per test client across calls
+const ran = new WeakMap<object, Set<string>>();
+
 /**
  * Runs the named scheduled mutations by hand, oldest first, until none are
  * pending. Everything else stays queued, so no model call is attempted. Needs
@@ -12,7 +16,8 @@ export async function drain(
   t: Runner,
   handlers: Record<string, FunctionReference<"mutation", "internal">>,
 ) {
-  const done = new Set<string>();
+  const done = ran.get(t) ?? new Set<string>();
+  ran.set(t, done);
   for (let i = 0; i < 300; i++) {
     const jobs = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").take(1000),

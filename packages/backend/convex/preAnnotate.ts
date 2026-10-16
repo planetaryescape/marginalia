@@ -209,10 +209,11 @@ async function logRow(
 }
 
 /**
- * Starts the marginalia of the chosen articles and logs them with a control
- * sample. Everything is rechecked here, in the one transaction that flips each
- * article to pending and schedules it (as articles.annotateAhead does), so a
- * second run or a reader opening the article cannot start it twice.
+ * Hands each chosen article to its own transaction (startOne) and logs a
+ * control sample. Starting an article re-reads its whole row several times
+ * (status change, queue counters), and rows can hold about 900 KB, so five in
+ * one transaction could pass the 16 MiB read limit. This transaction reads no
+ * article.
  */
 export const commit = internalMutation({
   args: {
@@ -225,47 +226,20 @@ export const commit = internalMutation({
     if (!(await libraryIsActive(ctx, userId))) return 0;
     if (!(await hasProvider(ctx, userId))) return 0;
     const now = Date.now();
-    let room = DAILY_CAP - (await usedToday(ctx, userId, now));
-    const started = new Set<Id<"articles">>();
-    for (const picked of best) {
-      if (room <= 0) break;
-      const article = await ctx.db.get("articles", picked.articleId);
-      if (
-        article?.userId !== userId ||
-        article.annotationStatus !== "deferred" ||
-        article.finishedAt !== undefined ||
-        !needsAnnotationStart(article) ||
-        claimed(article, now)
-      )
-        continue;
-      const logged = await ctx.db
-        .query("preAnnotations")
-        .withIndex("by_user_article", (q) =>
-          q.eq("userId", userId).eq("articleId", article._id),
-        )
-        .first();
-      if (logged) continue;
-      await setAnnotationStatus(ctx, article._id, "pending");
+    const room = DAILY_CAP - (await usedToday(ctx, userId, now));
+    const picked = best.slice(0, Math.max(0, room));
+    for (const [index, p] of picked.entries())
       await ctx.scheduler.runAfter(
-        started.size * STAGGER_MS,
-        internal.actions.generateAnnotations.generateForArticle,
-        { articleId: article._id },
+        index * STAGGER_MS,
+        internal.preAnnotate.startOne,
+        { userId, ...p },
       );
-      await logRow(
-        ctx,
-        userId,
-        article._id,
-        { group: "chosen", ...picked },
-        now,
-      );
-      started.add(article._id);
-      room--;
-    }
-    // A control for each article started, drawn from what was passed over
-    let wanted = started.size;
+    // A control for each article handed over, drawn from what was passed over
+    const chosen = new Set(picked.map((p) => p.articleId));
+    let wanted = picked.length;
     for (const c of controls) {
       if (wanted <= 0) break;
-      if (started.has(c.articleId)) continue;
+      if (chosen.has(c.articleId)) continue;
       const logged = await ctx.db
         .query("preAnnotations")
         .withIndex("by_user_article", (q) =>
@@ -276,20 +250,62 @@ export const commit = internalMutation({
       await logRow(ctx, userId, c.articleId, { group: "control" }, now);
       wanted--;
     }
-    console.info(
-      JSON.stringify({
-        job: "preAnnotate",
-        started: started.size,
-        chosen: best
-          .filter((b) => started.has(b.articleId))
-          .map((b) => ({
-            articleId: b.articleId,
-            because: b.source,
-            term: b.term,
-          })),
-      }),
+    return picked.length;
+  },
+});
+
+/**
+ * Starts one chosen article in a transaction of its own. The allowance is
+ * checked and spent here, with the article's status change and its log row,
+ * so concurrent runs cannot overspend it, and a reader opening the article
+ * first (or the backfill claiming it) just means it is not started.
+ */
+export const startOne = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    term: v.number(),
+    source: choice.fields.source,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, { userId, articleId, term, source }) => {
+    if (!(await libraryIsActive(ctx, userId))) return false;
+    if (!(await hasProvider(ctx, userId))) return false;
+    const now = Date.now();
+    if ((await usedToday(ctx, userId, now)) >= DAILY_CAP) return false;
+    const logged = await ctx.db
+      .query("preAnnotations")
+      .withIndex("by_user_article", (q) =>
+        q.eq("userId", userId).eq("articleId", articleId),
+      )
+      .first();
+    if (logged) return false;
+    const article = await ctx.db.get("articles", articleId);
+    if (
+      article?.userId !== userId ||
+      article.annotationStatus !== "deferred" ||
+      article.finishedAt !== undefined ||
+      !needsAnnotationStart(article) ||
+      claimed(article, now)
+    )
+      return false;
+    await setAnnotationStatus(ctx, articleId, "pending");
+    await ctx.scheduler.runAfter(
+      0,
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId },
     );
-    return started.size;
+    await logRow(
+      ctx,
+      userId,
+      articleId,
+      { group: "chosen", term, source },
+      now,
+    );
+    console.info(
+      JSON.stringify({ job: "preAnnotate", articleId, because: source, term }),
+    );
+    return true;
   },
 });
 
