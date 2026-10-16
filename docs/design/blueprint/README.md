@@ -13,7 +13,7 @@ Marginalia was built feature by feature, and on 2026-10-16 BK judged that the de
 | 02 | [Design concept](02-design-concept.md) | The concept, the map, journeys, shared patterns, key moments, tokens, motion, the design gate |
 | 03 | [Reader](03-reader.md) | The page, margin sidenotes, toolbar, front and back matter, finishing, phone |
 | 04 | [Desk](04-desk.md) | Hierarchy, time choices, the pick on the desk, Continue, topic search, bringing your own, empty and error |
-| 05 | [Library, Notes and Your week](05-library-notes-week.md) | The two rooms, shelves, the commonplace book |
+| 05 | [Library, Notes and Your reading](05-library-notes-week.md) | The rooms: shelves, the commonplace book, stats and the dictionary |
 | 06 | [Sources and settings](06-sources-and-settings.md) | The avatar menu and one form pattern for Sources, Account and Readers |
 | 07 | [Roadmap](07-roadmap.md) | Seven rungs, each deployed and gated on design |
 | 08 | [Decisions](08-decisions.md) | Every decision with its attribution and rejected options |

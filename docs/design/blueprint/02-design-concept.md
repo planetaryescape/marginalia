@@ -66,7 +66,7 @@ Margin notes come in nine kinds in three families (D-DES-038, [Note kinds](#note
    room, never a page)                ▼                                ▼
                       ┌──── Reader  /read/:id ────┐        ┌── Library ──┐  ┌── Notes ─────────┐
                       │ front matter · page ·     │        │ ask · shelves│  │ notes · marks ·  │
-                      │ margin · back matter      │        │ Up next      │  │ Your week        │
+                      │ margin · back matter      │        │ Up next      │  │ (kept answers)   │
                       │ Esc / Back → where you    │        │ Saved · Loved│  └──────────────────┘
                       │ came from                 │        │ Finished     │
                       └───────────────────────────┘        └──────────────┘

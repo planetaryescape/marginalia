@@ -1,4 +1,4 @@
-# 05: Library, Notes and Your week
+# 05: Library, Notes and Your reading
 
 These are the rooms besides the desk (D-DES-024): Library, Notes, and Your reading (D-DES-060). **Library** is everything you have, and **Notes** is everything you kept. Today they're spread across five destinations: Library, Saved, Notes, This week and the Library impressions column. Behaviour stays. What changes is where things live, and how they look in the concept's terms ([02](02-design-concept.md)).
 
