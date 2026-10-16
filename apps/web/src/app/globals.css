@@ -358,9 +358,13 @@ article[data-margin="phone"] .annotation-mark::after {
 .sidenote-tick {
   position: absolute;
   left: calc(var(--sidenote-left) - 28px);
-  width: 6px;
-  height: 2px;
+  width: 8px;
+  height: 3px;
+  border-radius: 1px;
   background: var(--tick-colour, var(--pen));
+  /* Highlighter colours are translucent; the tick takes the same hue at full
+     strength so a yellow mark's tick is still easy to see */
+  background: rgb(from var(--tick-colour, var(--pen)) r g b / 1);
 }
 
 .sidenote-waiting {
