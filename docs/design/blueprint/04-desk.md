@@ -60,19 +60,19 @@ A field guide to slow software                                   8 min left
 
 The progress bar is in `--ink-muted` with an ink fill. It's progress, not the reader's mark, so it isn't pen-coloured (D-DES-020). The minutes shown are what is *left*, so Continue answers the same question as the time choices. `c` opens the article. Choosing a time replaces Continue in the slot, and Esc brings it back.
 
-## Up next
+## Up next lives in Library
 
-Three rows: serif title, then one meta line (source · minutes · "annotating" if annotation is still running). Rows are separated by hairline rules, with no boxes (principle 6).
+Up next is no longer on the desk (D-DES-035). It's a Library shelf ([05](05-library-notes-week.md#library)), and archiving moves with it: today the archive action exists only on the desk's Up next rows (`(desk)/page.tsx`, origin/main `de6f560`), so the rung that removes the rows from the desk adds the shelf with archive in the same release (D-DES-052).
 
-The archive action (today's icon button) appears at the row's right on hover and on keyboard focus within the row. It's always visible on touch devices (`apps/web/DESIGN.md`: delete must be reachable by keyboard and touch). Archiving slides the row out (`--motion-move`) and shows the existing Undo toast.
+On the shelf, each row is a serif title and one meta line (source · minutes · "annotating" if annotation is still running), separated by hairlines. The archive action appears at the row's right on hover and on keyboard focus, and is always visible on touch devices (`apps/web/DESIGN.md`: delete must be reachable by keyboard and touch). Archiving slides the row out (`--motion-move`) with the existing Undo toast.
 
 ## Topic search: the second way in
 
 Typing a topic into the bar is the second way to the same moment (D-DES-036). It answers one article at a time, like a time choice: the best match, its reading time, and one pencil line on why it matches, with Read now, Another and Save for later.
 
 - **Fast first.** Today the bar waits 600 ms after typing (`article-finder.tsx#L63`), then embeds the question, searches the library and asks a model to rank and explain the matches before showing anything (`http.ts#L488`). The first card comes from the search alone and appears at once; the model's explanation then fills the reason line on that card in place, without replacing the article. S5 measures today's latency and the target.
-- **One at a time.** No list in the bar. The Library room keeps the full list for deliberate browsing (Q16).
-- **With a time chosen,** a topic only offers articles that fit it, and says so when none do (Q14, Q15).
+- **One at a time.** No list in the bar. The Library room keeps the full list for deliberate browsing (Q16, D-DES-052).
+- **With a time chosen,** a topic only offers articles that fit it. When none do, it says so and offers the shortest article on that topic as a labelled choice (Q14, Q15, D-DES-052).
 
 ## Bringing your own
 
@@ -99,13 +99,13 @@ A quiet field-shaped button with the glass icon and "Ask, or paste a link". It o
 
 ## Phone (390×844)
 
-- The question in `--type-display` at its clamp minimum, then the slot, then the time choices as a row of four numerals, then search, then as many Up next rows as fit (today's behaviour on short screens).
+- The question in `--type-display` at its clamp minimum, then the slot, then the time choices as a row of four numerals, then the bar. Nothing else.
 - A bottom bar with four slots: Desk, Library, Notes, Search (D-DES-024).
 - No date line on screens shorter than 700 px.
 
 ## Done when (desk)
 
-- At 1440×900 and 390×844, in all six themes, the desk shows no more than the seven elements above, with no keycaps and nothing pen-coloured.
+- At 1440×900 and 390×844, in all six themes, the desk shows no more than the six elements above, with no keycaps and nothing pen-coloured.
 - Choosing a time shows the pick in the slot without leaving the desk. With a warm prefetch, the pick appears within 150 ms of the choice, measured on the deployed app (S3).
-- Archive is reachable by keyboard and touch, slides the row out, and Undo restores it.
+- Archive is reachable from Library's Up next shelf by keyboard and touch, slides the row out, and Undo restores it.
 - The design gate in [02](02-design-concept.md#the-design-gate) passes for the desk's journeys 1 and 2.

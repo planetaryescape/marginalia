@@ -31,10 +31,10 @@ For each spike, record what was tried, the result, the date and the conclusion u
 | Q11 | Move "Re-annotate with latest vault" into the article's overflow menu? | Answered by BK 2026-10-16: yes (D-DES-029) |
 | Q12 | When you choose a time, should the pick appear on the desk itself instead of on a separate full-screen page? | Answered by BK 2026-10-16: on the desk, in the main slot (D-DES-030) |
 | Q13 | Should Up next leave the desk entirely, so the desk is only the question, the slot and search? Three rows are a small queue, which is what D-DES-033 avoids. | Answered by BK 2026-10-16: remove Up next from the desk; it lives in Library (D-DES-035) |
-| Q14 | With a time chosen, should a topic search offer only articles that fit it? | Open; blueprint assumes yes |
-| Q15 | When no article on a topic fits the time, should it say so and offer the shortest on that topic? | Open; blueprint assumes yes, as for time choices (D-DES-034) |
-| Q16 | Should Library keep the full list of topic matches for deliberate browsing? | Open; blueprint assumes yes |
-| Q17 | In the link menu, are "bookmark" and "add to reader" one action, Save for later into Marginalia's library? | Open; blueprint assumes one action (D-DES-044) |
+| Q14 | With a time chosen, should a topic search offer only articles that fit it? | Decided by Claude, delegated by BK 2026-10-16: yes (D-DES-052) |
+| Q15 | When no article on a topic fits the time, should it say so and offer the shortest on that topic? | Decided by Claude, delegated by BK 2026-10-16: yes (D-DES-052) |
+| Q16 | Should Library keep the full list of topic matches for deliberate browsing? | Decided by Claude, delegated by BK 2026-10-16: yes (D-DES-052) |
+| Q17 | In the link menu, are "bookmark" and "add to reader" one action, Save for later into Marginalia's library? | Decided by Claude, delegated by BK 2026-10-16: one action, Save for later (D-DES-052) |
 
 ### S4 result (2026-10-16)
 

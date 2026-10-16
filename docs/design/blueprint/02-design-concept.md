@@ -2,7 +2,7 @@
 
 This document decides what Marginalia is to the person using it and how it should feel. Every screen in [03](03-reader.md)–[06](06-sources-and-settings.md) is written in its terms. It exists because Marginalia's features were each built to spec and the whole was never designed (D-DES-001). A builder who follows only the behaviour sections will rebuild today's app. This document is what's different.
 
-BK didn't state a concept. The one below is the blueprint's proposal, built on what he did say and on the code's own vocabulary. It is filed as Q1 (D-DES-018).
+The concept below was the blueprint's proposal, built on BK's words and the code's own vocabulary, and BK confirmed it (D-DES-018, D-DES-029). It rests on the foundation in [00](00-overview.md#the-foundation-ai-as-a-thinking-partner): AI as a thinking partner (D-DES-051). Pencil and pen are that partnership made visible: Marginalia's contributions look like suggestions, BK's look like his.
 
 ## What this is to the person
 
@@ -42,8 +42,8 @@ These are the words the reader thinks in. Every screen, button, empty state, toa
 |---|---|---|
 | **Desk** | The home screen, where you choose what to read next | Home |
 | **Article** | One piece of writing | "piece", "document", "item" |
-| **Up next** | Unread articles the desk offers, newest and best-fitting first | queue, "fit" |
-| **Margin note** | A note Marginalia wrote beside a line (kinds: connection, context, tension, question) | annotation, cross-reference, "open note" |
+| **Up next** | Unread articles waiting, as a Library shelf; the desk offers one at a time and never shows the shelf (D-DES-035) | queue, "fit" |
+| **Margin note** | A note Marginalia wrote beside a line, of one of nine kinds in three families ([Note kinds](#note-kinds)) | annotation, cross-reference, "open note" |
 | **Marks** | Your highlights and pen underlines | highlight, pen mark |
 | **Note** | Something you wrote, about a line or the whole article | user note |
 | **Impression** | Your stars, tags and "what stayed with you" after reading | rating, impressions |
@@ -51,13 +51,13 @@ These are the words the reader thinks in. Every screen, button, empty state, toa
 | **Notes** | Your commonplace book of notes and marks, plus Your week | Notes, This week, Activity, Reading activity |
 | **Sources** | Where articles come from: feeds, Readwise Reader, links, the API | Sources, feeds |
 
-The four margin-note kinds keep their colours (D-DES-017). In the interface they're named in plain words: connection (today's "cross-reference"), context, tension and question.
+Margin notes come in nine kinds in three families (D-DES-038, [Note kinds](#note-kinds)), named in plain words in the interface: "connection", never "cross-reference".
 
 ### The map
 
 ```
                       ┌─────────────────────────── Desk  / ───────────────────────────┐
-  `/` anywhere ──────▶│  the question · the next read · up next                       │
+  `/` anywhere ──────▶│  the question · the next read · the bar                       │
   search picker       └───────────────┬───────────────────────────────┬───────────────┘
   (floats over any                    │ open an article                │ rooms (header)
    room, never a page)                ▼                                ▼
@@ -73,7 +73,8 @@ The four margin-note kinds keep their colours (D-DES-017). In the interface they
 
 - **Always present on desk-frame pages:** the header with the wordmark, three rooms (Desk is the wordmark) and the avatar menu. On a phone, a four-slot bottom bar: Desk, Library, Notes, and a search button that opens the picker.
 - **Replaces the page:** the reader. It's a separate frame with its own toolbar, because reading is a different posture.
-- **Opens on top:** the search picker, the account menu, the reader's settings, notes, ask and summary panels. Each closes with Esc and returns focus where it was (`useModalDialog`).
+- **Opens on top:** the search picker, the account menu and the reader's settings. Each closes with Esc and returns focus where it was (`useModalDialog`).
+- **Opens beside, never blocking:** the reader's notes pane docks beside the text, and the article stays usable while it's open (D-DES-050). Answers and summaries open in the margin and front matter, not on top.
 - **Getting back:** Esc or Back in the reader returns to the exact room and scroll position you came from, not always to the desk.
 
 ### The journeys, end to end
@@ -83,7 +84,7 @@ The four margin-note kinds keep their colours (D-DES-017). In the interface they
    - They choose 10 (or press `2`), and the desk's main slot fills with one pick and the reason it fits (D-DES-028).
    - They open it, and the title travels from the slot to the top of the page (S1).
    - Margin notes are already in the margin.
-   - At the end, back matter offers an impression. Done lays the article down: it leaves Up next, and the desk shows the next pick.
+   - At the end, back matter offers an impression. Done lays the article down: it's finished, and the desk offers the next pick.
    - *What carries over:* the time chosen (the pick's length), the article's place, and where you came from.
 2. **"Pick up where I left off."** The desk shows the article in progress in the main slot, above the time choices, as "Continue". Opening it restores the exact paragraph, and the paragraph map shows the place.
 3. **"What did I think about X?"**
@@ -125,7 +126,7 @@ The surfaces are the desktop web app, the installed phone PWA, the API that othe
 The reader always knows, without asking:
 
 - **What's saved:** everything is saved as you go. A note's "Saved" mark appears beside it. A failed save stays visible with Retry (current behaviour, D-DES-006).
-- **What's still being annotated:** an article whose margin notes are still being written shows a pencil line writing itself in the margin, top right. On the desk, its row says "annotating" in muted meta.
+- **What's still being annotated:** an article whose margin notes are still being written shows a pencil line writing itself in the margin, top right. In Library's rows, it says "annotating" in muted meta.
 - **Where sources stand:** one line in the avatar menu ("Synced 12 min ago"), and a status dot on the avatar only when a source has failed.
 
 ## Principles
@@ -149,7 +150,7 @@ The reader always knows, without asking:
 | A margin note arriving | "Someone read this with me." | As the line scrolls into view, the note's connector draws from the line's end into the margin (240 ms), then the text fades in. Each note arrives once. It doesn't redraw on scroll back. |
 | Marking a passage | "That's mine now." | The highlighter sweeps left to right across the selection (180 ms) in the reader's colour. A small pen tick appears in the margin at that line. |
 | Asking | "A good answer, beside the text." | The answer writes into the margin card in pencil, beside the passage, with ¶ references that scroll and pulse the paragraph they cite. |
-| Finishing | "Done. That was worth it." | At the end, back matter appears ("Before you go", impression stars). Pressing Done gives a soft page-turn fade back to the desk. The finished article's row slides out of Up next and the next pick slides into the slot. No confetti and no streaks. |
+| Finishing | "Done. That was worth it." | At the end, back matter appears ("Before you go", impression stars). Pressing Done gives a soft page-turn fade back to the desk. The next pick slides into the slot. No confetti and no streaks. |
 | Looking something up | "I understood it and kept going." | Define, Explain, Simplify or Ask writes its answer in pencil in the margin beside the passage. Nothing opens elsewhere. The answer stays while the article is open, even across a refresh, and a quiet **Keep** saves it to Notes (D-DES-039, D-DES-045). |
 | A link in the article | "I can follow that later." | Clicking a link opens a small menu with the link's title and domain: **Save for later**, then **Open in background** last. Nothing navigates (D-DES-044). |
 | A connection to another article | "I'll read that one day." | A connection note names the other article with its reading time and offers **Save for later**, never a link. Saved articles come back to you as picks (D-DES-040). |
@@ -223,7 +224,7 @@ Lucide, as today, at 1.5 stroke and 18 px in toolbars and 16 px inline. Icons ap
 
 ### Density
 
-Calm. The desk shows at most about seven things above the fold ([04](04-desk.md#hierarchy)). Rows get 14–16 px vertical padding. Room pages run to 1180 px, with the main column 680 px and a 320 px side column used on purpose, or not at all.
+Calm. The desk shows at most six things above the fold ([04](04-desk.md#hierarchy)). Rows get 14–16 px vertical padding. Room pages run to 1180 px, with the main column 680 px and a 320 px side column used on purpose, or not at all.
 
 ## Motion
 
@@ -243,7 +244,7 @@ Reduced motion (`prefers-reduced-motion: reduce`): every move becomes a 120 ms o
 
 | Screen | Primary | Secondary | Hidden until asked | Left off, and why |
 |---|---|---|---|---|
-| Desk | The question; the one pick or Continue | Time choices; search field; three Up next rows | Keycaps; counts per window; sync detail; "Worth revisiting" when Continue is shown | The right-hand timeline (notes, ratings, sources): it's Notes' and Library's job, not the desk's |
+| Desk | The question; the one pick or Continue | Time choices; the bar | Keycaps; counts per window; sync detail; "Worth revisiting" when Continue is shown | The right-hand timeline (notes, ratings, sources): it's Notes' and Library's job, not the desk's |
 | Reader | The text | Margin notes in pencil; the paragraph map | Toolbar (fades while reading); rating; love; settings | GitHub; re-annotate (overflow menu); time-left counter (in the map's tooltip) |
 | Library | The ask field | Shelves; results | Filters | Example prompts as four pill buttons: show two, as plain text |
 | Notes | Your words | The line each is about; the article | AI answers you saved (collapsed to one line) | Boxes around every note |
@@ -251,7 +252,7 @@ Reduced motion (`prefers-reduced-motion: reduce`): every move becomes a 120 ms o
 
 ## Taste references
 
-BK named no references, so these are assumed (Q2). Each is here for one quality, not its features.
+BK confirmed these references (D-DES-029). Each is here for one quality, not its features.
 
 - **Tufte-style sidenotes (tufte-css) and gwern.net.** Notes set beside the line they belong to, in the margin the page already has. We take the sidenote placement and the quiet secondary voice. We don't take gwern's density or popups-within-popups.
 - **iA Writer.** Type does the design work. Chrome disappears while you work and returns when you reach for it. We take the fading chrome and the confidence of one typeface at a few sizes.
@@ -280,14 +281,9 @@ Behaviour is in the domain documents. This section says how each main screen sho
   CONTINUE
   A field guide to slow software                                         8 min left
   ▬▬▬▬▬▬───────────────────────────────
-  ────────────────────────────────────────────────────────────────────────────────────
-  Up next
-  On writing in the margins                   example.com · 6 min
-  The case for boring technology             example.org · 6 min
-  The essay you saved on Tuesday              example.com · 12 min
 ```
 
-The eye lands on the question, then on the one article already chosen. Time choices are a row of plain numerals in Newsreader, not boxes; the chosen one stays lit. The rest is three rows. It should feel like a tidy desk with one book open on it. Detail: [04](04-desk.md).
+The eye lands on the question, then on the one article already chosen. Time choices are a row of plain numerals in Newsreader, not boxes; the chosen one stays lit. There is no list. It should feel like a tidy desk with one book open on it. Detail: [04](04-desk.md).
 
 ### Reader, wide
 

@@ -107,6 +107,7 @@ The menu keeps its actions (Ask, Explain, Simplify, Define, Highlight, Underline
 - **Order by hand:** first the pen actions that mark the page (Highlight, Underline, Note), then a hairline, then the pencil actions that ask Marginalia (Explain, Simplify, Define, Ask), then Copy.
 - **Highlight:** sweeps the selection (`--motion-sweep`) and adds a pen tick in the margin.
 - **Explain, Simplify, Define and Ask:** each opens its answer as an open note in the margin beside the passage (on phones, in the flow below it), not in a separate panel. Answers write in pencil as they stream. ¶ references in an answer are links that scroll to and briefly wash the cited paragraph. These tools exist so BK never leaves the page to understand something (D-DES-039).
+- **Kept answers mark their passage in pencil**, a faint `--surface` wash or a `--pencil-rule` underline, never in the highlighter colour. Today `companion-saved` marks look like BK's own highlights, which blurs whose hand is whose (D-DES-020, D-DES-051).
 - **Answers are temporary until kept.** An answer stays in the margin while the article is open, including across a refresh, and disappears when the article is closed. **Keep** on the answer saves it to Notes. A follow-up doesn't keep it. Today every finished answer is saved automatically (`apps/web/src/lib/companion.ts#L204`); that changes (D-DES-045).
 - **Length:** an answer is as long as it needs to be and no longer. A definition is a line; an explanation a short paragraph; Ask runs longer only when the question needs it (D-DES-042).
 
@@ -140,7 +141,7 @@ The floating "Ask about this article /" pill stays on wide screens, but it must 
 
 ## Notes panel
 
-The side panel stays for the list of all notes on this article (`n`), with three changes:
+The side panel stays for the list of all notes on this article (`n`). It docks beside the text and never blocks the article: BK can scroll, select, highlight and start another note while it's open (D-DES-050). On phones it's a half-height sheet. Three changes remain:
 
 - **Your words lead:** your text in `--type-ui` ink with a 2 px pen rule on its left. A saved AI answer is collapsed to its first line in pencil, with "Marginalia's answer" in meta, and expands on click.
 - **Quoted lines** stay italic serif in `--ink-muted`.
@@ -159,7 +160,7 @@ Nothing moves on automatically (D-DES-038). The back matter is a pause for refle
 Pressing Done marks the article finished:
 
 - The page fades over `--motion-page` to wherever the reader came from.
-- On the desk, the article's row leaves Up next and the next pick fills the slot (D-DES-010).
+- On the desk, the next pick fills the slot (D-DES-010).
 - No toast. The article simply isn't offered again.
 - Auto-finish (end reached after 40% of the estimated time) shows a one-line "Finished · Mark unread" note at the bottom of the back matter instead of acting silently.
 

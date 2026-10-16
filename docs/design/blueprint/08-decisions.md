@@ -144,7 +144,7 @@ Change a decision only by adding a new entry that replaces the old one.
 
 ### D-DES-035: Up next leaves the desk; it lives only as a Library shelf. (BK)
 - **BK, 2026-10-16, answering Q13:** remove it from Home.
-- **Why:** a list of what's waiting is the pile in miniature (D-DES-033). The desk is the question, the one pick or Continue, and search. The Up next section in [04](04-desk.md#up-next) now describes the Library shelf's rows, and archiving from them moves with it.
+- **Why:** a list of what's waiting is the pile in miniature (D-DES-033). The desk is the question, the one pick or Continue, and search. The Up next section in [04](04-desk.md#up-next-lives-in-library) now describes the Library shelf's rows, and archiving from them moves with it.
 
 ### D-DES-036: Topic search is the second way in, and it answers one article at a time, fast. (BK)
 - **BK, 2026-10-16:** "The othe way of finding what to read is opening the bar and saying the topic I want to read about then I get the articles that I could read (with a clear annotation of reading time). This fits into the philosophy, the problem I have with how it works today is two things: 1: it takes too long to return a result, i might have bounced by then. 2: it still gives me a list after that which can be overwhelming, we should keep the thing from the time selector where the articles are presented to me one by one."
@@ -199,3 +199,21 @@ Change a decision only by adding a new entry that replaces the old one.
 ### D-DES-049: An opened margin note pushes the notes below it down; it never floats over them. (BK)
 - **BK, 2026-10-16, on the live margin:** "this kinda looks ugly, with the popover on top of the othe marginalia, it's weird, mabe when you expand one, it pushes the other compressed ones as it opens so that it feels nicer".
 - **Replaces** S2's rule 7 (an open note floats and re-runs no collisions). The open note stays in the column at the column's width; notes below slide down by transform over `--motion-move` and back on close; notes above stay.
+
+### D-DES-050: The reader's notes pane is non-modal: the article stays usable while it's open. (BK)
+- **BK, 2026-10-16:** "the notes pane when it's open I can't do anything, I don't like that" and "I wan tto be able to have notes open and still do things on the article".
+- **Shipped** at origin/main `76d3820`: the pane is an `<aside>`, not an open `<dialog>`; on wide screens it docks at 380 px and the text shifts left (`--notes-inset`); on phones it's a half-height sheet. A new passage selected while a note is open saves the first note before starting the second.
+- **Invariant:** never use an open `<dialog>` for non-blocking UI; `lib/shortcuts.ts` and `margin-card.tsx` treat `dialog[open]` as modal.
+
+### D-DES-051: The foundation: AI as a thinking partner. It thinks with BK, never for him, and never waits to be told. (BK)
+- **BK, 2026-10-16:** "This whole app fits in the philosophy I believe in that AI should be a thinking partner. It's not thinking for me and I'm not thinking for it and just telling it what to do. It's thinking with me and we're working together. It's augmenting my thinking"
+- **BK, on recording it:** "this is a foundational principle so you should explain it well."
+- **Why it's first:** every product decision in this log is a case of it: one article instead of a pile (D-DES-033), a fair critical friend (D-DES-037, D-DES-038), tools on the page (D-DES-039), temporary answers and permanent reflections (D-DES-045), pencil for Marginalia and pen for BK (D-DES-018, D-DES-020). The full statement and its three tests are in [00](00-overview.md#the-foundation-ai-as-a-thinking-partner).
+- **Rules out:** auto-concluding features (a generated "what you thought", an automatic rating, a summary that replaces reading), features that wait for instructions where a partner would notice, and anything that blurs Marginalia's hand with BK's.
+
+### D-DES-052: The remaining ladder, the archive home and the topic-search defaults. (Claude, delegated by BK)
+- **BK, 2026-10-16:** "You can decide for me on the toherr questions."
+- **Order:** finish the reader (2a, 2b), then the front door (3, 3c), then links, the summary and the critical friend (2d, 2e, 2c, 2f), then PDF (3b), then rooms, Notes, settings and motion (4–7). Why: the reader items are small and BK uses them daily; the desk is the core promise and unblocks topic search; the annotation work is the largest and needs S6.
+- **Archive:** rung 3 adds a minimal Up next shelf with archive to Library when it removes Up next from the desk, because the desk's rows are the only place archiving exists today. Rung 4 restyles it.
+- **Topic search:** respects a chosen time (Q14), offers the shortest article on the topic when nothing fits (Q15), and Library keeps the full list (Q16). "Bookmark" and "add to reader" in the link menu are one action, Save for later (Q17).
+- **Re-annotation (BK):** "yeah you can reannotate after we fix the annotation stuff." The unread library is re-annotated once, after rung 2c's annotation changes are live, so existing articles get the new kinds.
