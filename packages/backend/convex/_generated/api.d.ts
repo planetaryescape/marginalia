@@ -115,6 +115,7 @@ import type * as limits from "../limits.js";
 import type * as lookups from "../lookups.js";
 import type * as lovedArticles from "../lovedArticles.js";
 import type * as noteChunks from "../noteChunks.js";
+import type * as notesSearch from "../notesSearch.js";
 import type * as preAnnotate from "../preAnnotate.js";
 import type * as providerCredentials from "../providerCredentials.js";
 import type * as queryEmbeddings from "../queryEmbeddings.js";
@@ -253,6 +254,7 @@ declare const fullApi: ApiFromModules<{
   lookups: typeof lookups;
   lovedArticles: typeof lovedArticles;
   noteChunks: typeof noteChunks;
+  notesSearch: typeof notesSearch;
   preAnnotate: typeof preAnnotate;
   providerCredentials: typeof providerCredentials;
   queryEmbeddings: typeof queryEmbeddings;

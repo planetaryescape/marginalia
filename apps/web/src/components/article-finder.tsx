@@ -8,6 +8,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PdfPickerButton } from "@/components/desk/pdf-picker";
+import {
+  FinderNotes,
+  noteHitLink,
+  noteOptionId,
+  useNoteHits,
+} from "@/components/finder-notes";
 import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
 import {
   isOnControl,
@@ -73,6 +79,8 @@ export function ArticleFinder({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [position, setPosition] = useState(0);
+  // The note the arrow keys are on, after the last article card; null is the card
+  const [noteIndex, setNoteIndex] = useState<number | null>(null);
   const [limitCleared, setLimitCleared] = useState(false);
   const [saved, setSaved] = useState<ReadonlySet<string>>(new Set());
   const [saveFailed, setSaveFailed] = useState<{
@@ -88,6 +96,8 @@ export function ArticleFinder({
   const isLink = URL_PATTERN.test(text);
   const searching = open && text.length >= 2 && !isLink;
   const result = useTopicSearch(text, searching, retry);
+  const noteHits = useNoteHits(text, searching);
+  const noteSelected = noteIndex !== null ? noteHits[noteIndex] : undefined;
   const limit = limitCleared ? null : windowMinutes;
   useShortcuts({ "/": () => setOpen(true) }, true, {
     help: {
@@ -137,6 +147,18 @@ export function ArticleFinder({
   const go = (articleId: string) => {
     setOpen(false);
     router.push(`/read/${articleId}`);
+  };
+  // Arrow keys step through the cards, then on into the notes.
+  const down = () => {
+    if (noteIndex !== null) {
+      setNoteIndex(Math.min(noteIndex + 1, noteHits.length - 1));
+    } else if (shown?.hasNext) another();
+    else if (noteHits.length) setNoteIndex(0);
+  };
+  const up = () => {
+    if (noteIndex !== null)
+      setNoteIndex(noteIndex === 0 ? null : noteIndex - 1);
+    else previous();
   };
   const clearLimit = () => {
     setLimitCleared(true);
@@ -191,7 +213,10 @@ export function ArticleFinder({
   };
   const readNow = () => {
     if (isLink) void fromLink(true);
-    else if (shown) go(shown.match.articleId);
+    else if (noteSelected) {
+      setOpen(false);
+      router.push(noteHitLink(noteSelected));
+    } else if (shown) go(shown.match.articleId);
   };
 
   const reason = shown && result.reasons[shown.match.articleId];
@@ -203,11 +228,12 @@ export function ArticleFinder({
     const native = e.nativeEvent;
     if (native.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
     const typing = isTypingTarget(e.target);
-    if (e.key === "ArrowDown" || (!typing && e.key === "j")) another();
-    else if (e.key === "ArrowUp" || (!typing && e.key === "k")) previous();
+    if (e.key === "ArrowDown" || (!typing && e.key === "j")) down();
+    else if (e.key === "ArrowUp" || (!typing && e.key === "k")) up();
     else if (!typing && e.key === "s") {
       if (isLink) void fromLink(false);
-      else if (shown && !savedShown) void save(shown.match.articleId);
+      else if (shown && !savedShown && !noteSelected)
+        void save(shown.match.articleId);
       else return;
     } else if (!typing && e.key === "Enter" && !isOnControl(native)) readNow();
     else return;
@@ -267,14 +293,19 @@ export function ArticleFinder({
             onChange={(e) => {
               setQuery(e.target.value);
               setPosition(0);
+              setNoteIndex(null);
               onType?.();
             }}
             role="combobox"
             aria-autocomplete="list"
-            aria-expanded={Boolean(shown)}
-            aria-controls={`${id}-results`}
+            aria-expanded={Boolean(shown) || noteHits.length > 0}
+            aria-controls={noteSelected ? `${id}-notes` : `${id}-results`}
             aria-activedescendant={
-              shown ? `${id}-option-${shown.match.articleId}` : undefined
+              noteSelected
+                ? noteOptionId(id, noteIndex ?? 0)
+                : shown
+                  ? `${id}-option-${shown.match.articleId}`
+                  : undefined
             }
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing && e.key === "Enter")
@@ -379,7 +410,7 @@ export function ArticleFinder({
                 <div
                   id={`${id}-option-${shown.match.articleId}`}
                   role="option"
-                  aria-selected="true"
+                  aria-selected={!noteSelected}
                 >
                   <p className={labelClass}>
                     About {text}
@@ -410,7 +441,7 @@ export function ArticleFinder({
                   type="button"
                   className={primaryClass}
                   aria-keyshortcuts="Enter"
-                  onClick={readNow}
+                  onClick={() => go(shown.match.articleId)}
                 >
                   Read now
                 </button>
@@ -506,6 +537,15 @@ export function ArticleFinder({
               Nothing in your library fits that yet. Try another topic or paste
               a link.
             </p>
+          )}
+          {searching && (
+            <FinderNotes
+              hits={noteHits}
+              selected={noteIndex}
+              idPrefix={id}
+              labelClass={labelClass}
+              onOpen={() => setOpen(false)}
+            />
           )}
           {searching && current && result.status === "error" && (
             <div

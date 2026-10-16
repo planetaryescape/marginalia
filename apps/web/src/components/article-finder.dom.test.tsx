@@ -8,17 +8,20 @@ const push = vi.hoisted(() => vi.fn());
 const addByUrl = vi.hoisted(() => vi.fn());
 const save = vi.hoisted(() => vi.fn());
 const record = vi.hoisted(() => vi.fn());
+const noteHits = vi.hoisted(() => ({ current: [] as unknown[] }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("next/link", () => ({
-  default: ({ href, children, onClick }: never) => (
-    <a href={href} onClick={onClick}>
+  default: ({ href, children, onClick, ...rest }: Record<string, never>) => (
+    <a href={href} onClick={onClick} {...rest}>
       {children}
     </a>
   ),
 }));
 vi.mock("convex/react", () => ({
   useAction: () => addByUrl,
+  useQuery: (_fn: string, args: unknown) =>
+    args === "skip" ? undefined : noteHits.current,
   useMutation: (fn: string) => (fn === "record" ? record : save),
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
@@ -26,6 +29,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
     actions: { addArticleByUrl: { add: "add" } },
     savedArticles: { save: "save" },
     sessions: { recordInteraction: "record" },
+    notesSearch: { find: "notes" },
   },
 }));
 vi.mock("sonner", () => ({ toast }));
@@ -64,6 +68,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   requests = [];
   push.mockReset();
+  noteHits.current = [];
   addByUrl.mockReset();
   save.mockReset();
   record.mockReset();
@@ -403,6 +408,92 @@ describe("topic picker", () => {
       expect(save).not.toHaveBeenCalled();
       await press("ArrowDown", input);
       expect(title()).toBe("Beta");
+    });
+
+    describe("in your notes", () => {
+      const hits = [
+        {
+          kind: "note",
+          id: "n1",
+          articleId: "z",
+          articleTitle: "Zeta",
+          text: "My thought on attention",
+          quote: "the quoted line",
+          unitIndex: undefined,
+          paragraphIndex: undefined,
+        },
+        {
+          kind: "highlight",
+          id: "h1",
+          articleId: "y",
+          articleTitle: "Yotta",
+          text: "attention is scarce",
+          quote: "attention is scarce",
+          paragraphIndex: 3,
+          unitIndex: undefined,
+        },
+      ];
+      const options = () => [
+        ...host.querySelectorAll<HTMLElement>(
+          '[role="listbox"] a[role="option"]',
+        ),
+      ];
+
+      it("lists notes and highlights after the cards and links to the line", async () => {
+        noteHits.current = hits;
+        await results();
+        await settle();
+        const links = options().map((o) => o.getAttribute("href"));
+        expect(links).toEqual([
+          "/read/z?quote=the+quoted+line&note=n1",
+          "/read/y?quote=attention+is+scarce&p=3",
+        ]);
+        expect(host.textContent).toContain("In your notes");
+      });
+
+      it("joins the arrow keys once the cards run out, and Enter opens the note", async () => {
+        noteHits.current = hits;
+        await results();
+        await settle();
+        const input = host.querySelector("input") as HTMLInputElement;
+        await key("ArrowDown");
+        await key("ArrowDown");
+        expect(title()).toBe("Gamma");
+        expect(
+          options().every((o) => o.getAttribute("aria-selected") === "false"),
+        ).toBe(true);
+        await key("ArrowDown");
+        expect(options()[0]?.getAttribute("aria-selected")).toBe("true");
+        expect(input.getAttribute("aria-activedescendant")).toBe(
+          options()[0]?.id,
+        );
+        await key("ArrowDown");
+        await key("ArrowDown");
+        expect(options()[1]?.getAttribute("aria-selected")).toBe("true");
+        await key("ArrowUp");
+        await act(async () => {
+          host
+            .querySelector("form")
+            ?.dispatchEvent(
+              new Event("submit", { bubbles: true, cancelable: true }),
+            );
+        });
+        expect(push).toHaveBeenCalledWith(
+          "/read/z?quote=the+quoted+line&note=n1",
+        );
+      });
+
+      it("arrow up from the first note returns to the last card", async () => {
+        noteHits.current = hits;
+        await results();
+        await settle();
+        for (let i = 0; i < 3; i++) await key("ArrowDown");
+        await key("ArrowUp");
+        expect(
+          options().every((o) => o.getAttribute("aria-selected") === "false"),
+        ).toBe(true);
+        expect(title()).toBe("Gamma");
+      });
     });
 
     it("j, k, s and Enter work once focus leaves the input", async () => {
