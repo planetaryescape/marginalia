@@ -67,6 +67,13 @@ export const READER_LIMITS = {
     windowMs: 24 * 60 * 60_000,
     message: "Reading alongside is resting until tomorrow.",
   },
+  // Retrieval runs scheduled for reading-alongside passes. Never refunded:
+  // a pass that ends without a model call still spent embeddings.
+  alongsideRetrieval: {
+    max: 40,
+    windowMs: 24 * 60 * 60_000,
+    message: "Reading alongside is resting until tomorrow.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -82,6 +89,7 @@ const bucket = v.union(
   v.literal("apiTokenCreate"),
   v.literal("pdfImport"),
   v.literal("alongsideDaily"),
+  v.literal("alongsideRetrieval"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */

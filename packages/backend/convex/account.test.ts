@@ -258,6 +258,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     updatedAt: now,
     validatedAt: now,
   });
+  await ctx.db.insert("retrievalRevisions", { userId, revision: 3 });
   await ctx.db.insert("readerLimits", {
     userId,
     bucket: "ai",

@@ -24,6 +24,9 @@ export const MAX_PASSES_PER_ARTICLE = 8;
 // A pass that has not settled by then crashed; its section may be claimed again
 export const CLAIM_TTL_MS = 10 * 60_000;
 
+const leaseEnd = (row: { claim: number; leaseUntil?: number }) =>
+  row.leaseUntil ?? row.claim + CLAIM_TTL_MS;
+
 const requestStatus = v.union(
   v.literal("scheduled"),
   v.literal("unchanged"),
@@ -92,7 +95,7 @@ export const requestAhead = mutation({
 
     const now = Date.now();
     const row = await passRow(ctx, userId, article._id, sectionIndex);
-    if (row?.status === "running" && now - row.claim < CLAIM_TTL_MS)
+    if (row?.status === "running" && now < leaseEnd(row))
       return "running" as const;
 
     const current = await computeFingerprint(ctx, userId, now);
@@ -117,13 +120,23 @@ export const requestAhead = mutation({
 
     const rows = await passRows(ctx, userId, article._id).collect();
     const used = rows.reduce((sum, r) => sum + r.calls, 0);
-    // Stop quietly: no error, no line in the margin
-    if (
-      used >= MAX_PASSES_PER_ARTICLE ||
-      !(await spendReaderLimit(ctx, userId, "alongsideDaily"))
-    ) {
+    // Stop quietly: no error, no line in the margin. Two reservations: one
+    // for the model call, given back if the pass ends without one, and one for
+    // the retrieval, which embeds text whatever the pass decides and is never
+    // given back.
+    const refused = await (async () => {
+      if (used >= MAX_PASSES_PER_ARTICLE) return "the article's pass budget";
+      if (!(await spendReaderLimit(ctx, userId, "alongsideDaily")))
+        return "the daily pass budget";
+      if (!(await spendReaderLimit(ctx, userId, "alongsideRetrieval"))) {
+        await refundReaderLimit(ctx, userId, "alongsideDaily", now);
+        return "the daily retrieval budget";
+      }
+      return null;
+    })();
+    if (refused) {
       console.log(
-        `Skipped reading pass for "${article.title}" (${article._id}) section ${sectionIndex + 1}: ${used >= MAX_PASSES_PER_ARTICLE ? "the article's pass budget is used" : "the daily pass budget is used"}`,
+        `Skipped reading pass for "${article.title}" (${article._id}) section ${sectionIndex + 1}: ${refused} is used`,
       );
       return "budget" as const;
     }
@@ -133,6 +146,7 @@ export const requestAhead = mutation({
       await ctx.db.patch("marginaliaPasses", row._id, {
         status: "running",
         claim,
+        leaseUntil: now + CLAIM_TTL_MS,
         pending: current,
         calls: row.calls + 1,
         updatedAt: now,
@@ -144,6 +158,7 @@ export const requestAhead = mutation({
         sectionIndex,
         status: "running",
         claim,
+        leaseUntil: now + CLAIM_TTL_MS,
         fingerprint: settled,
         pending: current,
         calls: 1,
@@ -167,7 +182,7 @@ export const workingSections = query({
     const now = Date.now();
     const rows = await passRows(ctx, ctx.readerId, args.articleId).collect();
     return rows
-      .filter((r) => r.status === "running" && r.claim + CLAIM_TTL_MS > now)
+      .filter((r) => r.status === "running" && leaseEnd(r) > now)
       .map((r) => r.sectionIndex);
   },
 });
@@ -189,7 +204,8 @@ export const passInput = internalQuery({
   },
   handler: async (ctx, args) => {
     const article = await ctx.db.get("articles", args.articleId);
-    if (!article) return null;
+    // A library being deleted gets no more passes
+    if (!article || !(await libraryIsActive(ctx, article.userId))) return null;
     const row = await passRow(
       ctx,
       article.userId,
@@ -212,6 +228,38 @@ export const passInput = internalQuery({
         end: a.anchorEndOffset,
       })),
     };
+  },
+});
+
+/**
+ * Confirms the job still owns its section and extends its claim. Called when
+ * work starts and again right before the model call, so a job that sat in a
+ * queue or in retrieval for a long time, and whose claim another tab has taken
+ * since, finds out and stops instead of calling the model twice.
+ */
+export const renew = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    sectionIndex: v.number(),
+    claim: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (!(await libraryIsActive(ctx, args.userId))) return false;
+    const article = await ownedArticle(ctx, args.articleId, args.userId);
+    const row = await passRow(
+      ctx,
+      args.userId,
+      args.articleId,
+      args.sectionIndex,
+    );
+    if (!article || row?.status !== "running" || row.claim !== args.claim)
+      return false;
+    await ctx.db.patch("marginaliaPasses", row._id, {
+      leaseUntil: Date.now() + CLAIM_TTL_MS,
+    });
+    return true;
   },
 });
 

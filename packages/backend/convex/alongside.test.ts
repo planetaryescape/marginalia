@@ -13,6 +13,7 @@ import {
   sameFingerprint,
 } from "./lib/marginaliaFingerprint";
 import { sectionRanges } from "./lib/readingSections";
+import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 import { READER_LIMITS } from "./limits";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -643,10 +644,13 @@ describe("a re-annotation", () => {
         questionForYou: "q",
       },
       fingerprint,
+      sources: ["note:b:2", "chunk:a:1", "note:b:2"],
     });
     expect(await rowFor(f, f.articleId, 1)).toBeNull();
     const article = await f.t.run((ctx) => ctx.db.get(f.articleId));
     expect(article?.marginaliaFingerprint).toEqual(fingerprint);
+    // What the import drew on, for a section's first pass to compare with
+    expect(article?.marginaliaSources).toEqual(["chunk:a:1", "note:b:2"]);
     expect(
       await f.t.mutation(internal.alongside.settle, {
         userId: f.readerLibraryId,
@@ -699,7 +703,12 @@ describe("the pass", () => {
     vi.useRealTimers();
   });
 
-  async function run(respond: () => unknown) {
+  async function run(
+    respond: () => unknown,
+    options: {
+      onEmbeddings?: (f: Awaited<ReturnType<typeof fixture>>) => Promise<void>;
+    } = {},
+  ) {
     const f = await fixture();
     await saveTestCredential(
       f.t,
@@ -712,13 +721,15 @@ describe("the pass", () => {
       "fetch",
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = JSON.parse(String(init?.body));
-        if (String(input).endsWith("/embeddings"))
+        if (String(input).endsWith("/embeddings")) {
+          await options.onEmbeddings?.(f);
           return Response.json({
             data: (request.input as string[]).map((_, index) => ({
               index,
               embedding: vector,
             })),
           });
+        }
         prompts.push(JSON.stringify(request.messages));
         return Response.json({
           id: "x",
@@ -884,5 +895,360 @@ describe("the pass", () => {
       status: "skipped",
       calls: 0,
     });
+  });
+
+  it("calls the model for an embedding that landed after an earlier pass settled", async () => {
+    const f = await run(() => ({
+      annotations: [candidate(ANCHOR_1B, "A new point.")],
+    }));
+    // The note exists but cannot be found yet: its embedding is still on its way
+    const noteId = await addNote(f, f.readerLibraryId, false);
+    expect(await f.request()).toBe("scheduled");
+    expect(f.prompts).toHaveLength(0);
+    expect(await f.request()).toBe("unchanged");
+
+    const note = await f.t.run((ctx) => ctx.db.get(noteId));
+    await f.t.mutation(internal.userNotes.setEmbedding, {
+      noteId,
+      embedding: vector,
+      contentPlain: note?.contentPlain ?? "",
+    });
+    expect(await f.request()).toBe("scheduled");
+    expect(f.prompts).toHaveLength(1);
+  });
+
+  it("skips a first pass when nothing it retrieved is new since the import", async () => {
+    const f = await run(() => ({
+      annotations: [candidate(ANCHOR_1B, "A new point.")],
+    }));
+    const noteId = await addNote(f, f.readerLibraryId, true);
+    const note = await f.t.run((ctx) => ctx.db.get(noteId));
+    // What the import pass drew on, as it records it
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.articleId, {
+        marginaliaSources: [`note:${noteId}:${note?.updatedAt}`],
+      }),
+    );
+    await addHighlight(f, f.readerLibraryId);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await f.request()).toBe("scheduled");
+    expect(f.prompts).toHaveLength(0);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /section 2: nothing it retrieved is new since the import pass \(1 items\)/,
+      ),
+    );
+    expect(await rowFor(f, f.articleId, 1)).toMatchObject({
+      status: "skipped",
+      calls: 0,
+    });
+
+    // Something new it retrieves does earn a call
+    await addNote(f, f.readerLibraryId, true);
+    expect(await f.request()).toBe("scheduled");
+    expect(f.prompts).toHaveLength(1);
+  });
+
+  it("skips a first pass when retrieval returns nothing and the import recorded its sources", async () => {
+    const f = await run(() => ({ annotations: [] }));
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.articleId, { marginaliaSources: [] }),
+    );
+    await addNote(f, f.readerLibraryId, false);
+    expect(await f.request()).toBe("scheduled");
+    expect(f.prompts).toHaveLength(0);
+  });
+
+  it("notices a library article that appears or changes", async () => {
+    const f = await run(() => ({
+      annotations: [candidate(ANCHOR_1B, "A new point.")],
+    }));
+    // A new connection becomes findable when its embedding arrives
+    const libraryId = await f.t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: f.readerLibraryId,
+        guid: "lib",
+        url: "https://example.com/lib",
+        title: "Remote teams",
+        excerpt: "First version.",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      }),
+    );
+    await f.t.mutation(internal.articles.setEmbedding, {
+      articleId: libraryId,
+      embedding: vector,
+    });
+    expect(await f.request()).toBe("scheduled");
+    expect(f.prompts).toHaveLength(1);
+
+    // Its text changes with the embedding still in place: the precise hash moves
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(libraryId, { excerpt: "Second version." });
+      await bumpRetrievalRevision(ctx, f.readerLibraryId);
+    });
+    expect(await f.request()).toBe("scheduled");
+    expect(f.prompts).toHaveLength(2);
+  });
+
+  it("stops a job whose claim was taken while it retrieved, before any model call", async () => {
+    let stolen = false;
+    const f = await run(() => ({ annotations: [] }), {
+      onEmbeddings: async (g) => {
+        if (stolen) return;
+        stolen = true;
+        // Another tab reclaims the section mid-retrieval
+        await g.t.run(async (ctx) => {
+          const row = await ctx.db.query("marginaliaPasses").first();
+          if (row)
+            await ctx.db.patch(row._id, {
+              claim: row.claim + 10,
+              leaseUntil: Date.now() + CLAIM_TTL_MS,
+            });
+        });
+      },
+    });
+    await addNote(f, f.readerLibraryId, true);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await f.request();
+    expect(f.prompts).toHaveLength(0);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("its claim was replaced"),
+    );
+    expect(await rowFor(f, f.articleId, 1)).toMatchObject({
+      status: "running",
+    });
+    expect(await f.notes()).toHaveLength(0);
+  });
+
+  it("does nothing for a library that is being deleted", async () => {
+    const f = await run(() => ({ annotations: [] }));
+    await addNote(f, f.readerLibraryId, true);
+    await f.reader.mutation(api.alongside.requestAhead, {
+      articleId: f.articleId,
+      currentSection: 0,
+    });
+    const row = await rowFor(f, f.articleId, 1);
+    await f.t.run(async (ctx) => {
+      const reader = await ctx.db.query("readers").first();
+      if (reader) await ctx.db.patch(reader._id, { status: "disabled" });
+    });
+    const claim = {
+      articleId: f.articleId,
+      sectionIndex: 1,
+      claim: row?.claim ?? 0,
+    };
+    expect(await f.t.query(internal.alongside.passInput, claim)).toBeNull();
+    expect(
+      await f.t.mutation(internal.alongside.renew, {
+        userId: f.readerLibraryId,
+        ...claim,
+      }),
+    ).toBe(false);
+    await f.t.action(internal.actions.readAlongside.pass, claim);
+    expect(f.prompts).toHaveLength(0);
+  });
+});
+
+describe("the lease", () => {
+  it("is extended by renew, and only for the job holding the claim", async () => {
+    const f = await fixture();
+    await addNote(f, f.readerLibraryId);
+    await f.reader.mutation(api.alongside.requestAhead, {
+      articleId: f.articleId,
+      currentSection: 0,
+    });
+    const row = await rowFor(f, f.articleId, 1);
+    const args = {
+      userId: f.readerLibraryId,
+      articleId: f.articleId,
+      sectionIndex: 1,
+    };
+    vi.setSystemTime(Date.now() + CLAIM_TTL_MS - 1_000);
+    expect(
+      await f.t.mutation(internal.alongside.renew, {
+        ...args,
+        claim: (row?.claim ?? 0) + 1,
+      }),
+    ).toBe(false);
+    expect(
+      await f.t.mutation(internal.alongside.renew, {
+        ...args,
+        claim: row?.claim ?? 0,
+      }),
+    ).toBe(true);
+    // Past the original lease, but renewed: still running
+    vi.setSystemTime(Date.now() + 5_000);
+    expect(
+      await f.reader.mutation(api.alongside.requestAhead, {
+        articleId: f.articleId,
+        currentSection: 0,
+      }),
+    ).toBe("running");
+  });
+});
+
+describe("the retrieval budget", () => {
+  it("is spent by every claim, and not given back by a skip", async () => {
+    const f = await fixture();
+    const limit = (bucket: string) =>
+      f.t.run(
+        async (ctx) =>
+          (
+            await ctx.db
+              .query("readerLimits")
+              .withIndex("by_userId_and_bucket", (q) =>
+                q.eq("userId", f.readerLibraryId).eq("bucket", bucket),
+              )
+              .unique()
+          )?.count,
+      );
+    const max = READER_LIMITS.alongsideRetrieval.max;
+    for (let i = 0; i < max; i++) {
+      await addHighlight(f, f.readerLibraryId);
+      expect(
+        await f.reader.mutation(api.alongside.requestAhead, {
+          articleId: f.articleId,
+          currentSection: 0,
+        }),
+      ).toBe("scheduled");
+      const row = await rowFor(f, f.articleId, 1);
+      // The pass ended without a model call
+      await f.t.mutation(internal.alongside.settle, {
+        userId: f.readerLibraryId,
+        articleId: f.articleId,
+        sectionIndex: 1,
+        claim: row?.claim ?? 0,
+        outcome: "skipped",
+      });
+    }
+    expect(await limit("alongsideDaily")).toBe(0);
+    expect(await limit("alongsideRetrieval")).toBe(max);
+    await addHighlight(f, f.readerLibraryId);
+    expect(
+      await f.reader.mutation(api.alongside.requestAhead, {
+        articleId: f.articleId,
+        currentSection: 0,
+      }),
+    ).toBe("budget");
+    expect(await passJobs(f)).toHaveLength(max);
+    // The refused request kept nothing of the generation reservation either
+    expect(await limit("alongsideDaily")).toBe(0);
+  });
+});
+
+describe("the retrieval revision", () => {
+  it("moves the fingerprint when anything becomes searchable or stops being", async () => {
+    const f = await secondReaderTest(modules);
+    const revision = async () =>
+      (await f.t.run((ctx) => computeFingerprint(ctx, f.readerLibraryId)))
+        .retrievalRevision;
+    let last = await revision();
+    const moved = async (label: string) => {
+      const next = await revision();
+      expect(next, label).toBeGreaterThan(last ?? 0);
+      last = next;
+    };
+    const chunk = {
+      userId: f.readerLibraryId,
+      filePath: "Vault/a.md",
+      fileName: "a.md",
+      chunkIndex: 0,
+      content: "vault",
+      embedding: vector,
+      fileHash: "h",
+      indexedAt: 9,
+    };
+
+    const noteId = await addNote(f, f.readerLibraryId, false);
+    await f.t.mutation(internal.userNotes.setEmbedding, {
+      noteId,
+      embedding: vector,
+      contentPlain: "Remote teams need written culture.",
+    });
+    await moved("note embedding");
+
+    const highlightId = await addHighlight(f, f.readerLibraryId);
+    await f.t.mutation(internal.highlights.setEmbedding, {
+      highlightId,
+      embedding: vector,
+    });
+    await moved("highlight embedding");
+
+    const threadId = await f.t.run(async (ctx) => {
+      const article = await ctx.db.insert("articles", {
+        userId: f.readerLibraryId,
+        guid: "th",
+        url: "https://example.com/th",
+        title: "T",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: 1,
+      });
+      return ctx.db.insert("companionThreads", {
+        userId: f.readerLibraryId,
+        articleId: article,
+        mode: "ask",
+        selection: "x",
+        turns: [{ role: "user", content: "Why?" }],
+        createdAt: 5,
+        updatedAt: 5,
+      });
+    });
+    await f.t.mutation(internal.companionThreads.setEmbedding, {
+      threadId,
+      embedding: vector,
+    });
+    await moved("thread embedding");
+
+    await f.t.mutation(internal.noteChunks.replaceFile, {
+      userId: f.readerLibraryId,
+      filePath: chunk.filePath,
+      chunks: [{ ...chunk, indexedAt: 9 }],
+    });
+    await moved("vault file");
+    await f.t.mutation(internal.noteChunks.insertBatch, {
+      userId: f.readerLibraryId,
+      chunks: [{ ...chunk, filePath: "Vault/b.md", fileName: "b.md" }],
+    });
+    await moved("vault batch");
+
+    const articleId = await f.t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: f.readerLibraryId,
+        guid: "e",
+        url: "https://example.com/e",
+        title: "E",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: 1,
+      }),
+    );
+    await f.t.mutation(internal.articles.setEmbedding, {
+      articleId,
+      embedding: vector,
+    });
+    await moved("library article embedding");
+
+    // Editing a note removes its embedding, so the next visit re-checks
+    await f.reader.mutation(api.userNotes.update, {
+      noteId,
+      content: "<p>x</p>",
+      contentPlain: "x",
+    });
+    await moved("note edit");
+  });
+
+  it("is per reader, and compares equal to a fingerprint from before it existed", async () => {
+    const f = await secondReaderTest(modules);
+    const owner = await f.t.run((ctx) => computeFingerprint(ctx, OWNER));
+    await f.t.run((ctx) => bumpRetrievalRevision(ctx, f.readerLibraryId));
+    const after = await f.t.run((ctx) => computeFingerprint(ctx, OWNER));
+    expect(sameFingerprint(owner, after)).toBe(true);
+    const { retrievalRevision: _omit, ...older } = owner;
+    expect(sameFingerprint(older, { ...owner, retrievalRevision: 0 })).toBe(
+      true,
+    );
   });
 });

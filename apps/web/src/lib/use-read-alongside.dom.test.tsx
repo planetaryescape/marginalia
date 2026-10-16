@@ -84,6 +84,22 @@ describe("reading alongside, from the reader", () => {
     });
   });
 
+  it("lets a late failure for one article leave another article's requests alone", async () => {
+    let fail: (reason: Error) => void = () => {};
+    request.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (fail = reject)),
+    );
+    await show({ id: "a1", progress: 7 });
+    expect(request).toHaveBeenCalledTimes(1);
+    // The reader moves on to another article and it asks once
+    await show({ id: "a2", progress: 8 });
+    expect(request).toHaveBeenCalledTimes(2);
+    // The first article's request fails late
+    await act(async () => fail(new Error("offline")));
+    await show({ id: "a2", progress: 9 });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("does nothing while disabled", async () => {
     await show({ enabled: false, progress: 50 });
     expect(request).not.toHaveBeenCalled();

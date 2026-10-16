@@ -156,6 +156,8 @@ export const replaceForArticle = internalMutation({
     }),
     // What the library held when this pass began (reading alongside, rung 2f)
     fingerprint: v.optional(marginaliaFingerprint),
+    // The items the pass drew on, so a section's first reading pass can tell what is new since
+    sources: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const article = await ownedArticle(ctx, args.articleId, args.userId);
@@ -235,6 +237,9 @@ export const replaceForArticle = internalMutation({
     await ctx.db.patch("articles", args.articleId, {
       annotationVersion: CURRENT_ANNOTATION_VERSION,
       ...(args.fingerprint ? { marginaliaFingerprint: args.fingerprint } : {}),
+      ...(args.sources
+        ? { marginaliaSources: [...new Set(args.sources)].sort() }
+        : {}),
     });
     // The margin was written afresh, so earlier section passes (and the
     // budget they used) belong to notes that no longer exist; an in-flight

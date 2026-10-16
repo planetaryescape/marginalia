@@ -14,6 +14,7 @@ import {
 import { MAX_ANNOTATION_RETRIES } from "./lib/annotationPolicy";
 import { advanceProgress, nextUnitIndex } from "./lib/bookPicks";
 import { readerProviders } from "./lib/readerAI";
+import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 import { spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
 
@@ -316,6 +317,7 @@ export const finishBook = internalMutation({
       extractionStatus: "extracted",
       embedding: args.embedding,
     });
+    if (args.embedding) await bumpRetrievalRevision(ctx, args.userId);
     await ctx.db.insert("books", {
       userId: args.userId,
       articleId: article._id,

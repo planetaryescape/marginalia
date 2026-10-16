@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
+import { bumpRetrievalRevision } from "./lib/retrievalRevision";
 
 const turnValidator = v.object({
   role: v.union(v.literal("user"), v.literal("assistant")),
@@ -221,10 +222,12 @@ export const setEmbedding = internalMutation({
   args: { threadId: v.id("companionThreads"), embedding: v.array(v.float64()) },
   handler: async (ctx, args) => {
     const row = await ctx.db.get("companionThreads", args.threadId);
-    if (row)
+    if (row) {
       await ctx.db.patch("companionThreads", args.threadId, {
         embedding: args.embedding,
       });
+      await bumpRetrievalRevision(ctx, row.userId);
+    }
   },
 });
 

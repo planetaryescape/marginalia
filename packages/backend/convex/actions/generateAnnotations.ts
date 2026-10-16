@@ -348,7 +348,7 @@ async function annotateArticle(
     // Step 1–2: Gather what the model should read: most of the article,
     // dates, the reader's closely related notes and marks, and the nearest
     // other articles in their library
-    const { articleText, contextText, vaultPaths, libraryCandidates } =
+    const { articleText, contextText, vaultPaths, libraryCandidates, sources } =
       await buildMarginaliaContext(
         ctx,
         { ...article, content: article.content },
@@ -405,6 +405,7 @@ async function annotateArticle(
       })),
       reflection: object.reflection,
       fingerprint,
+      sources,
     });
 
     // The one point and short summary, and the tags, are extras: failing at

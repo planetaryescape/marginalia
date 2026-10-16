@@ -136,6 +136,9 @@ export default defineSchema({
     // What the margin drew on when the import pass started; reading alongside
     // compares it with the reader's library now (rung 2f). Absent on older rows.
     marginaliaFingerprint: v.optional(marginaliaFingerprint),
+    // The sorted `kind:id:version` items the import pass drew on, so the first
+    // pass of a section can tell what is new since (rung 2f)
+    marginaliaSources: v.optional(v.array(v.string())),
     embedding: v.optional(v.array(v.float64())),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
@@ -218,6 +221,13 @@ export default defineSchema({
     // Which annotations point at a vault note, by its file so reindexing keeps them (idea graph)
     .index("by_user_note_path", ["userId", "notePath"]),
 
+  // One counter per reader, bumped when something becomes or stops being
+  // findable by the margin's vector searches (lib/retrievalRevision.ts)
+  retrievalRevisions: defineTable({
+    userId: v.string(),
+    revision: v.number(),
+  }).index("by_userId", ["userId"]),
+
   // One row per article section that reading alongside has looked at (rung
   // 2f). The row is the claim: a pass starts only by claiming it in a mutation,
   // so two tabs or a fast scroll can't run a section twice.
@@ -233,6 +243,8 @@ export default defineSchema({
     ),
     // When the running pass was claimed; it identifies that run
     claim: v.number(),
+    // The claim stands until then; the running job renews it (alongside.renew)
+    leaseUntil: v.optional(v.number()),
     // The library fingerprint this section was last settled against
     fingerprint: marginaliaFingerprint,
     // The fingerprint the running pass was claimed under

@@ -118,6 +118,16 @@ async function articleTitle(
   return title;
 }
 
+/** FNV-1a: enough to tell two versions of a short text apart in a source key. */
+function shortHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
 export async function buildMarginaliaContext(
   ctx: ActionCtx,
   article: Doc<"articles"> & { content: string },
@@ -228,8 +238,11 @@ export async function buildMarginaliaContext(
   const libraryCandidates = found
     .filter((candidate) => candidate.id !== article._id)
     .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+  // The candidate's title and excerpt are its version
   for (const candidate of libraryCandidates)
-    sources.push(`article:${candidate.id}`);
+    sources.push(
+      `article:${candidate.id}:${shortHash(`${candidate.title}|${candidate.excerpt}`)}`,
+    );
   if (libraryCandidates.length)
     parts.push(
       `## Other articles in the reader's library\n\nA connection may cite one of these by its id, only when the link is specific.\n\n${libraryCandidates

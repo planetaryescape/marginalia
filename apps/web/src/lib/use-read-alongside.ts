@@ -46,10 +46,13 @@ export function useReadAlongside(input: {
     if (!enabled || !content) return;
     const current = sectionToQueueFrom(ranges, progress / 100, content.length);
     if (current === null || asked.current.sections.has(current)) return;
-    asked.current.sections.add(current);
+    // This visit's cache, captured now: a late failure must not reach into
+    // the cache of the article the reader has moved on to
+    const visit = asked.current;
+    visit.sections.add(current);
     request({ articleId, currentSection: current }).catch(() => {
       // Reading goes on; the next visit tries again
-      asked.current.sections.delete(current);
+      visit.sections.delete(current);
     });
   }, [enabled, content, ranges, progress, articleId, request]);
 

@@ -55,7 +55,17 @@ export const pass = internalAction({
         ...extra,
       });
 
+    const owns = () =>
+      ctx.runMutation(internal.alongside.renew, {
+        userId,
+        articleId: args.articleId,
+        sectionIndex: args.sectionIndex,
+        claim: args.claim,
+      });
+
     try {
+      // The claim may have been replaced while this job waited to start
+      if (!(await owns())) return;
       const content = article.content ?? "";
       const section = sectionRanges(content.slice(0, MAX_ARTICLE_CHARS))[
         args.sectionIndex
@@ -93,8 +103,32 @@ export const pass = internalAction({
         await settleWith("skipped", { contextHash });
         return;
       }
+      // A section's first pass is compared with what the import pass drew on:
+      // only something it retrieved that the import did not see is worth a call.
+      // An article annotated before this was recorded has no baseline, so any
+      // retrieved material counts.
+      if (!row.contextHash) {
+        const known = new Set(article.marginaliaSources);
+        const fresh = article.marginaliaSources
+          ? sources.filter((source) => !known.has(source))
+          : sources;
+        if (!fresh.length) {
+          console.log(
+            `Skipped reading pass for ${label}: nothing it retrieved is new since the import pass (${sources.length} items)`,
+          );
+          await settleWith("skipped", { contextHash });
+          return;
+        }
+      }
 
       const sections = sectionRanges(content.slice(0, MAX_ARTICLE_CHARS));
+      // Retrieval can be slow: if another tab has taken the section since, stop
+      if (!(await owns())) {
+        console.log(
+          `Stopped reading pass for ${label}: its claim was replaced`,
+        );
+        return;
+      }
       const { object, modelId } = await generateObjectWithFallback<
         z.infer<typeof passSchema>
       >({
