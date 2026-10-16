@@ -5,12 +5,12 @@ import {
   BookA,
   BookOpenText,
   Copy,
+  Feather,
   Globe,
   Highlighter,
   MessageCircleQuestion,
   NotebookPen,
   Underline,
-  Wand2,
   X,
 } from "lucide-react";
 import {
@@ -474,7 +474,7 @@ export function SelectionToolbar({
                   onClick={() => runMode("simplify")}
                   title="Simplify (S)"
                 >
-                  <Wand2 size={14} />
+                  <Feather size={14} />
                   Simplify
                 </button>
                 <button

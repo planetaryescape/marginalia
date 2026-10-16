@@ -5,11 +5,11 @@ import {
   BookOpenText,
   Check,
   Copy,
+  Feather,
   MessageCircleQuestion,
   MessagesSquare,
   RotateCcw,
   Trash2,
-  Wand2,
 } from "lucide-react";
 import { useState } from "react";
 import type { CompanionThread } from "@/lib/companion";
@@ -19,7 +19,7 @@ import { CardQuote, cardIconButton, MarginCard } from "./margin-card";
 
 const MODES = {
   explain: { label: "Explain", Icon: BookOpenText },
-  simplify: { label: "Simplify", Icon: Wand2 },
+  simplify: { label: "Simplify", Icon: Feather },
   define: { label: "Define", Icon: BookA },
   ask: { label: "Ask", Icon: MessageCircleQuestion },
   article: { label: "Article", Icon: MessagesSquare },
