@@ -27,6 +27,9 @@ export async function proxyReaderRequest(request: Request, path: string) {
     headers: {
       "Content-Type": result.headers.get("Content-Type") ?? "text/plain",
       "Cache-Control": "no-store",
+      ...(result.headers.has("Server-Timing")
+        ? { "Server-Timing": result.headers.get("Server-Timing") ?? "" }
+        : {}),
       ...(result.headers.has("X-Companion-Model")
         ? { "X-Companion-Model": result.headers.get("X-Companion-Model") ?? "" }
         : {}),

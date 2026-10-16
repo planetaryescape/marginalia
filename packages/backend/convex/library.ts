@@ -72,3 +72,42 @@ export const loadArticles = internalQuery({
     );
   },
 });
+
+/**
+ * The search-only path's lookup: each article with its read status. Scoped to
+ * the caller's library even though the ids came from a filtered vector search.
+ */
+export const findArticles = internalQuery({
+  args: { userId: v.string(), articleIds: v.array(v.id("articles")) },
+  handler: async (ctx, args) => {
+    const rows = await Promise.all(
+      args.articleIds.map(async (id) => {
+        const article = await ctx.db.get("articles", id);
+        if (article?.userId !== args.userId) return null;
+        const did = async (action: "finished" | "opened") =>
+          (await ctx.db
+            .query("articleInteractions")
+            .withIndex("by_user_article_action", (q) =>
+              q
+                .eq("userId", args.userId)
+                .eq("articleId", id)
+                .eq("action", action),
+            )
+            .first()) !== null;
+        const [finished, opened] = await Promise.all([
+          did("finished"),
+          did("opened"),
+        ]);
+        return {
+          articleId: article._id,
+          title: article.title,
+          url: article.url,
+          author: article.author ?? null,
+          minutes: article.estimatedReadMinutes ?? null,
+          status: finished ? "Read" : opened ? "Started" : "Unread",
+        };
+      }),
+    );
+    return rows.filter((row) => row !== null);
+  },
+});

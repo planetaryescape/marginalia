@@ -71,6 +71,9 @@ describe("library search HTTP results", () => {
       body: JSON.stringify({ question: "life" }),
     });
     expect(response.status).toBe(200);
+    expect(response.headers.get("Server-Timing")).toMatch(
+      /ai;dur=\d+, embed;dur=\d+, retrieve;dur=\d+, rank;dur=\d+, total;dur=\d+/,
+    );
     expect(await response.json()).toEqual({
       matches: [
         {

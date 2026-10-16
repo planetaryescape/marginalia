@@ -3,6 +3,8 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { type EmbeddingTarget, embedText } from "./embeddings";
+import type { LibraryFindMatch } from "./librarySearch";
+import type { Timings } from "./serverTiming";
 
 export const libraryRequestSchema = z.object({
   question: z.string().trim().min(1).max(2000),
@@ -63,8 +65,10 @@ export async function retrieveLibraryContext(
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
+  timings?: Timings,
 ) {
   const vector = await embedText(embedder, question.slice(0, 4000));
+  timings?.mark("embed");
 
   const [articleHits, impressionHits, noteHits, highlightHits, threadHits] =
     await Promise.all([
@@ -243,4 +247,67 @@ export async function buildLibraryContext(
 ): Promise<string> {
   return (await retrieveLibraryContext(ctx, userId, question, embedder))
     .context;
+}
+
+const FIND_LIMIT = 24;
+const STATUS_ORDER: Record<string, number> = { Unread: 0, Started: 1, Read: 2 };
+
+/**
+ * The search-only path: embed the question, vector-search the reader's
+ * articles and return them closest first, with no model call. Unread and
+ * started pieces come before ones already read, since this answers "what
+ * could I read", and the order is otherwise the vector rank.
+ */
+export async function findLibraryArticles(
+  ctx: ActionCtx,
+  userId: string,
+  question: string,
+  embedder: EmbeddingTarget,
+  timings: Timings,
+): Promise<{ matches: LibraryFindMatch[]; more: boolean }> {
+  const vector = await embedText(embedder, question.slice(0, 4000));
+  timings.mark("embed");
+  const hits = await ctx.vectorSearch("articles", "by_embedding", {
+    vector,
+    limit: FIND_LIMIT,
+    filter: (q) => q.eq("userId", userId),
+  });
+  timings.mark("search");
+  const rows: {
+    articleId: Id<"articles">;
+    title: string;
+    url: string;
+    author: string | null;
+    minutes: number | null;
+    status: string;
+  }[] = await ctx.runQuery(internal.library.findArticles, {
+    userId,
+    articleIds: hits.map((hit) => hit._id),
+  });
+  timings.mark("load");
+  const byId = new Map(rows.map((row) => [row.articleId, row]));
+  const seenUrls = new Set<string>();
+  const ranked = hits.flatMap((hit, rank) => {
+    const row = byId.get(hit._id);
+    // The same page saved twice is one choice.
+    if (!row || seenUrls.has(row.url)) return [];
+    seenUrls.add(row.url);
+    return [{ rank, row }];
+  });
+  ranked.sort(
+    (a, b) =>
+      (STATUS_ORDER[a.row.status] ?? 0) - (STATUS_ORDER[b.row.status] ?? 0) ||
+      a.rank - b.rank,
+  );
+  return {
+    matches: ranked.map(({ row }) => ({
+      articleId: row.articleId,
+      title: row.title,
+      author: row.author,
+      source: host(row.url) ?? null,
+      minutes: row.minutes,
+      status: row.status,
+    })),
+    more: hits.length >= FIND_LIMIT,
+  };
 }

@@ -899,6 +899,7 @@ describe("separate reader libraries", () => {
         "companion",
         "library",
         "library/search",
+        "library/find",
         "engagement",
       ]) {
         const response = await client.fetch(`/api/${path}`, {

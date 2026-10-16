@@ -1,6 +1,11 @@
 import { proxyReaderRequest } from "@/lib/reader-proxy";
 
-const allowed = new Set(["companion", "library", "library/search"]);
+const allowed = new Set([
+  "companion",
+  "library",
+  "library/search",
+  "library/find",
+]);
 export async function POST(
   request: Request,
   ctx: { params: Promise<{ path: string[] }> },

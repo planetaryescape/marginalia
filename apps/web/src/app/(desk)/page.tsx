@@ -111,7 +111,11 @@ function Desk() {
         <QueryBoundary fallback={() => <TimeChoices {...timeProps} />}>
           <TimesWithFits {...timeProps} />
         </QueryBoundary>
-        <ArticleFinder showKey={showKeys} />
+        <ArticleFinder
+          showKey={showKeys}
+          windowMinutes={chosen?.minutes ?? null}
+          onClearWindow={() => setChosen(null)}
+        />
       </div>
 
       <section

@@ -1,164 +1,152 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import {
-  type LibrarySearchMatch,
-  librarySearchResponseSchema,
-} from "@marginalia/backend/library-search";
-import { useAction, useQuery } from "convex/react";
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
+import { useAction, useMutation } from "convex/react";
 import { Link2, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ReaderRequestError, readerRequestError } from "@/lib/companion";
 import { useShortcuts } from "@/lib/shortcuts";
+import {
+  nextPosition,
+  previousPosition,
+  type TopicMatch,
+  topicCard,
+} from "@/lib/topic-card";
 import { useModalDialog } from "@/lib/use-modal-dialog";
-import { cn } from "@/lib/utils";
+import { useTopicSearch } from "@/lib/use-topic-search";
 
 const URL_PATTERN = /^(https?:\/\/|www\.)\S+$/i;
-const CACHE_TTL_MS = 5 * 60_000;
 
-/** A keyboard-first search picker: the input keeps focus while arrows choose a result. */
-export function ArticleFinder({ showKey = false }: { showKey?: boolean }) {
+const labelClass =
+  "mb-2 text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--reader-muted)]";
+const primaryClass =
+  "rounded-md bg-[var(--reader-fg)] px-4 py-2 text-[14px] text-[var(--reader-surface)] disabled:opacity-60";
+const secondaryClass =
+  "rounded-md bg-[var(--reader-chip)] px-4 py-2 text-[14px] text-[var(--reader-fg-soft)]";
+const quietClass =
+  "py-2 text-[14px] text-[var(--reader-fg-soft)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px] disabled:no-underline";
+
+function metaLine(match: TopicMatch) {
+  return [
+    match.source ?? match.author,
+    match.minutes ? `${match.minutes} min` : null,
+    match.status === "Read" ? "read before" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * The floating picker: type a topic and get one article at a time, or paste a
+ * link. `windowMinutes` is the time the desk has chosen, if any; matches then
+ * have to fit it until the reader clears the limit.
+ */
+export function ArticleFinder({
+  windowMinutes = null,
+  onClearWindow,
+  showKey = false,
+}: {
+  windowMinutes?: number | null;
+  onClearWindow?: () => void;
+  /** The desk's hold-Alt overlay: show the `/` key on the trigger. */
+  showKey?: boolean;
+}) {
   const router = useRouter();
   const addByUrl = useAction(api.actions.addArticleByUrl.add);
-  const overview = useQuery(api.home.overview, {});
+  const saveArticle = useMutation(api.savedArticles.save);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [result, setResult] = useState<{
-    query: string;
-    matches: LibrarySearchMatch[];
-    status: "loading" | "ready" | "error";
-    /** Why search can't run yet, such as a missing provider key. */
-    reason?: string;
-  }>({ query: "", matches: [], status: "ready" });
-  const [selected, setSelected] = useState(0);
-  const [fetchingUrl, setFetchingUrl] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [limitCleared, setLimitCleared] = useState(false);
+  const [saved, setSaved] = useState<ReadonlySet<string>>(new Set());
+  const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const cache = useRef(
-    new Map<string, { time: number; matches: LibrarySearchMatch[] }>(),
-  );
   const id = useId();
-  const listId = `${id}-results`;
   const text = query.trim();
   const isLink = URL_PATTERN.test(text);
+  const searching = open && text.length >= 2 && !isLink;
+  const result = useTopicSearch(text, searching, retry);
+  const limit = limitCleared ? null : windowMinutes;
   useShortcuts({ "/": () => setOpen(true) });
 
   useModalDialog(dialogRef, open, triggerRef);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: retry explicitly reruns a failed request
+  // The desk can choose a different time while the picker is closed.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new window or a reopened picker restores the limit
   useEffect(() => {
-    if (!open || text.length < 2 || isLink) return;
-    const key = text.toLowerCase();
-    const cached = cache.current.get(key);
-    if (cached && Date.now() - cached.time < CACHE_TTL_MS) {
-      setResult({ query: text, matches: cached.matches, status: "ready" });
-      return;
+    setLimitCleared(false);
+  }, [open, windowMinutes]);
+
+  const current = result.query === text;
+  const loading = searching && (!current || result.status === "loading");
+  const card =
+    searching && current && result.status === "ready"
+      ? topicCard(result.matches, position, limit)
+      : null;
+  const shown = card?.kind === "card" ? card : null;
+  const shortest = card?.kind === "none-fit" ? card.shortest : null;
+
+  const go = (articleId: string) => {
+    setOpen(false);
+    router.push(`/read/${articleId}`);
+  };
+  const clearLimit = () => {
+    setLimitCleared(true);
+    onClearWindow?.();
+  };
+  const another = () => {
+    if (shown?.hasNext) setPosition(nextPosition(shown.index));
+  };
+  const previous = () => {
+    if (shown?.hasPrevious)
+      setPosition(previousPosition(result.matches, shown.index, limit));
+  };
+  const save = async (articleId: string) => {
+    try {
+      await saveArticle({ articleId: articleId as Id<"articles"> });
+      setSaved((ids) => new Set(ids).add(articleId));
+      toast.success("Saved for later");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't save that article",
+      );
     }
-    const controller = new AbortController();
-    setResult({ query: text, matches: [], status: "loading" });
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetch("/api/reader/library/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: text }),
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(30_000),
-          ]),
-        });
-        if (!response.ok) throw await readerRequestError(response);
-        const { matches } = librarySearchResponseSchema.parse(
-          await response.json(),
-        );
-        if (controller.signal.aborted) return;
-        if (cache.current.size >= 20) {
-          const oldest = cache.current.keys().next().value;
-          if (oldest !== undefined) cache.current.delete(oldest);
-        }
-        cache.current.set(key, { time: Date.now(), matches });
-        setResult({ query: text, matches, status: "ready" });
-      } catch (error) {
-        if (!controller.signal.aborted)
-          setResult({
-            query: text,
-            matches: [],
-            status: "error",
-            reason:
-              error instanceof ReaderRequestError && error.code
-                ? error.message
-                : undefined,
-          });
-      }
-    }, 600);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [open, text, isLink, retry]);
-
-  const suggestions: LibrarySearchMatch[] = (overview?.upNext ?? [])
-    .slice(0, 5)
-    .map((article) => ({
-      articleId: article._id,
-      title: article.title,
-      author: article.author ?? null,
-      minutes: article.minutes ?? null,
-      status: "Unread",
-      reason: article.excerpt || "Waiting in your library, ready to read.",
-    }));
-  const matches =
-    text.length < 2
-      ? suggestions
-      : result.query === text && result.status === "ready"
-        ? result.matches
-        : [];
-  const count = isLink ? 1 : matches.length;
-  const activeId = count
-    ? `${id}-option-${Math.min(selected, count - 1)}`
-    : undefined;
-  const loading =
-    text.length >= 2 &&
-    !isLink &&
-    (result.query !== text || result.status === "loading");
-
-  useEffect(() => {
-    if (!open || !activeId) return;
-    document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
-  }, [activeId, open]);
-
-  const choose = async (index: number) => {
-    if (fetchingUrl) return;
-    if (!isLink) {
-      const match = matches[Math.min(index, matches.length - 1)];
-      if (!match) return;
-      setOpen(false);
-      router.push(`/read/${match.articleId}`);
-      return;
-    }
-    setFetchingUrl(true);
+  };
+  const fromLink = async (andRead: boolean) => {
+    if (busy) return;
+    setBusy(true);
     try {
       const url = text.startsWith("www.") ? `https://${text}` : text;
       const { articleId, alreadyExists } = await addByUrl({ url });
-      toast.success(
-        alreadyExists
-          ? "Already in your library. Opening it."
-          : "Added. Marginalia is on its way.",
-      );
-      setOpen(false);
-      router.push(`/read/${articleId}`);
+      if (andRead) {
+        toast.success(
+          alreadyExists
+            ? "Already in your library. Opening it."
+            : "Added. Marginalia is on its way.",
+        );
+        go(articleId);
+      } else {
+        await save(articleId);
+        setQuery("");
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Couldn't fetch that article",
       );
     } finally {
-      setFetchingUrl(false);
+      setBusy(false);
     }
   };
+  const readNow = () => {
+    if (isLink) void fromLink(true);
+    else if (shown) go(shown.match.articleId);
+  };
+
+  const reason = shown && result.reasons[shown.match.articleId];
 
   return (
     <>
@@ -190,14 +178,14 @@ export function ArticleFinder({ showKey = false }: { showKey?: boolean }) {
           setOpen(false);
         }}
         onClose={() => setOpen(false)}
-        className="mx-auto mt-[calc(var(--app-viewport-top)+env(safe-area-inset-top)+1rem)] md:mt-[12dvh] mb-auto w-[calc(100%-2rem)] max-w-[720px] max-h-[calc(var(--app-viewport-height)-env(safe-area-inset-top)-2rem)] rounded-2xl p-0 overflow-hidden bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border-strong)] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.6)] backdrop:bg-black/40 font-sans"
+        className="mx-auto mt-[calc(var(--app-viewport-top)+env(safe-area-inset-top)+1rem)] md:mt-[12dvh] mb-auto w-[calc(100%-2rem)] max-w-[640px] max-h-[calc(var(--app-viewport-height)-env(safe-area-inset-top)-2rem)] rounded-[10px] p-0 overflow-hidden bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border-strong)] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.6)] backdrop:bg-black/40 font-sans"
       >
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void choose(selected);
+            readNow();
           }}
-          className="focus-frame flex items-center gap-3 px-4 py-4 border-b border-[var(--reader-border)]"
+          className="focus-frame flex items-center gap-3 px-4 py-3.5 border-b border-[var(--reader-border)]"
         >
           {isLink ? (
             <Link2 size={19} className="shrink-0 text-[var(--reader-muted)]" />
@@ -205,207 +193,264 @@ export function ArticleFinder({ showKey = false }: { showKey?: boolean }) {
             <Search size={19} className="shrink-0 text-[var(--reader-muted)]" />
           )}
           <input
-            ref={inputRef}
-            role="combobox"
-            aria-label="Search your articles or paste a link"
-            aria-autocomplete="list"
-            aria-expanded={count > 0}
-            aria-controls={listId}
-            aria-activedescendant={activeId}
+            type="text"
+            aria-label="Ask for something to read, or paste a link"
             maxLength={2000}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              setSelected(0);
+              setPosition(0);
             }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) {
                 if (e.key === "Enter") e.preventDefault();
                 return;
               }
-              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              if (e.key === "ArrowDown") {
                 e.preventDefault();
-                if (count)
-                  setSelected((index) =>
-                    Math.max(
-                      0,
-                      Math.min(
-                        count - 1,
-                        index + (e.key === "ArrowDown" ? 1 : -1),
-                      ),
-                    ),
-                  );
+                another();
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                previous();
               }
             }}
             placeholder="Science, a quick read, that piece about cows…"
             className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[var(--reader-muted)]"
           />
+          {limit !== null && !isLink && (
+            <button
+              type="button"
+              onClick={clearLimit}
+              aria-label={`Clear the ${limit} minute limit`}
+              className="shrink-0 rounded-full bg-[var(--reader-chip)] px-2.5 py-0.5 text-[12.5px] text-[var(--reader-fg-soft)]"
+            >
+              within {limit} min ×
+            </button>
+          )}
+          <span
+            aria-hidden
+            className="reader-kbd hidden shrink-0 md:inline-block"
+          >
+            esc
+          </span>
           <button
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close search"
-            className="flex h-11 w-11 md:h-7 md:w-7 shrink-0 items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--reader-fg)] md:hidden"
           >
             <X size={16} />
           </button>
         </form>
-        <div className="max-h-[min(calc(var(--app-viewport-height)-10rem),480px)] overflow-y-auto overscroll-contain p-2">
+        <div className="max-h-[min(calc(var(--app-viewport-height)-10rem),480px)] overflow-y-auto overscroll-contain">
           {!text && (
-            <p className="px-3 pb-2 pt-1 text-[12px] text-[var(--reader-muted)]">
-              Up next · search by topic, time or memory
+            <p className="px-5 py-6 text-[14px] text-[var(--reader-muted)]">
+              Say what you feel like reading about, or paste a link.
             </p>
           )}
-          <div
-            role="listbox"
-            id={listId}
-            aria-label="Matching articles"
-            tabIndex={0}
-            aria-activedescendant={activeId}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                e.preventDefault();
-                if (count)
-                  setSelected((index) =>
-                    Math.max(
-                      0,
-                      Math.min(
-                        count - 1,
-                        index + (e.key === "ArrowDown" ? 1 : -1),
-                      ),
-                    ),
-                  );
-              } else if (e.key === "Enter") {
-                e.preventDefault();
-                void choose(selected);
-              }
-            }}
-          >
-            {isLink ? (
-              <button
-                type="button"
-                role="option"
-                id={`${id}-option-0`}
-                aria-selected={true}
-                tabIndex={-1}
-                onClick={() => void choose(0)}
-                disabled={fetchingUrl}
-                className="w-full rounded-xl bg-[var(--reader-chip)] px-3 py-3 text-left"
-              >
-                <span className="block text-[15px] font-medium">
-                  {fetchingUrl ? "Fetching article…" : "Read this link"}
-                </span>
-                <span className="mt-1 block break-all text-[13px] text-[var(--reader-muted)]">
-                  {text}
-                </span>
-              </button>
-            ) : (
-              matches.map((match, index) => (
+          {text && text.length < 2 && !isLink && (
+            <p className="px-5 py-6 text-[14px] text-[var(--reader-muted)]">
+              Keep typing.
+            </p>
+          )}
+          {isLink && (
+            <div className="px-[18px] pb-4 pt-[18px]">
+              <p className={labelClass}>A link</p>
+              <p className="mb-1.5 break-all font-serif text-[22px] leading-tight">
+                {text}
+              </p>
+              <p className="mb-4 text-[14.5px] text-[var(--pencil)]">
+                {busy ? "Fetching article…" : "Not in your library yet."}
+              </p>
+              <div className="flex flex-wrap items-center gap-2.5">
                 <button
-                  key={match.articleId}
                   type="button"
-                  role="option"
-                  id={`${id}-option-${index}`}
-                  aria-selected={index === selected}
-                  tabIndex={-1}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onMouseMove={() => setSelected(index)}
-                  onClick={() => void choose(index)}
-                  className={cn(
-                    "block w-full rounded-xl px-3 py-3 text-left transition-colors",
-                    index === selected
-                      ? "bg-[var(--reader-chip)]"
-                      : "hover:bg-[var(--reader-chip)]",
-                  )}
+                  className={primaryClass}
+                  disabled={busy}
+                  onClick={() => void fromLink(true)}
                 >
-                  <span className="flex items-baseline gap-4">
-                    <span className="flex-1 font-serif text-[20px] leading-snug">
-                      {match.title}
-                    </span>
-                    <span className="shrink-0 text-[11px] text-[var(--reader-muted)]">
-                      {match.minutes ? `${match.minutes} min` : match.status}
-                    </span>
-                  </span>
-                  <span className="mt-1 block text-[13px] leading-relaxed text-[var(--reader-fg-soft)]">
-                    {match.reason}
-                  </span>
-                  <span className="mt-1 block text-[11px] text-[var(--reader-muted)]">
-                    {[match.author, match.status].filter(Boolean).join(" · ")}
-                  </span>
+                  Save and read
                 </button>
-              ))
-            )}
-          </div>
+                <button
+                  type="button"
+                  className={quietClass}
+                  disabled={busy}
+                  onClick={() => void fromLink(false)}
+                >
+                  Save for later
+                </button>
+              </div>
+            </div>
+          )}
           {loading && (
             <p
               role="status"
-              className="px-3 py-6 text-[14px] text-[var(--reader-muted)]"
+              className="px-5 py-6 text-[14px] text-[var(--reader-muted)]"
             >
-              Finding articles that fit…
+              Finding something that fits…
             </p>
           )}
-          {!isLink &&
-            text.length >= 2 &&
-            result.query === text &&
-            result.status === "ready" &&
-            !matches.length && (
-              <p
-                role="status"
-                className="px-3 py-6 text-[14px] text-[var(--reader-muted)]"
-              >
-                Nothing in your library fits that yet. Try another topic or
-                paste a link.
+          {shown && (
+            <div className="px-[18px] pb-4 pt-[18px]">
+              <p className={labelClass}>
+                About {text}
+                {limit !== null && `, within ${limit} min`}
               </p>
-            )}
-          {result.query === text &&
-            result.status === "error" &&
-            !isLink &&
-            result.reason && (
-              <div
-                role="alert"
-                className="px-3 py-6 text-[14px] text-[var(--reader-fg-soft)]"
+              <h3
+                key={shown.match.articleId}
+                className="mb-1.5 font-serif text-[22px] leading-tight md:text-[26px]"
               >
-                {result.reason}{" "}
-                <Link
-                  href="/account"
-                  onClick={() => setOpen(false)}
-                  className="underline underline-offset-2"
-                >
-                  Open Your account
-                </Link>
-              </div>
-            )}
-          {result.query === text &&
-            result.status === "error" &&
-            !isLink &&
-            !result.reason && (
-              <div
-                role="alert"
-                className="px-3 py-6 text-[14px] text-[var(--reader-fg-soft)]"
-              >
-                Couldn&apos;t search your library.{" "}
+                {shown.match.title}
+              </h3>
+              <p className="mb-2 text-[13.5px] text-[var(--reader-muted)]">
+                {metaLine(shown.match)}
+              </p>
+              <p className="mb-4 min-h-[22px] text-[14.5px] text-[var(--pencil)]">
+                {reason ||
+                  (!result.explained && (
+                    <span
+                      aria-hidden
+                      className="inline-block h-2.5 w-[180px] animate-pulse rounded-full bg-[var(--reader-chip)] align-middle"
+                    />
+                  ))}
+              </p>
+              <div className="flex flex-wrap items-center gap-2.5">
                 <button
                   type="button"
-                  onClick={() => setRetry((n) => n + 1)}
-                  className="underline underline-offset-2"
+                  className={primaryClass}
+                  onClick={readNow}
                 >
-                  Try again
+                  Read now
+                </button>
+                {shown.hasNext && (
+                  <button
+                    type="button"
+                    className={secondaryClass}
+                    onClick={another}
+                  >
+                    Another
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={quietClass}
+                  disabled={saved.has(shown.match.articleId)}
+                  onClick={() => void save(shown.match.articleId)}
+                >
+                  {saved.has(shown.match.articleId)
+                    ? "Saved"
+                    : "Save for later"}
+                </button>
+                <span className="ml-auto hidden text-[12.5px] text-[var(--reader-muted)] md:inline">
+                  {shown.ordinal} of {shown.total}
+                  {result.more && "+"}
+                </span>
+              </div>
+            </div>
+          )}
+          {card?.kind === "none-fit" && (
+            <div className="px-[18px] pb-4 pt-[18px]">
+              <p className={labelClass}>
+                About {text}, within {limit} min
+              </p>
+              <p className="mb-1.5 font-serif text-[22px] leading-tight">
+                Nothing on {text} fits in {limit} minutes.
+              </p>
+              {shortest && (
+                <p className="mb-4 text-[14.5px] text-[var(--pencil)]">
+                  The shortest is {shortest.minutes} min: &ldquo;
+                  {shortest.title}&rdquo;.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {shortest && (
+                  <button
+                    type="button"
+                    className={secondaryClass}
+                    onClick={() => go(shortest.articleId)}
+                  >
+                    Read it anyway
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={quietClass}
+                  onClick={clearLimit}
+                >
+                  Clear the time
                 </button>
               </div>
-            )}
+            </div>
+          )}
+          {card?.kind === "end" && (
+            <div className="px-[18px] py-5">
+              <p className="mb-3 text-[14px] text-[var(--reader-fg-soft)]">
+                That&apos;s everything closest to {text}.
+              </p>
+              <button
+                type="button"
+                className={secondaryClass}
+                onClick={() => setPosition(0)}
+              >
+                Start again
+              </button>
+            </div>
+          )}
+          {card?.kind === "empty" && (
+            <p
+              role="status"
+              className="px-5 py-6 text-[14px] text-[var(--reader-muted)]"
+            >
+              Nothing in your library fits that yet. Try another topic or paste
+              a link.
+            </p>
+          )}
+          {searching && current && result.status === "error" && (
+            <div
+              role="alert"
+              className="px-5 py-6 text-[14px] text-[var(--reader-fg-soft)]"
+            >
+              {result.error ? (
+                <>
+                  {result.error}{" "}
+                  <Link
+                    href="/account"
+                    onClick={() => setOpen(false)}
+                    className="underline underline-offset-2"
+                  >
+                    Open Your account
+                  </Link>
+                </>
+              ) : (
+                <>
+                  Couldn&apos;t search your library.{" "}
+                  <button
+                    type="button"
+                    onClick={() => setRetry((n) => n + 1)}
+                    className="underline underline-offset-2"
+                  >
+                    Try again
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
-        <div className="hidden md:flex items-center justify-between gap-3 border-t border-[var(--reader-border)] px-5 py-3 text-[11px] text-[var(--reader-muted)]">
-          <span>
-            <kbd className="reader-kbd">↑</kbd>{" "}
-            <kbd className="reader-kbd">↓</kbd> choose{" "}
-            <kbd className="reader-kbd">Enter</kbd> read
-          </span>
-          <span>
-            <kbd className="reader-kbd">Esc</kbd> close
-          </span>
-        </div>
+        {searching && (
+          <div className="border-t border-[var(--reader-border)] px-[18px] py-2.5 text-[12.5px] text-[var(--reader-muted)]">
+            See every match in{" "}
+            <Link
+              href={`/library?q=${encodeURIComponent(text)}`}
+              onClick={() => setOpen(false)}
+              className="text-[var(--reader-fg-soft)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px]"
+            >
+              Library
+            </Link>
+          </div>
+        )}
         <span role="status" className="sr-only">
-          {!loading && count
-            ? `${count} articles. Use up and down arrows to choose, Enter to read.`
+          {shown
+            ? `${shown.ordinal} of ${shown.total}${result.more ? " or more" : ""}: ${shown.match.title}, ${shown.match.minutes ?? "unknown"} minutes.`
             : ""}
         </span>
       </dialog>

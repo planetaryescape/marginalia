@@ -68,6 +68,28 @@ export const librarySearchResponseSchema = z.object({
 export type LibrarySearchMatch = z.infer<
   typeof librarySearchResponseSchema
 >["matches"][number];
+/** One closest-by-meaning article from the search-only path: no model, so no reason yet. */
+export const libraryFindResponseSchema = z.object({
+  matches: z
+    .array(
+      z.object({
+        articleId: z.string().regex(/^[a-z0-9]+$/),
+        title: z.string(),
+        author: z.string().nullable(),
+        /** Site the article came from, such as example.com. */
+        source: z.string().nullable(),
+        minutes: z.number().nullable(),
+        status: z.string(),
+      }),
+    )
+    .max(24),
+  /** True when the search hit its cap, so more articles could exist beyond these. */
+  more: z.boolean(),
+});
+export type LibraryFindMatch = z.infer<
+  typeof libraryFindResponseSchema
+>["matches"][number];
+
 export interface SearchCandidate {
   articleId: string;
   title: string;
