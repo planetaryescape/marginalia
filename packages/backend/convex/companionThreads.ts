@@ -27,6 +27,25 @@ export const listByArticle = query({
   },
 });
 
+/** The newest answers the reader chose to keep, for the Notes page. */
+const KEPT_LIMIT = 100;
+
+export const listKept = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("companionThreads")
+      // Rows saved before Keep existed have no keptAt and sort below 0
+      .withIndex("by_user_kept", (q) =>
+        q.eq("userId", ctx.readerId).gt("keptAt", 0),
+      )
+      .order("desc")
+      .take(KEPT_LIMIT);
+    // The embedding is 1536 numbers the page never reads
+    return rows.map(({ embedding: _embedding, ...row }) => row);
+  },
+});
+
 export const listByArticleInternal = internalQuery({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) =>

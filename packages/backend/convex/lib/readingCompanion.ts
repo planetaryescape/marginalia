@@ -19,6 +19,10 @@ export const companionRequestSchema = z
     // The last paragraph the selection crosses, from the reader's own range.
     // Older clients omit it and the server works it out from the text.
     paragraphEnd: z.number().int().min(0).optional(),
+    // For Define: the sentence the word was selected in, and which match of
+    // the word in its paragraph it was, so a repeated word is defined as used.
+    sentence: z.string().trim().max(2000).optional(),
+    occurrence: z.number().int().min(0).optional(),
     question: z.string().trim().max(2000).optional(),
     length: z.enum(["brief", "standard", "detailed"]).default("standard"),
     level: z.enum(["plain", "balanced", "expert"]).default("balanced"),
@@ -298,6 +302,17 @@ export function buildCompanionPrompt(
           "</highlighted_passage>",
           "",
         ];
+  const usage =
+    request.mode === "define" && request.sentence
+      ? [
+          `The selected usage is in this sentence: "${request.sentence}"${
+            request.occurrence
+              ? ` (occurrence ${request.occurrence + 1} of the selected words in the paragraph)`
+              : ""
+          }`,
+          "",
+        ]
+      : [];
   const opening = [
     ...formatSummary(summary),
     "<article>",
@@ -310,6 +325,7 @@ export function buildCompanionPrompt(
     "</article>",
     "",
     ...passage,
+    ...usage,
     TASKS[request.mode],
     request.question ? `\nReader's question: ${request.question}` : "",
   ].join("\n");

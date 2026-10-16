@@ -406,6 +406,7 @@ export default defineSchema({
   })
     .index("by_article", ["articleId"])
     .index("by_user", ["userId"])
+    .index("by_user_kept", ["userId", "keptAt"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { expect, it } from "vitest";
-import { ownerTest } from "../test/owner";
+import { ownerTest, secondReaderTest } from "../test/owner";
 import { api } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -240,4 +240,46 @@ it("upgrades an older saved thread in place when it is the row the answer came f
     turns: [{ role: "assistant", content: "Other." }],
   });
   expect(other).not.toBe(old);
+});
+
+it("lists the signed-in reader's kept answers newest first, without embeddings or unkept rows", async () => {
+  const f = await secondReaderTest(modules);
+  const owned = (userId: string, guid: string) =>
+    f.t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId,
+        guid,
+        url: `https://example.com/${guid}`,
+        title: "Markets",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: 1,
+      }),
+    );
+  const mine = await owned("default_user", "mine");
+  const theirs = await owned(f.readerLibraryId, "theirs");
+  const row = (userId: string, articleId: typeof mine, over: object) =>
+    f.t.run((ctx) =>
+      ctx.db.insert("companionThreads", {
+        userId,
+        articleId,
+        mode: "explain",
+        selection: "x",
+        turns: [{ role: "assistant", content: "A." }],
+        embedding: [0.1, 0.2],
+        createdAt: 1,
+        updatedAt: 1,
+        ...over,
+      }),
+    );
+  const older = await row("default_user", mine, { keptAt: 10 });
+  const newer = await row("default_user", mine, { keptAt: 20 });
+  await row("default_user", mine, {});
+  await row(f.readerLibraryId, theirs, { keptAt: 30 });
+
+  const kept = await f.owner.query(api.companionThreads.listKept, {});
+  expect(kept.map((r) => r._id)).toEqual([newer, older]);
+  expect(kept.every((r) => !("embedding" in r))).toBe(true);
+  const others = await f.reader.query(api.companionThreads.listKept, {});
+  expect(others.map((r) => r.userId)).toEqual([f.readerLibraryId]);
 });

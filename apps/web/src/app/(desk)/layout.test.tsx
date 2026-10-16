@@ -44,6 +44,8 @@ vi.mock("convex/react", () => ({
     switch (getFunctionName(ref)) {
       case "userNotes:listAll":
         return state.notes;
+      case "companionThreads:listKept":
+        return [];
       case "savedArticles:count":
         return 1;
       case "articles:getById":

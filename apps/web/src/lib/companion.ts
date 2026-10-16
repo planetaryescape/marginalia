@@ -295,6 +295,18 @@ export function useCompanion({
         getArticleBody(containerRef.current),
       ).map(paragraphText);
 
+      // Define is told which usage of the words was selected, not just the words.
+      const sentence =
+        base.mode === "define"
+          ? sentenceAround(
+              base.paragraphIndex === null
+                ? ""
+                : (paragraphs[base.paragraphIndex] ?? ""),
+              base.selection,
+              base.occurrence,
+            )
+          : undefined;
+
       let answer = "";
       let model: string | null = base.model ?? null;
       try {
@@ -308,6 +320,8 @@ export function useCompanion({
             selection: base.selection,
             paragraphIndex: base.paragraphIndex,
             paragraphEnd: base.paragraphEnd,
+            sentence,
+            occurrence: sentence ? (base.occurrence ?? 0) : undefined,
             question: base.question,
             history,
             length: settings.answerLength,
@@ -373,13 +387,7 @@ export function useCompanion({
         recordLookup({
           articleId,
           word: base.selection,
-          sentence: sentenceAround(
-            base.paragraphIndex === null
-              ? ""
-              : (paragraphs[base.paragraphIndex] ?? ""),
-            base.selection,
-            base.occurrence,
-          ),
+          sentence: sentence ?? "",
           paragraphIndex: base.paragraphIndex ?? undefined,
           occurrence: base.occurrence ?? 0,
           sense: senseOf(answer),

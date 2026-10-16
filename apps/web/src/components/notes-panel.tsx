@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { type KeptAnswer, splitNotes } from "@/lib/kept-answers";
 import { MODE_LABELS } from "@/lib/margin-answers";
 import { sanitizeHtml } from "@/lib/sanitize";
-import { CompanionAnswer } from "./companion-answer";
+import { KeptTranscript } from "./kept-transcript";
 import { NoteEditor } from "./note-editor";
 
 type Selection = {
@@ -59,34 +59,7 @@ function KeptAnswerBody({
         dangerouslySetInnerHTML={{ __html: sanitizeHtml(answer.note.content) }}
       />
     );
-  const { thread } = answer;
-  return (
-    <div className="space-y-3">
-      {thread.question && (
-        <p className="text-[14px] font-medium text-[var(--reader-fg)]">
-          {thread.question}
-        </p>
-      )}
-      {thread.turns.map((turn, i) =>
-        turn.role === "user" ? (
-          <p
-            key={i}
-            className="border-t border-[var(--reader-border)] pt-3 text-[14px] font-medium text-[var(--reader-fg)]"
-          >
-            {turn.content}
-          </p>
-        ) : (
-          <CompanionAnswer
-            key={i}
-            text={turn.content}
-            lead={false}
-            streaming={false}
-            onJump={onJump}
-          />
-        ),
-      )}
-    </div>
-  );
+  return <KeptTranscript thread={answer.thread} onJump={onJump} />;
 }
 
 export function NotesPanel({

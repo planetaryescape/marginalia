@@ -192,6 +192,39 @@ describe("readingCompanion", () => {
       expect(opening).not.toContain("Paragraph 5.");
     });
 
+    it("tells Define which usage of a repeated word was selected", () => {
+      const text = (sentence: string, occurrence: number) =>
+        String(
+          buildCompanionPrompt(
+            request({
+              mode: "define",
+              selection: "bass",
+              sentence,
+              occurrence,
+            }),
+          ).messages[0].content,
+        );
+      const first = text("He caught a bass.", 0);
+      const second = text("She played the bass.", 1);
+      expect(first).toContain('in this sentence: "He caught a bass."');
+      expect(first).not.toContain("occurrence");
+      expect(second).toContain('in this sentence: "She played the bass."');
+      expect(second).toContain("occurrence 2 of the selected words");
+      expect(first).not.toBe(second);
+      // Other tools, and old clients that send no sentence, are unchanged
+      expect(
+        String(
+          buildCompanionPrompt(request({ mode: "explain", sentence: "x" }))
+            .messages[0].content,
+        ),
+      ).not.toContain("selected usage");
+      expect(
+        String(
+          buildCompanionPrompt(request({ mode: "define" })).messages[0].content,
+        ),
+      ).not.toContain("selected usage");
+    });
+
     it("adds the summary as background when there is one", () => {
       const { messages } = buildCompanionPrompt(request({}), {
         thesis: "Prices drive demand.",

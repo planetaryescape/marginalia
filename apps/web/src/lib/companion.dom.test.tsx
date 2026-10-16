@@ -721,6 +721,50 @@ describe("forgetting a deleted record", () => {
   });
 });
 
+describe("Define is told which usage was selected", () => {
+  it("sends different requests for the first and the second 'bass'", async () => {
+    article.innerHTML =
+      '<div data-article-body><p data-para="1">He caught a bass. She played the bass. Nobody cared.</p></div>';
+    const text = article.querySelector("p")?.firstChild as Text;
+    const pick = (at: number) => {
+      const r = document.createRange();
+      r.setStart(text, at);
+      r.setEnd(text, at + 4);
+      return r;
+    };
+    await mount();
+    await act(async () =>
+      latest.start({ mode: "define", range: pick(text.data.indexOf("bass")) }),
+    );
+    await settle();
+    await act(async () =>
+      latest.start({
+        mode: "define",
+        range: pick(text.data.lastIndexOf("bass")),
+      }),
+    );
+    await settle();
+    expect(bodies[0]).toMatchObject({
+      selection: "bass",
+      sentence: "He caught a bass.",
+      occurrence: 0,
+    });
+    expect(bodies[1]).toMatchObject({
+      selection: "bass",
+      sentence: "She played the bass.",
+      occurrence: 1,
+    });
+    expect(JSON.stringify(bodies[0])).not.toBe(JSON.stringify(bodies[1]));
+  });
+
+  it("sends no sentence for the other tools", async () => {
+    await mount();
+    await ask("explain");
+    expect(bodies[0].sentence).toBeUndefined();
+    expect(bodies[0].occurrence).toBeUndefined();
+  });
+});
+
 describe("the sentence of the occurrence that was selected", () => {
   it("records the second 'bass', not the first", async () => {
     article.innerHTML =
