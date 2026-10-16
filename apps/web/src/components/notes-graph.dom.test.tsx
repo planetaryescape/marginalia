@@ -24,6 +24,8 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
       graph: "graph",
       node: "node",
       search: "search",
+    },
+    ideaLinks: {
       writeConnected: "write",
       link: "link",
       unlink: "unlink",

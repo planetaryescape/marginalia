@@ -32,7 +32,7 @@ export type EdgeExplanation =
 export const explain = action({
   args: { a: v.string(), b: v.string() },
   handler: async (ctx, args): Promise<EdgeExplanation> => {
-    const context = await ctx.runQuery(internal.ideaGraph.edgeContext, {
+    const context = await ctx.runQuery(internal.ideaEdgeReasons.edgeContext, {
       userId: ctx.readerId,
       a: args.a,
       b: args.b,
@@ -66,7 +66,7 @@ export const explain = action({
     });
     const reason = cleanReason(object.reason);
     if (!reason) throw new Error("The model returned no reason");
-    await ctx.runMutation(internal.ideaGraph.saveReason, {
+    await ctx.runMutation(internal.ideaEdgeReasons.saveReason, {
       userId: ctx.readerId,
       pair: context.pair,
       fingerprint: context.fingerprint,

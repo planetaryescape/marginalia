@@ -239,7 +239,7 @@ describe("idea graph edges", () => {
       const centre = await addNote(ctx, OWNER, one, "centre");
       return { far, centre };
     });
-    await owner.mutation(api.ideaGraph.link, {
+    await owner.mutation(api.ideaLinks.link, {
       from: nodeKey("note", ids.centre),
       to: nodeKey("note", ids.far),
     });
@@ -398,11 +398,11 @@ describe("links the reader makes", () => {
 
   it("links two of the reader's own ideas once, whichever way round", async () => {
     const { t, owner, a, b } = await setup();
-    const first = await owner.mutation(api.ideaGraph.link, { from: a, to: b });
-    expect(await owner.mutation(api.ideaGraph.link, { from: a, to: b })).toBe(
+    const first = await owner.mutation(api.ideaLinks.link, { from: a, to: b });
+    expect(await owner.mutation(api.ideaLinks.link, { from: a, to: b })).toBe(
       first,
     );
-    expect(await owner.mutation(api.ideaGraph.link, { from: b, to: a })).toBe(
+    expect(await owner.mutation(api.ideaLinks.link, { from: b, to: a })).toBe(
       first,
     );
     expect(
@@ -413,24 +413,24 @@ describe("links the reader makes", () => {
   it("refuses a self-link, a missing idea and someone else's", async () => {
     const { owner, a, theirs } = await setup();
     await expect(
-      owner.mutation(api.ideaGraph.link, { from: a, to: a }),
+      owner.mutation(api.ideaLinks.link, { from: a, to: a }),
     ).rejects.toThrow(/itself/);
     await expect(
-      owner.mutation(api.ideaGraph.link, { from: a, to: theirs }),
+      owner.mutation(api.ideaLinks.link, { from: a, to: theirs }),
     ).rejects.toThrow(/isn't in your notes/);
     await expect(
-      owner.mutation(api.ideaGraph.link, { from: a, to: "note:bogus" }),
+      owner.mutation(api.ideaLinks.link, { from: a, to: "note:bogus" }),
     ).rejects.toThrow(/isn't in your notes/);
   });
 
   it("removes a link only for its owner", async () => {
     const { t, owner, reader, a, b } = await setup();
-    await owner.mutation(api.ideaGraph.link, { from: a, to: b });
-    await reader.mutation(api.ideaGraph.unlink, { a, b });
+    await owner.mutation(api.ideaLinks.link, { from: a, to: b });
+    await reader.mutation(api.ideaLinks.unlink, { a, b });
     expect(
       await t.run((ctx) => ctx.db.query("ideaLinks").collect()),
     ).toHaveLength(1);
-    await owner.mutation(api.ideaGraph.unlink, { a: b, b: a });
+    await owner.mutation(api.ideaLinks.unlink, { a: b, b: a });
     expect(
       await t.run((ctx) => ctx.db.query("ideaLinks").collect()),
     ).toHaveLength(0);
@@ -438,7 +438,7 @@ describe("links the reader makes", () => {
 
   it("saves a connected note linked to its centre, and the map shows it at once", async () => {
     const { t, owner, a } = await setup();
-    const key = await owner.mutation(api.ideaGraph.writeConnected, {
+    const key = await owner.mutation(api.ideaLinks.writeConnected, {
       from: a,
       content: "<p>If the schedule does the work</p>",
       contentPlain: "If the schedule does the work",
@@ -457,7 +457,7 @@ describe("links the reader makes", () => {
   it("will not write beside someone else's idea, an empty note, or an article-less vault note", async () => {
     const { t, owner, theirs } = await setup();
     await expect(
-      owner.mutation(api.ideaGraph.writeConnected, {
+      owner.mutation(api.ideaLinks.writeConnected, {
         from: theirs,
         content: "x",
         contentPlain: "x",
@@ -465,14 +465,14 @@ describe("links the reader makes", () => {
     ).rejects.toThrow(/isn't in your notes/);
     const vault = await t.run((ctx) => addVault(ctx, OWNER, "Loose"));
     await expect(
-      owner.mutation(api.ideaGraph.writeConnected, {
+      owner.mutation(api.ideaLinks.writeConnected, {
         from: nodeKey("vault", vault),
         content: "x",
         contentPlain: "x",
       }),
     ).rejects.toThrow(/isn't tied to an article/);
     await expect(
-      owner.mutation(api.ideaGraph.writeConnected, {
+      owner.mutation(api.ideaLinks.writeConnected, {
         from: nodeKey("vault", vault),
         content: " ",
         contentPlain: " ",
@@ -517,7 +517,7 @@ describe("edge reasons", () => {
     const provider = completion("unused");
     vi.stubGlobal("fetch", provider);
     const { t, a, b } = await twoFarNotes();
-    await t.mutation(api.ideaGraph.link, { from: a, to: b });
+    await t.mutation(api.ideaLinks.link, { from: a, to: b });
     const result = await t.action(api.actions.explainIdeaEdge.explain, {
       a,
       b,
@@ -582,14 +582,14 @@ describe("edge reasons", () => {
 
   it("keeps the cache per reader", async () => {
     const { t, a, b } = await twoFarNotes();
-    await t.mutation(internal.ideaGraph.saveReason, {
+    await t.mutation(internal.ideaEdgeReasons.saveReason, {
       userId: "someone_else",
       pair: "x|y",
       fingerprint: "f",
       reason: "r",
       model: "m",
     });
-    const context = await t.query(internal.ideaGraph.edgeContext, {
+    const context = await t.query(internal.ideaEdgeReasons.edgeContext, {
       userId: OWNER,
       a,
       b,

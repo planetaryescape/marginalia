@@ -1,133 +1,33 @@
-// The idea graph (rung 5d): a small local map around one idea, built from what
-// already exists. Every read is bounded per signal, and the result never
-// exceeds MAX_NODES ideas.
-import { ConvexError, v } from "convex/values";
-import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, internalQuery, mutation, query } from "./functions";
-import { KIND_FAMILIES } from "./lib/annotationKinds";
+// The idea graph (rung 5d), read side: a small local map around one idea,
+// built from what already exists. The result never exceeds MAX_NODES ideas.
+import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import { internalQuery, query } from "./functions";
 import {
   articleReason,
-  Candidates,
-  connectionReason,
   FIRST_RING,
   linkedReason,
   MAX_NODES,
   type NodeKind,
   nodeKey,
-  pairFingerprint,
   pairKey,
-  parseKey,
   type Reason,
-  SIGNAL_SCORE,
-  similarityReason,
-  snippet,
-  tagReason,
 } from "./lib/ideaGraph";
+import {
+  articleFor,
+  articleTitle,
+  type Db,
+  type LoadedNode,
+  loadNode,
+} from "./lib/ideaNodes";
+import {
+  gatherCandidates,
+  ideasOnArticle,
+  linkedKeys,
+} from "./lib/ideaSignals";
 
-type Db = Pick<QueryCtx, "db">;
-
-// Caps per signal. Each document carries a 1536-number embedding (~12KB), so
-// these keep one graph read well under Convex's 16MB limit.
-const LINKS_PER_NODE = 20;
-const ITEMS_PER_ARTICLE = 12;
-const TAGS_PER_ARTICLE = 10;
-const TAGS_USED = 4;
-const ARTICLES_PER_TAG = 5;
-const CONNECTION_ANNOTATIONS = 60;
 const HINTS_USED = 12;
 const CANDIDATES_LOADED = FIRST_RING * 2;
-
-const CONNECTION_TYPES: readonly string[] = KIND_FAMILIES.connection;
-
-export interface LoadedNode {
-  key: string;
-  kind: NodeKind;
-  id: string;
-  articleId?: Id<"articles">;
-  label: string;
-  text: string;
-  createdAt: number;
-  /** For a vault note: its file, so chunks of one file show once. */
-  filePath?: string;
-}
-
-/** The node a key names, or null when it is gone or belongs to someone else. */
-export async function loadNode(
-  ctx: Db,
-  userId: string,
-  key: string,
-): Promise<LoadedNode | null> {
-  const ref = parseKey(key);
-  if (!ref) return null;
-  const { db } = ctx;
-  switch (ref.kind) {
-    case "note": {
-      const id = db.normalizeId("userNotes", ref.id);
-      const row = id && (await db.get("userNotes", id));
-      if (!row || row.userId !== userId) return null;
-      return {
-        key,
-        kind: "note",
-        id: row._id,
-        articleId: row.articleId,
-        label: snippet(row.contentPlain || row.selectedText, 70),
-        text: row.contentPlain,
-        createdAt: row.createdAt,
-      };
-    }
-    case "highlight": {
-      const id = db.normalizeId("highlights", ref.id);
-      const row = id && (await db.get("highlights", id));
-      if (!row || row.userId !== userId) return null;
-      return {
-        key,
-        kind: "highlight",
-        id: row._id,
-        articleId: row.articleId,
-        label: snippet(row.text, 70),
-        text: row.text,
-        createdAt: row.createdAt,
-      };
-    }
-    case "answer": {
-      const id = db.normalizeId("companionThreads", ref.id);
-      const row = id && (await db.get("companionThreads", id));
-      // Only answers the reader chose to keep are ideas of theirs
-      if (!row || row.userId !== userId || !row.keptAt) return null;
-      const reply = [...row.turns]
-        .reverse()
-        .find((t) => t.role === "assistant");
-      return {
-        key,
-        kind: "answer",
-        id: row._id,
-        articleId: row.articleId,
-        label: snippet(
-          row.question || row.selection || reply?.content || "",
-          70,
-        ),
-        text: [row.selection, reply?.content].filter(Boolean).join("\n\n"),
-        createdAt: row.keptAt,
-      };
-    }
-    case "vault": {
-      const id = db.normalizeId("noteChunks", ref.id);
-      const row = id && (await db.get("noteChunks", id));
-      if (!row || row.userId !== userId) return null;
-      return {
-        key,
-        kind: "vault",
-        id: row._id,
-        label: snippet(row.fileName.replace(/\.md$/i, ""), 70),
-        text: row.content,
-        createdAt: row.indexedAt,
-        filePath: row.filePath,
-      };
-    }
-  }
-}
 
 async function latestNode(ctx: Db, userId: string) {
   const row = await ctx.db
@@ -138,204 +38,6 @@ async function latestNode(ctx: Db, userId: string) {
   return row ? loadNode(ctx, userId, nodeKey("note", row._id)) : null;
 }
 
-/** The other end of each link the reader drew from or to a node, newest first. */
-async function linkedKeys(ctx: Db, userId: string, key: string, take: number) {
-  const [out, into] = await Promise.all([
-    ctx.db
-      .query("ideaLinks")
-      .withIndex("by_user_from_to", (q) =>
-        q.eq("userId", userId).eq("from", key),
-      )
-      .order("desc")
-      .take(take),
-    ctx.db
-      .query("ideaLinks")
-      .withIndex("by_user_to", (q) => q.eq("userId", userId).eq("to", key))
-      .order("desc")
-      .take(take),
-  ]);
-  return [
-    ...out.map((row) => ({ key: row.to, createdAt: row.createdAt })),
-    ...into.map((row) => ({ key: row.from, createdAt: row.createdAt })),
-  ]
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map((row) => row.key);
-}
-
-/** Keys of the reader's ideas written on one article, a few of each kind. */
-async function ideasOnArticle(
-  ctx: Db,
-  userId: string,
-  articleId: Id<"articles">,
-  per: { notes: number; highlights: number; answers: number },
-): Promise<string[]> {
-  const [notes, marks, threads] = await Promise.all([
-    ctx.db
-      .query("userNotes")
-      .withIndex("by_article", (q) => q.eq("articleId", articleId))
-      .order("desc")
-      .take(ITEMS_PER_ARTICLE),
-    ctx.db
-      .query("highlights")
-      .withIndex("by_article", (q) => q.eq("articleId", articleId))
-      .order("desc")
-      .take(ITEMS_PER_ARTICLE),
-    ctx.db
-      .query("companionThreads")
-      .withIndex("by_article", (q) => q.eq("articleId", articleId))
-      .order("desc")
-      .take(ITEMS_PER_ARTICLE),
-  ]);
-  const mine = <T extends { userId: string }>(rows: T[]) =>
-    rows.filter((row) => row.userId === userId);
-  return [
-    ...mine(notes)
-      .slice(0, per.notes)
-      .map((r) => nodeKey("note", r._id)),
-    ...mine(marks)
-      .slice(0, per.highlights)
-      .map((r) => nodeKey("highlight", r._id)),
-    ...mine(threads)
-      .filter((r) => r.keptAt)
-      .slice(0, per.answers)
-      .map((r) => nodeKey("answer", r._id)),
-  ];
-}
-
-async function articleTitle(
-  ctx: Db,
-  userId: string,
-  articleId: Id<"articles">,
-): Promise<string | null> {
-  const article = await ctx.db.get("articles", articleId);
-  return article && article.userId === userId ? article.title : null;
-}
-
-/** Active tags on an article, with the rarest first: a rare tag says more. */
-async function activeTags(ctx: Db, userId: string, articleId: Id<"articles">) {
-  const rows = await ctx.db
-    .query("articleTags")
-    .withIndex("by_article", (q) => q.eq("articleId", articleId))
-    .take(TAGS_PER_ARTICLE);
-  const tags: Doc<"tags">[] = [];
-  for (const row of rows) {
-    if (row.userId !== userId) continue;
-    const tag = await ctx.db.get("tags", row.tagId);
-    if (tag && tag.userId === userId && tag.status === "active") tags.push(tag);
-  }
-  return tags.sort((a, b) => a.count - b.count);
-}
-
-/** Marginalia's connection notes on an article: which vault notes and articles it tied in. */
-async function connectionsOnArticle(
-  ctx: Db,
-  userId: string,
-  articleId: Id<"articles">,
-) {
-  const rows = await ctx.db
-    .query("annotations")
-    .withIndex("by_article", (q) => q.eq("articleId", articleId))
-    .take(CONNECTION_ANNOTATIONS);
-  return rows.filter(
-    (row) => row.userId === userId && CONNECTION_TYPES.includes(row.type),
-  );
-}
-
-/** Gathers what sits near the centre from every signal except embeddings. */
-async function gatherCandidates(
-  ctx: Db,
-  userId: string,
-  centre: LoadedNode,
-  similar: string[],
-) {
-  const found = new Candidates(centre.key);
-
-  for (const key of await linkedKeys(ctx, userId, centre.key, LINKS_PER_NODE))
-    found.add(key, linkedReason());
-
-  similar.forEach((key, rank) => {
-    const reason = similarityReason();
-    found.add(key, reason, SIGNAL_SCORE.similar - rank * 3);
-  });
-
-  if (centre.articleId) {
-    const articleId = centre.articleId;
-    const title = await articleTitle(ctx, userId, articleId);
-    for (const key of await ideasOnArticle(ctx, userId, articleId, {
-      notes: 8,
-      highlights: 8,
-      answers: 8,
-    }))
-      found.add(key, articleReason(title));
-
-    for (const row of await connectionsOnArticle(ctx, userId, articleId)) {
-      if (row.noteChunkId)
-        found.add(
-          nodeKey("vault", row.noteChunkId),
-          connectionReason("this article to this vault note"),
-        );
-      else if (row.articleRefId) {
-        const other = await articleTitle(ctx, userId, row.articleRefId);
-        for (const key of await ideasOnArticle(ctx, userId, row.articleRefId, {
-          notes: 2,
-          highlights: 1,
-          answers: 1,
-        }))
-          found.add(
-            key,
-            connectionReason(
-              other
-                ? `this article with “${snippet(other, 50)}”`
-                : "two articles",
-            ),
-          );
-      }
-    }
-
-    const tags = (await activeTags(ctx, userId, articleId)).slice(0, TAGS_USED);
-    for (const tag of tags) {
-      const rows = await ctx.db
-        .query("articleTags")
-        .withIndex("by_tag", (q) => q.eq("tagId", tag._id))
-        .order("desc")
-        .take(ARTICLES_PER_TAG + 1);
-      const others = rows
-        .filter((row) => row.userId === userId && row.articleId !== articleId)
-        .slice(0, ARTICLES_PER_TAG);
-      for (const row of others)
-        for (const key of await ideasOnArticle(ctx, userId, row.articleId, {
-          notes: 2,
-          highlights: 1,
-          answers: 1,
-        }))
-          found.add(key, tagReason(tag.name));
-    }
-  } else if (centre.kind === "vault") {
-    const rows = await ctx.db
-      .query("annotations")
-      .withIndex("by_note_chunk", (q) =>
-        q.eq("noteChunkId", centre.id as Id<"noteChunks">),
-      )
-      .take(10);
-    for (const row of rows) {
-      if (row.userId !== userId) continue;
-      const title = await articleTitle(ctx, userId, row.articleId);
-      for (const key of await ideasOnArticle(ctx, userId, row.articleId, {
-        notes: 3,
-        highlights: 2,
-        answers: 1,
-      }))
-        found.add(
-          key,
-          connectionReason(
-            title ? `this note with “${snippet(title, 50)}”` : "this note",
-          ),
-        );
-    }
-  }
-  return found;
-}
-
 export interface GraphNode {
   key: string;
   kind: NodeKind;
@@ -344,6 +46,7 @@ export interface GraphNode {
   hop: 0 | 1 | 2;
   createdAt: number;
 }
+
 export interface GraphEdge {
   id: string;
   a: string;
@@ -352,6 +55,7 @@ export interface GraphEdge {
   /** True when only embeddings found it, so the reason is generated on selection. */
   needsAi: boolean;
 }
+
 export interface Graph {
   centre: string | null;
   nodes: GraphNode[];
@@ -569,225 +273,6 @@ export const node = query({
       articleId: article?._id ?? null,
       articleTitle: article?.title ?? null,
     };
-  },
-});
-
-// --- Links the reader makes ---
-
-async function linkRow(ctx: Db, userId: string, a: string, b: string) {
-  const find = (from: string, to: string) =>
-    ctx.db
-      .query("ideaLinks")
-      .withIndex("by_user_from_to", (q) =>
-        q.eq("userId", userId).eq("from", from).eq("to", to),
-      )
-      .first();
-  return (await find(a, b)) ?? (await find(b, a));
-}
-
-async function createLink(
-  ctx: MutationCtx,
-  userId: string,
-  from: string,
-  to: string,
-) {
-  if (from === to) throw new ConvexError("An idea can't link to itself.");
-  const [a, b] = await Promise.all([
-    loadNode(ctx, userId, from),
-    loadNode(ctx, userId, to),
-  ]);
-  if (!a || !b) throw new ConvexError("That idea isn't in your notes.");
-  const existing = await linkRow(ctx, userId, from, to);
-  if (existing) return existing._id;
-  return ctx.db.insert("ideaLinks", {
-    userId,
-    from,
-    to,
-    createdAt: Date.now(),
-  });
-}
-
-export const link = mutation({
-  args: { from: v.string(), to: v.string() },
-  handler: (ctx, args) => createLink(ctx, ctx.readerId, args.from, args.to),
-});
-
-export const unlink = mutation({
-  args: { a: v.string(), b: v.string() },
-  handler: async (ctx, args) => {
-    const row = await linkRow(ctx, ctx.readerId, args.a, args.b);
-    if (row) await ctx.db.delete("ideaLinks", row._id);
-  },
-});
-
-/** The article a new note beside this idea belongs to. */
-async function articleFor(ctx: Db, userId: string, from: LoadedNode) {
-  if (from.articleId) return from.articleId;
-  if (from.kind !== "vault") return null;
-  const rows = await ctx.db
-    .query("annotations")
-    .withIndex("by_note_chunk", (q) =>
-      q.eq("noteChunkId", from.id as Id<"noteChunks">),
-    )
-    .order("desc")
-    .take(5);
-  return rows.find((row) => row.userId === userId)?.articleId ?? null;
-}
-
-/**
- * Saves a note written from the graph and links it to the idea it was
- * written beside, so it appears on the map at once. Notes belong to an
- * article, so a vault idea needs one Marginalia has connected it to.
- */
-export const writeConnected = mutation({
-  args: {
-    from: v.string(),
-    content: v.string(),
-    contentPlain: v.string(),
-    // What the note answers, when it is a reply
-    prompt: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const userId = ctx.readerId;
-    if (!args.contentPlain.trim())
-      throw new ConvexError("Write something first.");
-    const from = await loadNode(ctx, userId, args.from);
-    if (!from) throw new ConvexError("That idea isn't in your notes.");
-    const articleId = await articleFor(ctx, userId, from);
-    if (!articleId)
-      throw new ConvexError(
-        "This vault note isn't tied to an article yet. Write from one of your notes instead.",
-      );
-    const now = Date.now();
-    const noteId = await ctx.db.insert("userNotes", {
-      userId,
-      articleId,
-      selectedText: "",
-      prompt: args.prompt ? snippet(args.prompt, 300) : undefined,
-      content: args.content,
-      contentPlain: args.contentPlain,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const key = nodeKey("note", noteId);
-    await ctx.db.insert("ideaLinks", {
-      userId,
-      from: key,
-      to: from.key,
-      createdAt: now,
-    });
-    await ctx.scheduler.runAfter(0, internal.actions.embedUserNote.embed, {
-      noteId,
-    });
-    return key;
-  },
-});
-
-// --- Edge reasons ---
-
-/** Structural reasons for a pair, checked on the server before spending an AI call. */
-async function pairReasons(
-  ctx: Db,
-  userId: string,
-  a: LoadedNode,
-  b: LoadedNode,
-): Promise<Reason[]> {
-  const reasons: Reason[] = [];
-  if (await linkRow(ctx, userId, a.key, b.key)) reasons.push(linkedReason());
-  if (a.articleId && a.articleId === b.articleId)
-    reasons.push(articleReason(await articleTitle(ctx, userId, a.articleId)));
-  if (a.articleId && b.articleId && a.articleId !== b.articleId) {
-    const [tagsA, tagsB] = await Promise.all([
-      activeTags(ctx, userId, a.articleId),
-      activeTags(ctx, userId, b.articleId),
-    ]);
-    const shared = new Set(tagsB.map((tag) => tag._id));
-    for (const tag of tagsA)
-      if (shared.has(tag._id)) reasons.push(tagReason(tag.name));
-  }
-  for (const [mine, other] of [
-    [a, b],
-    [b, a],
-  ] as const) {
-    if (mine.articleId && other.kind === "vault") {
-      const rows = await connectionsOnArticle(ctx, userId, mine.articleId);
-      if (rows.some((row) => row.noteChunkId === other.id))
-        reasons.push(connectionReason("this article to this vault note"));
-    }
-  }
-  return reasons;
-}
-
-export const edgeContext = internalQuery({
-  args: { userId: v.string(), a: v.string(), b: v.string() },
-  handler: async (ctx, args) => {
-    const [a, b] = await Promise.all([
-      loadNode(ctx, args.userId, args.a),
-      loadNode(ctx, args.userId, args.b),
-    ]);
-    if (!a || !b || a.key === b.key) return null;
-    const structural = await pairReasons(ctx, args.userId, a, b);
-    const pair = pairKey(a.key, b.key);
-    const cached = await ctx.db
-      .query("edgeReasons")
-      .withIndex("by_user_pair", (q) =>
-        q.eq("userId", args.userId).eq("pair", pair),
-      )
-      .unique();
-    const titles = await Promise.all(
-      [a, b].map((n) =>
-        n.articleId ? articleTitle(ctx, args.userId, n.articleId) : null,
-      ),
-    );
-    const forModel = (n: LoadedNode, title: string | null) => ({
-      kind: n.kind,
-      text: snippet(n.text, 600),
-      article: title ? snippet(title, 120) : null,
-    });
-    return {
-      structural,
-      pair,
-      fingerprint: pairFingerprint(
-        { key: a.key, text: snippet(a.text, 600) },
-        { key: b.key, text: snippet(b.text, 600) },
-      ),
-      cached: cached
-        ? { reason: cached.reason, fingerprint: cached.fingerprint }
-        : null,
-      a: forModel(a, titles[0]),
-      b: forModel(b, titles[1]),
-    };
-  },
-});
-
-export const saveReason = internalMutation({
-  args: {
-    userId: v.string(),
-    pair: v.string(),
-    fingerprint: v.string(),
-    reason: v.string(),
-    model: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("edgeReasons")
-      .withIndex("by_user_pair", (q) =>
-        q.eq("userId", args.userId).eq("pair", args.pair),
-      )
-      .unique();
-    const row = {
-      fingerprint: args.fingerprint,
-      reason: args.reason,
-      model: args.model,
-      createdAt: Date.now(),
-    };
-    if (existing) await ctx.db.patch("edgeReasons", existing._id, row);
-    else
-      await ctx.db.insert("edgeReasons", {
-        userId: args.userId,
-        pair: args.pair,
-        ...row,
-      });
   },
 });
 

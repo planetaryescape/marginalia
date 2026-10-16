@@ -152,7 +152,7 @@ export function Composer({
   onSaved: (key: string) => void;
   onCancel: () => void;
 }) {
-  const write = useMutation(api.ideaGraph.writeConnected);
+  const write = useMutation(api.ideaLinks.writeConnected);
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -231,8 +231,8 @@ export function EdgePanel({
   cache: RefObject<Map<string, string>>;
 }) {
   const explain = useAction(api.actions.explainIdeaEdge.explain);
-  const link = useMutation(api.ideaGraph.link);
-  const unlink = useMutation(api.ideaGraph.unlink);
+  const link = useMutation(api.ideaLinks.link);
+  const unlink = useMutation(api.ideaLinks.unlink);
   const [attempt, setAttempt] = useState(0);
   const [explained, setExplained] = useState<Explained>({ status: "loading" });
   const linked = edge.reasons.some((r) => r.type === "linked");
