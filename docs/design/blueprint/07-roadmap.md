@@ -29,7 +29,7 @@
 | 4 | Four rooms | Done: live at `27cce50` |
 | 5 | Notes is my commonplace book | Done: live at `6730c0b` |
 | 5b | Your reading: stats and dictionary | Done: live at `efea4a4` |
-| 5c | It learns what I'd read | Built; in review |
+| 5c | It learns what I'd read | Live at `23b75b6`: taste profile built (26 signals). No feed or tag-merge suggestion qualifies yet, and no deferred articles exist, so the pre-annotation lift isn't measurable yet (`preAnnotate:preAnnotationReport`) |
 | 5d | My ideas, connected | Done: live at `09a1e2c`, edge polish `0f4c280` |
 | 6 | Settings are quiet | Done: live at `e1c0e30` |
 | 7 | It flies | Live at `a4e3fb7`: title morph seen live (320 ms). Finishing and the sweep checked only in a harness; Safari and the installed PWA untested |
