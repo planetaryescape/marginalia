@@ -140,8 +140,8 @@ export function ReaderToolbar({
               )}
               title={
                 rating
-                  ? `You rated this ${RATINGS[rating - 1]}`
-                  : "Rate this article"
+                  ? `You rated this ${RATINGS[rating - 1]} (r)`
+                  : "Rate this article (r)"
               }
               aria-label="Rate this article"
               aria-keyshortcuts="r"
