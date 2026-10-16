@@ -8,7 +8,7 @@ export default function NotFound() {
         Return to your reading desk to find something to read.
       </p>
       <Link href="/" className="font-sans text-sm quiet-link">
-        Back to Home
+        Back to Desk
       </Link>
     </main>
   );

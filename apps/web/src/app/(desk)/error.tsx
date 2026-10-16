@@ -22,7 +22,7 @@ export default function DeskError({
           Try again
         </button>
         <Link href="/" className="quiet-link">
-          Back to Home
+          Back to Desk
         </Link>
       </div>
     </DeskPage>

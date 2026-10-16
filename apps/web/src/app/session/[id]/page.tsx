@@ -32,7 +32,7 @@ export default function SessionPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
         <p>This session isn't here.</p>
-        <Link href="/">Back to Home</Link>
+        <Link href="/">Back to Desk</Link>
       </div>
     );
   }
