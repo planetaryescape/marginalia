@@ -292,7 +292,7 @@ export function FinishedShelf() {
             {item.tags.length > 0 && <span>{item.tags.join(", ")}</span>}
           </p>
           {item.note && (
-            <p className="font-serif italic text-[14px] leading-snug text-[var(--reader-fg-soft)] line-clamp-2">
+            <p className="font-serif italic text-[14px] leading-snug text-[var(--pencil)] line-clamp-2">
               “{item.note}”
             </p>
           )}
