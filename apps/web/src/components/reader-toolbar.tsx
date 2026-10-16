@@ -176,7 +176,7 @@ export function ReaderToolbar({
             className={cn(
               BUTTON,
               "hidden sm:inline-flex",
-              loved && "text-[var(--ink)]",
+              loved && "text-[var(--pen)]",
             )}
             title={loved ? "Remove from loved" : "Love this article"}
             aria-label={loved ? "Remove from loved" : "Love this article"}
