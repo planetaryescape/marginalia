@@ -291,7 +291,15 @@ function KeptAnswerRow({
         className="flex w-full items-center gap-1.5 py-2 text-left text-[13px] text-[var(--pencil)]"
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-        Marginalia&rsquo;s answer &middot; {MODE_LABELS[thread.mode]}
+        <span className="shrink-0">
+          Marginalia&rsquo;s answer &middot; {MODE_LABELS[thread.mode]}
+        </span>
+        {/* What it answered, so a closed row says what it is about */}
+        {thread.selection && (
+          <span className="min-w-0 truncate text-[var(--reader-muted)]">
+            {thread.selection}
+          </span>
+        )}
       </button>
       {open && (
         <div className="pb-3 pl-4">
