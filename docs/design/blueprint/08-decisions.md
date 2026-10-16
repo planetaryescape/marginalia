@@ -120,3 +120,15 @@ Change a decision only by adding a new entry that replaces the old one.
 ### D-DES-029: BK confirmed the concept, the colour rule and the reader toolbar before rung 1. (BK)
 - **BK, 2026-10-16, answering Q1, Q2, Q7, Q9, Q10 and Q11:** yes to "Print, pencil and pen"; the pen colour marks only his own highlights and notes; the drop cap is drawn in ink, stays on by default and stays a setting; the GitHub link moves to the account page footer; Re-annotate moves into the article's ⋯ menu. His taste references are Tufte / gwern.net sidenotes, iA Writer and Things 3. He did not pick Readwise Reader as a model.
 - **Consequence:** D-DES-018, D-DES-020, D-DES-022 and D-DES-023 are now BK's decisions, not assumptions. The remaining questions (Q3–Q6, Q8, Q12) are asked before the rung that needs them.
+
+### D-DES-030: BK confirmed the margin, phone notes, keycaps and the pick on the desk. (BK)
+- **BK, 2026-10-16, answering Q5, Q6, Q8 and Q12:** margin notes always show quietly beside their line on wide screens; on a phone a note unfolds under its paragraph; keycap hints are hidden and revealed by `?` or holding Alt; choosing a time shows the pick in the desk's main slot.
+- **Consequence:** D-DES-019, D-DES-021, D-DES-026 and D-DES-028 are now BK's decisions. Q3, Q4 and Q9's remaining part are asked before rung 4.
+
+### D-DES-031: Choosing a time lets you keep going through every article that fits. (BK)
+- **BK, 2026-10-16:** "when I select a time, Why am I shown just three articles? Why can't I keep going through the articles that fit that time".
+- **Replaces** the frozen three-card set in D-DES-028's "Behaviour kept". The best three picks still come first; Another and Save then continue through every unread article no longer than the window, closest length first, until none are left.
+
+### D-DES-032: Loving an article is the reader's mark, so the filled heart is in the pen colour. (Claude, delegated by BK)
+- **Why:** under D-DES-020 the pen colour belongs to the reader's own marks. A rating and a love are both the reader's judgement, so both use it.
+

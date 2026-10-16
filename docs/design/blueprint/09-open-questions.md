@@ -19,14 +19,14 @@ For each spike, record what was tried, the result, the date and the conclusion u
 | Q2 | Which reading products or physical objects do you admire, and for what? No references were recorded. | Answered by BK 2026-10-16: Tufte / gwern.net sidenotes, iA Writer and Things 3. Readwise Reader stays the dense counterexample (D-DES-029) |
 | Q3 | Navigation: three rooms (Desk, Library, Notes), with Saved as a Library shelf and This week as Notes → Your week? | Open; blueprint assumes yes (D-DES-024) |
 | Q4 | Sources, Account and Readers grouped as Settings behind the account menu? | Open; blueprint assumes yes (D-DES-025) |
-| Q5 | On a phone, should a margin note unfold under its paragraph instead of opening a bottom sheet? | Open; blueprint assumes in-flow, pending S2 (D-DES-026) |
-| Q6 | On wide screens, should margin notes always show as quiet sidenotes, or stay hidden behind markers until you click? | Open; blueprint assumes always shown, quietly (D-DES-019) |
+| Q5 | On a phone, should a margin note unfold under its paragraph instead of opening a bottom sheet? | Answered by BK 2026-10-16: unfold under the paragraph (D-DES-030) |
+| Q6 | On wide screens, should margin notes always show as quiet sidenotes, or stay hidden behind markers until you click? | Answered by BK 2026-10-16: always shown, quietly (D-DES-030) |
 | Q7 | Should the interface stop using your pen colour for links, buttons, drop caps and progress, so the pen colour only marks your own highlights and notes? | Answered by BK 2026-10-16: yes (D-DES-029) |
-| Q8 | Hide keycap hints by default (`?`, tooltips and holding a modifier reveal them)? | Open; blueprint assumes yes (D-DES-021) |
+| Q8 | Hide keycap hints by default (`?`, tooltips and holding a modifier reveal them)? | Answered by BK 2026-10-16: hide; reveal on `?` or holding Alt (D-DES-030) |
 | Q9 | Remove the GitHub link from the header and the reader toolbar? | Answered by BK 2026-10-16: yes; it moves to the account page footer (D-DES-029) |
 | Q10 | The decorative drop cap is on by default (`dropCap: "text"` in `@planetaryescape/reader`) and drawn in the pen colour. Should it default to off, or be drawn in ink? | Answered by BK 2026-10-16: drawn in ink, on by default, kept as a reader setting (D-DES-029) |
 | Q11 | Move "Re-annotate with latest vault" into the article's overflow menu? | Answered by BK 2026-10-16: yes (D-DES-029) |
-| Q12 | When you choose a time, should the pick appear on the desk itself instead of on a separate full-screen page? | Open; blueprint assumes yes (D-DES-028) |
+| Q12 | When you choose a time, should the pick appear on the desk itself instead of on a separate full-screen page? | Answered by BK 2026-10-16: on the desk, in the main slot (D-DES-030) |
 
 ### S4 result (2026-10-16)
 
