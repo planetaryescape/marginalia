@@ -1,7 +1,47 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { ownedArticle, requireArticle } from "./access";
+import { requireArticle } from "./access";
 import { mutation, query } from "./functions";
+import {
+  SHELF_ID_BOUND,
+  SHELF_PAGE_ROWS,
+  withShelfArticles,
+} from "./lib/shelfArticle";
 
+/** The Saved shelf a page at a time, newest first, with slim articles. */
+export const page = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const result = await ctx.db
+      .query("savedArticles")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, SHELF_PAGE_ROWS),
+        maximumRowsRead: SHELF_PAGE_ROWS,
+      });
+    return { ...result, page: await withShelfArticles(ctx, result.page) };
+  },
+});
+
+/** Which articles the reader has saved, for marking rows elsewhere. */
+export const savedIds = query({
+  args: {},
+  handler: async (ctx) => {
+    const saved = await ctx.db
+      .query("savedArticles")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .take(SHELF_ID_BOUND);
+    return saved.map((s) => s.articleId);
+  },
+});
+
+/**
+ * @deprecated Use `page`. Kept for browser tabs still running the old client
+ * during a deploy; bounded to one page of slim articles.
+ */
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -9,16 +49,8 @@ export const list = query({
       .query("savedArticles")
       .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
-      .take(50);
-
-    const articles = await Promise.all(
-      saved.map(async (s) => {
-        const article = await ownedArticle(ctx, s.articleId, ctx.readerId);
-        return article ? { ...s, article } : null;
-      }),
-    );
-
-    return articles.filter(Boolean);
+      .take(SHELF_PAGE_ROWS);
+    return withShelfArticles(ctx, saved);
   },
 });
 

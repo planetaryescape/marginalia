@@ -216,7 +216,7 @@ function Shelves() {
   const topic = params.get("topic")?.trim() ?? "";
   const overview = useQuery(api.home.overview, {});
   const saved = useQuery(api.savedArticles.count, {});
-  const loved = useQuery(api.lovedArticles.listAll, {});
+  const loved = useQuery(api.lovedArticles.count, {});
   const finished = useQuery(api.impressions.listRecent, {});
   const tabs: {
     id: ShelfId | "up-next";
@@ -240,7 +240,7 @@ function Shelves() {
       id: "loved",
       label: "Loved",
       href: "/library?shelf=loved",
-      count: loved?.length ?? null,
+      count: loved ?? null,
     },
     {
       id: "finished",

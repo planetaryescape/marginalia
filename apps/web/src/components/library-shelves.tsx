@@ -1,10 +1,10 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { Star } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RATINGS } from "@/components/impression-panel";
 import { InlineError } from "@/components/in-place";
 import { ConfirmAction } from "@/components/settings-confirm";
@@ -67,12 +67,61 @@ function Loading() {
   );
 }
 
+// The server ends a page at 12 articles, so asking for more gains nothing
+const PAGE = 12;
+
+/** Loads the next page as the end of the list nears; "More" is the fallback. */
+function LoadMore({
+  status,
+  loadMore,
+  loaded,
+}: {
+  status: "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted";
+  loadMore: (numItems: number) => void;
+  loaded: number;
+}) {
+  const end = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new page re-observes the end, so a still-visible end loads the next page
+  useEffect(() => {
+    const target = end.current;
+    if (status !== "CanLoadMore" || !target) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore(PAGE);
+      },
+      { rootMargin: "0px 0px 600px 0px" },
+    );
+    watcher.observe(target);
+    return () => watcher.disconnect();
+  }, [status, loadMore, loaded]);
+
+  if (status === "Exhausted") return null;
+  return (
+    <div ref={end} className="py-3">
+      <button
+        type="button"
+        data-nav-item
+        onClick={() => loadMore(PAGE)}
+        disabled={status !== "CanLoadMore"}
+        className="py-2 text-[13px] text-[var(--reader-muted)] underline decoration-[var(--reader-border-strong)] underline-offset-[3px] hover:text-[var(--reader-fg)] disabled:no-underline"
+      >
+        {status === "LoadingMore" ? "Loading more" : "More"}
+      </button>
+    </div>
+  );
+}
+
 const rowFor = (id: string) =>
   document.querySelector<HTMLElement>(`[data-saved-row="${id}"]`);
 
 /** Saved shelf: the list that used to be `/saved`, with Remove confirmed in place. */
 export function SavedShelf() {
-  const saved = useQuery(api.savedArticles.list);
+  const {
+    results: saved,
+    status,
+    loadMore,
+  } = usePaginatedQuery(api.savedArticles.page, {}, { initialNumItems: PAGE });
   const unsave = useMutation(api.savedArticles.unsave);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ id: Id<"articles">; title: string }>();
@@ -114,8 +163,8 @@ export function SavedShelf() {
     },
     [["s", "Remove from saved"]],
   );
-  if (saved === undefined) return <Loading />;
-  if (saved.length === 0)
+  if (status === "LoadingFirstPage") return <Loading />;
+  if (saved.length === 0 && status === "Exhausted")
     return <p className={shelfEmpty}>No saved articles yet.</p>;
   return (
     <>
@@ -134,7 +183,6 @@ export function SavedShelf() {
       )}
       <ul className="border-t border-[var(--reader-border)]">
         {saved.map((item) => {
-          if (!item?.article) return null;
           const { article } = item;
           return (
             <li
@@ -174,22 +222,26 @@ export function SavedShelf() {
           );
         })}
       </ul>
+      <LoadMore status={status} loadMore={loadMore} loaded={saved.length} />
     </>
   );
 }
 
 /** Loved shelf: articles you hearted, newest first as the query returns them. */
 export function LovedShelf() {
-  const loved = useQuery(api.lovedArticles.listAll);
+  const {
+    results: loved,
+    status,
+    loadMore,
+  } = usePaginatedQuery(api.lovedArticles.page, {}, { initialNumItems: PAGE });
   useListKeys();
-  if (loved === undefined) return <Loading />;
-  if (loved.length === 0)
+  if (status === "LoadingFirstPage") return <Loading />;
+  if (loved.length === 0 && status === "Exhausted")
     return <p className={shelfEmpty}>No loved articles yet.</p>;
   return (
-    <ul className="border-t border-[var(--reader-border)]">
-      {loved.map((item) => {
-        if (!item?.article) return null;
-        return (
+    <>
+      <ul className="border-t border-[var(--reader-border)]">
+        {loved.map((item) => (
           <li key={item._id} className={rowClass}>
             <div className="min-w-0 flex-1">
               <Link
@@ -204,9 +256,10 @@ export function LovedShelf() {
               </span>
             </div>
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+      <LoadMore status={status} loadMore={loadMore} loaded={loved.length} />
+    </>
   );
 }
 

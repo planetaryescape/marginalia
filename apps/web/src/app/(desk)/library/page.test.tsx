@@ -26,20 +26,8 @@ vi.mock("convex/react", () => ({
         return { waiting: 130, upNext: [], countsReady: true };
       case "savedArticles:count":
         return 1;
-      case "savedArticles:list":
-        return [
-          {
-            _id: "s1",
-            article: {
-              _id: "a1",
-              title: "A saved piece",
-              estimatedReadMinutes: 9,
-              annotationStatus: "pending",
-            },
-          },
-        ];
-      case "lovedArticles:listAll":
-        return [];
+      case "lovedArticles:count":
+        return 4;
       case "impressions:listRecent":
         return [
           {
@@ -56,9 +44,25 @@ vi.mock("convex/react", () => ({
         return undefined;
     }
   },
-  usePaginatedQuery: (ref: unknown) =>
-    getFunctionName(ref as Parameters<typeof getFunctionName>[0]) ===
-    "tags:articlesForTopic"
+  usePaginatedQuery: (ref: unknown) => {
+    const name = getFunctionName(ref as Parameters<typeof getFunctionName>[0]);
+    if (name === "savedArticles:page")
+      return {
+        results: [
+          {
+            _id: "s1",
+            article: {
+              _id: "a1",
+              title: "A saved piece",
+              estimatedReadMinutes: 9,
+              annotationStatus: "pending",
+            },
+          },
+        ],
+        status: "Exhausted",
+        loadMore: vi.fn(),
+      };
+    return name === "tags:articlesForTopic"
       ? {
           results: [
             {
@@ -73,7 +77,8 @@ vi.mock("convex/react", () => ({
           status: "CanLoadMore",
           loadMore: vi.fn(),
         }
-      : { results: [], status: "Exhausted", loadMore: vi.fn() },
+      : { results: [], status: "Exhausted", loadMore: vi.fn() };
+  },
   useMutation: () => vi.fn(),
   useAction: () => vi.fn(),
 }));
@@ -93,6 +98,7 @@ describe("Library shelves", () => {
     expect(tabs).toContain('href="/library?shelf=loved"');
     expect(tabs).toContain('href="/library?shelf=finished"');
     expect(tabs).toContain("130");
+    expect(tabs).toContain(">4<");
     expect(html).not.toContain("Your impressions");
   });
 

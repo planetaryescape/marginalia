@@ -98,6 +98,7 @@ import type * as lib_readingSections from "../lib/readingSections.js";
 import type * as lib_readwise from "../lib/readwise.js";
 import type * as lib_router from "../lib/router.js";
 import type * as lib_serverTiming from "../lib/serverTiming.js";
+import type * as lib_shelfArticle from "../lib/shelfArticle.js";
 import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
 import type * as lib_sse from "../lib/sse.js";
 import type * as lib_statsPeriod from "../lib/statsPeriod.js";
@@ -233,6 +234,7 @@ declare const fullApi: ApiFromModules<{
   "lib/readwise": typeof lib_readwise;
   "lib/router": typeof lib_router;
   "lib/serverTiming": typeof lib_serverTiming;
+  "lib/shelfArticle": typeof lib_shelfArticle;
   "lib/spacedRepetition": typeof lib_spacedRepetition;
   "lib/sse": typeof lib_sse;
   "lib/statsPeriod": typeof lib_statsPeriod;

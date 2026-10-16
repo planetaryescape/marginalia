@@ -20,7 +20,7 @@ vi.mock("convex/react", async () => {
     await vi.importActual<typeof import("convex/server")>("convex/server");
   return {
     useQuery: (fn: unknown) =>
-      getFunctionName(fn as never) === "savedArticles:list"
+      getFunctionName(fn as never) === "savedArticles:savedIds"
         ? state.saved
         : state.overview,
     usePaginatedQuery: () => ({
@@ -244,7 +244,7 @@ describe("Up next shelf", () => {
     });
 
     it("s saves the focused row, and unsaves one already saved", async () => {
-      state.saved = [{ articleId: "b" }];
+      state.saved = ["b"];
       await render();
       await press("j");
       await press("s");

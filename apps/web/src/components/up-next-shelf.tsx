@@ -26,10 +26,10 @@ export function UpNextShelf() {
   );
   const archiveArticle = useMutation(api.articles.archive);
   const restoreArticle = useMutation(api.articles.restore);
-  const saved = useQuery(api.savedArticles.list);
+  const saved = useQuery(api.savedArticles.savedIds);
   const saveArticle = useMutation(api.savedArticles.save);
   const unsaveArticle = useMutation(api.savedArticles.unsave);
-  const savedIds = new Set(saved?.map((item) => item?.articleId));
+  const savedIds = new Set(saved);
   // `u` undoes the latest archive, the same as the toast's Undo button
   const lastArchived = useRef<Id<"articles"> | null>(null);
   // A failed archive or save is shown on the shelf, where Retry can run it again
