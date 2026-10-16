@@ -13,6 +13,8 @@ export const BATCH_JOBS = 5;
 export const MAX_ATTEMPTS = 3;
 /** Pauses for an unusable key after which saving a key no longer resumes a book on its own. */
 export const MAX_PAUSES = 5;
+/** Failures other than a refused key after which a unit is no longer tried, run after run. */
+export const MAX_UNIT_FAILURES = 6;
 /** A pending job older than this has lost its action (an action runs at most 10 minutes). */
 export const CLAIM_TTL_MS = 20 * 60_000;
 /** A running index whose last step is older than this has lost its schedule. */

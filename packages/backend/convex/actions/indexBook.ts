@@ -25,6 +25,7 @@ import {
   WRITE_BATCH,
 } from "../lib/bookIndex";
 import { embedTexts } from "../lib/embeddings";
+import { isAuthFailure } from "../lib/providers";
 import { loadReaderAI } from "../lib/router";
 
 const SUMMARY_MAX_CHARS = 400;
@@ -105,6 +106,16 @@ export const summarizeUnit = internalAction({
         `Summary failed for unit ${unit.index} of ${args.articleId}:`,
         error,
       );
+      if (isAuthFailure(error)) {
+        // The key is refused: no try is spent, and the run waits for a new one
+        await finish({ status: "failed", refund: true });
+        await ctx.runMutation(internal.bookIndex.pauseIndex, {
+          userId,
+          articleId: args.articleId,
+          reason: "unusable_key",
+        });
+        return;
+      }
       await finish({ status: "failed" });
     }
   },
@@ -181,6 +192,14 @@ export const writeOverview = internalAction({
       await ctx.runMutation(internal.bookIndex.pointWritten, args);
     } catch (error) {
       console.error(`Book overview failed for ${args.articleId}:`, error);
+      if (isAuthFailure(error)) {
+        await ctx.runMutation(internal.bookIndex.pauseIndex, {
+          userId: args.userId,
+          articleId: args.articleId,
+          reason: "unusable_key",
+        });
+        return;
+      }
       await retry();
     }
   },
@@ -275,6 +294,15 @@ export const embedPassages = internalAction({
         `Passage embedding failed for unit ${args.unitIndex} of ${args.articleId}:`,
         error,
       );
+      if (isAuthFailure(error)) {
+        await finish({ status: "failed", refund: true });
+        await ctx.runMutation(internal.bookIndex.pauseIndex, {
+          userId,
+          articleId: args.articleId,
+          reason: "unusable_key",
+        });
+        return;
+      }
       await finish({ status: "failed" });
     }
   },

@@ -14,6 +14,7 @@ import {
   CLAIM_TTL_MS,
   EMBED_BATCH,
   MAX_ATTEMPTS,
+  MAX_UNIT_FAILURES,
 } from "./lib/bookIndex";
 import { encryptProviderKey } from "./lib/providerKeys";
 
@@ -48,11 +49,14 @@ function mockProviders() {
   const embedBatches: number[] = [];
   const embedInputs: string[] = [];
   let failSummaries = false;
+  let embedStatus: number | null = null;
   vi.stubGlobal(
     "fetch",
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const request = init?.body ? JSON.parse(String(init.body)) : {};
+      if (url.endsWith("/embeddings") && embedStatus !== null)
+        return new Response("refused", { status: embedStatus });
       if (url.endsWith("/embeddings")) {
         const texts = request.input as string[];
         embedBatches.push(texts.length);
@@ -101,6 +105,9 @@ function mockProviders() {
     prompts,
     embedBatches,
     embedInputs,
+    embedStatus: (status: number | null) => {
+      embedStatus = status;
+    },
     failSummaries: (on: boolean) => {
       failSummaries = on;
     },
@@ -1081,5 +1088,102 @@ describe("when indexing is interrupted", () => {
       last4: "0001",
     });
     expect(await scheduled(f, "bookIndex:start")).toHaveLength(0);
+  });
+
+  it("pauses on a refused key instead of marking the book done, and a good key brings the passages", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const mock = mockProviders();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mock.embedStatus(401);
+    const articleId = await seedBook(f, OWNER, [{}, {}, {}]);
+    await start(f, articleId);
+    await runScheduled(f.t, { stepMs: 15_000 });
+
+    // Every embedding call was refused; nothing was spent or settled
+    expect(await state(f, articleId)).toMatchObject({
+      running: false,
+      phase: "passages",
+      pausedReason: "unusable_key",
+    });
+    expect(
+      await f.t.run((ctx) => ctx.db.query("bookPassages").take(5)),
+    ).toEqual([]);
+    const rows = await indexRows(f, "passages");
+    expect(rows.every((row) => row.attempts === 0 && !row.failures)).toBe(true);
+
+    // A good key resumes it and the passages arrive
+    mock.embedStatus(null);
+    const key = await sealed(OWNER, OWNER_KEY);
+    await f.t.mutation(internal.providerCredentials.store, {
+      userId: OWNER,
+      provider: "openrouter",
+      ...key,
+      last4: "0001",
+    });
+    await runScheduled(f.t, { stepMs: 15_000 });
+    expect(await state(f, articleId)).toMatchObject({ phase: "done" });
+    expect(
+      (await f.t.run((ctx) => ctx.db.query("bookPassages").take(50))).length,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("recovers units that failed for other reasons, up to a lifetime cap", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const mock = mockProviders();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mock.embedStatus(500);
+    const articleId = await seedBook(f, OWNER, [{}, {}]);
+    await start(f, articleId);
+    await runScheduled(f.t, { stepMs: 15_000 });
+    // The run ended with its units failed, and says they can be tried again
+    expect(await state(f, articleId)).toMatchObject({
+      phase: "done",
+      recoverable: 2,
+    });
+    expect(
+      (await indexRows(f, "passages")).map((r) => [r.status, r.failures]),
+    ).toEqual([
+      ["failed", MAX_ATTEMPTS],
+      ["failed", MAX_ATTEMPTS],
+    ]);
+
+    // Backfill and start don't skip it as "already indexed"
+    mock.embedStatus(null);
+    expect(
+      await f.t.mutation(internal.bookIndex.backfill, { userId: OWNER }),
+    ).toBe("scheduled 1 of 1 books");
+    await runScheduled(f.t, { stepMs: 15_000 });
+    expect(await state(f, articleId)).toMatchObject({ phase: "done" });
+    expect(
+      (await f.t.run((ctx) => ctx.db.query("bookPassages").take(50))).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect((await state(f, articleId))?.recoverable).toBe(0);
+    expect(await start(f, articleId)).toBe("already indexed");
+
+    // A unit that has failed too often is left alone
+    const other = await seedBook(f, OWNER, [{}], "Other");
+    await start(f, other);
+    await f.t.run(async (ctx) => {
+      const states = await ctx.db.query("bookIndexState").take(10);
+      const row = states.find((r) => r.articleId === other);
+      if (row)
+        await ctx.db.patch("bookIndexState", row._id, {
+          phase: "done",
+          running: false,
+        });
+      await ctx.db.insert("bookIndexUnits", {
+        userId: OWNER,
+        articleId: other,
+        stage: "passages",
+        unitIndex: 0,
+        status: "failed",
+        claimedAt: 0,
+        attempts: MAX_ATTEMPTS,
+        failures: MAX_UNIT_FAILURES,
+      });
+    });
+    expect(await start(f, other)).toBe("already indexed");
   });
 });

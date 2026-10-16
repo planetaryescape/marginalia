@@ -388,6 +388,8 @@ export default defineSchema({
     ),
     // Pauses for an unusable key. Refunded tries never reset it.
     failures: v.optional(v.number()),
+    // Units left failed when the run ended that a later start may try again
+    recoverable: v.optional(v.number()),
     queued: v.number(),
     startedAt: v.number(),
     updatedAt: v.number(),
@@ -419,6 +421,9 @@ export default defineSchema({
     // How many passages were written (stage "passages")
     passageCount: v.optional(v.number()),
     model: v.optional(v.string()),
+    // Failures other than a refused key, over the life of the book. A run's
+    // `attempts` start again each run; these don't, and cap the retrying.
+    failures: v.optional(v.number()),
   })
     .index("by_userId_and_articleId_and_stage_and_unitIndex", [
       "userId",

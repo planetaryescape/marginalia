@@ -29,6 +29,7 @@ import {
   INDEX_UNIT_CAP,
   MAX_ATTEMPTS,
   MAX_PAUSES,
+  MAX_UNIT_FAILURES,
   STALE_MS,
 } from "./lib/bookIndex";
 import { embeddingProvider } from "./lib/providers";
@@ -126,6 +127,11 @@ async function canRun(ctx: Db, userId: string, phase: Phase) {
   );
 }
 
+/** A failed unit that may still be tried, in a later run. */
+const isRecoverable = (
+  row: Pick<Doc<"bookIndexUnits">, "status" | "failures">,
+) => row.status === "failed" && (row.failures ?? 0) < MAX_UNIT_FAILURES;
+
 type Verdict = "queue" | "wait" | "skip" | "give_up";
 
 /** What a unit's row says about whether its job should be queued now. */
@@ -146,6 +152,33 @@ export function verdictFor(
   }
 }
 
+/**
+ * Gives the book's failed units a fresh run's tries, if they haven't failed
+ * too often, and returns the earliest stage that has any (summaries before
+ * passages), or null. A refused key never counted against a unit.
+ */
+async function reviveFailed(
+  ctx: MutationCtx,
+  userId: string,
+  articleId: Id<"articles">,
+): Promise<Stage | null> {
+  let earliest: Stage | null = null;
+  for (const stage of ["summary", "passages"] as const) {
+    const rows = await ctx.db
+      .query("bookIndexUnits")
+      .withIndex("by_userId_and_articleId_and_stage_and_unitIndex", (q) =>
+        q.eq("userId", userId).eq("articleId", articleId).eq("stage", stage),
+      )
+      .take(INDEX_UNIT_CAP + 1);
+    for (const row of rows.filter(isRecoverable)) {
+      earliest ??= stage;
+      if (row.attempts)
+        await ctx.db.patch("bookIndexUnits", row._id, { attempts: 0 });
+    }
+  }
+  return earliest;
+}
+
 /** Starts a book's indexing, resumes one that stopped or lost its schedule, or leaves a live one alone. */
 export const start = internalMutation({
   args: { userId: v.string(), articleId: v.id("articles") },
@@ -158,11 +191,17 @@ export const start = internalMutation({
     if (!article || !book) return "not started: no such book";
     const now = Date.now();
     const row = await stateRow(ctx, args.userId, args.articleId);
-    if (row?.phase === "done") return "already indexed";
-    const phase = row?.phase ?? "summaries";
+    // Failed units get a fresh run's tries, unless they have failed too often
+    const revived = await reviveFailed(ctx, args.userId, args.articleId);
+    if (row?.phase === "done" && !revived) return "already indexed";
+    const phase: Phase = revived
+      ? revived === "summary"
+        ? "summaries"
+        : "passages"
+      : (row?.phase ?? "summaries");
     if (!(await canRun(ctx, args.userId, phase)))
       return "not started: the library needs a key for this step";
-    if (row?.running) {
+    if (row?.running && !revived) {
       if (now - row.updatedAt < STALE_MS) return "already running";
       await ctx.db.patch("bookIndexState", row._id, { updatedAt: now });
       await ctx.scheduler.runAfter(0, internal.bookIndex.step, {
@@ -179,6 +218,7 @@ export const start = internalMutation({
       pointAttempts: 0,
       pointClaimedAt: undefined,
       pausedReason: undefined,
+      recoverable: undefined,
       updatedAt: now,
       finishedAt: undefined,
     };
@@ -217,7 +257,7 @@ export async function resumeBooks(
   let scheduled = 0;
   for (const book of books) {
     const row = await stateRow(ctx, userId, book.articleId);
-    if (row?.phase === "done") continue;
+    if (row?.phase === "done" && !row.recoverable) continue;
     if (respectCap && (row?.failures ?? 0) >= MAX_PAUSES) continue;
     await ctx.scheduler.runAfter(
       scheduled === 0 ? 0 : scheduled * BATCH_DELAY_MS,
@@ -341,7 +381,10 @@ export const step = internalMutation({
         if (verdict === "queue")
           jobs.push({ index, attempts: row?.attempts ?? 0 });
         else if (verdict === "give_up" && row)
-          await ctx.db.patch("bookIndexUnits", row._id, { status: "failed" });
+          await ctx.db.patch("bookIndexUnits", row._id, {
+            status: "failed",
+            failures: (row.failures ?? 0) + 1,
+          });
       }
       cursor = index;
     }
@@ -431,7 +474,24 @@ export const step = internalMutation({
       await next(0);
       return null;
     }
-    await patch({ phase: "done", running: false, finishedAt: now });
+    // Units left failed can be tried again by a later start or a saved key,
+    // until they have failed MAX_UNIT_FAILURES times
+    const summaryRows = await ctx.db
+      .query("bookIndexUnits")
+      .withIndex("by_userId_and_articleId_and_stage_and_unitIndex", (q) =>
+        q
+          .eq("userId", args.userId)
+          .eq("articleId", args.articleId)
+          .eq("stage", "summary"),
+      )
+      .take(INDEX_UNIT_CAP + 1);
+    const recoverable = [...summaryRows, ...rows].filter(isRecoverable).length;
+    await patch({
+      phase: "done",
+      running: false,
+      finishedAt: now,
+      recoverable,
+    });
     return null;
   },
 });
@@ -645,6 +705,11 @@ export const completeJob = internalMutation({
       summary: args.summary,
       passageCount: args.passageCount,
       model: args.model,
+      // Only a failure of the work counts; a refused key is refunded
+      failures:
+        args.status === "failed" && !args.refund
+          ? (row.failures ?? 0) + 1
+          : row.failures,
     });
     return true;
   },

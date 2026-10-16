@@ -188,3 +188,22 @@ export function providerFailure(status: number, body: string): Error {
     return new Error(`Provider refused the key (${status})`);
   return new Error(`Provider returned ${status}: ${body.slice(0, 500)}`);
 }
+
+/**
+ * Whether a call failed because the provider refused the reader's key (401 or
+ * 403): from an embeddings request, a model call, or the model fallback's own
+ * "didn't accept your saved key" error. Such a failure is the key's, not the
+ * work's, so it pauses indexing instead of spending a try.
+ */
+export function isAuthFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const status = (error as { statusCode?: unknown }).statusCode;
+  if (status === 401 || status === 403) return true;
+  const data = (error as { data?: unknown }).data;
+  const message =
+    typeof data === "string" ? data : (error as { message?: unknown }).message;
+  return (
+    typeof message === "string" &&
+    /refused the key|didn't accept your saved key/.test(message)
+  );
+}
