@@ -100,6 +100,37 @@ describe("readingHabits", () => {
     });
   });
 
+  it("counts a finished book as a finish, not as left unfinished", async () => {
+    clock();
+    const f = await secondReaderTest(modules);
+    await f.t.run(async (ctx) => {
+      const bookArticle = await ctx.db.insert(
+        "articles",
+        articleRow(OWNER, "book"),
+      );
+      await ctx.db.insert("articleInteractions", {
+        userId: OWNER,
+        articleId: bookArticle,
+        action: "opened",
+        createdAt: AT,
+      });
+      await ctx.db.insert("books", {
+        userId: OWNER,
+        articleId: bookArticle,
+        unitCount: 3,
+        finishedThrough: 2,
+        furthestUnit: 2,
+        furthestScroll: 100,
+        finished: true,
+        lastReadAt: AT,
+        createdAt: 1,
+      });
+    });
+    const result = await f.owner.query(api.readingHabits.readingHabits, args);
+    expect(result.finishes).toBe(1);
+    expect(result.leftUnfinished).toBe(0);
+  });
+
   it("shows another reader only their own counts", async () => {
     clock();
     const f = await secondReaderTest(modules);
@@ -243,34 +274,140 @@ describe("readingLinger", () => {
     clock();
     const f = await secondReaderTest(modules);
     await seed(f);
-    expect(await f.owner.query(api.readingHabits.readingLinger, args)).toEqual([
-      { name: "slow", secondsPerParagraph: 10, paragraphs: 10, articles: 1 },
-      { name: "quick", secondsPerParagraph: 2, paragraphs: 10, articles: 1 },
+    expect(await f.owner.query(api.readingHabits.readingLinger, args)).toEqual({
+      topics: [
+        { name: "slow", secondsPerParagraph: 10, paragraphs: 10, articles: 1 },
+        { name: "quick", secondsPerParagraph: 2, paragraphs: 10, articles: 1 },
+      ],
+      partial: false,
+    });
+  });
+
+  it("counts every visit in the period, not only the latest few", async () => {
+    clock();
+    const f = await secondReaderTest(modules);
+    await f.t.run(async (ctx) => {
+      const tagId = await ctx.db.insert("tags", {
+        userId: OWNER,
+        name: "skewed",
+        key: "skewed",
+        status: "active",
+        count: 1,
+        aliases: [],
+        createdAt: 1,
+      });
+      const articleId = await ctx.db.insert(
+        "articles",
+        articleRow(OWNER, "skew"),
+      );
+      await ctx.db.insert("articleTags", {
+        userId: OWNER,
+        articleId,
+        tagId,
+        createdAt: 1,
+      });
+      await ctx.db.insert("readingActivity", {
+        userId: OWNER,
+        visitId: "v-skew-0",
+        day: "2026-10-13",
+        articleId,
+        startedAt: AT,
+        updatedAt: AT,
+        activeTimeMs: 600_000,
+        visibleTimeMs: 600_000,
+        timeSpentMs: 600_000,
+        maxScrollPercent: 50,
+        annotationsOpened: [],
+      });
+      // Seven visits: the oldest held ten paragraphs for 100 s each, the six
+      // newer ones for 2 s each. The mean over all seven is not the newest six's.
+      for (let v = 0; v < 7; v++)
+        await ctx.db.insert("paragraphDwell", {
+          userId: OWNER,
+          visitId: `v-skew-${v}`,
+          day: "2026-10-13",
+          articleId,
+          dwell: Object.fromEntries(
+            Array.from({ length: 10 }, (_, i) => [
+              String(i + 1),
+              (v === 0 ? 100 : 2) * 1000,
+            ]),
+          ),
+          updatedAt: AT + v,
+        });
+    });
+    const result = await f.owner.query(api.readingHabits.readingLinger, args);
+    expect(result.topics).toEqual([
+      {
+        name: "skewed",
+        // (100 s x 10 + 2 s x 60) / 70 paragraphs
+        secondsPerParagraph: 16,
+        paragraphs: 70,
+        articles: 1,
+      },
     ]);
+    expect(result.partial).toBe(false);
+  });
+
+  it("says so when more visits exist than are read", async () => {
+    clock();
+    const f = await secondReaderTest(modules);
+    await f.t.run(async (ctx) => {
+      const articleId = await ctx.db.insert(
+        "articles",
+        articleRow(OWNER, "many"),
+      );
+      await ctx.db.insert("readingActivity", {
+        userId: OWNER,
+        visitId: "v-many",
+        day: "2026-10-13",
+        articleId,
+        startedAt: AT,
+        updatedAt: AT,
+        activeTimeMs: 600_000,
+        visibleTimeMs: 600_000,
+        timeSpentMs: 600_000,
+        maxScrollPercent: 50,
+        annotationsOpened: [],
+      });
+      for (let v = 0; v < 25; v++)
+        await ctx.db.insert("paragraphDwell", {
+          userId: OWNER,
+          visitId: `v-many-${v}`,
+          day: "2026-10-13",
+          articleId,
+          dwell: { "1": 5000 },
+          updatedAt: AT + v,
+        });
+    });
+    expect(
+      (await f.owner.query(api.readingHabits.readingLinger, args)).partial,
+    ).toBe(true);
   });
 
   it("shows another reader only their own topics", async () => {
     clock();
     const f = await secondReaderTest(modules);
     await seed(f);
-    expect(await f.reader.query(api.readingHabits.readingLinger, args)).toEqual(
-      [
-        {
-          name: "secret topic",
-          secondsPerParagraph: 5,
-          paragraphs: 12,
-          articles: 1,
-        },
-      ],
-    );
+    expect(
+      (await f.reader.query(api.readingHabits.readingLinger, args)).topics,
+    ).toEqual([
+      {
+        name: "secret topic",
+        secondsPerParagraph: 5,
+        paragraphs: 12,
+        articles: 1,
+      },
+    ]);
   });
 
   it("has nothing for a reader with no dwell", async () => {
     clock();
     const f = await secondReaderTest(modules);
-    expect(await f.owner.query(api.readingHabits.readingLinger, args)).toEqual(
-      [],
-    );
+    expect(await f.owner.query(api.readingHabits.readingLinger, args)).toEqual({
+      topics: [],
+      partial: false,
+    });
   });
 });
 

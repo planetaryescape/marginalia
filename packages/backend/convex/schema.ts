@@ -194,6 +194,9 @@ export default defineSchema({
       "annotationStatus",
       "skipReason",
     ])
+    // One range for everything unread and unarchived, whatever its annotation
+    // status, so the Up next shelf can page it with Convex's own cursors
+    .index("by_user_finishedAt", ["userId", "finishedAt"])
     .index("by_user_annotationStatus_finishedAt", [
       "userId",
       "annotationStatus",

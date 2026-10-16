@@ -10,7 +10,8 @@ import { toast } from "sonner";
 import { InlineError } from "@/components/in-place";
 import { useListKeys } from "@/lib/list-nav";
 
-const PAGE = 20;
+// The server ends a page at 8 articles, so asking for more gains nothing
+const PAGE = 8;
 
 /**
  * Unread articles, newest first, as plain rows. Archiving lives here because

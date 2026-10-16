@@ -3,7 +3,7 @@ import type { Doc } from "./_generated/dataModel";
 import { ownedArticle } from "./access";
 import { query } from "./functions";
 import { unfinishedBooks } from "./lib/unfinishedBooks";
-import { unreadQueue, unreadQueuePage } from "./lib/unreadQueue";
+import { unreadQueue } from "./lib/unreadQueue";
 
 const BOOKS_ON_THE_SHELF = 5;
 
@@ -91,36 +91,47 @@ export const overview = query({
   },
 });
 
+// A page ends at this many articles or bytes read, whichever comes first, and
+// the client asks for the next. An article row can be close to a megabyte, so
+// the byte limit is what keeps a page under Convex's 16 MiB read limit.
+const UP_NEXT_PAGE_MAX = 8;
+const UP_NEXT_PAGE_BYTES = 8_000_000;
+
 /**
- * The Up next shelf, a page at a time. It takes Convex's pagination options so
- * `usePaginatedQuery` can drive it, but the cursor is the creation time of the
- * last row shown (see `unreadQueuePage`). Unfinished books ride on the first
- * page only.
+ * The Up next shelf, a page at a time, with Convex's own cursors. One index
+ * range holds everything unread and unarchived; annotated and deferred
+ * articles are picked from it. Unfinished books ride on the first page only.
  */
 export const upNextPage = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, { paginationOpts }) => {
-    const { cursor, endCursor, numItems } = paginationOpts;
-    const time = (value: string | null | undefined) => {
-      const n = value ? Number(value) : Number.NaN;
-      return Number.isFinite(n) ? n : null;
-    };
-    const after = time(cursor);
-    const { rows, isDone } = await unreadQueuePage(ctx, {
-      after,
-      through: time(endCursor),
-      numItems,
-    });
+    const result = await ctx.db
+      .query("articles")
+      .withIndex("by_user_finishedAt", (q) =>
+        q.eq("userId", ctx.readerId).eq("finishedAt", undefined),
+      )
+      .order("desc")
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("annotationStatus"), "annotated"),
+          q.eq(q.field("annotationStatus"), "deferred"),
+        ),
+      )
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, UP_NEXT_PAGE_MAX),
+        maximumBytesRead: UP_NEXT_PAGE_BYTES,
+      });
     const books =
-      cursor === null ? await unfinishedBooks(ctx, BOOKS_ON_THE_SHELF) : [];
-    const last = rows.at(-1);
+      paginationOpts.cursor === null
+        ? await unfinishedBooks(ctx, BOOKS_ON_THE_SHELF)
+        : [];
     return {
+      ...result,
       page: [
         ...books.map(({ article }) => bookEntry(article)),
-        ...rows.map(queuedEntry),
+        ...result.page.map(queuedEntry),
       ],
-      isDone,
-      continueCursor: last ? String(last._creationTime) : (cursor ?? ""),
     };
   },
 });

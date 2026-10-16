@@ -49,7 +49,7 @@ describe("Up next, a page at a time", () => {
         isDone: boolean;
         continueCursor: string;
       } = await f.owner.query(api.home.upNextPage, {
-        paginationOpts: { numItems: 10, cursor },
+        paginationOpts: { numItems: 5, cursor },
       });
       seen.push(...result.page.map((a) => a._id));
       if (result.isDone) break;
@@ -58,42 +58,88 @@ describe("Up next, a page at a time", () => {
     expect(seen).toEqual([...seeded].reverse());
   });
 
-  it("keeps a loaded page whole when newer articles arrive above it", async () => {
+  it("keeps two loaded pages whole and in order when an article arrives at the head", async () => {
     const f = await secondReaderTest(modules);
     await f.t.run(async (ctx) => {
-      for (let i = 0; i < 12; i++)
+      for (let i = 0; i < 20; i++)
         await ctx.db.insert("articles", row("default_user", i, "annotated"));
     });
     const first = await f.owner.query(api.home.upNextPage, {
       paginationOpts: { numItems: 5, cursor: null },
     });
+    const second = await f.owner.query(api.home.upNextPage, {
+      paginationOpts: { numItems: 5, cursor: first.continueCursor },
+    });
     await f.t.run(async (ctx) => {
       await ctx.db.insert("articles", row("default_user", 50, "annotated"));
     });
-    const again = await f.owner.query(api.home.upNextPage, {
+    // How usePaginatedQuery re-asks: each loaded page pinned to its end cursor
+    const again1 = await f.owner.query(api.home.upNextPage, {
       paginationOpts: {
         numItems: 5,
         cursor: null,
         endCursor: first.continueCursor,
       },
     });
-    expect(again.page.map((a) => a._id)).toEqual([
+    const again2 = await f.owner.query(api.home.upNextPage, {
+      paginationOpts: {
+        numItems: 5,
+        cursor: first.continueCursor,
+        endCursor: second.continueCursor,
+      },
+    });
+    const ids = [...again1.page, ...again2.page].map((a) => a._id);
+    expect(ids).toEqual([
       expect.any(String),
       ...first.page.map((a) => a._id),
+      ...second.page.map((a) => a._id),
     ]);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("caps the page size whatever the client asks for", async () => {
     const f = await secondReaderTest(modules);
     await f.t.run(async (ctx) => {
-      for (let i = 0; i < 130; i++)
+      for (let i = 0; i < 30; i++)
         await ctx.db.insert("articles", row("default_user", i, "annotated"));
     });
     const result = await f.owner.query(api.home.upNextPage, {
       paginationOpts: { numItems: 100_000, cursor: null },
     });
-    expect(result.page).toHaveLength(100);
+    expect(result.page).toHaveLength(8);
     expect(result.isDone).toBe(false);
+  });
+
+  it("pages 21 near-megabyte articles without repeats or gaps", async () => {
+    const f = await secondReaderTest(modules);
+    const body = "x".repeat(800_000);
+    const ids = await f.t.run(async (ctx) => {
+      const ids: string[] = [];
+      for (let i = 0; i < 21; i++)
+        ids.push(
+          await ctx.db.insert("articles", {
+            ...row("default_user", i, "annotated"),
+            content: body,
+          }),
+        );
+      return ids;
+    });
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let guard = 0; guard < 30; guard++) {
+      const result: {
+        page: { _id: string }[];
+        isDone: boolean;
+        continueCursor: string;
+      } = await f.owner.query(api.home.upNextPage, {
+        paginationOpts: { numItems: 10, cursor },
+      });
+      expect(result.page.length).toBeLessThanOrEqual(8);
+      seen.push(...result.page.map((a) => a._id));
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+    }
+    expect(seen).toEqual([...ids].reverse());
   });
 
   it("never lists another reader's articles", async () => {

@@ -39,9 +39,12 @@ export const forArticle = query({
   },
 });
 
-// An article row can be close to a megabyte, so a page of a topic's articles
-// stays small whatever the client asks for
+// An article row can be close to a megabyte, and each link read here becomes
+// one article read. Limiting the links read per page, not only the items asked
+// for, holds inside an established cursor range too: Convex then ends the page
+// early and the client asks for the next.
 const TOPIC_PAGE_MAX = 12;
+const TOPIC_PAGE_BYTES = 1_000_000;
 const TOPIC_NAME_MAX = 120;
 
 /**
@@ -69,6 +72,8 @@ export const articlesForTopic = query({
       .paginate({
         ...paginationOpts,
         numItems: Math.min(paginationOpts.numItems, TOPIC_PAGE_MAX),
+        maximumRowsRead: TOPIC_PAGE_MAX,
+        maximumBytesRead: TOPIC_PAGE_BYTES,
       });
     const page = (
       await Promise.all(

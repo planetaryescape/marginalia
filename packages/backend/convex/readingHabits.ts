@@ -9,6 +9,8 @@ import { periodVisits, roomArgs } from "./stats";
 const HABIT_EVENTS = 1500;
 // Sessions are small rows, one per time choice
 const HABIT_SESSIONS = 1000;
+// Finished books are small rows kept apart from their article; this many are read
+const HABIT_BOOKS = 100;
 
 /**
  * How the reader reads, for the period: the times they chose, Another
@@ -23,7 +25,7 @@ export const readingHabits = query({
   args: roomArgs,
   handler: async (ctx, { timeZone, period: periodName }) => {
     const period = roomPeriod(Date.now(), timeZone, periodName);
-    const [events, sessions] = await Promise.all([
+    const [events, sessions, books] = await Promise.all([
       ctx.db
         .query("articleInteractions")
         .withIndex("by_user_created", (q) =>
@@ -44,6 +46,14 @@ export const readingHabits = query({
         )
         .order("desc")
         .take(HABIT_SESSIONS + 1),
+      // Finishing a book writes no "finished" interaction, only its progress row
+      ctx.db
+        .query("books")
+        .withIndex("by_userId_and_finished", (q) =>
+          q.eq("userId", ctx.readerId).eq("finished", true),
+        )
+        .order("desc")
+        .take(HABIT_BOOKS),
     ]);
     const shownEvents = events.slice(0, HABIT_EVENTS);
     const shownSessions = sessions.slice(0, HABIT_SESSIONS);
@@ -65,6 +75,13 @@ export const readingHabits = query({
       else if (event.action === "abandoned") abandoned.add(event.articleId);
       else if (event.action === "skipped") anotherPresses++;
     }
+    for (const book of books)
+      if (
+        book.lastReadAt !== undefined &&
+        book.lastReadAt >= period.start &&
+        book.lastReadAt < period.end
+      )
+        finished.add(book.articleId);
     for (const id of opened) if (!finished.has(id)) abandoned.add(id);
     for (const id of finished) abandoned.delete(id);
 
@@ -81,10 +98,13 @@ export const readingHabits = query({
 });
 
 // Distinct articles whose dwell is read, newest read first. Each paragraphDwell
-// row holds up to 300 entries (about 4.5 KB), so 100 articles x 6 visits is
-// at most about 2.7 MB beside the 7 MB of visits `periodVisits` reads.
+// row holds up to 300 entries (about 4.5 KB). Every visit in the period counts;
+// the rows read are bounded in total, and `partial` says when that cut it short.
+// The last batch can overshoot by one batch, so the worst case is about
+// (500 + 20 x 21) rows, 4 MB, beside the 7 MB of visits `periodVisits` reads.
 const LINGER_ARTICLES = 100;
-const DWELL_VISITS_PER_ARTICLE = 6;
+const DWELL_VISITS_PER_ARTICLE = 20;
+const DWELL_ROWS_TOTAL = 500;
 const ARTICLE_BATCH = 20;
 const TAGS_PER_ARTICLE = 20;
 // A topic needs this many held paragraphs before its average means anything
@@ -103,12 +123,11 @@ const LINGER_SHOWN = 8;
 export const readingLinger = query({
   args: roomArgs,
   handler: async (ctx, { timeZone, period: periodName }) => {
-    const { period, rows } = await periodVisits(
-      ctx,
-      ctx.readerId,
-      timeZone,
-      periodName,
-    );
+    const {
+      period,
+      rows,
+      partial: visitsPartial,
+    } = await periodVisits(ctx, ctx.readerId, timeZone, periodName);
     const articleIds: Id<"articles">[] = [];
     const seen = new Set<Id<"articles">>();
     for (const row of rows) {
@@ -118,11 +137,17 @@ export const readingLinger = query({
       if (articleIds.length === LINGER_ARTICLES) break;
     }
 
+    let partial = visitsPartial;
+    let dwellRowsRead = 0;
     const perTag = new Map<
       Id<"tags">,
       { ms: number; paragraphs: number; articles: number }
     >();
-    for (let i = 0; i < articleIds.length; i += ARTICLE_BATCH)
+    for (let i = 0; i < articleIds.length; i += ARTICLE_BATCH) {
+      if (dwellRowsRead >= DWELL_ROWS_TOTAL) {
+        partial = true;
+        break;
+      }
       await Promise.all(
         articleIds.slice(i, i + ARTICLE_BATCH).map(async (articleId) => {
           const [dwellRows, links] = await Promise.all([
@@ -132,15 +157,17 @@ export const readingLinger = query({
                 q.eq("userId", ctx.readerId).eq("articleId", articleId),
               )
               .order("desc")
-              .take(DWELL_VISITS_PER_ARTICLE),
+              .take(DWELL_VISITS_PER_ARTICLE + 1),
             ctx.db
               .query("articleTags")
               .withIndex("by_article", (q) => q.eq("articleId", articleId))
               .take(TAGS_PER_ARTICLE),
           ]);
+          dwellRowsRead += dwellRows.length;
+          if (dwellRows.length > DWELL_VISITS_PER_ARTICLE) partial = true;
           let ms = 0;
           let paragraphs = 0;
-          for (const row of dwellRows) {
+          for (const row of dwellRows.slice(0, DWELL_VISITS_PER_ARTICLE)) {
             if (row.updatedAt < period.start || row.updatedAt >= period.end)
               continue;
             for (const held of Object.values(row.dwell)) {
@@ -165,6 +192,7 @@ export const readingLinger = query({
           }
         }),
       );
+    }
 
     const ranked = [...perTag.entries()]
       .filter(([, t]) => t.paragraphs >= MIN_PARAGRAPHS)
@@ -187,6 +215,6 @@ export const readingLinger = query({
       });
       if (topics.length === LINGER_SHOWN) break;
     }
-    return topics;
+    return { topics, partial };
   },
 });

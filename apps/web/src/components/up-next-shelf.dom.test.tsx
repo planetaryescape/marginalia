@@ -166,7 +166,7 @@ describe("Up next shelf", () => {
     );
     expect(more).toBeDefined();
     await act(async () => more?.click());
-    expect(state.loadMore).toHaveBeenCalledWith(20);
+    expect(state.loadMore).toHaveBeenCalledWith(8);
   });
 
   it("has no More once every article is listed", async () => {

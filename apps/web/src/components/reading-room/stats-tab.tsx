@@ -105,16 +105,22 @@ export function StatsTab() {
               />
             )}
             {merge && <TagMergeSuggestion suggestion={merge} />}
-            {linger && <WhereYouLinger topics={linger} />}
+            {linger && <WhereYouLinger topics={linger.topics} />}
             <YourSources feeds={room.feeds} />
           </div>
         </div>
       )}
 
-      {habits?.partial && (
+      {(habits?.partial || linger?.partial) && (
         <p role="status" className="mt-8 text-xs text-[var(--reader-muted)]">
-          How you read counts your most recent activity only. Choose a shorter
-          period for all of it.
+          {[
+            habits?.partial && "How you read",
+            linger?.partial && "Where you linger",
+          ]
+            .filter(Boolean)
+            .join(" and ")}{" "}
+          counts your most recent activity only. Choose a shorter period for all
+          of it.
         </p>
       )}
       {room && (room.partial || room.readsPartial) && (

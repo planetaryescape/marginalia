@@ -153,14 +153,17 @@ describe("Your reading", () => {
   it("shows where the reader lingers and how they read, every number in text", async () => {
     mocks.room = room();
     mocks.topics = [];
-    mocks.linger = [
-      {
-        name: "attention",
-        secondsPerParagraph: 12.5,
-        paragraphs: 40,
-        articles: 3,
-      },
-    ];
+    mocks.linger = {
+      topics: [
+        {
+          name: "attention",
+          secondsPerParagraph: 12.5,
+          paragraphs: 40,
+          articles: 3,
+        },
+      ],
+      partial: true,
+    };
     mocks.habits = {
       timesChosen: [
         { minutes: 5, count: 3 },
@@ -179,6 +182,9 @@ describe("Your reading", () => {
     expect(text).toContain("How you read");
     expect(text).toContain("5 min × 3 · 20 min × 1");
     expect(text).toContain("7 presses");
+    expect(text).toContain(
+      "Where you linger counts your most recent activity only.",
+    );
     expect(text).toContain("1 article");
     expect(text).toContain("2 articles");
   });
