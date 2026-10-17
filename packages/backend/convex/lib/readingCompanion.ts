@@ -270,7 +270,13 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
   return {
     indices: trimWindow(paragraphs, indices, marked, ASK_BUDGET_CHARS),
     marked,
-    excerpts: clipPassage(paragraphs, marked, start, request.selection),
+    excerpts: clipPassage(
+      paragraphs,
+      marked,
+      start,
+      request.selection,
+      request.occurrence ?? 0,
+    ),
   };
 }
 
@@ -285,6 +291,7 @@ function clipPassage(
   marked: ReadonlySet<number>,
   start: number,
   selection: string,
+  occurrence: number,
 ): Map<number, string> | undefined {
   const total = [...marked].reduce((sum, i) => sum + paragraphs[i].length, 0);
   if (total <= ASK_BUDGET_CHARS) return undefined;
@@ -294,7 +301,9 @@ function clipPassage(
     const text = paragraphs[i];
     if (text.length <= share) continue;
     const found =
-      i === start ? selectionAt(text, selection, marked.size > 1) : 0;
+      i === start
+        ? selectionAt(text, selection, marked.size > 1, occurrence)
+        : 0;
     // Some text before the selection, so the model sees what it follows
     const from = Math.min(
       Math.max(0, found - Math.floor(share / 4)),
@@ -335,19 +344,29 @@ function trimWindow(
 
 /**
  * Where the selection starts in its first paragraph. A selection that crosses
- * into the next paragraph isn't found whole, so the longest opening piece of
- * it that is found is used; failing that, a crossing selection ends this
- * paragraph.
+ * into the next paragraph begins in this one's closing words, so it starts
+ * where the longest opening piece of it ends this paragraph. One that stays
+ * inside starts at the occurrence the reader selected.
  */
-function selectionAt(text: string, selection: string, crosses: boolean) {
+function selectionAt(
+  text: string,
+  selection: string,
+  crosses: boolean,
+  occurrence: number,
+) {
   const wanted = selection.trim();
-  const exact = text.indexOf(wanted.slice(0, 40));
-  if (exact >= 0) return exact;
-  for (let k = Math.min(40, wanted.length) - 1; k >= 8; k--) {
-    const at = text.indexOf(wanted.slice(0, k));
-    if (at >= 0) return at;
+  if (crosses) {
+    for (let cut = Math.min(wanted.length, text.length); cut > 0; cut--)
+      if (text.endsWith(wanted.slice(0, cut))) return text.length - cut;
+    return text.length;
   }
-  return crosses ? text.length : 0;
+  let at = -1;
+  for (let n = 0; n <= occurrence; n++) {
+    const next = text.indexOf(wanted, at + 1);
+    if (next < 0) break;
+    at = next;
+  }
+  return Math.max(0, at);
 }
 
 export function formatArticle(

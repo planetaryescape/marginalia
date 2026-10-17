@@ -132,6 +132,43 @@ describe("readingCompanion", () => {
     ).toContain("gravity");
   });
 
+  it("anchors a short crossing selection at the first paragraph's end", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `Earlier. A false anchor.${"a".repeat(19_957)}UNIQUE_ACTUAL_TAIL.`,
+        `A${"b".repeat(19_999)}`,
+      ],
+      selection: ". A",
+      paragraphIndex: 1,
+      paragraphEnd: 2,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("UNIQUE_ACTUAL_TAIL.");
+  });
+
+  it("keeps the occurrence the reader selected", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `gravity FIRST${"a".repeat(17_000)}gravity SECOND${"b".repeat(2_000)}`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+      occurrence: 1,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("gravity SECOND");
+  });
+
   describe("per-tool context", () => {
     const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
     const request = (over: Record<string, string | number | null>) =>
