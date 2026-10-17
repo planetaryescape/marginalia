@@ -292,3 +292,16 @@ Change a decision only by adding a new entry that replaces the old one.
 - **BK, 2026-10-16:** "currently you select a highlight color in the settings and all your highlights become like that. I wan tto be able to select the highlight color or pen color when I actually highlight or use the pen, when I select a color that becomes the default till I select another one".
 - **Decision:** the selection toolbar offers the four colours beside Highlight and Underline; a pick marks in that colour and becomes the tool's default. Each mark stores its colour (`highlights.color`). Before a default changes, marks saved without a colour are first given the colour they show, so changing the default never repaints existing marks.
 - **Why:** colour is part of what the reader meant when they marked; a settings change shouldn't rewrite their past marks.
+
+### D-DES-067: The rooms stay one column. (Claude, delegated by BK)
+- **BK, 2026-10-17:** "fix all the things", on the remaining audit list, which included 02's 680/320 split for the rooms.
+- **Decision:** Library, Notes, Your reading and the settings pages keep one column of about 680 px. There is no 320 px side column.
+- **Why:** nothing in the rooms belongs in a side column today, so the split would mean inventing content to fill it. It also matches the one-column desk (D-DES-064), which BK chose so the pointer stays on one axis.
+
+### D-DES-068: Annotation reads the first 120,000 characters, not a section plus an outline. (Claude, delegated by BK)
+- **Decision:** the import pass keeps sending the article's first 120,000 characters (`convex/lib/marginaliaContext.ts`). Reading alongside still annotates one section at a time.
+- **Why:** import annotates only articles of 20 minutes or less, which fit inside that window whole, so a section-plus-outline context would add a step without changing what the model sees. Revisit if import starts annotating longer articles.
+
+### D-DES-069: A topic search the reader has never typed may take about a second. (Claude, delegated by BK)
+- **Decision:** the first card for a never-seen query stays at about 0.8–1.4 s; repeated queries take about 110–150 ms through the direct call and the query cache (rung 3c).
+- **Why:** what remains is the provider's embedding round trip. Embedding speculatively while the reader types would add an endpoint and spend on half-typed queries to save a few hundred milliseconds, once per new query.
