@@ -209,8 +209,15 @@ export function ReaderToolbar({
                   <DropdownMenu.Item
                     className={MENU_ITEM}
                     onSelect={onToggleLove}
+                    aria-keyshortcuts="v"
+                    title={
+                      loved
+                        ? "Remove from loved (v)"
+                        : "Love this article (v)"
+                    }
                   >
                     {loved ? "Remove from loved" : "Love this article"}
+                    <Kbd>v</Kbd>
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
                   <DropdownMenu.Item className={MENU_ITEM} onSelect={copyLink}>

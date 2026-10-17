@@ -193,6 +193,17 @@ describe("overflow menu", () => {
     expect(handlers.onRate).toHaveBeenCalledTimes(1);
   });
 
+  it("names the v key on the love item, in its tooltip and as a keycap", async () => {
+    await render();
+    await key(trigger(), "Enter");
+    const love = menuItems().find((el) => label(el) === "Love this article");
+    expect(love?.getAttribute("aria-keyshortcuts")).toBe("v");
+    expect(love?.getAttribute("title")).toBe("Love this article (v)");
+    expect(required<HTMLElement>(love as HTMLElement, "kbd").textContent).toBe(
+      "v",
+    );
+  });
+
   it("loves from the menu", async () => {
     await render();
     await key(trigger(), "Enter");

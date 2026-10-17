@@ -399,6 +399,12 @@ export default function ReadPage() {
     },
     [],
   );
+  // The heart in the bar and the `v` key take the same path, so a failed love can be retried from the bar.
+  const toggleLove = () =>
+    void attemptToolbar("Couldn't update loved articles.", async () => {
+      if (isLoved) await unloveArticle({ articleId: articleId as any });
+      else await loveArticle({ articleId: articleId as any });
+    });
 
   const toggleMark = useCallback(
     (kind: MarkKind, range: Range) =>
@@ -612,6 +618,7 @@ export default function ReadPage() {
       j: () => moveParagraph(1),
       k: () => moveParagraph(-1),
       r: () => rateArticle(),
+      v: () => toggleLove(),
       n: () => setNotesPanelOpen(true),
       ",": () => emitCommand("open-settings"),
       u: () => emitCommand("toggle-summary"),
@@ -649,6 +656,7 @@ export default function ReadPage() {
           ["j  k", "Next and previous paragraph"],
           ["o", "Open the note or conversation on this paragraph"],
           ["r", "Rate the article"],
+          ["v", "Love or unlove the article"],
           ["u", "Show or hide the summary"],
           ["n", "Open notes"],
           [",", "Reading settings"],
@@ -887,12 +895,7 @@ export default function ReadPage() {
         rating={impression?.rating ?? undefined}
         onRate={rateArticle}
         loved={Boolean(isLoved)}
-        onToggleLove={() =>
-          void attemptToolbar("Couldn't update loved articles.", async () => {
-            if (isLoved) await unloveArticle({ articleId: articleId as any });
-            else await loveArticle({ articleId: articleId as any });
-          })
-        }
+        onToggleLove={toggleLove}
         listening={listen.active}
         onToggleListen={toggleListen}
         onToggleSummary={() => emitCommand("toggle-summary")}
