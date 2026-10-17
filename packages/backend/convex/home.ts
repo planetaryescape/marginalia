@@ -2,6 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import type { Doc } from "./_generated/dataModel";
 import { ownedArticle } from "./access";
 import { query } from "./functions";
+import { isReading } from "./lib/shelfArticle";
 import { unfinishedBooks } from "./lib/unfinishedBooks";
 import { unreadQueue } from "./lib/unreadQueue";
 
@@ -126,11 +127,26 @@ export const upNextPage = query({
       paginationOpts.cursor === null
         ? await unfinishedBooks(ctx, BOOKS_ON_THE_SHELF)
         : [];
+    const withReading = (article: Doc<"articles">) =>
+      isReading(ctx, ctx.readerId, article).then((reading) => ({
+        article,
+        reading,
+      }));
+    const [bookRows, pageRows] = await Promise.all([
+      Promise.all(books.map(({ article }) => withReading(article))),
+      Promise.all(result.page.map(withReading)),
+    ]);
     return {
       ...result,
       page: [
-        ...books.map(({ article }) => bookEntry(article)),
-        ...result.page.map(queuedEntry),
+        ...bookRows.map(({ article, reading }) => ({
+          ...bookEntry(article),
+          reading,
+        })),
+        ...pageRows.map(({ article, reading }) => ({
+          ...queuedEntry(article),
+          reading,
+        })),
       ],
     };
   },

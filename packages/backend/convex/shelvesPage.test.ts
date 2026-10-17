@@ -89,6 +89,7 @@ describe.each([
         "annotationStatus",
         "author",
         "estimatedReadMinutes",
+        "reading",
         "title",
         "url",
       ].sort(),

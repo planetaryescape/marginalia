@@ -159,4 +159,36 @@ describe("Up next, a page at a time", () => {
     });
     expect(mine.page.map((a) => a.title)).toEqual(["default_user piece 1"]);
   });
+
+  it("marks an article Reading once it is opened and not finished", async () => {
+    const f = await secondReaderTest(modules);
+    const ids = await f.t.run(async (ctx) => {
+      const opened = await ctx.db.insert(
+        "articles",
+        row("default_user", 1, "annotated"),
+      );
+      const unopened = await ctx.db.insert(
+        "articles",
+        row("default_user", 2, "annotated"),
+      );
+      await ctx.db.insert("articleInteractions", {
+        userId: "default_user",
+        articleId: opened,
+        action: "opened",
+        createdAt: 1,
+      });
+      return { opened, unopened };
+    });
+    const result = await f.owner.query(api.home.upNextPage, {
+      paginationOpts: { numItems: 5, cursor: null },
+    });
+    const reading = Object.fromEntries(
+      result.page.map((a: { _id: string; reading: boolean }) => [
+        a._id,
+        a.reading,
+      ]),
+    );
+    expect(reading[ids.opened]).toBe(true);
+    expect(reading[ids.unopened]).toBe(false);
+  });
 });

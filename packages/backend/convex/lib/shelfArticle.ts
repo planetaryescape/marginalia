@@ -25,6 +25,28 @@ export const SHELF_PAGE_ROWS = 12;
 // size, not the read limit.
 export const SHELF_ID_BOUND = 2000;
 
+/**
+ * Reading is the state of an article the reader has opened and not finished,
+ * the same state Up next and the shelves label "Reading" (02, the states).
+ */
+export async function isReading(
+  ctx: { db: DatabaseReader },
+  userId: string,
+  article: Doc<"articles">,
+): Promise<boolean> {
+  if (article.finishedAt !== undefined) return false;
+  const opened = await ctx.db
+    .query("articleInteractions")
+    .withIndex("by_user_article_action", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("articleId", article._id)
+        .eq("action", "opened"),
+    )
+    .first();
+  return opened !== null;
+}
+
 /** Each row with its article slimmed; rows whose article is gone or not the reader's are dropped. */
 export async function withShelfArticles<
   T extends { articleId: Id<"articles"> },
@@ -32,7 +54,9 @@ export async function withShelfArticles<
   const items = await Promise.all(
     rows.map(async (row) => {
       const article = await ownedArticle(ctx, row.articleId, ctx.readerId);
-      return article ? { ...row, article: shelfArticle(article) } : null;
+      if (!article) return null;
+      const reading = await isReading(ctx, ctx.readerId, article);
+      return { ...row, article: { ...shelfArticle(article), reading } };
     }),
   );
   return items.filter((item) => item !== null);
