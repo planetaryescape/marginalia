@@ -117,7 +117,7 @@ Every jump inside the article (a ¶ reference in an answer or card, the paragrap
 
 ## What each tool sees
 
-Every AI call gets the context its question needs, not the whole document (D-DES-054). Today annotation reads the first 120,000 characters (`marginaliaContext.ts#L8`, `#L142`) and the passage tools send up to 120,000 characters around the selection, from the first paragraph when there's none (`readingCompanion.ts#L6`, `#L97-L118`). Both are expensive for ordinary articles and wrong for books.
+Every AI call gets the context its question needs, not the whole document (D-DES-054). Annotation reads the first 120,000 characters (`marginaliaContext.ts`), and when the article runs past that, an outline of the headings beyond the cut with a rough size each, so its notes know the shape of the whole piece while anchoring only to text it can see (`lib/articleOutline.ts`, D-DES-068). Ask about a passage sends the passage and its neighbours within a 16,000-character budget, cutting an oversized highlighted paragraph around the selection (`readingCompanion.ts`).
 
 | Tool | Gets |
 |---|---|
