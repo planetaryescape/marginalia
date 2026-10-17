@@ -21,11 +21,6 @@ vi.mock("next/navigation", () => ({
   usePathname: () => nav.pathname,
   useRouter: () => ({ push: nav.push }),
 }));
-vi.mock("convex/react", () => ({
-  useQuery: () => undefined,
-  useAction: () => vi.fn(),
-  useMutation: () => vi.fn(),
-}));
 vi.mock("./account-menu", () => ({ AccountMenu: () => null }));
 
 let root: Root;
@@ -53,13 +48,13 @@ const search = () =>
 describe("SiteHeader", () => {
   it("names the settings page it is on, in place of the page's own eyebrow", async () => {
     nav.pathname = "/feeds";
-    await act(async () => root.render(<SiteHeader showPaste={false} />));
+    await act(async () => root.render(<SiteHeader />));
     expect(container.textContent).toContain("Settings · Sources");
   });
 
   it("names nothing on a room", async () => {
     nav.pathname = "/library";
-    await act(async () => root.render(<SiteHeader showPaste={false} />));
+    await act(async () => root.render(<SiteHeader />));
     expect(container.textContent).not.toContain("Settings ·");
   });
 });
