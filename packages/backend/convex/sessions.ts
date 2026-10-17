@@ -230,7 +230,7 @@ export const getInProgress = query({
   },
 });
 
-// Used by selectArticle action
+// Kept for the isolation tests, which check a reader sees none of another account's interactions
 export const listRecentInteractions = query({
   args: {},
   handler: async (ctx) => {

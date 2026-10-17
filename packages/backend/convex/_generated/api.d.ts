@@ -26,7 +26,6 @@ import type * as actions_ingestExternal from "../actions/ingestExternal.js";
 import type * as actions_pollFeeds from "../actions/pollFeeds.js";
 import type * as actions_readAlongside from "../actions/readAlongside.js";
 import type * as actions_readwiseSync from "../actions/readwiseSync.js";
-import type * as actions_selectArticle from "../actions/selectArticle.js";
 import type * as actions_summarize from "../actions/summarize.js";
 import type * as alongside from "../alongside.js";
 import type * as annotations from "../annotations.js";
@@ -166,7 +165,6 @@ declare const fullApi: ApiFromModules<{
   "actions/pollFeeds": typeof actions_pollFeeds;
   "actions/readAlongside": typeof actions_readAlongside;
   "actions/readwiseSync": typeof actions_readwiseSync;
-  "actions/selectArticle": typeof actions_selectArticle;
   "actions/summarize": typeof actions_summarize;
   alongside: typeof alongside;
   annotations: typeof annotations;
