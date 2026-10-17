@@ -62,6 +62,7 @@ import type * as lib_annotationKinds from "../lib/annotationKinds.js";
 import type * as lib_annotationPolicy from "../lib/annotationPolicy.js";
 import type * as lib_articleAsk from "../lib/articleAsk.js";
 import type * as lib_articleCard from "../lib/articleCard.js";
+import type * as lib_articleOutline from "../lib/articleOutline.js";
 import type * as lib_articleUrl from "../lib/articleUrl.js";
 import type * as lib_bookAsk from "../lib/bookAsk.js";
 import type * as lib_bookIndex from "../lib/bookIndex.js";
@@ -203,6 +204,7 @@ declare const fullApi: ApiFromModules<{
   "lib/annotationPolicy": typeof lib_annotationPolicy;
   "lib/articleAsk": typeof lib_articleAsk;
   "lib/articleCard": typeof lib_articleCard;
+  "lib/articleOutline": typeof lib_articleOutline;
   "lib/articleUrl": typeof lib_articleUrl;
   "lib/bookAsk": typeof lib_bookAsk;
   "lib/bookIndex": typeof lib_bookIndex;
