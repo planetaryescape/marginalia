@@ -44,6 +44,7 @@ export const matchTitles = query({
         title: row.title,
         author: row.author ?? null,
         source: host(row.url) ?? null,
+        url: row.url,
         minutes: row.estimatedReadMinutes ?? null,
         status: await readStatus(ctx, userId, row._id),
       });

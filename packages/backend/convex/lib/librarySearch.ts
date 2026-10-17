@@ -78,6 +78,8 @@ export const libraryFindResponseSchema = z.object({
         author: z.string().nullable(),
         /** Site the article came from, such as example.com. */
         source: z.string().nullable(),
+        /** The page's address, so two saved copies of one page are one choice. Older backends omit it. */
+        url: z.string().optional(),
         minutes: z.number().nullable(),
         status: z.string(),
       }),

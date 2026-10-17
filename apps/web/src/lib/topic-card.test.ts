@@ -113,6 +113,19 @@ describe("strong title match", () => {
     ]);
   });
 
+  it("treats another saved copy of the title match's page as the same card", () => {
+    const first = {
+      ...titled("t", "Slow cheese making"),
+      url: "https://x.test/p",
+    };
+    const copy = { ...all[1], url: "https://x.test/p" };
+    expect(
+      titleFirst(first, [copy, { ...all[0], url: "https://x.test/a" }]).map(
+        (m) => m.articleId,
+      ),
+    ).toEqual(["t", "a"]);
+  });
+
   it("is just the ranking when there is no title match", () => {
     expect(titleFirst(null, [all[0], all[0], all[1]])).toEqual([
       all[0],

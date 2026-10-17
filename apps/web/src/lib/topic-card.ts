@@ -2,12 +2,15 @@ import type { LibraryFindMatch } from "@marginalia/backend/library-search";
 
 export type TopicMatch = LibraryFindMatch;
 
-/** Later copies of the same article are dropped, so a card is never shown twice. */
+/** The same page, whichever saved copy of it a search returned. */
+const pageOf = (match: TopicMatch) => match.url ?? match.articleId;
+
+/** Later copies of the same page are dropped, so a card is never shown twice. */
 export function dedupeMatches(matches: TopicMatch[]): TopicMatch[] {
   const seen = new Set<string>();
   return matches.filter((match) => {
-    if (seen.has(match.articleId)) return false;
-    seen.add(match.articleId);
+    if (seen.has(pageOf(match))) return false;
+    seen.add(pageOf(match));
     return true;
   });
 }
@@ -51,7 +54,14 @@ export function titleFirst(
 ): TopicMatch[] {
   const rest = dedupeMatches(ranked);
   return first
-    ? [first, ...rest.filter((match) => match.articleId !== first.articleId)]
+    ? [
+        first,
+        ...rest.filter(
+          (match) =>
+            match.articleId !== first.articleId &&
+            pageOf(match) !== pageOf(first),
+        ),
+      ]
     : rest;
 }
 

@@ -212,6 +212,8 @@ export function useTopicSearch(text: string, enabled: boolean, retry: number) {
       } catch (thrown) {
         if (signal.aborted) return;
         const error = await failure(thrown);
+        // Reading the error body takes time; a newer query may have started meanwhile
+        if (signal.aborted) return;
         setState({
           ...idle,
           query: text,

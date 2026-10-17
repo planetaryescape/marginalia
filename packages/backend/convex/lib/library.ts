@@ -331,6 +331,7 @@ export async function findLibraryArticles(
       title: row.title,
       author: row.author,
       source: host(row.url) ?? null,
+      url: row.url,
       minutes: row.minutes,
       status: row.status,
     })),

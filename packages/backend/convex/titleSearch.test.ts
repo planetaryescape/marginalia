@@ -50,6 +50,7 @@ describe("title match for the picker", () => {
         title: "Slow Cheese Making",
         author: null,
         source: "example.com",
+        url: `https://www.example.com/${OWNER}/slow-cheese-making`,
         minutes: 7,
         status: "Up next",
       },
