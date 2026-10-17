@@ -1,4 +1,4 @@
-import { NoObjectGeneratedError } from "ai";
+import { APICallError, NoObjectGeneratedError } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -21,6 +21,16 @@ const unparseable = () =>
       totalTokens: 2,
     } as never,
     finishReason: "length",
+  });
+
+/** What the AI SDK throws when a 200 response's body fails to read or parse. */
+const unusableBody = (message: string) =>
+  new APICallError({
+    message,
+    cause: new TypeError("terminated"),
+    statusCode: 200,
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    requestBodyValues: {},
   });
 
 const target = (id: string) =>
@@ -79,6 +89,60 @@ describe("generateObjectWithFallback", () => {
         targets: [target("only")],
       }),
     ).rejects.toThrow("bad request");
+    expect(generateObject).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "Failed to process successful response",
+    "Invalid JSON response",
+  ])("asks the same model again after a %s", async (message) => {
+    generateObject
+      .mockRejectedValueOnce(unusableBody(message))
+      .mockResolvedValueOnce({ object: { ok: true } });
+    const result = await generateObjectWithFallback({
+      schema: z.object({ ok: z.boolean() }),
+      prompt: "p",
+      targets: [target("first"), target("second")],
+    });
+    expect(result).toEqual({ object: { ok: true }, modelId: "first" });
+    expect(generateObject).toHaveBeenCalledTimes(2);
+  });
+
+  it("moves to the next model after two unusable bodies", async () => {
+    generateObject
+      .mockRejectedValueOnce(
+        unusableBody("Failed to process successful response"),
+      )
+      .mockRejectedValueOnce(
+        unusableBody("Failed to process successful response"),
+      )
+      .mockResolvedValueOnce({ object: { ok: true } });
+    const result = await generateObjectWithFallback({
+      schema: z.object({ ok: z.boolean() }),
+      prompt: "p",
+      targets: [target("first"), target("second")],
+    });
+    expect(result.modelId).toBe("second");
+    expect(generateObject).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not repeat a request the provider refused with a 4xx", async () => {
+    generateObject.mockRejectedValue(
+      new APICallError({
+        message: "Invalid request",
+        statusCode: 400,
+        url: "https://openrouter.ai/api/v1/chat/completions",
+        requestBodyValues: {},
+        isRetryable: false,
+      }),
+    );
+    await expect(
+      generateObjectWithFallback({
+        schema: z.object({ ok: z.boolean() }),
+        prompt: "p",
+        targets: [target("first"), target("second")],
+      }),
+    ).rejects.toThrow("Invalid request");
     expect(generateObject).toHaveBeenCalledTimes(1);
   });
 });

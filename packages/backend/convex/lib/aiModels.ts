@@ -1,7 +1,7 @@
 "use node";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject, NoObjectGeneratedError } from "ai";
+import { APICallError, generateObject, NoObjectGeneratedError } from "ai";
 import { ConvexError } from "convex/values";
 import { toJSONSchema, type ZodType } from "zod";
 import {
@@ -41,6 +41,26 @@ function statusOf(error: unknown): number | undefined {
 function isAuthError(error: unknown): boolean {
   const status = statusOf(error);
   return status === 401 || status === 403;
+}
+
+/**
+ * An answer the provider sent with a success status that couldn't be read or
+ * parsed. The AI SDK throws an APICallError at that status: "Failed to process
+ * successful response" when the body fails mid-read, and "Invalid JSON
+ * response" when it isn't JSON. It marks both non-retryable, so the SDK never
+ * retries them; a truncated or garbled body is a transient fault, so it's
+ * handled like an unparseable answer.
+ */
+function isUnusableSuccessBody(error: unknown): boolean {
+  if (!APICallError.isInstance(error)) return false;
+  const status = error.statusCode;
+  return status !== undefined && status >= 200 && status < 300;
+}
+
+function isUnparseableAnswer(error: unknown): boolean {
+  return (
+    NoObjectGeneratedError.isInstance(error) || isUnusableSuccessBody(error)
+  );
 }
 
 function isRetryableError(error: unknown): boolean {
@@ -110,10 +130,7 @@ export async function generateObjectWithFallback<T>(options: {
           );
         continue;
       }
-      if (
-        (isRetryableError(error) || NoObjectGeneratedError.isInstance(error)) &&
-        !isLast
-      )
+      if ((isRetryableError(error) || isUnparseableAnswer(error)) && !isLast)
         continue;
       throw error;
     }
@@ -125,7 +142,8 @@ export async function generateObjectWithFallback<T>(options: {
  * One model call, asked a second time when its answer doesn't parse. A model
  * now and then falls into repeating words inside a string until it runs out of
  * tokens; that is a sampling accident, so the same model usually answers
- * cleanly when asked again.
+ * cleanly when asked again. A success response with a truncated body is the
+ * same kind of fault, so it gets the same second ask.
  */
 async function generateParsedObject<T>(
   modelId: string,
@@ -148,12 +166,8 @@ async function generateParsedObject<T>(
       });
       return result.object as T;
     } catch (error) {
-      if (
-        attempt >= PARSE_ATTEMPTS ||
-        !NoObjectGeneratedError.isInstance(error)
-      )
-        throw error;
-      console.warn(`${modelId} answered unparseably; asking again`);
+      if (attempt >= PARSE_ATTEMPTS || !isUnparseableAnswer(error)) throw error;
+      console.warn(`${modelId} answered unusably; asking again`);
     }
   }
 }
