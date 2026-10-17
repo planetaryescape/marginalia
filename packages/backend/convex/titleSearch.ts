@@ -9,7 +9,7 @@ import { host, readStatus } from "./lib/articleCard";
  */
 export const MAX_TITLE_MATCHES = 5;
 const MAX_QUERY = 200;
-const STATUS_ORDER = { Unread: 0, Started: 1, Read: 2 } as const;
+const STATUS_ORDER = { "Up next": 0, Reading: 1, Finished: 2 } as const;
 
 /**
  * The reader's articles whose title matches the typed words, in the shape of
