@@ -21,7 +21,7 @@ While reading:
 - Tap **Notes** in the reader's bottom controls, then **+ New** to write an article note. The editor focuses immediately. Wait for **Saved** before leaving it.
 - Select a passage using your phone's text selection. Phone passage actions form a labelled two-column context menu beside the selection, rather than a desktop pill at the bottom of the screen. Ask, Explain, Simplify, Define, Highlight, Underline, Note and Copy remain available. Native selection handles and menus vary by browser and still need physical-phone verification.
 - Tap **Ask about this article** for a whole-article question. The question field has its own row on phones; **×** closes it without requiring an Escape key.
-- Use **More actions** (the three dots in the header) for Love, Summary, Copy link and the rest. The star in the header rates the article. Reading settings remain in the header; panels scroll on short screens. The bottom bar reads **Ask**, **Notes**, **Listen** and **Done**; on a finished article, Done becomes **Mark unread**.
+- Use **More actions** (the three dots in the header) to rate or love the article, and for Summary, Copy link and the rest. Reading settings remain in the header; panels scroll on short screens. The bottom bar reads **Ask**, **Notes**, **Listen** and **Done**; on a finished article, Done becomes **Mark unread**.
 
 The desk is one column: the date, the question, the time choices, the slot for your pick and the search. Under 700 px of height the date is hidden. Up next is a shelf in Library; the search picker reaches any article. Library and the other desk pages scroll within the shared navigation.
 

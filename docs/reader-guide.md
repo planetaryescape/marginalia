@@ -8,7 +8,7 @@ The desk is the home page. It is one column: the date, the question "How much ti
 
 Click the search bar or press `/` to open the floating picker. Type a title, author or description of what you want to read. Results include reasons for their fit; use arrows and Enter or click a result. Escape closes the picker.
 
-Suggestions never include something you've read. An article leaves Up next and the time choices when you press **Done** at its end, when you scroll to the end (95%) after at least 40% of its estimated time spent actively reading across all your visits, or when you archive it in Readwise Reader. To dismiss one without reading it, use the archive button on its Up next row in Library (or `x`); the toast offers Undo. To put a finished article back, press **Mark unread**. It is beside "Finished" at the end of the article, in the **More actions** menu of the reader header, and on a phone it replaces Done in the bottom bar.
+Suggestions never include something you've read. An article leaves Up next and the time choices when you press **Done** at its end, when you scroll to the end (95%) after at least 40% of its estimated time spent actively reading across all your visits, or when you archive it in Readwise Reader. To dismiss one without reading it, use the archive button on its Up next row in Library (or `x`); the toast offers Undo. To put a finished article back, press **Mark unread**. It sits beside **Done** at the end of a finished article and in the reader's **More actions** menu; on a phone it also replaces Done in the bottom bar.
 
 Paste an `http`/`https` article URL into the same picker to import it. Extraction and annotation can take time; importing a URL does not guarantee its publisher exposes readable content.
 
@@ -20,7 +20,7 @@ Annotations provide cross-references, context, tensions and questions. A connect
 
 Open Notes with `n`. A new editor receives focus immediately. Notes save after a short pause, on blur and before the editor/panel closes. If saving fails, the editor keeps the draft visible with Retry; do not leave the page until it saves. A tab-close warning is best-effort, not offline backup.
 
-Rate the article with `r` or the star in the reader header. The heart beside it loves the article; on a phone, Love is in **More actions**. Stars have meaningful labels; impressions can also include quick tags and a short thought. Saved articles form a queue; loved articles can return as revisits.
+Rate the article in the impression panel at its end, with `r`, or from **More actions** in the reader header, where **Love this article** is too. The header itself keeps only Back, reading settings and More actions, so nothing competes with the text. Stars have meaningful labels; impressions can also include quick tags and a short thought. Saved articles form a queue; loved articles can return as revisits.
 
 ## Adjust the reader
 
