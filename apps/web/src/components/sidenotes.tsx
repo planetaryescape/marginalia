@@ -292,6 +292,12 @@ export function Sidenotes({
             range?.startContainer instanceof Element
               ? range.startContainer
               : (range?.startContainer.parentElement ?? null);
+          // A passage whose text can no longer be found still has its
+          // paragraph: the answer sits there rather than not appearing at all
+          if (!rect && entry.paragraphIndex !== null) {
+            host = getParagraphs(body)[entry.paragraphIndex] ?? null;
+            rect = firstRect(host?.getClientRects());
+          }
         }
       } else if (entry.kind === "note") {
         let range = ranges.current.map.get(entry.key);

@@ -19,6 +19,7 @@ import {
   paragraphText,
 } from "./paragraphs";
 import { type ReaderSettings, webSearchEnabled } from "./reader-settings";
+import { rangeText } from "./text-range";
 
 /** "article" is a question about the whole piece, with no highlighted passage. */
 export type CompanionMode =
@@ -125,7 +126,7 @@ function occurrenceOf(range: Range): number {
   const before = document.createRange();
   before.selectNodeContents(paragraph);
   before.setEnd(range.startContainer, range.startOffset);
-  return occurrencesBefore(before.toString(), range.toString());
+  return occurrencesBefore(rangeText(before), rangeText(range));
 }
 
 /** The last paragraph a selection crosses, when it crosses more than one. */
@@ -430,7 +431,7 @@ export function useCompanion({
 
   const start = useCallback(
     (args: { mode: CompanionMode; range: Range; question?: string }) => {
-      const selection = args.range.toString().replace(/\s+/g, " ").trim();
+      const selection = rangeText(args.range);
       if (!selection) return;
       run(
         {

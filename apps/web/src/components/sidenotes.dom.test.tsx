@@ -826,6 +826,25 @@ describe("Marginalia's answers in the column", () => {
     expect(top("a:a1")).toBe("404px");
   });
 
+  it("sets an answer at its paragraph when its passage text can't be found", async () => {
+    await render(
+      <Answers
+        openAnswerId={null}
+        answers={[
+          {
+            id: "x1",
+            label: "Explain",
+            text: "It means the lake was calm.",
+            // Saved with a footnote number the article text doesn't carry
+            selection: "still tarn.10 lay",
+            paragraphIndex: 1,
+          },
+        ]}
+      />,
+    );
+    expect(top("c:x1")).toBe("304px");
+  });
+
   it("puts an answer about the whole article at the top of the margin", async () => {
     await render(
       <Answers

@@ -66,7 +66,7 @@ import { articleProgress } from "@/lib/reading-clock";
 import { useListen, useReadingPosition } from "@/lib/reading-modes";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
-import { findTextRange } from "@/lib/text-range";
+import { findTextRange, rangeText } from "@/lib/text-range";
 import { markFinished, rememberedTitle } from "@/lib/title-handoff";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
@@ -371,7 +371,7 @@ export default function ReadPage() {
         articleId: articleId as any,
         kind,
         color,
-        text: range.toString().replace(/\s+/g, " ").trim(),
+        text: rangeText(range),
         paragraphIndex: paragraphIndexOf(range.startContainer) ?? undefined,
         unitIndex: unit,
       });
@@ -741,6 +741,12 @@ export default function ReadPage() {
 
   const handleAnnotationSelect = useCallback(
     (annotationId: string | null) => {
+      // The click that ends selecting text inside an annotated sentence is a
+      // selection, not a request to open its note: opening it would also fold
+      // the answer the reader is about to ask for
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && selection.toString().trim())
+        return;
       if (!annotationId) {
         setActiveAnnotation(null);
         return;
