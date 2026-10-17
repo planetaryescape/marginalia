@@ -73,9 +73,9 @@ describe("Library matches", () => {
     const rows = document.querySelectorAll("li");
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain("On focus");
-    expect(rows[0].textContent).toContain("example.org · 8 min read · Unread");
+    expect(rows[0].textContent).toContain("example.org · 8 min read · Up next");
     expect(rows[0].querySelector("a")?.getAttribute("href")).toBe("/read/a1");
-    expect(rows[1].textContent).toContain("Cal · Read");
+    expect(rows[1].textContent).toContain("Cal · Finished");
     expect(document.body.textContent).toContain("Matches for “deep work”");
   });
 

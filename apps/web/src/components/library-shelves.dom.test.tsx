@@ -173,6 +173,24 @@ describe("Shelves from pages", () => {
     expect(more?.disabled).toBe(true);
   });
 
+  it("says Reading in a row's meta once the article is opened and unfinished", async () => {
+    state.status = "Exhausted";
+    state.loved = [
+      {
+        _id: "l1",
+        article: {
+          _id: "a9",
+          title: "An opened piece",
+          author: "Ada",
+          estimatedReadMinutes: 7,
+          reading: true,
+        },
+      },
+    ];
+    await act(async () => root.render(<LovedShelf />));
+    expect(document.body.textContent).toContain("Ada · 7 min read · Reading");
+  });
+
   it("draws the Loved shelf from its pages", async () => {
     state.status = "CanLoadMore";
     state.loved = [

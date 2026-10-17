@@ -126,12 +126,12 @@ describe("Library shelves", () => {
     expect(html).toContain("9 min read · annotating");
   });
 
-  it("shows ratings as stars in ink, not squares", () => {
+  it("shows ratings as stars in the reader's pen, not squares (D-DES-032)", () => {
     shelf.value = "finished";
     const html = renderToStaticMarkup(<LibraryPage />);
     expect(html).toContain('aria-label="Fine"');
     expect(html).not.toContain("rounded-[2px]");
-    expect(html.match(/text-\[var\(--ink\)\]/g)).toHaveLength(3);
+    expect(html.match(/text-\[var\(--pen\)\]/g)).toHaveLength(3);
     expect(html.match(/text-\[var\(--ink-muted\)\]/g)).toHaveLength(2);
     expect(html).toContain("It stayed");
   });

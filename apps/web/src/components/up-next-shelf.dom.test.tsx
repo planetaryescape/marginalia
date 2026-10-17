@@ -112,6 +112,31 @@ describe("Up next shelf", () => {
     expect(rows[0].querySelector("a")?.getAttribute("href")).toBe("/read/a");
   });
 
+  it("says Reading after an article's source and minutes once it is opened", async () => {
+    state.overview = {
+      upNext: [
+        {
+          _id: "a",
+          title: "Opened piece",
+          source: "example.org",
+          minutes: 9,
+          reading: true,
+        },
+        {
+          _id: "b",
+          title: "Fresh piece",
+          source: "example.org",
+          minutes: 4,
+          reading: false,
+        },
+      ],
+    };
+    await render();
+    const rows = document.querySelectorAll("li");
+    expect(rows[0].textContent).toContain("example.org · 9 min · Reading");
+    expect(rows[1].textContent).not.toContain("Reading");
+  });
+
   it("archives with an Undo that restores", async () => {
     await render();
     const archive = document.querySelector<HTMLButtonElement>(
