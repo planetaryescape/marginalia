@@ -7,8 +7,12 @@ import { type ActionCtx, internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { annotationBudget, gateNotes } from "../lib/annotationGate";
 import { KIND_FAMILIES } from "../lib/annotationKinds";
+import { outlineAfterWindow } from "../lib/articleOutline";
 import { type EmbeddingTarget, embedTexts } from "../lib/embeddings";
-import { buildMarginaliaContext } from "../lib/marginaliaContext";
+import {
+  buildMarginaliaContext,
+  MAX_ARTICLE_CHARS,
+} from "../lib/marginaliaContext";
 import { loadReaderAI } from "../lib/router";
 import { MAX_TAGS_PER_ARTICLE, normaliseTag } from "../lib/tagMatching";
 
@@ -203,15 +207,23 @@ export function buildUserPrompt(input: {
   author?: string;
   articleText: string;
   truncated: boolean;
+  /** The headings past the window, from outlineAfterWindow; absent when there are none. */
+  outline?: string | null;
   contextText: string;
   wordCount: number;
   vocabulary: string[];
 }) {
   const { target, cap } = annotationBudget(input.wordCount);
+  // Anchors come only from the text shown: a heading past the window has no body the model can quote
+  const continuation = !input.truncated
+    ? ""
+    : input.outline
+      ? `\n\n[The article continues beyond this point. Its later sections, in order, with their rough length:\n${input.outline}\nYou can see only the text above this point. Anchor every note to that text, never to the outline, which shows the shape of the rest.]`
+      : "\n\n[The article continues beyond this point.]";
   return `## Article: "${input.title}"
 ${input.author ? `By: ${input.author}` : ""}
 
-${input.articleText}${input.truncated ? "\n\n[The article continues beyond this point.]" : ""}
+${input.articleText}${continuation}
 
 ${input.contextText}
 
@@ -359,6 +371,8 @@ async function annotateArticle(
         userId: article.userId,
       });
     const wordCount = article.wordCount ?? 0;
+    // The same cut buildMarginaliaContext makes to the text it shows
+    const truncated = article.content.length > MAX_ARTICLE_CHARS;
 
     // Step 3: Generate annotations via LLM
     const { object, modelId } =
@@ -369,7 +383,13 @@ async function annotateArticle(
           title: article.title,
           author: article.author,
           articleText,
-          truncated: article.content.length > articleText.length,
+          truncated,
+          outline: truncated
+            ? outlineAfterWindow(
+                { content: article.content, contentHtml: article.contentHtml },
+                MAX_ARTICLE_CHARS,
+              )
+            : null,
           contextText,
           wordCount,
           vocabulary: vocabulary.map((tag) => tag.name),

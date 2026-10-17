@@ -15,6 +15,7 @@ import {
   resolveNotePath,
   SYSTEM_PROMPT,
 } from "./actions/generateAnnotations";
+import { annotationBudget } from "./lib/annotationGate";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -530,5 +531,40 @@ describe("generateForArticle", () => {
         (n) => n.content,
       ),
     ).toEqual(["old note"]);
+  });
+});
+
+describe("buildUserPrompt past the window", () => {
+  const base = {
+    title: "T",
+    articleText: "Body.",
+    contextText: "",
+    wordCount: 150,
+    vocabulary: [] as string[],
+  };
+
+  it("leaves a short article's prompt exactly as it was before the outline", () => {
+    const { target, cap } = annotationBudget(150);
+    expect(buildUserPrompt({ ...base, truncated: false })).toBe(
+      `## Article: "T"\n\n\nBody.\n\n\n\n## The reader's existing tags\n\nNone yet.\n\n## Budget\n\nThe article is about 150 words. Aim for about ${target} notes, and no more than ${cap}. Lean toward pushback, close to balance. Make each note substantive, not terse. Also return the thesis, the gist and one to three tags.`,
+    );
+  });
+
+  it("keeps the single continuation line when there is no outline", () => {
+    expect(
+      buildUserPrompt({ ...base, truncated: true, outline: null }),
+    ).toContain("Body.\n\n[The article continues beyond this point.]\n\n");
+  });
+
+  it("gives the outline past the window, and says notes anchor only to text shown", () => {
+    const prompt = buildUserPrompt({
+      ...base,
+      truncated: true,
+      outline: "- Later one (about 400 words)",
+    });
+    expect(prompt).toContain(
+      "[The article continues beyond this point. Its later sections, in order, with their rough length:\n- Later one (about 400 words)",
+    );
+    expect(prompt).toContain("Anchor every note to that text");
   });
 });
