@@ -18,7 +18,7 @@ const impression = (rating: number) =>
   ({ rating, tags: [], note: undefined }) as unknown as Doc<"impressions">;
 
 describe("ImpressionSummary", () => {
-  it("draws five stars, filled up to the rating, in ink and not pen", () => {
+  it("draws five stars, filled up to the rating, in the reader's pen (D-DES-032)", () => {
     act(() => root.render(<ImpressionSummary impression={impression(3)} />));
     const stars = document.querySelectorAll(
       '[data-testid="summary-stars"] svg',
@@ -31,7 +31,8 @@ describe("ImpressionSummary", () => {
       "none",
       "none",
     ]);
-    expect(document.body.innerHTML).not.toContain("--pen");
+    expect(document.body.innerHTML).toContain("text-[var(--pen)]");
+    expect(document.body.innerHTML).not.toContain("text-[var(--ink)]");
     expect(document.body.innerHTML).not.toContain("rounded-[2px]");
     expect(document.body.textContent).toContain("You rated this Fine");
   });

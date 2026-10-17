@@ -30,7 +30,7 @@ export function StarRating({ rating }: { rating: number }) {
             strokeWidth={1.5}
             aria-hidden
             fill={filled ? "currentColor" : "none"}
-            className={filled ? "text-[var(--ink)]" : "text-[var(--ink-muted)]"}
+            className={filled ? "text-[var(--pen)]" : "text-[var(--ink-muted)]"}
           />
         );
       })}
@@ -40,19 +40,20 @@ export function StarRating({ rating }: { rating: number }) {
 
 const shelfEmpty = "py-10 text-center text-[13px] text-[var(--reader-muted)]";
 const rowClass =
-  "flex items-start gap-4 border-b border-[var(--reader-border)] py-3.5";
-const titleClass =
-  "-mx-2 block rounded-md px-2 font-serif text-[17px] sm:text-[18px] leading-snug hover:bg-[var(--reader-chip)]";
+  "list-row-surface -mx-2 flex items-start gap-4 border-b border-[var(--reader-border)] px-2 py-3.5";
+const titleClass = "block font-serif text-[17px] sm:text-[18px] leading-snug";
 
-/** Author and length, plus "annotating" while the margin notes are still being written. */
+/** Author and length, then "Reading" once opened and "annotating" while the margin notes are still being written. */
 function shelfMeta(article: {
   author?: string;
   estimatedReadMinutes?: number;
   annotationStatus?: string;
+  reading?: boolean;
 }) {
   return [
     article.author,
     formatReadTime(article.estimatedReadMinutes),
+    article.reading ? "Reading" : null,
     article.annotationStatus === "pending" ? "annotating" : null,
   ]
     .filter(Boolean)
@@ -297,7 +298,7 @@ export function FinishedShelf() {
             {item.tags.length > 0 && <span>{item.tags.join(", ")}</span>}
           </p>
           {item.note && (
-            <p className="font-serif italic text-[14px] leading-snug text-[var(--pencil)] line-clamp-2">
+            <p className="font-sans text-[14px] leading-[1.55] text-[var(--pencil)] line-clamp-2">
               “{item.note}”
             </p>
           )}

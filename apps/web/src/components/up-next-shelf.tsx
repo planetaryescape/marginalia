@@ -139,20 +139,21 @@ export function UpNextShelf() {
               exit={reduced ? { opacity: 0 } : { opacity: 0, x: 24, height: 0 }}
               transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
               data-nav-row
-              className="group/row flex items-center overflow-hidden border-b border-[var(--reader-border)]"
+              className="group/row list-row-surface -mx-2 flex items-center overflow-hidden border-b border-[var(--reader-border)] px-2"
             >
               <Link
                 href={`/read/${article._id}`}
                 data-nav-item
-                className="group min-w-0 flex-1 py-3.5 pr-2 outline-none focus-visible:bg-[var(--reader-chip)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--reader-focus)]"
+                className="min-w-0 flex-1 py-3.5 pr-2 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--reader-focus)]"
               >
-                <span className="block truncate font-serif text-[17px] sm:text-[18px] leading-snug group-hover:underline group-hover:decoration-[var(--pencil-rule)] underline-offset-4">
+                <span className="block truncate font-serif text-[17px] sm:text-[18px] leading-snug">
                   {article.title}
                 </span>
                 <span className="mt-0.5 block truncate text-[12px] text-[var(--reader-muted)]">
                   {[
                     article.source,
                     article.minutes ? `${article.minutes} min` : null,
+                    article.reading ? "Reading" : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}

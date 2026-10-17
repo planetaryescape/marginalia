@@ -230,8 +230,8 @@ export function ImpressionSummary({
     <div className="mt-4 font-sans text-[13px] text-[var(--reader-muted)]">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {impression.rating && (
-          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--ink)]">
-            {/* Stars in ink: the chrome echoes the rating, the pen stays for the reader's marks */}
+          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--pen)]">
+            {/* A rating is the reader's judgement, so its stars take the pen colour (D-DES-032) */}
             <span
               data-testid="summary-stars"
               className="inline-flex gap-[2px] leading-none"
@@ -245,7 +245,7 @@ export function ImpressionSummary({
                   fill={i < (impression.rating ?? 0) ? "currentColor" : "none"}
                   className={
                     i < (impression.rating ?? 0)
-                      ? "text-[var(--ink)]"
+                      ? "text-[var(--pen)]"
                       : "text-[var(--ink-muted)]"
                   }
                 />

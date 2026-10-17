@@ -136,7 +136,7 @@ function Desk() {
         <p className="text-[13px] text-[var(--ink-muted)] [@media(max-height:699px)]:hidden">
           {today}
         </p>
-        <h1 className="mt-3 font-serif font-light tracking-tight leading-[1.02] text-[clamp(2.5rem,6vw,4.5rem)]">
+        <h1 className="mt-3 font-serif font-light tracking-tight leading-[1.02] text-[clamp(3rem,6vw,4.5rem)]">
           How much time
           <br className="hidden sm:block" /> do you have?
         </h1>

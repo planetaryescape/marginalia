@@ -62,7 +62,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
       <Link
         href={`/read/${inProgress.article._id}`}
         aria-keyshortcuts="c"
-        className="group block max-w-[620px]"
+        className="list-row-surface -mx-2 block max-w-[620px] px-2"
       >
         <p className={LABEL}>
           Continue
@@ -74,7 +74,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
         </p>
         <span className="mt-2 flex items-baseline justify-between gap-6">
           <span className="min-w-0">
-            <span className="block font-serif text-[24px] lg:text-[30px] leading-tight group-hover:underline group-hover:decoration-[var(--pencil-rule)] underline-offset-4">
+            <span className="block font-serif text-[24px] lg:text-[30px] leading-tight">
               {inProgress.article.title}
             </span>
             {/* A book continues in a part, so name it */}

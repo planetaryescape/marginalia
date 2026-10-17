@@ -4,10 +4,20 @@ import { useState } from "react";
 import { InlineError } from "@/components/in-place";
 import { useListKeys } from "@/lib/list-nav";
 import { useTopicSearch } from "@/lib/use-topic-search";
-import { formatReadTime } from "@/lib/utils";
+import { cn, formatReadTime } from "@/lib/utils";
 
 export const matchRowClass = "border-b border-[var(--reader-border)] py-3.5";
 const rowClass = matchRowClass;
+
+/**
+ * The search answers with its own status words, which article-finder also
+ * matches on, so the words are mapped here for the row to read in the glossary's states.
+ */
+const STATE_LABELS: Record<string, string> = {
+  Unread: "Up next",
+  Started: "Reading",
+  Read: "Finished",
+};
 
 /** A shelf-style row: serif title over one meta line. */
 export function MatchRow({
@@ -20,11 +30,11 @@ export function MatchRow({
   meta: string;
 }) {
   return (
-    <li className={rowClass}>
+    <li className={cn(rowClass, "list-row-surface -mx-2 px-2")}>
       <Link
         href={`/read/${articleId}`}
         data-nav-item
-        className="line-clamp-2 block font-serif text-[17px] leading-snug underline-offset-4 hover:underline hover:decoration-[var(--pencil-rule)] sm:text-[18px]"
+        className="line-clamp-2 block font-serif text-[17px] leading-snug sm:text-[18px]"
       >
         {title}
       </Link>
@@ -109,7 +119,7 @@ export function LibraryMatches({ query }: { query: string }) {
                 meta={[
                   match.source ?? match.author,
                   match.minutes ? formatReadTime(match.minutes) : null,
-                  match.status,
+                  match.status ? STATE_LABELS[match.status] : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}

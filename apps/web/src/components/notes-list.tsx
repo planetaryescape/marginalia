@@ -59,20 +59,7 @@ export function NotesList() {
 
   return (
     <>
-      {groups === undefined && (
-        <Skeleton label="Loading notes">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="border-b border-[var(--reader-border)] py-4"
-            >
-              <SkeletonBar className="h-3.5 w-[30%]" />
-              <SkeletonBar className="mt-3 h-4 w-full" />
-              <SkeletonBar className="mt-2 h-4 w-[70%]" />
-            </div>
-          ))}
-        </Skeleton>
-      )}
+      {groups === undefined && <NotesSkeleton label="Loading notes" rows={3} />}
 
       {groups?.length === 0 && (
         <div className="text-center py-16">
@@ -125,14 +112,32 @@ export function NotesList() {
         </div>
       )}
       {marks.status === "LoadingMore" && (
-        <p
-          role="status"
-          className="pb-10 text-center text-sm text-[var(--reader-muted)]"
-        >
-          Loading more…
-        </p>
+        <NotesSkeleton label="Loading more notes" rows={2} className="pb-10" />
       )}
     </>
+  );
+}
+
+/** Rows in the shape of a note, so the list keeps its place while the next page arrives. */
+function NotesSkeleton({
+  label,
+  rows,
+  className,
+}: {
+  label: string;
+  rows: number;
+  className?: string;
+}) {
+  return (
+    <Skeleton label={label} className={className}>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="border-b border-[var(--reader-border)] py-4">
+          <SkeletonBar className="h-3.5 w-[30%]" />
+          <SkeletonBar className="mt-3 h-4 w-full" />
+          <SkeletonBar className="mt-2 h-4 w-[70%]" />
+        </div>
+      ))}
+    </Skeleton>
   );
 }
 
@@ -170,16 +175,18 @@ function ArticleNotesGroup({
           <Link
             href={readLink(articleId)}
             data-nav-item
-            className="font-serif text-xl text-[var(--reader-fg)] hover:underline hover:decoration-[var(--pencil-rule)] underline-offset-4 transition-colors"
+            className="list-row-surface -mx-2 px-2 py-0.5 font-serif text-xl text-[var(--reader-fg)]"
           >
             {article.title}
           </Link>
-        ) : (
+        ) : article === null ? (
           <span className="font-serif text-xl text-[var(--reader-muted)]">
-            {article === null
-              ? "Article no longer in your library"
-              : "Loading…"}
+            Article no longer in your library
           </span>
+        ) : (
+          <Skeleton label="Loading article" className="min-w-0 flex-1">
+            <SkeletonBar className="h-6 w-[40%]" />
+          </Skeleton>
         )}
         <span className="shrink-0 text-xs text-[var(--reader-muted)]">
           {[source, formatDay(group.latest)].filter(Boolean).join(" · ")}
@@ -326,13 +333,13 @@ function KeptAnswerRow({
   const [open, setOpen] = useState(false);
   const router = useRouter();
   return (
-    <div data-hand="pencil" className="px-1 group">
+    <div data-hand="pencil" className="group">
       <button
         type="button"
         aria-expanded={open}
         data-nav-item
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 py-2 text-left text-[13px] text-[var(--pencil)]"
+        className="list-row-surface -mx-2 flex items-center gap-1.5 px-2 py-2 text-left text-[13px] text-[var(--pencil)]"
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
         <span className="shrink-0">
@@ -397,7 +404,11 @@ function Opens({
   children: ReactNode;
 }) {
   return href ? (
-    <Link href={href} data-nav-item className={className}>
+    <Link
+      href={href}
+      data-nav-item
+      className={cn("list-row-surface -mx-2 px-2", className)}
+    >
       {children}
     </Link>
   ) : (

@@ -24,7 +24,7 @@ Library asks "What are you looking for?" and keeps your shelves.
 - **The ask field** keeps its behaviour (library search and conversational answers). Answers write in pencil below the field, with each cited article as a row.
 - **Example prompts:** two, as a plain line of text whose quoted parts are clickable, not four pill buttons (principle 5).
 - **Shelves** are tabs, as text with a count in meta: Up next, Saved, Loved, Finished. **Saved** moves here from its own nav item (D-DES-015). `/saved` redirects to Library with the Saved shelf selected.
-- **Rows** follow the shared row pattern. Ratings show as **stars**, not squares (D-DES-005). That replaces `RatingMarks` in `library/page.tsx`. Stars are drawn in `--ink-muted`, filled in `--ink`, because a rating is a judgement, not a mark on the page.
+- **Rows** follow the shared row pattern. Ratings show as **stars**, not squares (D-DES-005). That replaces `RatingMarks` in `library/page.tsx`. Empty stars are drawn in `--ink-muted`; filled stars take the reader's `--pen`, because a rating is the reader's judgement and so their mark (D-DES-032). The rating's words beside them use the same pen.
 - **Your impressions** (today's right column) becomes the Finished shelf's rows, each with stars and the "what stayed with you" line in pencil underneath.
 
 ## Notes
