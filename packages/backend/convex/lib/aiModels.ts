@@ -1,7 +1,7 @@
 "use node";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+import { generateObject, NoObjectGeneratedError } from "ai";
 import { ConvexError } from "convex/values";
 import { toJSONSchema, type ZodType } from "zod";
 import {
@@ -92,14 +92,14 @@ export async function generateObjectWithFallback<T>(options: {
       }
     }
     try {
-      const result = await (generateObject as any)({
-        model: languageModel({ ...target, provider: target.provider }),
-        schema: options.schema,
-        prompt: options.prompt,
-        system: options.system,
-        maxOutputTokens: options.maxOutputTokens,
-      });
-      return { object: result.object as T, modelId: target.id };
+      return {
+        object: await generateParsedObject<T>(
+          target.id,
+          languageModel({ ...target, provider: target.provider }),
+          options,
+        ),
+        modelId: target.id,
+      };
     } catch (error) {
       lastError = error;
       // A refused key may belong to one of the reader's providers; another may still work
@@ -110,12 +110,55 @@ export async function generateObjectWithFallback<T>(options: {
           );
         continue;
       }
-      if (isRetryableError(error) && !isLast) continue;
+      if (
+        (isRetryableError(error) || NoObjectGeneratedError.isInstance(error)) &&
+        !isLast
+      )
+        continue;
       throw error;
     }
   }
   throw lastError;
 }
+
+/**
+ * One model call, asked a second time when its answer doesn't parse. A model
+ * now and then falls into repeating words inside a string until it runs out of
+ * tokens; that is a sampling accident, so the same model usually answers
+ * cleanly when asked again.
+ */
+async function generateParsedObject<T>(
+  modelId: string,
+  model: ReturnType<typeof languageModel>,
+  options: {
+    schema: ZodType<T, any, any>;
+    prompt?: string;
+    system?: string;
+    maxOutputTokens?: number;
+  },
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const result = await (generateObject as any)({
+        model,
+        schema: options.schema,
+        prompt: options.prompt,
+        system: options.system,
+        maxOutputTokens: options.maxOutputTokens,
+      });
+      return result.object as T;
+    } catch (error) {
+      if (
+        attempt >= PARSE_ATTEMPTS ||
+        !NoObjectGeneratedError.isInstance(error)
+      )
+        throw error;
+      console.warn(`${modelId} answered unparseably; asking again`);
+    }
+  }
+}
+
+const PARSE_ATTEMPTS = 2;
 
 /**
  * Plan usage streams through the Responses API with no output cap, so the
