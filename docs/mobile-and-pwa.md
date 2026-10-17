@@ -1,6 +1,6 @@
 # Use Marginalia on your phone
 
-Open your deployed Marginalia URL in your phone's browser. Use Home to choose a reading window or search for an article, then tap a result to read it. You can use the main reading flows on a phone with a connection; installation is optional.
+Open your deployed Marginalia URL in your phone's browser. Use the desk to choose a reading time or search for an article, then tap the pick or a result to read it. You can use the main reading flows on a phone with a connection; installation is optional.
 
 ## Install on your home screen
 
@@ -21,9 +21,9 @@ While reading:
 - Tap **Notes** in the reader's bottom controls, then **+ New** to write an article note. The editor focuses immediately. Wait for **Saved** before leaving it.
 - Select a passage using your phone's text selection. Phone passage actions form a labelled two-column context menu beside the selection, rather than a desktop pill at the bottom of the screen. Ask, Explain, Simplify, Define, Highlight, Underline, Note and Copy remain available. Native selection handles and menus vary by browser and still need physical-phone verification.
 - Tap **Ask about this article** for a whole-article question. The question field has its own row on phones; **×** closes it without requiring an Escape key.
-- Use **More reading actions** for rating, love and other actions. Reading settings remain in the header; panels scroll on short screens. **Listen** and **Done** stay in the bottom controls.
+- Use **More actions** (the three dots in the header) for Love, Summary, Copy link and the rest. The star in the header rates the article. Reading settings remain in the header; panels scroll on short screens. The bottom bar reads **Ask**, **Notes**, **Listen** and **Done**; on a finished article, Done becomes **Mark unread**.
 
-Home remains a one-screen desk. On very short displays, its optional Up next list may have no room; use the search picker to reach those articles. Library and the other desk pages scroll within the shared navigation.
+The desk is one column: the date, the question, the time choices, the slot for your pick and the search. Under 700 px of height the date is hidden. Up next is a shelf in Library; the search picker reaches any article. Library and the other desk pages scroll within the shared navigation.
 
 After the auth rollout, use a passkey or fallback password to sign in. Enrollment happens in **Your account**. Sessions persist between visits, though browser and installed-PWA storage can differ and may require separate initial sign-ins. No magic links or email setup are required.
 
@@ -59,4 +59,4 @@ The worker never caches the Next app shell, articles or API responses, so fronte
 
 Chromium checks covered all six desk destinations at **320×568, 390×844, 430×932** and a **1440×900** desktop viewport, plus reader controls, settings, rating panels, search-to-article navigation, untouched note-editor focus, selection tools and question inputs. The inspected desk routes had no horizontal page overflow. The browser exposed the native install prompt; the production worker activated, cached the offline screen and served it with the local frontend stopped. Restarting the frontend restored the desk.
 
-The iOS-style keyboard test simulated a VisualViewport height change; it was not a real Safari keyboard. These checks do not certify long-press selection, speech playback, installation, safe-area rendering or background/resume behaviour on physical iOS or Android devices. After deployment, repeat **Home → search → read → select text → new note → Saved → close → relaunch** on your own phone. Use a disposable record or a separate deployment for write tests; no real notes or ratings were changed during this pass.
+The iOS-style keyboard test simulated a VisualViewport height change; it was not a real Safari keyboard. These checks do not certify long-press selection, speech playback, installation, safe-area rendering or background/resume behaviour on physical iOS or Android devices. After deployment, repeat **Desk → search → read → select text → new note → Saved → close → relaunch** on your own phone. Use a disposable record or a separate deployment for write tests; no real notes or ratings were changed during this pass.

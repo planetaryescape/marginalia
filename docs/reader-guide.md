@@ -4,9 +4,11 @@ Use the app as a reading desk: choose a piece, read it with context, and keep th
 
 ## Choose an article
 
-On Home, pick **5, 10, 20 or 30+ minutes**, resume your current piece, or open an **Up next** suggestion. Click the search pill or press `/` to open the floating picker. Type a title, author or description of what you want to read. Results include reasons for their fit; use arrows and Enter or click a result. Escape returns to Home.
+The desk is the home page. It is one column: the date, the question "How much time do you have?", the time choices (5, 10, 20 and 30+ minutes), a slot for your pick and the search. Pick a time, or press `1` to `4`, and a pick appears in the slot with **Read now**, **Another** and **Save for later**. With no time chosen, the slot shows **Continue** for the article in progress, or a loved article that is worth revisiting. Up next is a shelf in Library, not on the desk.
 
-Suggestions never include something you've read. An article leaves Up next and the time windows when you press **Done**, when you reach the end after reading for at least 40% of its estimated time, or when you archive it in Readwise Reader. To dismiss one without reading it, use the archive button on its Up next row; the toast offers Undo. Open a read or archived article from search and press **Mark unread** to put it back.
+Click the search bar or press `/` to open the floating picker. Type a title, author or description of what you want to read. Results include reasons for their fit; use arrows and Enter or click a result. Escape closes the picker.
+
+Suggestions never include something you've read. An article leaves Up next and the time choices when you press **Done** at its end, when you scroll to the end (95%) after at least 40% of its estimated time spent actively reading across all your visits, or when you archive it in Readwise Reader. To dismiss one without reading it, use the archive button on its Up next row in Library (or `x`); the toast offers Undo. To put a finished article back, press **Mark unread**. It is beside "Finished" at the end of the article, in the **More actions** menu of the reader header, and on a phone it replaces Done in the bottom bar.
 
 Paste an `http`/`https` article URL into the same picker to import it. Extraction and annotation can take time; importing a URL does not guarantee its publisher exposes readable content.
 
@@ -18,7 +20,7 @@ Annotations provide cross-references, context, tensions and questions. A connect
 
 Open Notes with `n`. A new editor receives focus immediately. Notes save after a short pause, on blur and before the editor/panel closes. If saving fails, the editor keeps the draft visible with Retry; do not leave the page until it saves. A tab-close warning is best-effort, not offline backup.
 
-Rate the article with `r` or the rating control. Stars have meaningful labels; impressions can also include quick tags and a short thought. Saved articles form a queue; loved articles can return as revisits.
+Rate the article with `r` or the star in the reader header. The heart beside it loves the article; on a phone, Love is in **More actions**. Stars have meaningful labels; impressions can also include quick tags and a short thought. Saved articles form a queue; loved articles can return as revisits.
 
 ## Adjust the reader
 
@@ -37,7 +39,7 @@ The header has four rooms. **Marginalia** (the wordmark) opens the desk, the pag
 The avatar at the right of the header opens the account menu:
 
 - Your email, whether you own this library, and one line of source status. When a source fails, the avatar shows a small red dot and the line says what failed.
-- **Sources:** add feeds, import OPML, pause subscriptions and manage Readwise Reader sync. Removing a feed asks what to do with its articles: keep them, remove the ones you never opened, or remove all of them. Articles with your highlights or notes always stay. Removed articles that are also in Readwise Reader are deleted there too.
+- **Sources:** add feeds, import OPML, pause subscriptions and manage Readwise Reader sync. A new feed is fetched on the next 30-minute poll, or straight away with **Check now**, and brings in at most its three newest posts from the last month; after that, every new post arrives. Posts you already have from Reader or a pasted URL aren't added twice. Removing a feed asks what to do with its articles: keep them, remove the ones you never opened, or remove all of them. Articles with your highlights or notes always stay. Removed articles that are also in Readwise Reader are deleted there too.
 - **Readers** (owner only): approve access requests, copy invite links and disable readers. The menu shows how many requests are waiting.
 - **Account:** sign-in methods, AI provider keys, connected apps, touch feedback and account deletion.
 - **Install app**, **Keyboard shortcuts** (`?`) and **About Marginalia**, which links to the source repository.
@@ -52,13 +54,20 @@ Press `?` for the current shortcut sheet. Single-key shortcuts pause while typin
 
 | Where | Keys | Action |
 | --- | --- | --- |
-| Everywhere | `g h`, `g l`, `g n`, `g w`, `g s` | Desk, Library, Notes, Your reading, Saved shelf |
-| Everywhere | `Escape` | Close the active card, panel or menu |
-| Home | `/`, `↑`/`↓`, `Enter` | Search, choose a result and open it |
-| Home | `1`–`4`, `c`, `j`/`k` | Time window, continue, move through Up next |
+| Everywhere | `g d` or `g h`, `g l`, `g n`, `g r` or `g w`, `g s` | Desk, Library, Notes, Your reading, Saved shelf |
+| Everywhere | `/`, `Escape` | Search (the desk's bar, or the page's own search), close the active card, panel or menu |
+| Desk | `/`, `↑`/`↓`, `Enter` | Search, choose a result and open it |
+| Desk | `1`–`4`, `c`, `Escape` | Choose a time, continue reading, clear the chosen time |
+| Desk, with a pick | `Enter` or `o`, `n` or `→`, `←`, `s` | Read now, another pick, previous pick, save for later |
+| Lists | `j`/`k`, `Enter` | Move through rows (arrows too, once a row has focus) and open one |
+| Library | `[`/`]` or `←`/`→` | Previous and next shelf |
+| Library, Up next | `x`, `s`, `u` | Archive, save or unsave, undo the last archive |
+| Library, Saved | `s` | Remove from saved (asks first) |
+| Notes | `[`, `]` | Map view, list view |
 | Reader | `j`/`k`, `e`, `s`, `d`, `a` | Paragraph navigation, Explain, Simplify, Define, Ask |
 | Reader | `h`, `p`, `o` | Highlight, underline (pen-mark), open the paragraph's note/conversation |
 | Reader | `/`, `r`, `u`, `n`, `,`, `l` | Article question, rate, summary, notes, settings, listen |
+| Reader | `Backspace`, `Escape` | Back to where you were, back to the room you came from |
 | Library | `/` | Focus the Library question input |
 
 Keyboard shortcut badges can be hidden from the sheet. Native Tab navigation remains available. AI and content loading require a connection; consult [limitations](limitations.md) before relying on this app for offline reading or confidential material.

@@ -24,10 +24,10 @@ cp apps/web/.env.example apps/web/.env.local
 Replace both example URLs with `CONVEX_URL` and `CONVEX_SITE_URL` from your backend's `.env.local`. Never copy the existing personal deployment into a new installation. Then start the web app:
 
 ```bash
-bun run --cwd apps/web dev
+bun run --cwd apps/web dev --port 3107
 ```
 
-Open **http://localhost:3000**. Add an RSS feed in **Sources**, or paste an article URL into Home's search picker. For AI annotations and search, set `PROVIDER_KEYS_ENCRYPTION_KEY` on your Convex deployment and add your own provider key in Your account; see [setup](docs/development.md#enable-ai). Ordinary library data lives in Convex, not in the web process.
+Open **http://localhost:3107**. Sign-in trusts only `localhost:3107`, `localhost:3108` and your `SITE_URL`, so other ports load but can't sign in. Add an RSS feed in **Sources**, or paste an article URL into the desk's search. For AI annotations and search, set `PROVIDER_KEYS_ENCRYPTION_KEY` on your Convex deployment and add your own provider key in Your account; see [setup](docs/development.md#enable-ai). Ordinary library data lives in Convex, not in the web process.
 
 ## Check a change
 
