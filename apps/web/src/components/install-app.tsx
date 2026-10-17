@@ -3,7 +3,6 @@
 import * as Popover from "@radix-ui/react-popover";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 
 interface InstallPrompt extends Event {
   prompt: () => Promise<void>;
@@ -57,6 +56,8 @@ export function InstallAppContent({
   clearPrompt: () => void;
   onDone: () => void;
 }) {
+  // A refused install is said here, where the Install control was
+  const [hint, setHint] = useState("");
   return (
     <Popover.Portal>
       <Popover.Content
@@ -74,6 +75,11 @@ export function InstallAppContent({
             <X size={16} />
           </Popover.Close>
         </div>
+        {hint && (
+          <p role="status" className="mt-3 text-[var(--reader-fg)]">
+            {hint}
+          </p>
+        )}
         {prompt ? (
           <button
             type="button"
@@ -84,7 +90,7 @@ export function InstallAppContent({
                 await prompt.userChoice;
                 onDone();
               } catch {
-                toast.error("Use your browser’s menu to install Marginalia.");
+                setHint("Use your browser’s menu to install Marginalia.");
               } finally {
                 clearPrompt();
               }

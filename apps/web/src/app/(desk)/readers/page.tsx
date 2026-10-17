@@ -1,7 +1,6 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import { Check } from "lucide-react";
 import { useState } from "react";
 import { ConfirmAction } from "@/components/settings-confirm";
@@ -13,12 +12,7 @@ import {
   textControl,
 } from "@/components/settings-controls";
 import { SettingsPage, SettingsSection } from "@/components/settings-section";
-
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof ConvexError && typeof error.data === "string"
-    ? error.data
-    : fallback;
-}
+import { failureSentence } from "@/lib/failure-copy";
 
 function day(timestamp: number) {
   return new Date(timestamp).toLocaleDateString(undefined, {
@@ -50,21 +44,17 @@ export default function ReadersPage() {
     try {
       await task();
     } catch (e) {
-      setMessage(errorMessage(e, fallback));
+      setMessage(failureSentence(e, fallback));
     } finally {
       setBusy(false);
     }
   }
 
   if (me === undefined)
-    return (
-      <SettingsPage page="Readers" title="Readers">
-        {null}
-      </SettingsPage>
-    );
+    return <SettingsPage title="Readers">{null}</SettingsPage>;
   if (!isOwner)
     return (
-      <SettingsPage page="Readers" title="Readers">
+      <SettingsPage title="Readers">
         <p className="text-sm text-[var(--reader-muted)]">
           Only the reader's owner can manage access.
         </p>
@@ -74,7 +64,7 @@ export default function ReadersPage() {
   const waiting = requests?.pending.length ?? 0;
 
   return (
-    <SettingsPage page="Readers" title="Readers">
+    <SettingsPage title="Readers">
       {link && (
         <div
           className="mb-12 rounded-md bg-[var(--reader-chip)] p-4"

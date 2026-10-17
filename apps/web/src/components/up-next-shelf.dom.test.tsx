@@ -132,6 +132,35 @@ describe("Up next shelf", () => {
     });
   });
 
+  it("a failed Undo says so on the shelf with Retry, not in a toast", async () => {
+    await render();
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Archive First piece"]',
+        )
+        ?.click(),
+    );
+    const [, options] = state.toast.mock.calls[0];
+    state.fail = true;
+    await act(async () => options.action.onClick());
+    expect(state.toastError).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't restore it. Find it in search instead.",
+    );
+    state.fail = false;
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[role="alert"] button')
+        ?.click(),
+    );
+    expect(state.calls.at(-1)).toEqual({
+      name: "articles:restore",
+      args: { articleId: "a" },
+    });
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("keeps the row and shows the failure on the shelf with Retry", async () => {
     state.fail = true;
     await render();

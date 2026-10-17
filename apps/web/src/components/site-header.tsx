@@ -14,6 +14,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AccountMenu } from "@/components/account-menu";
+import { InlineError } from "@/components/in-place";
+import { FAILURE_COPY, failureSentence } from "@/lib/failure-copy";
 import { emitCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +34,16 @@ export const ROOMS: NavItem[] = [
   { href: "/reading", label: "Your reading" },
 ];
 
+/**
+ * The settings pages name themselves here instead of in their own column, so
+ * the page title is the only heading a settings page has.
+ */
+export const SETTINGS_PAGES: Record<string, string> = {
+  "/feeds": "Sources",
+  "/readers": "Readers",
+  "/account": "Account",
+};
+
 /** A room is current on its own path and anything beneath it. */
 export function isCurrentRoom(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -42,11 +54,12 @@ export function PasteLink({ large = false }: { large?: boolean }) {
   const addByUrl = useAction(api.actions.addArticleByUrl.add);
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const add = async () => {
     if (!url.trim() || adding) return;
     setAdding(true);
+    setFailed(null);
     try {
       const { articleId, alreadyExists } = await addByUrl({ url: url.trim() });
       toast.success(
@@ -57,56 +70,67 @@ export function PasteLink({ large = false }: { large?: boolean }) {
       setUrl("");
       router.push(`/read/${articleId}`);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Couldn't fetch that article",
-      );
+      setFailed(failureSentence(error, FAILURE_COPY.unreachable));
     }
     setAdding(false);
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className={cn(
-        "focus-frame flex items-center gap-2 rounded-full bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--reader-focus)] transition-shadow",
-        large ? "h-12 pl-5 pr-1.5 w-full max-w-xl" : "h-9 pl-3.5 pr-1 w-full",
-      )}
-    >
-      <Link2
-        size={large ? 16 : 14}
-        className="shrink-0 text-[var(--reader-muted)]"
-      />
-      <input
-        type="url"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="Paste a link to read"
-        aria-label="Paste a link to read"
+    <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void add();
+        }}
         className={cn(
-          "flex-1 min-w-0 bg-transparent outline-none text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)]",
-          large ? "text-[15px]" : "text-[13px]",
-        )}
-      />
-      <button
-        type="submit"
-        disabled={!url.trim() || adding}
-        aria-label="Read"
-        className={cn(
-          "shrink-0 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)] transition-opacity disabled:opacity-25",
-          large ? "h-9 px-4 text-[13px] font-medium gap-1.5" : "w-7 h-7",
+          "focus-frame flex items-center gap-2 rounded-full bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--reader-focus)] transition-shadow",
+          large ? "h-12 pl-5 pr-1.5 w-full max-w-xl" : "h-9 pl-3.5 pr-1 w-full",
         )}
       >
-        {large && (adding ? "Fetching…" : "Read")}
-        {!large && <ArrowRight size={13} />}
-        {large && !adding && <ArrowRight size={14} />}
-      </button>
-    </form>
+        <Link2
+          size={large ? 16 : 14}
+          className="shrink-0 text-[var(--reader-muted)]"
+        />
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="Paste a link to read"
+          aria-label="Paste a link to read"
+          className={cn(
+            "flex-1 min-w-0 bg-transparent outline-none text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)]",
+            large ? "text-[15px]" : "text-[13px]",
+          )}
+        />
+        <button
+          type="submit"
+          disabled={!url.trim() || adding}
+          aria-label="Read"
+          className={cn(
+            "shrink-0 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)] transition-opacity disabled:opacity-25",
+            large ? "h-9 px-4 text-[13px] font-medium gap-1.5" : "w-7 h-7",
+          )}
+        >
+          {large && (adding ? "Fetching…" : "Read")}
+          {!large && <ArrowRight size={13} />}
+          {large && !adding && <ArrowRight size={14} />}
+        </button>
+      </form>
+      {failed && (
+        <InlineError
+          message={failed}
+          busy={adding}
+          onRetry={() => void add()}
+        />
+      )}
+    </>
   );
 }
 
 /** Wordmark, the three rooms and the account menu, shared by the desk frame. */
 export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
   const pathname = usePathname();
+  const settingsPage = SETTINGS_PAGES[pathname];
   return (
     <header className="shrink-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 h-14 md:h-16 flex items-center gap-4 md:gap-6">
       <Link
@@ -143,7 +167,17 @@ export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
           <PasteLink />
         </div>
       )}
-      <div className={cn("flex items-center", !showPaste && "ml-auto")}>
+      {settingsPage && (
+        <p className="ml-auto min-w-0 truncate text-[13px] text-[var(--reader-muted)]">
+          Settings · {settingsPage}
+        </p>
+      )}
+      <div
+        className={cn(
+          "flex items-center",
+          !showPaste && !settingsPage && "ml-auto",
+        )}
+      >
         <AccountMenu />
       </div>
     </header>

@@ -3,13 +3,13 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { ApiTokens } from "@/components/api-tokens";
 import { FeedSuggestion } from "@/components/feed-suggestion";
 import { FileDrop } from "@/components/file-drop";
 import {
   ChangeWash,
   InlineError,
+  SavedMark,
   Skeleton,
   SkeletonBar,
 } from "@/components/in-place";
@@ -73,6 +73,9 @@ export default function FeedsPage() {
   } | null>(null);
   // One feed's removal is open at a time; touching another row closes it.
   const [removingId, setRemovingId] = useState<Id<"feeds"> | null>(null);
+  // Results of the reader's own add and import, shown where they acted
+  const [added, setAdded] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
   useListKeys(
     {
       p: { action: "toggle" },
@@ -103,6 +106,7 @@ export default function FeedsPage() {
     setRemovingId(null);
     setImporting(true);
     setImportFailure(null);
+    setImportResult(null);
     try {
       const text = await file.text();
       const parser = new DOMParser();
@@ -129,7 +133,7 @@ export default function FeedsPage() {
           skipped++;
         }
       }
-      toast.success(
+      setImportResult(
         `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
       );
     } catch (error) {
@@ -172,6 +176,7 @@ export default function FeedsPage() {
 
     setAdding(true);
     setAddFailure(null);
+    setAdded(false);
     try {
       // Use the URL as both title and URL for now — pollFeeds will update title
       await addFeed({
@@ -179,7 +184,7 @@ export default function FeedsPage() {
         title: new URL(url.trim()).hostname,
       });
       setUrl("");
-      toast.success("Feed added. Articles will appear shortly.");
+      setAdded(true);
     } catch (error) {
       setAddFailure(
         error instanceof Error ? error.message : "Couldn't add that feed.",
@@ -189,7 +194,7 @@ export default function FeedsPage() {
   };
 
   return (
-    <SettingsPage page="Sources" title="Sources">
+    <SettingsPage title="Sources">
       <ReadwiseCard />
 
       <SettingsSection
@@ -230,6 +235,7 @@ export default function FeedsPage() {
           >
             {adding ? "Adding…" : "Add"}
           </button>
+          <SavedMark visible={added}>Added</SavedMark>
         </form>
         {addFailure && (
           <InlineError
@@ -260,6 +266,11 @@ export default function FeedsPage() {
               }}
             />
           </label>
+          {importResult && (
+            <SavedMark visible hold>
+              {importResult}
+            </SavedMark>
+          )}
         </p>
 
         {importFailure &&

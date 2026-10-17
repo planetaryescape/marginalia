@@ -15,6 +15,7 @@ import {
   useNoteHits,
 } from "@/components/finder-notes";
 import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
+import { FAILURE_COPY, failureSentence } from "@/lib/failure-copy";
 import {
   isOnControl,
   isTypingTarget,
@@ -88,6 +89,12 @@ export function ArticleFinder({
     message: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  // A pasted link that failed to add, kept under that link with Retry
+  const [linkFailed, setLinkFailed] = useState<{
+    url: string;
+    andRead: boolean;
+    message: string;
+  } | null>(null);
   const [retry, setRetry] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -179,18 +186,16 @@ export function ArticleFinder({
     } catch (error) {
       setSaveFailed({
         articleId,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Couldn't save that article.",
+        message: failureSentence(error, FAILURE_COPY.save),
       });
     }
   };
   const fromLink = async (andRead: boolean) => {
     if (busy) return;
     setBusy(true);
+    setLinkFailed(null);
+    const url = text.startsWith("www.") ? `https://${text}` : text;
     try {
-      const url = text.startsWith("www.") ? `https://${text}` : text;
       const { articleId, alreadyExists } = await addByUrl({ url });
       if (andRead) {
         toast.success(
@@ -204,9 +209,11 @@ export function ArticleFinder({
         setQuery("");
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Couldn't fetch that article",
-      );
+      setLinkFailed({
+        url: text,
+        andRead,
+        message: failureSentence(error, FAILURE_COPY.unreachable),
+      });
     } finally {
       setBusy(false);
     }
@@ -392,6 +399,15 @@ export function ArticleFinder({
                   Save for later
                 </button>
               </div>
+              {linkFailed?.url === text && (
+                <div className="mt-3">
+                  <InlineError
+                    message={linkFailed.message}
+                    busy={busy}
+                    onRetry={() => void fromLink(linkFailed.andRead)}
+                  />
+                </div>
+              )}
             </div>
           )}
           {loading && (

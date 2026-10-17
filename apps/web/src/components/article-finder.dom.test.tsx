@@ -591,14 +591,15 @@ describe("topic picker", () => {
   });
 
   it("a failed save says so in place with Retry", async () => {
-    save.mockRejectedValueOnce(new Error("Couldn't save that article."));
+    save.mockRejectedValueOnce(new Error("socket hang up"));
     await show();
     await type("attention");
     await settle();
     await answer("find", { more: false, matches: [find("a", "Alpha", 3)] });
     await click("Save for later");
+    // A transport error gets the shared sentence, not its raw message
     expect(host.querySelector('[role="alert"]')?.textContent).toContain(
-      "Couldn't save that article.",
+      "Couldn't save. Try again.",
     );
     expect(toast.error).not.toHaveBeenCalled();
     save.mockResolvedValue("saved-id");

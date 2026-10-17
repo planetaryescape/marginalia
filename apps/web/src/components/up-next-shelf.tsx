@@ -55,10 +55,15 @@ export function UpNextShelf() {
     return () => watcher.disconnect();
   }, [status, loadMore, results.length]);
 
-  const undo = (articleId: Id<"articles">) => {
+  const undo = (articleId: Id<"articles">): Promise<void> => {
     if (lastArchived.current === articleId) lastArchived.current = null;
-    return restoreArticle({ articleId }).catch(() =>
-      toast.error("Couldn't restore it. Find it in search instead."),
+    return restoreArticle({ articleId }).then(
+      () => setFailure(null),
+      () =>
+        setFailure({
+          message: "Couldn't restore it. Find it in search instead.",
+          retry: () => undo(articleId),
+        }),
     );
   };
   const archive = async (articleId: Id<"articles">, title: string) => {

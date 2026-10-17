@@ -20,24 +20,22 @@ const textClass: Record<SettingsStatus["tone"], string> = {
   failed: "text-[var(--danger)]",
 };
 
-/** Page frame for Sources, Account and Readers: one 680px column with a "Settings · Page" eyebrow. */
+/**
+ * Page frame for Sources, Account and Readers: one 680px column. The header
+ * names the settings page (SETTINGS_PAGES in site-header.tsx).
+ */
 export function SettingsPage({
-  page,
   title,
   meta,
   children,
 }: {
-  page: string;
   title: string;
   meta?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <main className="mx-auto w-full max-w-[680px] px-5 pt-[clamp(0.75rem,4vh,3rem)] pb-16 md:px-0">
-      <p className="text-[13px] text-[var(--reader-muted)]">
-        Settings · {page}
-      </p>
-      <h1 className="mt-1 font-serif text-[clamp(2.25rem,5vw,46px)] font-light leading-[1.05] tracking-tight">
+      <h1 className="font-serif text-[clamp(2.25rem,5vw,46px)] font-light leading-[1.05] tracking-tight">
         {title}
       </h1>
       {meta && (

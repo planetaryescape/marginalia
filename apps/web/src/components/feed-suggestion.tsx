@@ -4,6 +4,7 @@ import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { FAILURE_COPY } from "@/lib/failure-copy";
 import { SuggestionNote } from "./suggestion-note";
 
 /**
@@ -71,10 +72,7 @@ export function FeedSuggestion({
         disabled={busy}
         aria-label={`Keep ${feed.title}`}
         onClick={() =>
-          run(
-            () => keepFeed({ feedId: feed._id }),
-            "Couldn't save that. Try again.",
-          )
+          run(() => keepFeed({ feedId: feed._id }), FAILURE_COPY.save)
         }
         className="inline-flex min-h-11 items-center text-sm text-[var(--reader-fg-soft)] disabled:opacity-40"
       >

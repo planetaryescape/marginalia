@@ -2,7 +2,7 @@
 import { act, type PropsWithChildren } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MobileNav } from "./site-header";
+import { MobileNav, SiteHeader } from "./site-header";
 
 const nav = vi.hoisted(() => ({ pathname: "/", push: vi.fn() }));
 
@@ -49,6 +49,20 @@ const search = () =>
   [...container.querySelectorAll("button")].find(
     (el) => el.textContent === "Search",
   ) as HTMLButtonElement;
+
+describe("SiteHeader", () => {
+  it("names the settings page it is on, in place of the page's own eyebrow", async () => {
+    nav.pathname = "/feeds";
+    await act(async () => root.render(<SiteHeader showPaste={false} />));
+    expect(container.textContent).toContain("Settings · Sources");
+  });
+
+  it("names nothing on a room", async () => {
+    nav.pathname = "/library";
+    await act(async () => root.render(<SiteHeader showPaste={false} />));
+    expect(container.textContent).not.toContain("Settings ·");
+  });
+});
 
 describe("MobileNav", () => {
   it("shows Desk, Library, Notes and Search, with the current room marked", async () => {

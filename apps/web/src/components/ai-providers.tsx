@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useEffect, useId, useState } from "react";
+import { FAILURE_COPY, failureSentence } from "@/lib/failure-copy";
 import { ConfirmAction } from "./settings-confirm";
 import {
   fieldControl,
@@ -23,12 +24,6 @@ const PROVIDERS: { id: Provider; name: string; hint: string }[] = [
   { id: "openai", name: "OpenAI", hint: "GPT models and search." },
   { id: "anthropic", name: "Anthropic", hint: "Claude models." },
 ];
-
-function errorMessage(error: unknown) {
-  if (error instanceof ConvexError && typeof error.data === "string")
-    return error.data;
-  return "Couldn't save that key. Try again.";
-}
 
 /** Only one remove or disconnect is open at a time; touching another control closes it. */
 type Confirming = string | null;
@@ -62,7 +57,7 @@ function ProviderRow({
       await save({ provider: provider.id, apiKey: key });
       setStatus(`${provider.name} key saved.`);
     } catch (e) {
-      setError(errorMessage(e));
+      setError(failureSentence(e, FAILURE_COPY.save));
     } finally {
       // The full key never stays in the page once it has been sent
       setKey("");

@@ -15,7 +15,7 @@ import {
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { type ReactNode, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { InlineError } from "@/components/in-place";
 import {
   DROP_CAP_FAMILIES,
   DROP_CAP_LINES,
@@ -268,9 +268,15 @@ export function ReaderSettingsPanel({
   useCommand("open-settings", () => setOpen(true));
   const models = useQuery(api.userSettings.getModels, {});
   const setModelMutation = useMutation(api.userSettings.setModel);
+  // A refused change stays under the models, with Retry; the select shows the saved model again
+  const [modelFailed, setModelFailed] = useState<{
+    role: ModelRole;
+    model: string;
+  } | null>(null);
   const setModel = (role: ModelRole, model: string) => {
+    setModelFailed(null);
     setModelMutation({ role, model }).catch(() =>
-      toast.error("Couldn't change the model"),
+      setModelFailed({ role, model }),
     );
   };
   const { setTheme } = useTheme();
@@ -726,6 +732,14 @@ export function ReaderSettingsPanel({
                     models={models}
                     onChange={setModel}
                   />
+                  {modelFailed && (
+                    <InlineError
+                      message="Couldn't change the model."
+                      onRetry={() =>
+                        setModel(modelFailed.role, modelFailed.model)
+                      }
+                    />
+                  )}
                   <p className="text-[11.5px] leading-relaxed text-[var(--reader-muted)]">
                     Marginalia writes the automatic notes, the end-of-article
                     reflection and summaries. Changes apply to the next one it

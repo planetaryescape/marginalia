@@ -297,11 +297,30 @@ describe("dropping an OPML file on the page", () => {
       drag("drop", [file]);
     });
     await vi.waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Imported 1 feeds"),
+      expect(document.body.textContent).toContain("Imported 1 feeds"),
     );
+    expect(toast.success).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain(
       "Drop to import your feeds",
     );
+  });
+
+  it("a feed added says so beside Add, not in a toast", async () => {
+    await act(async () => root.render(<FeedsPage />));
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Feed URL"]',
+    );
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      setValue?.call(input, "https://one.example/feed.xml");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Add")?.click());
+    await vi.waitFor(() => expect(input?.form?.textContent).toContain("Added"));
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("refuses a file that is not OPML in one sentence", async () => {

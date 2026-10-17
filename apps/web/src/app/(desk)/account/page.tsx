@@ -60,7 +60,6 @@ export default function AccountPage() {
   }
   return (
     <SettingsPage
-      page="Account"
       title="Your account"
       meta={
         <>
