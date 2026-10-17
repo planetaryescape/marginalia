@@ -13,7 +13,10 @@ export function dedupeMatches(matches: TopicMatch[]): TopicMatch[] {
 }
 
 const words = (text: string) =>
-  text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
 
 /**
  * The title match worth showing before the library search answers: the first
