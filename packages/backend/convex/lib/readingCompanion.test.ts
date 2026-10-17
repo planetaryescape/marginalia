@@ -169,6 +169,29 @@ describe("readingCompanion", () => {
     ).toContain("gravity SECOND");
   });
 
+  it("counts occurrences ignoring case, as the client does", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `Gravity${"x".repeat(1_000)} gravity CHOSEN${"a".repeat(17_000)}gravity LATER${"b".repeat(1_900)}`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+      occurrence: 1,
+    });
+    const text = formatArticle(
+      "T",
+      request.paragraphs,
+      1,
+      selectContext(request),
+    );
+    expect(text).toContain("gravity CHOSEN");
+    expect(text).not.toContain("gravity LATER");
+  });
+
   describe("per-tool context", () => {
     const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
     const request = (over: Record<string, string | number | null>) =>

@@ -360,13 +360,34 @@ function selectionAt(
       if (text.endsWith(wanted.slice(0, cut))) return text.length - cut;
     return text.length;
   }
+  return occurrenceAt(text, wanted, occurrence);
+}
+
+/**
+ * Where the chosen occurrence of `needle` starts in `text`, counted as the
+ * reader's client counts it: ignoring case, with whitespace runs as one space.
+ * Falls back to the last match, then to the start.
+ */
+function occurrenceAt(text: string, needle: string, occurrence: number) {
+  // The squashed text, and where each of its characters sits in `text`
+  let squashed = "";
+  const raw: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (/\s/.test(text[i])) {
+      if (!squashed || squashed.endsWith(" ")) continue;
+      squashed += " ";
+    } else squashed += text[i].toLowerCase();
+    raw.push(i);
+  }
+  const target = squash(needle).toLowerCase();
+  if (!target) return 0;
   let at = -1;
   for (let n = 0; n <= occurrence; n++) {
-    const next = text.indexOf(wanted, at + 1);
+    const next = squashed.indexOf(target, at + 1);
     if (next < 0) break;
     at = next;
   }
-  return Math.max(0, at);
+  return at < 0 ? 0 : raw[at];
 }
 
 export function formatArticle(

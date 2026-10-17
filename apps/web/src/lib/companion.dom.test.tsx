@@ -757,6 +757,22 @@ describe("Define is told which usage was selected", () => {
     expect(JSON.stringify(bodies[0])).not.toBe(JSON.stringify(bodies[1]));
   });
 
+  it("tells a passage Ask which occurrence was selected, without a sentence", async () => {
+    article.innerHTML =
+      '<div data-article-body><p data-para="1">He caught a bass. She played the bass. Nobody cared.</p></div>';
+    const text = article.querySelector("p")?.firstChild as Text;
+    const r = document.createRange();
+    r.setStart(text, text.data.lastIndexOf("bass"));
+    r.setEnd(text, text.data.lastIndexOf("bass") + 4);
+    await mount();
+    await act(async () =>
+      latest.start({ mode: "ask", range: r, question: "Which bass?" }),
+    );
+    await settle();
+    expect(bodies[0]).toMatchObject({ selection: "bass", occurrence: 1 });
+    expect(bodies[0].sentence).toBeUndefined();
+  });
+
   it("sends no sentence for the other tools", async () => {
     await mount();
     await ask("explain");

@@ -329,7 +329,11 @@ export function useCompanion({
             paragraphIndex: base.paragraphIndex,
             paragraphEnd: base.paragraphEnd,
             sentence,
-            occurrence: sentence ? (base.occurrence ?? 0) : undefined,
+            // Define names the usage; a passage Ask's long paragraph is cut around it
+            occurrence:
+              sentence || base.mode === "ask"
+                ? (base.occurrence ?? 0)
+                : undefined,
             question: base.question,
             history,
             length: settings.answerLength,
