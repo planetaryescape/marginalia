@@ -110,18 +110,12 @@ afterEach(async () => {
 });
 
 describe("toolbar", () => {
-  it("shows Back, Aa, rate, love and more, and nothing else", async () => {
+  it("shows Back, Aa and more, and nothing else", async () => {
     await render({ backHref: "/session/s1" });
     const names = [...toolbar().querySelectorAll("a, button")].map(
       (el) => el.getAttribute("aria-label") ?? el.textContent?.trim(),
     );
-    expect(names).toEqual([
-      "Back to Desk",
-      "Reading settings",
-      "Rate this article",
-      "Love this article",
-      "More actions",
-    ]);
+    expect(names).toEqual(["Back to Desk", "Reading settings", "More actions"]);
     expect(toolbar().querySelector("a")?.getAttribute("href")).toBe(
       "/session/s1",
     );
@@ -137,20 +131,17 @@ describe("toolbar", () => {
     expect(back.textContent).toBe("Library");
   });
 
-  it("sends the star to the impression, with no popover", async () => {
-    await render({ rating: 3 });
-    const star = required<HTMLElement>(
-      document,
-      "button[aria-label='Rate this article']",
-    );
-    await act(async () => star.click());
-    expect(handlers.onRate).toHaveBeenCalledTimes(1);
-    expect(
-      document.querySelector("[data-radix-popper-content-wrapper]"),
-    ).toBeNull();
-    expect(star.querySelector("svg")?.getAttribute("fill")).toBe(
-      "currentColor",
-    );
+  it("keeps the star and heart out of the bar until asked", async () => {
+    await render({ rating: 3, loved: true });
+    expect(toolbar().querySelector("[aria-keyshortcuts='r']")).toBeNull();
+    expect(toolbar().querySelector("[aria-pressed]")).toBeNull();
+  });
+
+  it("names the key in the Notes tooltip and shows no keycap without Alt", async () => {
+    await render();
+    await key(trigger(), "Enter");
+    expect(menuItems()[0].getAttribute("title")).toBe("Notes (n)");
+    expect(toolbar().querySelector("kbd")).toBeNull();
   });
 });
 
@@ -175,7 +166,8 @@ describe("overflow menu", () => {
       "Notes · 2",
       "Summary",
       "Listen",
-      "Love",
+      "Rate this article",
+      "Love this article",
       "Copy link",
       "Open original",
       "Mark unread",
@@ -189,6 +181,24 @@ describe("overflow menu", () => {
     expect(separators[1].nextElementSibling?.textContent).toBe(
       "Re-annotate with latest vault",
     );
+  });
+
+  it("rates from the menu with its key in the tooltip, and loves", async () => {
+    await render({ rating: 3 });
+    await key(trigger(), "Enter");
+    const rate = menuItems().find((el) => label(el).startsWith("Rated"));
+    expect(rate?.getAttribute("title")).toBe("You rated this Good (r)");
+    expect(rate?.getAttribute("aria-keyshortcuts")).toBe("r");
+    await key(rate as HTMLElement, "Enter");
+    expect(handlers.onRate).toHaveBeenCalledTimes(1);
+  });
+
+  it("loves from the menu", async () => {
+    await render();
+    await key(trigger(), "Enter");
+    const love = menuItems().find((el) => label(el) === "Love this article");
+    await key(love as HTMLElement, "Enter");
+    expect(handlers.onToggleLove).toHaveBeenCalledTimes(1);
   });
 
   it("offers Mark unread only for a finished article", async () => {

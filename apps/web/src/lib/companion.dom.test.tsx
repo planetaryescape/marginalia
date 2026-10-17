@@ -481,6 +481,22 @@ describe("Keep", () => {
     expect(mocks.keepThread).toHaveBeenCalledTimes(1);
   });
 
+  it("marks a kept answer whose update failed, and Retry writes it again", async () => {
+    await mount();
+    await ask();
+    await finish("A small mountain lake.");
+    await act(async () => {
+      await latest.keep(latest.answers[0].id);
+    });
+    mocks.updateTurns.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => latest.followUp("Is it deep?"));
+    await finish("Not very.");
+    expect(latest.answers[0].syncFailed).toBe(true);
+    await act(async () => latest.resync(latest.answers[0].id));
+    expect(mocks.updateTurns).toHaveBeenCalledTimes(2);
+    expect(latest.answers[0].syncFailed).toBe(false);
+  });
+
   it("deleting a kept answer removes its record; dismissing an unkept one touches nothing", async () => {
     await mount();
     await ask();

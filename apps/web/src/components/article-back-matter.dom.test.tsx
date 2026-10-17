@@ -53,7 +53,7 @@ const reflection = {
   credibleCounterview: "c",
   questionForYou: "d",
 };
-const render = (onDone = vi.fn()) =>
+const render = (onDone = vi.fn(), finished = false, onMarkUnread = vi.fn()) =>
   act(() =>
     root.render(
       <ArticleBackMatter
@@ -62,6 +62,8 @@ const render = (onDone = vi.fn()) =>
         impressionRef={createRef()}
         reflectionFlush={{ current: null }}
         onDone={onDone}
+        finished={finished}
+        onMarkUnread={onMarkUnread}
       />,
     ),
   );
@@ -78,6 +80,21 @@ describe("ArticleBackMatter", () => {
       text.lastIndexOf("Done"),
     );
     expect(document.querySelectorAll("button")).toHaveLength(1);
+  });
+
+  it("offers Mark unread beside Done only once the article is finished", () => {
+    render(vi.fn(), false);
+    const labels = () =>
+      [...document.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels()).not.toContain("Mark unread");
+    const onMarkUnread = vi.fn();
+    render(vi.fn(), true, onMarkUnread);
+    expect(labels()).toContain("Done");
+    const unread = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === "Mark unread",
+    );
+    act(() => unread?.click());
+    expect(onMarkUnread).toHaveBeenCalledTimes(1);
   });
 
   it("does not box the impression in a ringed card", () => {

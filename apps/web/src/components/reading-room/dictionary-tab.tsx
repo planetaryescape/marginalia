@@ -4,6 +4,7 @@ import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton, SkeletonBar } from "@/components/in-place";
+import { Keycap } from "@/components/keycap";
 import {
   DICTIONARY_CAP,
   type Entry,
@@ -186,25 +187,30 @@ export function DictionaryTab() {
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2">
-        <input
-          ref={searchRef}
-          type="search"
-          aria-keyshortcuts="/"
-          aria-label="Find a word"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") e.currentTarget.blur();
-            // Down from the box goes into the entries
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              e.currentTarget.blur();
-              stepNav(1);
-            }
-          }}
-          placeholder="Find a word"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="app-input max-w-[420px] flex-1"
-        />
+        <div className="relative max-w-[420px] flex-1">
+          <input
+            ref={searchRef}
+            type="search"
+            aria-keyshortcuts="/"
+            aria-label="Find a word"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") e.currentTarget.blur();
+              // Down from the box goes into the entries
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                e.currentTarget.blur();
+                stepNav(1);
+              }
+            }}
+            placeholder="Find a word"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="app-input w-full"
+          />
+          <Keycap className="absolute right-3 top-1/2 -translate-y-1/2">
+            /
+          </Keycap>
+        </div>
         <p className="text-[13px] text-[var(--reader-muted)]">
           {all.length} {all.length === 1 ? "word" : "words"} · {month} this
           month

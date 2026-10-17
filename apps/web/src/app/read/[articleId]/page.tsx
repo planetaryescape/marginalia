@@ -28,7 +28,6 @@ import {
   NoteUnfold,
 } from "@/components/note-unfold";
 import { NotesPanel } from "@/components/notes-panel";
-import { FinishedLine } from "@/components/reader-finished-line";
 import { ReaderLinkMenu } from "@/components/reader-link-menu";
 import { ReaderMap } from "@/components/reader-map";
 import { ReaderOpening, ReaderTitle } from "@/components/reader-opening";
@@ -551,11 +550,18 @@ export default function ReadPage() {
     else openAnswer(action.id);
   }, [landed, linkedNote, linkedAnswer, savedThreads, articleId, openAnswer]);
 
+  // Said under the toolbar, where Listen lives, and gone again on its own.
+  const [listenUnavailable, setListenUnavailable] = useState(false);
+  useEffect(() => {
+    if (!listenUnavailable) return;
+    const timer = window.setTimeout(() => setListenUnavailable(false), 6000);
+    return () => window.clearTimeout(timer);
+  }, [listenUnavailable]);
   const toggleListen = useCallback(() => {
     if (listen.active) {
       listen.stop();
     } else if (!listen.supported) {
-      toast.error("This browser can't read aloud");
+      setListenUnavailable(true);
     } else {
       listen.speakFrom(position.current ?? position.firstVisible ?? 0);
     }
@@ -851,6 +857,7 @@ export default function ReadPage() {
         onRegenerate={companion.regenerate}
         onJump={jumpToParagraph}
         onKeep={() => keepAnswer(answerThread.id)}
+        onResync={() => companion.resync(answerThread.id)}
       />
     );
 
@@ -901,6 +908,15 @@ export default function ReadPage() {
           onToggleListen: toggleListen,
         }}
       />
+
+      {listenUnavailable && (
+        <div
+          role="status"
+          className="fixed z-40 left-3 right-3 top-[calc(3.5rem+env(safe-area-inset-top))] rounded-md bg-[var(--reader-surface)] p-3 font-sans text-sm text-[var(--ink)] ring-1 ring-[var(--reader-border)] sm:left-auto sm:right-[calc(var(--notes-inset)+1.5rem)] sm:max-w-sm"
+        >
+          This browser can't read aloud.
+        </div>
+      )}
 
       {toolbarFailure && (
         <div className="fixed z-40 left-3 right-3 top-[calc(3.5rem+env(safe-area-inset-top))] rounded-md bg-[var(--reader-surface)] p-3 font-sans ring-1 ring-[var(--reader-border)] sm:left-auto sm:right-[calc(var(--notes-inset)+1.5rem)] sm:max-w-sm">
@@ -1112,11 +1128,6 @@ export default function ReadPage() {
                 reflectionFlush={reflectionFlush}
                 onDone={handleDone}
                 doneError={doneError}
-              />
-            )}
-
-            {!isBook && (
-              <FinishedLine
                 finished={article.finishedAt !== undefined}
                 onMarkUnread={handleRestore}
               />

@@ -15,6 +15,7 @@ import { useState } from "react";
 import type { CompanionThread } from "@/lib/companion";
 import { modelName } from "@/lib/models";
 import { CompanionAnswer } from "./companion-answer";
+import { InlineError } from "./in-place";
 import { CardQuote, cardIconButton, MarginCard } from "./margin-card";
 
 const MODES = {
@@ -37,6 +38,7 @@ export function CompanionCard({
   onRegenerate,
   onJump,
   onKeep,
+  onResync,
   isBook = false,
 }: {
   thread: CompanionThread;
@@ -53,6 +55,8 @@ export function CompanionCard({
   onRegenerate: () => void;
   onJump: (index: number) => void;
   onKeep: () => void;
+  /** Writes the latest follow-up to the kept record again after a failed update. */
+  onResync: () => void;
   /** A question about a whole book reads as one, not as an article. */
   isBook?: boolean;
 }) {
@@ -139,6 +143,14 @@ export function CompanionCard({
           >
             Retry
           </button>
+        </div>
+      )}
+      {thread.syncFailed && (
+        <div className="mt-3 text-[13px]">
+          <InlineError
+            message="Couldn't update the kept answer."
+            onRetry={onResync}
+          />
         </div>
       )}
     </>

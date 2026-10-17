@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useQuery } from "convex/react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton, SkeletonBar } from "@/components/in-place";
+import { Keycap } from "@/components/keycap";
 import type { GraphEdge, NodeKind } from "@/lib/idea-kinds";
 import { KIND_LABELS } from "@/lib/idea-kinds";
 import { useShortcuts } from "@/lib/shortcuts";
@@ -306,6 +307,7 @@ function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
         }}
         className="w-full rounded-lg border border-[var(--reader-border-strong)] bg-transparent px-3.5 py-2.5 text-[14.5px] text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)] focus:outline-none focus-visible:border-[var(--reader-focus)]"
       />
+      <Keycap className="absolute right-3 top-1/2 -translate-y-1/2">/</Keycap>
       {term.length >= 2 && hits !== undefined && (
         <ul
           id="idea-search-results"

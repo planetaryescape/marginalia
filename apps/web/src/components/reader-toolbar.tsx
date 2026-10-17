@@ -1,12 +1,14 @@
 "use client";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ArrowLeft, Heart, MoreHorizontal, Star } from "lucide-react";
+import { ArrowLeft, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useToolbarFade } from "@/lib/use-toolbar-fade";
 import { cn } from "@/lib/utils";
 import { RATINGS } from "./impression-panel";
+import { InlineError } from "./in-place";
+import { Keycap } from "./keycap";
 import {
   ReaderSettingsPanel,
   type ReaderSettingsPanelProps,
@@ -81,8 +83,9 @@ export function ReaderToolbar({
 }: ReaderToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const { hidden, focusProps } = useToolbarFade(
-    menuOpen || settingsOpen || notesOpen,
+    menuOpen || settingsOpen || notesOpen || copyFailed,
   );
 
   const copyLink = async () => {
@@ -90,9 +93,10 @@ export function ReaderToolbar({
       await navigator.clipboard.writeText(
         `${window.location.origin}${window.location.pathname}`,
       );
+      setCopyFailed(false);
       toast.success("Link copied");
     } catch {
-      toast.error("Couldn't copy the link");
+      setCopyFailed(true);
     }
   };
 
@@ -128,41 +132,15 @@ export function ReaderToolbar({
           </span>
 
           <div className="flex items-center gap-0.5">
-            <ReaderSettingsPanel {...settings} onOpenChange={setSettingsOpen} />
-
-            <button
-              type="button"
-              onClick={onRate}
-              className={cn(
-                BUTTON,
-                // The rating is the reader's own mark, so it is the one place the pen shows here.
-                rating && "text-[var(--pen)] hover:text-[var(--pen)]",
-              )}
-              title={
-                rating
-                  ? `You rated this ${RATINGS[rating - 1]} (r)`
-                  : "Rate this article (r)"
-              }
-              aria-label="Rate this article"
-              aria-keyshortcuts="r"
-            >
-              <Star {...ICON} fill={rating ? "currentColor" : "none"} />
-            </button>
-
-            <button
-              type="button"
-              onClick={onToggleLove}
-              aria-pressed={loved}
-              className={cn(
-                BUTTON,
-                "hidden sm:inline-flex",
-                loved && "text-[var(--pen)]",
-              )}
-              title={loved ? "Remove from loved" : "Love this article"}
-              aria-label={loved ? "Remove from loved" : "Love this article"}
-            >
-              <Heart {...ICON} fill={loved ? "currentColor" : "none"} />
-            </button>
+            <span className="relative">
+              <ReaderSettingsPanel
+                {...settings}
+                onOpenChange={setSettingsOpen}
+              />
+              <Keycap className="absolute -bottom-1.5 left-1/2 -translate-x-1/2">
+                ,
+              </Keycap>
+            </span>
 
             <DropdownMenu.Root
               modal={false}
@@ -191,6 +169,7 @@ export function ReaderToolbar({
                     className={MENU_ITEM}
                     onSelect={onToggleNotes}
                     aria-keyshortcuts="n"
+                    title="Notes (n)"
                   >
                     Notes{noteCount > 0 ? ` · ${noteCount}` : ""}
                     <Kbd>n</Kbd>
@@ -198,6 +177,7 @@ export function ReaderToolbar({
                   <DropdownMenu.Item
                     className={MENU_ITEM}
                     onSelect={onToggleSummary}
+                    aria-keyshortcuts="u"
                   >
                     Summary
                     <Kbd>u</Kbd>
@@ -205,15 +185,32 @@ export function ReaderToolbar({
                   <DropdownMenu.Item
                     className={MENU_ITEM}
                     onSelect={onToggleListen}
+                    aria-keyshortcuts="l"
                   >
                     {listening ? "Stop listening" : "Listen"}
                     <Kbd>l</Kbd>
                   </DropdownMenu.Item>
+                  {/* The impression at the end is the main place to rate; these two only point there. */}
                   <DropdownMenu.Item
-                    className={cn(MENU_ITEM, "sm:hidden")}
+                    className={MENU_ITEM}
+                    onSelect={onRate}
+                    aria-keyshortcuts="r"
+                    title={
+                      rating
+                        ? `You rated this ${RATINGS[rating - 1]} (r)`
+                        : "Rate this article (r)"
+                    }
+                  >
+                    {rating
+                      ? `Rated ${RATINGS[rating - 1]}`
+                      : "Rate this article"}
+                    <Kbd>r</Kbd>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className={MENU_ITEM}
                     onSelect={onToggleLove}
                   >
-                    {loved ? "Remove from loved" : "Love"}
+                    {loved ? "Remove from loved" : "Love this article"}
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator className="my-1 mx-1.5 h-px bg-[var(--reader-border)]" />
                   <DropdownMenu.Item className={MENU_ITEM} onSelect={copyLink}>
@@ -250,6 +247,14 @@ export function ReaderToolbar({
             </DropdownMenu.Root>
           </div>
         </div>
+        {copyFailed && (
+          <div className="absolute top-full right-3 left-3 mt-1 rounded-md bg-[var(--reader-surface)] p-3 font-sans ring-1 ring-[var(--reader-border)] sm:left-auto sm:right-6 sm:max-w-sm">
+            <InlineError
+              message="Couldn't copy the link."
+              onRetry={() => void copyLink()}
+            />
+          </div>
+        )}
       </div>
     </ViewTransition>
   );

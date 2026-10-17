@@ -16,6 +16,8 @@ export function ArticleBackMatter({
   reflectionFlush,
   onDone,
   doneError,
+  finished,
+  onMarkUnread,
 }: {
   articleId: string;
   reflection: Reflection | null | undefined;
@@ -23,6 +25,9 @@ export function ArticleBackMatter({
   reflectionFlush: MutableRefObject<(() => Promise<boolean>) | null>;
   onDone: () => void;
   doneError?: ReactNode;
+  /** A finished article can be put back in Up next from here. */
+  finished: boolean;
+  onMarkUnread: () => void;
 }) {
   return (
     <>
@@ -42,13 +47,29 @@ export function ArticleBackMatter({
       </section>
 
       <div className="mt-10 text-center">
-        <button
-          type="button"
-          onClick={onDone}
-          className="px-8 py-3 rounded-md bg-[var(--ink)] text-[var(--reader-bg)] font-sans text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          Done
-        </button>
+        {finished && (
+          <p className="mb-4 font-sans text-[13px] text-[var(--ink-muted)]">
+            Finished
+          </p>
+        )}
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={onDone}
+            className="px-8 py-3 rounded-md bg-[var(--ink)] text-[var(--reader-bg)] font-sans text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            Done
+          </button>
+          {finished && (
+            <button
+              type="button"
+              onClick={onMarkUnread}
+              className="px-6 py-3 rounded-md bg-[var(--reader-chip)] text-[var(--ink)] font-sans text-sm font-medium hover:bg-[var(--reader-border)] transition-colors"
+            >
+              Mark unread
+            </button>
+          )}
+        </div>
         {doneError && <div className="mt-4">{doneError}</div>}
       </div>
     </>

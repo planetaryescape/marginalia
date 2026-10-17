@@ -3,7 +3,6 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
   clearAnswers,
   leaveArticle,
@@ -49,6 +48,8 @@ export interface CompanionThread {
   model?: string | null;
   /** Keep has been pressed and the record is being written. */
   keeping?: boolean;
+  /** A follow-up finished but the kept record didn't take it; the card offers Retry. */
+  syncFailed?: boolean;
   /** Which match of the selected words in its paragraph was selected. */
   occurrence?: number;
   /** The last paragraph the selection crosses, when it crosses more than one. */
@@ -244,6 +245,21 @@ export function useCompanion({
     [set],
   );
 
+  /** Writes a kept answer's transcript to its record, marking the card when that fails. */
+  const syncKept = useCallback(
+    (id: string, savedId: Id<"companionThreads">) => {
+      const current = answersRef.current.find((a) => a.id === id);
+      if (!current) return;
+      patch(id, (t) => ({ ...t, syncFailed: false }));
+      updateTurns({
+        threadId: savedId,
+        turns: current.turns,
+        model: current.model ?? undefined,
+      }).catch(() => patch(id, (t) => ({ ...t, syncFailed: true })));
+    },
+    [patch, updateTurns],
+  );
+
   // Arriving on an article restores a refresh's answers; leaving it clears them.
   // Cleanup does not run on a refresh, so a refresh never clears.
   useEffect(() => {
@@ -386,12 +402,7 @@ export function useCompanion({
 
       // A kept answer is the reader's record, so its follow-ups join it.
       const savedId = answersRef.current.find((a) => a.id === base.id)?.savedId;
-      if (savedId)
-        updateTurns({
-          threadId: savedId,
-          turns,
-          model: model ?? undefined,
-        }).catch(() => toast.error("Couldn't update the kept answer"));
+      if (savedId) syncKept(base.id, savedId);
 
       // The lookup log keeps every completed Define, kept or not (D-DES-058).
       // Follow-ups are not new lookups, and Regenerate repeats the same one.
@@ -412,8 +423,8 @@ export function useCompanion({
       recordLookup,
       set,
       setOpenId,
+      syncKept,
       unitIndex,
-      updateTurns,
     ],
   );
 
@@ -551,6 +562,15 @@ export function useCompanion({
     [articleId, unitIndex, keepThread, patch],
   );
 
+  /** Retries writing a kept answer's latest transcript after a failed update. */
+  const resync = useCallback(
+    (id: string) => {
+      const savedId = answersRef.current.find((a) => a.id === id)?.savedId;
+      if (savedId) syncKept(id, savedId);
+    },
+    [syncKept],
+  );
+
   /** Folds the open answer back into the margin; it stays for the visit. */
   const collapse = useCallback(() => setOpenId(null), [setOpenId]);
 
@@ -606,6 +626,7 @@ export function useCompanion({
     followUp,
     regenerate,
     keep,
+    resync,
     remove,
     forget,
   };

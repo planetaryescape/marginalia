@@ -6,6 +6,7 @@ import { ArrowUp } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Keycap } from "@/components/keycap";
 import { LibraryMatches } from "@/components/library-matches";
 import {
   FinishedShelf,
@@ -149,6 +150,7 @@ function Librarian() {
           aria-label="Ask your library"
           className="flex-1 min-w-0 bg-transparent text-[15px] outline-none placeholder:text-[var(--reader-muted)]"
         />
+        <Keycap>/</Keycap>
         <button
           type="submit"
           disabled={!draft.trim() || streaming}

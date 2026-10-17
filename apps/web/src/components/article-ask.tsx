@@ -3,6 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Globe, History, MessagesSquare, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Keycap } from "@/components/keycap";
 import type { ArticleHistoryItem } from "@/lib/margin-answers";
 import type { AnswerDepth } from "@/lib/reader-settings";
 import { useShortcuts } from "@/lib/shortcuts";
@@ -198,9 +199,7 @@ export function ArticleAsk({
                 >
                   <MessagesSquare size={14} />
                   Ask about this {noun}
-                  <kbd className="hidden md:inline-block ml-1 px-1.5 rounded border border-current/20 font-mono text-[10px] opacity-50">
-                    /
-                  </kbd>
+                  <Keycap className="ml-1">/</Keycap>
                 </button>
               )}
             </motion.div>
