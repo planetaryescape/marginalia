@@ -12,7 +12,7 @@ const candidates: SearchCandidate[] = [
     url: "https://example.com/cows",
     author: "Ann",
     minutes: 8,
-    status: "Unread",
+    status: "Up next",
   },
   {
     articleId: "a2",
@@ -20,7 +20,7 @@ const candidates: SearchCandidate[] = [
     url: "https://example.com/cows/#section",
     author: null,
     minutes: 8,
-    status: "Read",
+    status: "Finished",
   },
   {
     articleId: "b1",
@@ -28,7 +28,7 @@ const candidates: SearchCandidate[] = [
     url: "https://example.com/sleep",
     author: null,
     minutes: 5,
-    status: "Started",
+    status: "Reading",
   },
 ];
 
@@ -78,7 +78,7 @@ describe("library search result validation", () => {
         title: "Science of sleep",
         author: null,
         minutes: 5,
-        status: "Started",
+        status: "Reading",
         reason: "A short read about sleep.",
       },
       {
@@ -86,7 +86,7 @@ describe("library search result validation", () => {
         title: "Cows and methane",
         author: "Ann",
         minutes: 8,
-        status: "Unread",
+        status: "Up next",
         reason: "Explains cattle emissions.",
       },
     ]);
@@ -171,7 +171,7 @@ describe("library search result validation", () => {
         title: "Cows and methane",
         author: "Ann",
         minutes: 8,
-        status: "Unread",
+        status: "Up next",
         reason: "Explains cattle emissions.",
       },
     ]);

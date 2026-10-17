@@ -104,7 +104,7 @@ export const findArticles = internalQuery({
           url: article.url,
           author: article.author ?? null,
           minutes: article.estimatedReadMinutes ?? null,
-          status: finished ? "Read" : opened ? "Started" : "Unread",
+          status: finished ? "Finished" : opened ? "Reading" : "Up next",
         };
       }),
     );

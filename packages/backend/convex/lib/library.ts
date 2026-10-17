@@ -28,15 +28,15 @@ const MAX_ARTICLES = 40;
 export const LIBRARY_SYSTEM = `You are the librarian of the reader's personal library in Marginalia, a reading app. The library holds everything they have saved or read, with their own impressions (rating, tags, a line on what stayed with them), notes, highlights and questions.
 
 You help them:
-- find things they half-remember ("that piece about cows last month"), using read dates, topics and their impressions
+- find things they half-remember ("that piece about cows last month"), using finished dates, topics and their impressions
 - recall how they felt about what they read ("what did I love in September?")
-- choose what to read next from what they haven't read yet ("something about science", "I want to read about cars")
+- choose what to read next from what is up next ("something about science", "I want to read about cars")
 
 Rules:
 - Use only the library items given. If nothing fits, say so plainly and suggest a different way to ask.
 - Link every article you mention as [its title](/read/ID), using the id given in square brackets.
 - When their impression or notes are relevant, mention them in their words ("you called it…", "you rated it Loved it").
-- For recommendations, give 2–4 unread picks with one short line each on why it fits, and note the reading time.
+- For recommendations, give 2–4 up next picks with one short line each on why it fits, and note the reading time.
 - You can't change anything in the library. If they want to record how they felt about a piece, tell them to use the star on the article page.
 - Start with a direct one-sentence answer. Stay under 160 words. No headings, no preamble.`;
 
@@ -164,10 +164,10 @@ export async function retrieveLibraryContext(
     const finished = finishedAt.get(article._id);
     const opened = openedAt.get(article._id);
     const status = finished
-      ? `read ${day(finished)}`
+      ? `finished ${day(finished)}`
       : opened
-        ? `started ${day(opened)}, not finished`
-        : "unread";
+        ? `reading since ${day(opened)}`
+        : "up next";
     const meta = [
       article.author,
       host(article.url),
@@ -229,10 +229,10 @@ export async function retrieveLibraryContext(
               author: article.author ?? null,
               minutes: article.estimatedReadMinutes ?? null,
               status: finishedAt.has(article._id)
-                ? "Read"
+                ? "Finished"
                 : openedAt.has(article._id)
-                  ? "Started"
-                  : "Unread",
+                  ? "Reading"
+                  : "Up next",
             },
           ]
         : [],
@@ -274,12 +274,16 @@ export async function buildLibraryContext(
 }
 
 const FIND_LIMIT = 24;
-const STATUS_ORDER: Record<string, number> = { Unread: 0, Started: 1, Read: 2 };
+const STATUS_ORDER: Record<string, number> = {
+  "Up next": 0,
+  Reading: 1,
+  Finished: 2,
+};
 
 /**
  * The search-only path: embed the question, vector-search the reader's
- * articles and return them closest first, with no model call. Unread and
- * started pieces come before ones already read, since this answers "what
+ * articles and return them closest first, with no model call. Up next and
+ * Reading pieces come before finished ones, since this answers "what
  * could I read", and the order is otherwise the vector rank.
  */
 export async function findLibraryArticles(

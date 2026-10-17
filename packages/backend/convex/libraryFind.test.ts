@@ -68,7 +68,7 @@ describe("search-only library path", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       more: false,
-      // Unread comes before what the reader has already finished.
+      // Up next comes before what the reader has already finished.
       matches: [
         {
           articleId: ids.fresh,
@@ -76,7 +76,7 @@ describe("search-only library path", () => {
           author: null,
           source: "example.com",
           minutes: 9,
-          status: "Unread",
+          status: "Up next",
         },
         {
           articleId: ids.read,
@@ -84,7 +84,7 @@ describe("search-only library path", () => {
           author: null,
           source: "example.com",
           minutes: 6,
-          status: "Read",
+          status: "Finished",
         },
       ],
     });

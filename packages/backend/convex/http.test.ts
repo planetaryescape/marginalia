@@ -81,7 +81,7 @@ describe("library search HTTP results", () => {
           title: "Sleep in daily life",
           author: null,
           minutes: null,
-          status: "Unread",
+          status: "Up next",
           reason: "Explores sleep's role in daily life.",
         },
       ],

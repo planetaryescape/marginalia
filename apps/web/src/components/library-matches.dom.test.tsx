@@ -57,7 +57,7 @@ describe("Library matches", () => {
           author: null,
           source: "example.org",
           minutes: 8,
-          status: "Unread",
+          status: "Up next",
         },
         {
           articleId: "a2",
@@ -65,7 +65,7 @@ describe("Library matches", () => {
           author: "Cal",
           source: null,
           minutes: null,
-          status: "Read",
+          status: "Finished",
         },
       ],
     };

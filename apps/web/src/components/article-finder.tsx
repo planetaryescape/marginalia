@@ -47,7 +47,7 @@ function metaLine(match: TopicMatch) {
   return [
     match.source ?? match.author,
     match.minutes ? `${match.minutes} min` : null,
-    match.status === "Read" ? "read before" : null,
+    match.status === "Finished" ? "read before" : null,
   ]
     .filter(Boolean)
     .join(" · ");

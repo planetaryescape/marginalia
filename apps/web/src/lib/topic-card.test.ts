@@ -12,7 +12,7 @@ const match = (articleId: string, minutes: number | null): TopicMatch => ({
   author: null,
   source: null,
   minutes,
-  status: "Unread",
+  status: "Up next",
 });
 const all = [match("a", 12), match("b", 7), match("c", null), match("d", 4)];
 

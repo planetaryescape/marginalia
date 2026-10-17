@@ -9,16 +9,6 @@ import { cn, formatReadTime } from "@/lib/utils";
 export const matchRowClass = "border-b border-[var(--reader-border)] py-3.5";
 const rowClass = matchRowClass;
 
-/**
- * The search answers with its own status words, which article-finder also
- * matches on, so the words are mapped here for the row to read in the glossary's states.
- */
-const STATE_LABELS: Record<string, string> = {
-  Unread: "Up next",
-  Started: "Reading",
-  Read: "Finished",
-};
-
 /** A shelf-style row: serif title over one meta line. */
 export function MatchRow({
   articleId,
@@ -119,7 +109,7 @@ export function LibraryMatches({ query }: { query: string }) {
                 meta={[
                   match.source ?? match.author,
                   match.minutes ? formatReadTime(match.minutes) : null,
-                  match.status ? STATE_LABELS[match.status] : null,
+                  match.status,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
