@@ -192,6 +192,46 @@ describe("readingCompanion", () => {
     expect(text).not.toContain("gravity LATER");
   });
 
+  it("maps occurrences through characters that lowercase to two", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `${"İ".repeat(7)}${"a".repeat(19_000)} gravity END`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("gravity END");
+  });
+
+  it("lowercases a final sigma as the client does", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `λογος one ${"x".repeat(1_000)} ΛΟΓΟΣ CHOSEN${"a".repeat(17_000)}λογος LATER${"b".repeat(1_900)}`,
+      ],
+      selection: "λογος",
+      paragraphIndex: 1,
+      occurrence: 1,
+    });
+    const text = formatArticle(
+      "T",
+      request.paragraphs,
+      1,
+      selectContext(request),
+    );
+    expect(text).toContain("ΛΟΓΟΣ CHOSEN");
+    expect(text).not.toContain("λογος LATER");
+  });
+
   describe("per-tool context", () => {
     const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
     const request = (over: Record<string, string | number | null>) =>

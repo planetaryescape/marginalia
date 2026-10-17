@@ -371,23 +371,31 @@ function selectionAt(
 function occurrenceAt(text: string, needle: string, occurrence: number) {
   // The squashed text, and where each of its characters sits in `text`
   let squashed = "";
-  const raw: number[] = [];
+  const rawOf: number[] = [];
   for (let i = 0; i < text.length; i++) {
     if (/\s/.test(text[i])) {
       if (!squashed || squashed.endsWith(" ")) continue;
       squashed += " ";
-    } else squashed += text[i].toLowerCase();
-    raw.push(i);
+    } else squashed += text[i];
+    rawOf.push(i);
   }
+  // Lowercased whole, as the client does, so final sigma and the like agree.
+  // A character can lowercase to more than one (İ), so each lowered character
+  // is mapped through its source character's lowered length.
+  const lowered = squashed.toLowerCase();
+  const raw: number[] = [];
+  for (let k = 0; k < squashed.length; k++)
+    for (let n = squashed[k].toLowerCase().length; n > 0; n--)
+      raw.push(rawOf[k]);
   const target = squash(needle).toLowerCase();
   if (!target) return 0;
   let at = -1;
   for (let n = 0; n <= occurrence; n++) {
-    const next = squashed.indexOf(target, at + 1);
+    const next = lowered.indexOf(target, at + 1);
     if (next < 0) break;
     at = next;
   }
-  return at < 0 ? 0 : raw[at];
+  return at < 0 ? 0 : (raw[at] ?? 0);
 }
 
 export function formatArticle(
