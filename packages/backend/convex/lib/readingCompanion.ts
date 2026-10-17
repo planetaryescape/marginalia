@@ -341,7 +341,9 @@ function trimWindow(
  */
 function selectionAt(text: string, selection: string, crosses: boolean) {
   const wanted = selection.trim();
-  for (let k = Math.min(40, wanted.length); k >= 8; k--) {
+  const exact = text.indexOf(wanted.slice(0, 40));
+  if (exact >= 0) return exact;
+  for (let k = Math.min(40, wanted.length) - 1; k >= 8; k--) {
     const at = text.indexOf(wanted.slice(0, k));
     if (at >= 0) return at;
   }

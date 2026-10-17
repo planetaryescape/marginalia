@@ -115,6 +115,23 @@ describe("readingCompanion", () => {
     });
   });
 
+  it("finds a short selection inside a long paragraph", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `${"a".repeat(18_000)}gravity${"b".repeat(1_993)}`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("gravity");
+  });
+
   describe("per-tool context", () => {
     const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
     const request = (over: Record<string, string | number | null>) =>
