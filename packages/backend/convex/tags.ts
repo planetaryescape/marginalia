@@ -9,6 +9,7 @@ import {
   type MutationCtx,
   query,
 } from "./functions";
+import { isReading } from "./lib/shelfArticle";
 import {
   isTopicKey,
   MAX_TAGS_PER_ARTICLE,
@@ -18,7 +19,6 @@ import {
   TAG_PROMOTE_AFTER,
   tagDisplayName,
 } from "./lib/tagMatching";
-import { isReading } from "./lib/shelfArticle";
 
 /** Active tags on an article, for the pencil chips under its title. */
 export const forArticle = query({

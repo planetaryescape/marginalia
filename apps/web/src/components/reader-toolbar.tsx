@@ -211,9 +211,7 @@ export function ReaderToolbar({
                     onSelect={onToggleLove}
                     aria-keyshortcuts="v"
                     title={
-                      loved
-                        ? "Remove from loved (v)"
-                        : "Love this article (v)"
+                      loved ? "Remove from loved (v)" : "Love this article (v)"
                     }
                   >
                     {loved ? "Remove from loved" : "Love this article"}
