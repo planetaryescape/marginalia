@@ -504,6 +504,56 @@ describe("articlesForTopic", () => {
     expect(result.page.map((a) => a.title)).toEqual(["theirs"]);
   });
 
+  it("marks an opened, unfinished article as reading, and nothing else", async () => {
+    const f = await secondReaderTest(modules);
+    await f.t.run(async (ctx) => {
+      const tag = await ctx.db.insert("tags", {
+        userId: OWNER,
+        name: "attention",
+        key: "attention",
+        status: "active",
+        count: 3,
+        aliases: [],
+        createdAt: 1,
+      });
+      // Finishing sets finishedAt on the article as well as a finished row
+      const add = async (guid: string, actions: ("opened" | "finished")[]) => {
+        const articleId = await ctx.db.insert("articles", {
+          ...articleRow(OWNER, guid),
+          finishedAt: actions.includes("finished") ? 2 : undefined,
+        });
+        await ctx.db.insert("articleTags", {
+          userId: OWNER,
+          articleId,
+          tagId: tag,
+          createdAt: 1,
+        });
+        for (const action of actions)
+          await ctx.db.insert("articleInteractions", {
+            userId: OWNER,
+            articleId,
+            action,
+            createdAt: 1,
+          });
+      };
+      await add("up-next", []);
+      await add("opened-once", ["opened"]);
+      await add("opened-then-finished", ["opened", "finished"]);
+    });
+    const result = await f.owner.query(api.tags.articlesForTopic, {
+      topic: "attention",
+      paginationOpts: opts,
+    });
+    const reading = Object.fromEntries(
+      result.page.map((a) => [a.title, a.reading]),
+    );
+    expect(reading).toEqual({
+      "up-next": false,
+      "opened-once": true,
+      "opened-then-finished": false,
+    });
+  });
+
   it("caps a page whatever the client asks for, and pages on", async () => {
     const f = await secondReaderTest(modules);
     await seed(f, 30);

@@ -73,6 +73,7 @@ export function LibraryTopic({ topic }: { topic: string }) {
               meta={[
                 article.uploaded ? "PDF" : hostOf(article.url),
                 article.minutes ? formatReadTime(article.minutes) : null,
+                article.reading ? "Reading" : null,
                 article.finished ? "Finished" : null,
                 article.annotating ? "annotating" : null,
               ]

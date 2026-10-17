@@ -18,6 +18,7 @@ import {
   TAG_PROMOTE_AFTER,
   tagDisplayName,
 } from "./lib/tagMatching";
+import { isReading } from "./lib/shelfArticle";
 
 /** Active tags on an article, for the pencil chips under its title. */
 export const forArticle = query({
@@ -91,6 +92,8 @@ export const articlesForTopic = query({
             minutes: article.estimatedReadMinutes,
             annotating: article.annotationStatus === "pending",
             finished: article.finishedAt !== undefined,
+            // One indexed read per row, and none for a finished article
+            reading: await isReading(ctx, ctx.readerId, article),
           };
         }),
       )
