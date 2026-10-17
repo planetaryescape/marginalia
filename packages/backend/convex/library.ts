@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
+import { readStatus } from "./lib/articleCard";
 
 // Data access for the "Ask your library" endpoint (lib/library.ts). Every
 // lookup is scoped to the caller's library, including vector search hits.
@@ -84,27 +85,14 @@ export const findArticles = internalQuery({
       args.articleIds.map(async (id) => {
         const article = await ctx.db.get("articles", id);
         if (article?.userId !== args.userId) return null;
-        const did = async (action: "finished" | "opened") =>
-          (await ctx.db
-            .query("articleInteractions")
-            .withIndex("by_user_article_action", (q) =>
-              q
-                .eq("userId", args.userId)
-                .eq("articleId", id)
-                .eq("action", action),
-            )
-            .first()) !== null;
-        const [finished, opened] = await Promise.all([
-          did("finished"),
-          did("opened"),
-        ]);
+        const status = await readStatus(ctx, args.userId, id);
         return {
           articleId: article._id,
           title: article.title,
           url: article.url,
           author: article.author ?? null,
           minutes: article.estimatedReadMinutes ?? null,
-          status: finished ? "Finished" : opened ? "Reading" : "Up next",
+          status,
         };
       }),
     );

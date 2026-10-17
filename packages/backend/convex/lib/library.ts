@@ -2,6 +2,7 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { host } from "./articleCard";
 import { type EmbeddingTarget, embedText } from "./embeddings";
 import type { LibraryFindMatch } from "./librarySearch";
 import { cachedQueryEmbedding } from "./queryEmbeddingCache";
@@ -47,14 +48,6 @@ function day(timestamp: number) {
     year: "numeric",
     timeZone: "UTC",
   });
-}
-
-function host(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return undefined;
-  }
 }
 
 /**

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   dedupeMatches,
   previousPosition,
+  strongTitleMatch,
   type TopicMatch,
+  titleFirst,
   topicCard,
 } from "./topic-card";
 
@@ -67,5 +69,54 @@ describe("topic cards", () => {
     expect(
       dedupeMatches([all[0], all[1], all[0]]).map((m) => m.articleId),
     ).toEqual(["a", "b"]);
+  });
+});
+
+describe("strong title match", () => {
+  const titled = (articleId: string, title: string): TopicMatch => ({
+    ...match(articleId, 5),
+    title,
+  });
+  const candidates = [
+    titled("a", "Slow cheese making"),
+    titled("b", "Fast Wine, slow cheese"),
+  ];
+
+  it("needs every typed word of three letters or more in the title, ignoring case", () => {
+    expect(strongTitleMatch("SLOW cheese", candidates)?.articleId).toBe("a");
+    expect(strongTitleMatch("wine cheese", candidates)?.articleId).toBe("b");
+    expect(strongTitleMatch("slow bread", candidates)).toBeNull();
+  });
+
+  it("accepts an unfinished last word but not a word inside another", () => {
+    expect(strongTitleMatch("slow chee", candidates)?.articleId).toBe("a");
+    expect(strongTitleMatch("eese", candidates)).toBeNull();
+  });
+
+  it("ignores words under three letters, and needs at least one longer", () => {
+    expect(strongTitleMatch("on slow", candidates)?.articleId).toBe("a");
+    expect(strongTitleMatch("on to", candidates)).toBeNull();
+    expect(strongTitleMatch("  ", candidates)).toBeNull();
+  });
+
+  it("takes the first candidate in the order given", () => {
+    expect(strongTitleMatch("cheese", candidates)?.articleId).toBe("a");
+  });
+
+  it("keeps the title match first and drops its second copy", () => {
+    const first = titled("t", "Slow cheese making");
+    const ranked = [all[0], { ...first }, all[1], all[0]];
+    expect(titleFirst(first, ranked).map((m) => m.articleId)).toEqual([
+      "t",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("is just the ranking when there is no title match", () => {
+    expect(titleFirst(null, [all[0], all[0], all[1]])).toEqual([
+      all[0],
+      all[1],
+    ]);
   });
 });

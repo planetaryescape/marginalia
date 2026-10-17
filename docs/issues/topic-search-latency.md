@@ -39,4 +39,16 @@ The picker now posts `library/find` and `library/search` straight to `${NEXT_PUB
 
 The topic picker now calls `stoic-hare-718.eu-west-1.convex.site/api/library/find` directly (Resource Timing shows that host). Typing queries in the live desk, a run of `find` calls measured 1,421, 510, 798, 265, 137, 148, 142, 106 and 997 ms, read from Resource Timing. The cached calls took about 106 to 148 ms, against about 505 ms through the proxy. A query never seen before still pays for its embedding, about 0.8 to 1.4 s. Server-Timing isn't visible cross-origin without `Timing-Allow-Origin`, so these are browser-side durations only.
 
-What remains is the embedding call for a new query. Closing it needs a faster embedding provider or prediction, not transport.
+What remains is the embedding call for a new query. Closing it needs a faster embedding provider or prediction, not transport. Titles are now predicted (next section).
+
+## Title match as the first card (wave4/search)
+
+Asked for by the owner on 2026-10-17 (D-DES-069). Typing words that match an article's title shows that article as the first card without waiting for the embedding.
+
+- Index: `articles.search_title`, full text on `title`, filtered by `userId` and `extractionStatus`. Adding an index is backwards compatible, and Convex backfills it on deploy.
+- Query: `titleSearch.matchTitles` (`packages/backend/convex/titleSearch.ts`) runs for `ctx.readerId` only, over the reader's extracted articles. It takes the top 5 index hits (they are whole documents, up to about 900 KB each, so the count stays far below the 16 MiB read limit), drops a second copy of the same URL, orders unread before started before read as `find` does, and returns only `find`'s card fields.
+- Client: `use-topic-search.ts` starts the title query with `find` for the same debounced text. `strongTitleMatch` (`topic-card.ts`) accepts a hit when every typed word of three or more letters starts a word in its title, ignoring case; the unfinished last word therefore counts. With no such word, or no hit, nothing changes from before.
+- No swap: when `find` lands, `titleFirst` puts the title article first and removes it from `find`'s list. If the title result arrives after `find`, it is dropped, because a card is already on screen. Both are decided synchronously in one place (`land`), so they can't interleave.
+- If `find` fails after the title card showed, the picker shows its usual error with Retry.
+- Not yet measured live: the expected cost is one Convex query round trip (about the 106–148 ms of a cached `find`, without the embedding).
+

@@ -304,6 +304,7 @@ Change a decision only by adding a new entry that replaces the old one.
 - **Not changed:** `CURRENT_ANNOTATION_VERSION`. Existing margins are not re-annotated, so articles annotated before this change keep the notes they have.
 - **History:** first recorded as keeping the 120,000-character window with no outline. Revised on 2026-10-17 at the owner's request.
 
-### D-DES-069: A topic search the reader has never typed may take about a second. (Claude, delegated by BK)
-- **Decision:** the first card for a never-seen query stays at about 0.8–1.4 s; repeated queries take about 110–150 ms through the direct call and the query cache (rung 3c).
-- **Why:** what remains is the provider's embedding round trip. Embedding speculatively while the reader types would add an endpoint and spend on half-typed queries to save a few hundred milliseconds, once per new query.
+### D-DES-069: A title the reader types shows as the first card at once; other never-typed topics may take about a second. (Claude, delegated by BK)
+- **Decision:** the picker also searches article titles (`titleSearch.matchTitles`, a full-text index on `articles.title`) beside `library/find`. When every typed word of three letters or more starts a word in a title, that article is the first card without waiting for the query to be embedded. `find`'s ranking then follows with that article removed, and a title result that arrives after `find` is dropped, so the first card never swaps. Any other never-seen query still takes about 0.8–1.4 s for its first card; repeated queries take about 110–150 ms through the direct call and the query cache (rung 3c).
+- **Why:** the first version of this decision accepted the embedding round trip as the provider's cost. The owner asked on 2026-10-17 for it to be fixed for the case the reader can predict, a title they remember. The embedding call can't be made faster with one provider, but a title match needs no embedding.
+- **History:** accepted as about a second on 2026-10-16, with speculative embedding while typing rejected as an extra endpoint and spend on half-typed queries. That still holds for topics that match no title.

@@ -3,9 +3,15 @@ import {
   libraryFindResponseSchema,
   librarySearchResponseSchema,
 } from "@marginalia/backend/library-search";
+import { api } from "@marginalia/backend/convex/_generated/api";
+import { useConvex } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { ReaderRequestError, readerRequestError } from "@/lib/companion";
-import { dedupeMatches, type TopicMatch } from "@/lib/topic-card";
+import {
+  strongTitleMatch,
+  type TopicMatch,
+  titleFirst,
+} from "@/lib/topic-card";
 import { postTopicSearch as post } from "@/lib/topic-search-request";
 
 const CACHE_TTL_MS = 5 * 60_000;
@@ -47,6 +53,7 @@ async function failure(thrown: unknown) {
 }
 
 /**
+ * A title query runs beside the first request and may show one card at once.
  * Two requests per query. `library/find` (embedding and vector search, no
  * model) gives the cards; `library/search` (the model's ranking) then gives
  * the reason lines. A backend without `find` answers 404, and the explained
@@ -55,6 +62,7 @@ async function failure(thrown: unknown) {
 export function useTopicSearch(text: string, enabled: boolean, retry: number) {
   const [state, setState] = useState<TopicSearch>(idle);
   const cache = useRef(new Map<string, CacheEntry>());
+  const convex = useConvex();
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: retry explicitly reruns a failed request
   useEffect(() => {
@@ -105,7 +113,42 @@ export function useTopicSearch(text: string, enabled: boolean, retry: number) {
         ),
       ).matches;
 
+    // A strong title match is the first card without waiting for the query to
+    // be embedded. Once `find` has answered the first card is already on
+    // screen, so a late title result is dropped rather than put in front.
+    let titleCard: TopicMatch | null = null;
+    let findLanded = false;
+    const land = (ranked: TopicMatch[]) => {
+      findLanded = true;
+      return titleFirst(titleCard, ranked);
+    };
+    const showTitle = async () => {
+      try {
+        const hits = await convex.query(api.titleSearch.matchTitles, {
+          query: text,
+        });
+        const strong = strongTitleMatch(text, hits);
+        if (!strong || signal.aborted || findLanded) return;
+        titleCard = strong;
+        setState((current) =>
+          current.query === text && current.status === "loading"
+            ? {
+                query: text,
+                status: "ready",
+                matches: [strong],
+                more: false,
+                reasons: {},
+                explained: false,
+              }
+            : current,
+        );
+      } catch {
+        // The title match is a shortcut; the library search still answers.
+      }
+    };
+
     const timer = window.setTimeout(async () => {
+      void showTitle();
       try {
         let find: CacheEntry["find"];
         try {
@@ -116,7 +159,7 @@ export function useTopicSearch(text: string, enabled: boolean, retry: number) {
               AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
             ),
           );
-          find = { matches: dedupeMatches(body.matches), more: body.more };
+          find = { matches: land(body.matches), more: body.more };
         } catch (thrown) {
           if (!(thrown instanceof Response && thrown.status === 404))
             throw thrown;
@@ -124,7 +167,7 @@ export function useTopicSearch(text: string, enabled: boolean, retry: number) {
           const ranked = await search();
           if (signal.aborted) return;
           find = {
-            matches: dedupeMatches(
+            matches: land(
               ranked.map(({ reason, ...match }) => ({
                 ...match,
                 source: null,
@@ -184,7 +227,7 @@ export function useTopicSearch(text: string, enabled: boolean, retry: number) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, text, retry]);
+  }, [enabled, text, retry, convex]);
 
   return state;
 }

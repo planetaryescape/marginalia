@@ -9,6 +9,9 @@ const addByUrl = vi.hoisted(() => vi.fn());
 const save = vi.hoisted(() => vi.fn());
 const record = vi.hoisted(() => vi.fn());
 const noteHits = vi.hoisted(() => ({ current: [] as unknown[] }));
+const titleQuery = vi.hoisted(() => vi.fn());
+// One object for every render, as the real client is, or the hook's effect reruns forever.
+const convexClient = vi.hoisted(() => ({ query: titleQuery }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("next/link", () => ({
@@ -20,6 +23,7 @@ vi.mock("next/link", () => ({
 }));
 vi.mock("convex/react", () => ({
   useAction: () => addByUrl,
+  useConvex: () => convexClient,
   useQuery: (_fn: string, args: unknown) =>
     args === "skip" ? undefined : noteHits.current,
   useMutation: (fn: string) => (fn === "record" ? record : save),
@@ -30,6 +34,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
     savedArticles: { save: "save" },
     sessions: { recordInteraction: "record" },
     notesSearch: { find: "notes" },
+    titleSearch: { matchTitles: "titles" },
   },
 }));
 vi.mock("sonner", () => ({ toast }));
@@ -69,6 +74,8 @@ beforeEach(() => {
   requests = [];
   push.mockReset();
   noteHits.current = [];
+  titleQuery.mockReset();
+  titleQuery.mockResolvedValue([]);
   addByUrl.mockReset();
   save.mockReset();
   record.mockReset();
@@ -199,6 +206,62 @@ describe("topic picker", () => {
     expect(host.textContent).toContain("Connects to your notes on deep work.");
     expect(host.querySelector(".animate-pulse")).toBeNull();
     expect(host.querySelector("h3")).toBe(heading);
+  });
+
+  it("shows a strong title match at once and keeps it first when the search lands", async () => {
+    titleQuery.mockResolvedValue([find("t1", "Slow cheese making", 9)]);
+    await show();
+    await type("slow chee");
+    await settle();
+    // No find answer yet: the title match is already the card.
+    expect(title()).toBe("Slow cheese making");
+    const heading = host.querySelector("h3");
+    expect(host.textContent).toContain("1 of 1");
+
+    await answer("find", {
+      more: false,
+      matches: [
+        find("a1", "Aged rinds", 5),
+        find("t1", "Slow cheese making", 9),
+        find("b2", "Milk", 6),
+      ],
+    });
+    // Same card, now with the search's other articles behind it, once each.
+    expect(host.querySelector("h3")).toBe(heading);
+    expect(title()).toBe("Slow cheese making");
+    expect(host.textContent).toContain("1 of 3");
+    await click("Another");
+    expect(title()).toBe("Aged rinds");
+    await click("Another");
+    expect(title()).toBe("Milk");
+  });
+
+  it("drops a title match that arrives after the search has answered", async () => {
+    let late: (hits: unknown[]) => void = () => {};
+    titleQuery.mockReturnValue(new Promise((resolve) => (late = resolve)));
+    await show();
+    await type("cheese");
+    await settle();
+    await answer("find", {
+      more: false,
+      matches: [find("a1", "Aged rinds", 5)],
+    });
+    expect(title()).toBe("Aged rinds");
+    await act(async () => late([find("t1", "Cheese notes", 4)]));
+    expect(title()).toBe("Aged rinds");
+  });
+
+  it("ignores a weak title match", async () => {
+    titleQuery.mockResolvedValue([find("t1", "Cheese notes", 4)]);
+    await show();
+    await type("cheese wine");
+    await settle();
+    expect(title()).toBeUndefined();
+    await answer("find", {
+      more: false,
+      matches: [find("a1", "Aged rinds", 5)],
+    });
+    expect(title()).toBe("Aged rinds");
   });
 
   it("attaches a reason to its own card even when the explanation ranks differently", async () => {

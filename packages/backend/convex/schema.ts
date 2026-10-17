@@ -209,6 +209,11 @@ export default defineSchema({
       "finishedAt",
       "estimatedReadMinutes",
     ])
+    // The picker's title match: the first card shows before the query is embedded
+    .searchIndex("search_title", {
+      searchField: "title",
+      filterFields: ["userId", "extractionStatus"],
+    })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
