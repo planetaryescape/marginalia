@@ -293,10 +293,10 @@ Change a decision only by adding a new entry that replaces the old one.
 - **Decision:** the selection toolbar offers the four colours beside Highlight and Underline; a pick marks in that colour and becomes the tool's default. Each mark stores its colour (`highlights.color`). Before a default changes, marks saved without a colour are first given the colour they show, so changing the default never repaints existing marks.
 - **Why:** colour is part of what the reader meant when they marked; a settings change shouldn't rewrite their past marks.
 
-### D-DES-067: The rooms stay one column. (Claude, delegated by BK)
+### D-DES-067: The rooms use 02's 680 px main column, with no side column. (Claude, delegated by BK)
 - **BK, 2026-10-17:** "fix all the things", on the remaining audit list, which included 02's 680/320 split for the rooms.
-- **Decision:** Library, Notes, Your reading and the settings pages keep one column of about 680 px. There is no 320 px side column.
-- **Why:** nothing in the rooms belongs in a side column today, so the split would mean inventing content to fill it. It also matches the one-column desk (D-DES-064), which BK chose so the pointer stays on one axis.
+- **Decision:** Library, Notes (list view), Your reading and the settings pages sit in the room frame (1180 px) with their content in one column of 680 px, as 02 says. The Notes map is a canvas, not a column, so it keeps the full frame. There is no 320 px side column.
+- **Why:** nothing in the rooms belongs in a side column today, so the split would mean inventing content to fill it. The 680 px column is what 02 specifies, and it keeps lines short at desktop width. It also matches the one-column desk (D-DES-064), which BK chose so the pointer stays on one axis.
 
 ### D-DES-068: Annotation reads the first 120,000 characters, and an outline of the sections past them. (Claude, delegated by BK; revised 2026-10-17)
 - **Decision:** annotation still sends the article's first 120,000 characters (`convex/lib/marginaliaContext.ts`). When the article is longer, it also gets an outline of the headings past that point, in order, each with its rough length in words (`convex/lib/articleOutline.ts`). The outline is read from the stored HTML's h1 to h3 headings and bounded to 60 headings and about 4,000 characters; when there are more, the listed ones are spread across the rest of the piece. The prompt tells the model that notes anchor only to the text it can see, and the outline is for placing the piece, not for anchors. An article with no headings past the window keeps the single line "[The article continues beyond this point.]". An article within the window gets the same prompt as before. Reading alongside still annotates one section at a time.

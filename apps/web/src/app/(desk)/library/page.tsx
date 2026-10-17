@@ -298,7 +298,7 @@ export default function LibraryPage() {
     <main className="mx-auto w-full max-w-[1180px] px-5 md:px-10 pt-[clamp(0.75rem,4vh,3rem)] pb-10">
       {/* useSearchParams needs a Suspense boundary for static rendering */}
       <Suspense fallback={null}>
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-[680px]">
           <Librarian />
           <Shelves />
         </div>
