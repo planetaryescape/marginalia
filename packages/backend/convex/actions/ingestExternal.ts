@@ -4,7 +4,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { externalGuid } from "../lib/externalApi";
-import { ingestArticle } from "../lib/ingest";
+import { articleFitsStorage, prepareImportContent } from "../lib/importContent";
 
 export type IngestExternalResult =
   | { ok: true; articleId: Id<"articles">; created: boolean }
@@ -27,15 +27,22 @@ export const ingest = internalAction({
       { userId: args.userId, externalId: args.externalId },
     );
     if (existing) return { ok: true, articleId: existing, created: false };
-    const articleId = await ingestArticle(ctx, args.userId, {
-      url: args.url ?? "",
+    const content = prepareImportContent(args.html);
+    if (!content) return { ok: false, reason: "too_large" };
+    const row = {
+      userId: args.userId,
+      url: (args.url ?? "").toWellFormed(),
       guid: externalGuid(args.externalId),
-      title: args.title,
-      html: args.html,
-      author: args.author,
+      title: (args.title || args.url || "Untitled").toWellFormed(),
+      ...content,
+      author: args.author?.toWellFormed(),
       publishedAt: args.publishedAt,
-    });
-    if (!articleId) return { ok: false, reason: "too_large" };
-    return { ok: true, articleId, created: true };
+    };
+    if (!articleFitsStorage(row)) return { ok: false, reason: "too_large" };
+    const result = await ctx.runMutation(
+      internal.articles.upsertExtracted,
+      row,
+    );
+    return { ok: true, ...result };
   },
 });

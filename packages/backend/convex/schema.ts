@@ -127,6 +127,35 @@ export default defineSchema({
       v.literal("extracted"),
       v.literal("failed"),
     ),
+    extractionRun: v.optional(v.number()),
+    extractionLeaseUntil: v.optional(v.number()),
+    extractionAttempts: v.optional(v.number()),
+    extractionRetryAt: v.optional(v.number()),
+    extractionFailure: v.optional(
+      v.union(
+        v.literal("invalid"),
+        v.literal("transient"),
+        v.literal("exhausted"),
+      ),
+    ),
+    libraryIndex: v.optional(
+      v.object({
+        revision: v.number(),
+        hash: v.string(),
+        model: v.string(),
+        status: v.union(
+          v.literal("pending"),
+          v.literal("running"),
+          v.literal("ready"),
+          v.literal("failed"),
+          v.literal("unavailable"),
+        ),
+        attempts: v.number(),
+        run: v.number(),
+        leaseUntil: v.optional(v.number()),
+        retryAt: v.optional(v.number()),
+      }),
+    ),
     annotationStatus: v.union(
       v.literal("pending"),
       v.literal("annotated"),
@@ -179,6 +208,35 @@ export default defineSchema({
     queueCounted: v.optional(v.boolean()),
     createdAt: v.number(),
   })
+    .index("by_userId_and_libraryIndex_status_and_leaseUntil", [
+      "userId",
+      "libraryIndex.status",
+      "libraryIndex.leaseUntil",
+    ])
+    .index("by_userId_and_libraryIndex_status_and_retryAt", [
+      "userId",
+      "libraryIndex.status",
+      "libraryIndex.retryAt",
+    ])
+    // Only unclaimed non-book rows whose backoff is due may fill a free slot.
+    .index("by_extraction_queue", [
+      "userId",
+      "extractionStatus",
+      "bookUnitCount",
+      "extractionLeaseUntil",
+      "extractionRetryAt",
+    ])
+    .index("by_catch_up_article", [
+      "userId",
+      "extractionStatus",
+      "embeddedAt",
+      "libraryIndex.status",
+    ])
+    .index("by_userId_and_extractionStatus_and_extractionLeaseUntil", [
+      "userId",
+      "extractionStatus",
+      "extractionLeaseUntil",
+    ])
     .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_feed", ["feedId"])
     .index("by_user_feed", ["userId", "feedId"])
@@ -219,6 +277,15 @@ export default defineSchema({
       dimensions: 1536,
       filterFields: ["userId"],
     }),
+
+  articleImportKeys: defineTable({
+    userId: v.string(),
+    key: v.string(),
+    articleId: v.id("articles"),
+  })
+    .index("by_userId_and_key", ["userId", "key"])
+    .index("by_userId", ["userId"])
+    .index("by_userId_and_articleId", ["userId", "articleId"]),
 
   annotations: defineTable({
     articleId: v.id("articles"),
@@ -286,6 +353,7 @@ export default defineSchema({
   // A PDF on its way in: the desk shows its steps, and a failure keeps its
   // reason here so nothing else is left half-imported (documentImports.ts).
   documentImports: defineTable({
+    processingStartedAt: v.optional(v.number()),
     userId: v.string(),
     storageId: v.id("_storage"),
     fileName: v.string(),

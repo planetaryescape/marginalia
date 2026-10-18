@@ -51,6 +51,11 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       createdAt: now,
     });
     lastArticle = articleId;
+    await ctx.db.insert("articleImportKeys", {
+      userId,
+      articleId,
+      key: String(i).padStart(64, "0"),
+    });
     const annotationId = await ctx.db.insert("annotations", {
       articleId,
       userId,

@@ -12,11 +12,9 @@ import {
 import { minutesFor, readingUnitsOf } from "../lib/pdf/sections";
 import { blocksToHtml, blocksToText } from "../lib/pdf/structure";
 import { titleOf } from "../lib/pdf/title";
-import { embedForLibrary } from "../lib/router";
 
 // A batch of units per mutation keeps each write far under the 16 MiB limit
 const UNITS_PER_WRITE = 20;
-const EMBED_CHARS = 8_000;
 
 /** The reader left or the import expired: stop writing and clean up. */
 class ImportStopped extends Error {}
@@ -29,8 +27,8 @@ class ImportStopped extends Error {}
 export const run = internalAction({
   args: { importId: v.id("documentImports") },
   handler: async (ctx, args): Promise<void> => {
-    const row: Doc<"documentImports"> | null = await ctx.runQuery(
-      internal.documentImports.get,
+    const row: Doc<"documentImports"> | null = await ctx.runMutation(
+      internal.documentImports.claim,
       args,
     );
     if (!row || row.status !== "reading") return;
@@ -167,24 +165,10 @@ async function importBook(
     if (!written) throw new ImportStopped();
   }
 
-  // What the library knows the book by: its title and the names of its parts
-  let embedding: number[] | undefined;
-  try {
-    embedding = (
-      await embedForLibrary(ctx, userId, [
-        [title, ...outline.map((o) => o.title)]
-          .join("\n")
-          .slice(0, EMBED_CHARS),
-      ])
-    )?.[0];
-  } catch (error) {
-    console.error("Embedding failed, continuing without:", error);
-  }
   const finished: boolean = await ctx.runMutation(internal.books.finishBook, {
     importId: input.importId,
     userId,
     articleId,
-    embedding,
     title,
     pages: doc.pageCount,
     units: units.length,

@@ -1,7 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { libraryIsActive } from "./access";
 import {
   internalMutation,
   internalQuery,
@@ -9,6 +8,7 @@ import {
   mutation,
   query,
 } from "./functions";
+import { importLibraryActive } from "./lib/importJobs";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 
 /** Past this a PDF is refused before any work: pdf.js holds it in memory. */
@@ -227,7 +227,7 @@ export async function liveImport(
   const row = await ctx.db.get("documentImports", importId);
   if (!row) return null;
   if (row.status !== "reading") return null;
-  if (!(await libraryIsActive(ctx, row.userId))) {
+  if (!(await importLibraryActive(ctx, row.userId))) {
     await deleteFile(ctx, row.storageId);
     await ctx.db.delete("documentImports", importId);
     return null;
@@ -238,6 +238,18 @@ export async function liveImport(
 export const get = internalQuery({
   args: { importId: v.id("documentImports") },
   handler: (ctx, args) => ctx.db.get("documentImports", args.importId),
+});
+
+/** A scheduled action may be delivered twice; only one may parse this upload. */
+export const claim = internalMutation({
+  args: { importId: v.id("documentImports") },
+  handler: async (ctx, args) => {
+    const row = await liveImport(ctx, args.importId);
+    if (!row || row.processingStartedAt !== undefined) return null;
+    await ctx.db.patch(row._id, { processingStartedAt: Date.now() });
+    // The existing expiration job owns cleanup if this action is killed.
+    return row;
+  },
 });
 
 export const setProgress = internalMutation({

@@ -816,6 +816,15 @@ describe("removing a half-written book", () => {
       "default_user",
       Array.from({ length: 25 }, () => 4),
     );
+    // Unlike a published seedBook, a half-written import is not extracted yet.
+    await f.t.run((ctx) => ctx.db.patch(id, { extractionStatus: "pending" }));
+    await f.t.run((ctx) =>
+      ctx.db.insert("articleImportKeys", {
+        userId: "default_user",
+        articleId: id,
+        key: "0".repeat(64),
+      }),
+    );
     const importId = await f.t.run(async (ctx) =>
       ctx.db.insert("documentImports", {
         userId: "default_user",
@@ -842,11 +851,17 @@ describe("removing a half-written book", () => {
       (await f.t.run((ctx) => ctx.db.get("documentImports", importId)))
         ?.partialArticleId,
     ).toBe(id);
+    expect(
+      await f.t.run((ctx) => ctx.db.query("articleImportKeys").take(1)),
+    ).toHaveLength(1);
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await f.t.run((ctx) => ctx.db.query("bookUnits").collect())).toEqual(
       [],
     );
     expect(await f.t.run((ctx) => ctx.db.get("articles", id))).toBeNull();
+    expect(
+      await f.t.run((ctx) => ctx.db.query("articleImportKeys").take(1)),
+    ).toEqual([]);
     expect(
       (await f.t.run((ctx) => ctx.db.get("documentImports", importId)))
         ?.partialArticleId,

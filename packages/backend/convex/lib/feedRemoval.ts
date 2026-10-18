@@ -130,6 +130,10 @@ export async function deleteArticle(
   await unlinkArticleTags(ctx, article._id);
   await removeFromQueueStats(ctx, article);
   await ctx.db.delete("articles", article._id);
+  await ctx.scheduler.runAfter(0, internal.articleImportKeys.discard, {
+    userId: article.userId,
+    articleId: article._id,
+  });
   await bumpFeedArticleCount(ctx, article.feedId, article.userId, -1);
   // A deleted article only removes a candidate connection, which adds nothing
   // for the margin to read, so it deliberately doesn't move the fingerprint.

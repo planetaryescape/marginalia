@@ -15,6 +15,7 @@ import {
 import { MAX_ANNOTATION_RETRIES } from "./lib/annotationPolicy";
 import { advanceProgress, nextUnitIndex } from "./lib/bookPicks";
 import { readerProviders } from "./lib/readerAI";
+import { queueLibraryIndex } from "./libraryIndex";
 import { spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
 
@@ -447,6 +448,7 @@ export const finishBook = internalMutation({
       firstUnitTitle: args.firstUnitTitle,
       firstUnitMinutes: args.firstUnitMinutes,
     });
+    await queueLibraryIndex(ctx, article._id);
     // The first unit opens with its margin on the way
     await ctx.scheduler.runAfter(500, internal.actions.annotateUnit.generate, {
       articleId: article._id,
@@ -474,6 +476,9 @@ export const discardBook = internalMutation({
   },
   handler: async (ctx, args) => {
     const article = await ownedArticle(ctx, args.articleId, args.userId);
+    // A stale import action must never clean up a book already published by
+    // another delivery of that import. Optional indexing is not import work.
+    if (article?.extractionStatus === "extracted") return;
     if (article) {
       const units = await ctx.db
         .query("bookUnits")
@@ -501,6 +506,10 @@ export const discardBook = internalMutation({
       const book = await bookRow(ctx, args.userId, args.articleId);
       if (book) await ctx.db.delete("books", book._id);
       await ctx.db.delete("articles", args.articleId);
+      await ctx.scheduler.runAfter(0, internal.articleImportKeys.discard, {
+        userId: args.userId,
+        articleId: args.articleId,
+      });
     }
     if (args.importId) {
       const row = await ctx.db.get("documentImports", args.importId);

@@ -196,10 +196,12 @@ describe("backfilling article counts", () => {
     expect(readerFeeds[0].articleCount).toBeUndefined();
   });
 
-  it("does not move another reader's count when an article is inserted for a feed it doesn't own", async () => {
+  it("refuses an article for a feed the importing reader doesn't own", async () => {
     const t = await ownerTest(modules);
     const theirs = await t.run((ctx) => insertFeed(ctx, "other-reader", 5));
-    await t.mutation(internal.articles.insert, post(OWNER, theirs, 1));
+    await expect(
+      t.mutation(internal.articles.insert, post(OWNER, theirs, 1)),
+    ).rejects.toThrow("Feed not found");
     expect(
       await t.run(async (ctx) => (await ctx.db.get(theirs))?.articleCount),
     ).toBe(5);
