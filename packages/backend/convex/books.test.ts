@@ -70,6 +70,63 @@ const picks = (c: Fixture["owner"], requestedMinutes: number) =>
   c.query(api.suggestions.forWindow, { requestedMinutes });
 
 describe("a book in picks", () => {
+  it("bootstraps default or explicit text in one authorized query and leaves legacy endpoints intact", async () => {
+    const f = await secondReaderTest(modules);
+    const id = await seedBook(f, "default_user", [4, 6, 9]);
+    const boot = await f.owner.query(api.readerBootstrap.get, {
+      articleId: id,
+    });
+    expect(boot).toMatchObject({
+      isBook: true,
+      unitIndex: 0,
+      article: { content: "Text of unit 1" },
+    });
+    expect(boot?.article).not.toHaveProperty("userId");
+    expect(boot?.article).not.toHaveProperty("bookOutline");
+    await expect(
+      f.owner.mutation(api.books.recordProgress, {
+        articleId: id,
+        unitIndex: 1,
+        unitKey: boot?.unitKey ?? "missing",
+        scrollPercent: 95,
+      }),
+    ).rejects.toThrow("part has changed");
+    expect(
+      await f.owner.query(api.readerBootstrap.get, {
+        articleId: id,
+        unitIndex: 2,
+      }),
+    ).toMatchObject({ unitIndex: 2, article: { content: "Text of unit 3" } });
+    expect(
+      await f.owner.query(api.readerBootstrap.get, {
+        articleId: id,
+        unitIndex: 99,
+      }),
+    ).toMatchObject({ article: null, missingUnit: true });
+    expect(
+      await f.reader.query(api.readerBootstrap.get, { articleId: id }),
+    ).toBeNull();
+    expect(
+      await f.owner.query(api.books.unit, { articleId: id, index: 0 }),
+    ).toMatchObject({ content: "Text of unit 1" });
+    const outline = await f.owner.query(api.readerBootstrap.outline, {
+      articleId: id,
+    });
+    await f.owner.mutation(api.books.recordProgress, {
+      articleId: id,
+      unitIndex: 0,
+      scrollPercent: 20,
+    });
+    expect(
+      await f.owner.query(api.readerBootstrap.outline, { articleId: id }),
+    ).toEqual(outline);
+    expect(
+      await f.owner.query(api.readerBootstrap.progress, { articleId: id }),
+    ).toMatchObject({ unit: 0, scroll: 20 });
+    expect(
+      await f.t.run((ctx) => ctx.db.query("bookUnitStatus").take(5)),
+    ).toHaveLength(1);
+  });
   it("offers the book's first unit when nothing has been read", async () => {
     const f = await secondReaderTest(modules);
     const id = await seedBook(f, "default_user", [4, 6, 9]);
@@ -568,7 +625,19 @@ describe("a unit whose margin did not arrive", () => {
       const u = (await ctx.db.query("bookUnits").collect()).find(
         (x) => x.index === 0,
       );
-      if (u) await ctx.db.patch("bookUnits", u._id, patch);
+      if (u) {
+        await ctx.db.patch("bookUnits", u._id, patch);
+        const metadata = await ctx.db
+          .query("bookUnitStatus")
+          .withIndex("by_userId_and_articleId_and_index", (q) =>
+            q
+              .eq("userId", u.userId)
+              .eq("articleId", u.articleId)
+              .eq("index", u.index),
+          )
+          .unique();
+        if (metadata) await ctx.db.patch("bookUnitStatus", metadata._id, patch);
+      }
     });
 
   it("is started again on opening, twice at most", async () => {

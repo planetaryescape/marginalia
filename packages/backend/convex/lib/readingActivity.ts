@@ -50,6 +50,8 @@ export const readingCheckpointSchema = z
   .object({
     articleId: z.string().min(1).max(100),
     sessionId: z.string().min(1).max(100).optional(),
+    sessionKey: z.string().uuid().optional(),
+    requestedMinutes: z.number().finite().positive().max(1440).optional(),
     visitId: z.string().uuid(),
     day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     startedAt: z.number().finite().min(0),

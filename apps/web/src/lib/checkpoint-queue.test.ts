@@ -1,8 +1,10 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   acknowledgeCheckpoint,
+  drainCheckpoints,
   mergeCheckpoint,
   parseCheckpoints,
+  queueCheckpoints,
 } from "./checkpoint-queue";
 
 const snapshot = {
@@ -32,6 +34,78 @@ it("never downgrades queued progress or completion when an older request retries
   expect(queue).toEqual([latest]);
   expect(acknowledgeCheckpoint(queue, snapshot)).toEqual([latest]);
   expect(acknowledgeCheckpoint(queue, latest)).toEqual([]);
+});
+
+it("serializes drains, gives Done priority after an active send and preserves newer snapshots on acknowledgement", async () => {
+  const store = new Map<string, string>();
+  const setItem = vi.fn((key: string, value: string) => {
+    store.set(key, value);
+  });
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem,
+  });
+  vi.stubGlobal("navigator", { onLine: true });
+  let release: () => void = () => {};
+  const first = new Promise<void>((r) => {
+    release = r;
+  });
+  const sent: (typeof snapshot)[] = [];
+  const send = vi.fn(async (s: typeof snapshot) => {
+    sent.push(s);
+    if (sent.length === 1) await first;
+  });
+  const other = {
+    ...snapshot,
+    visitId: "270d1ba0-28c2-44b1-9d97-c9f9bc9e944e",
+  };
+  queueCheckpoints([snapshot, other]);
+  const background = drainCheckpoints(send);
+  await Promise.resolve();
+  await Promise.resolve();
+  const finish = {
+    ...snapshot,
+    finished: true,
+    annotationsOpened: ["one", "latest"],
+  };
+  queueCheckpoints([finish]);
+  const done = drainCheckpoints(send, [finish]);
+  expect(sent).toHaveLength(1);
+  release();
+  await Promise.all([background, done]);
+  expect(sent).toEqual([snapshot, finish]);
+  expect(parseCheckpoints(store.values().next().value ?? null)).toEqual([
+    other,
+  ]);
+  await drainCheckpoints(send);
+  expect(sent).toEqual([snapshot, finish, other]);
+  expect(setItem).toHaveBeenCalledTimes(5); // batch enqueues + one ack per batch, not per entry
+  vi.unstubAllGlobals();
+});
+
+it("keeps failed and offline finishes in memory even when localStorage is unavailable", async () => {
+  vi.stubGlobal("localStorage", {
+    getItem() {
+      throw new Error("private");
+    },
+    setItem() {
+      throw new Error("private");
+    },
+  });
+  vi.stubGlobal("navigator", { onLine: false });
+  const finish = { ...snapshot, finished: true };
+  queueCheckpoints([finish]);
+  const send = vi.fn(async () => {});
+  await expect(drainCheckpoints(send, [finish])).rejects.toThrow("Reconnect");
+  expect(send).not.toHaveBeenCalled();
+  vi.stubGlobal("navigator", { onLine: true });
+  const failed = vi.fn(async () => {
+    throw new Error("refused");
+  });
+  await expect(drainCheckpoints(failed, [finish])).rejects.toThrow("refused");
+  await drainCheckpoints(send);
+  expect(send).toHaveBeenCalledWith(finish);
+  vi.unstubAllGlobals();
 });
 it("retains same-timestamp annotation and finish updates until they too are acknowledged", () => {
   const updated = {

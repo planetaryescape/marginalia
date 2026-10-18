@@ -169,9 +169,9 @@ export function DeskPick({
     return act(async () => {
       // The reader draws this title in the same commit, so the morph has a destination
       rememberTitle(card._id, card.title);
-      const id = await recorder.open(card._id);
+      const sessionQuery = recorder.open(card._id);
       if (!mounted.current || visibleCard.current !== identity) return;
-      router.push(`/read/${card._id}${id ? `?session=${id}` : ""}`, {
+      router.push(`/read/${card._id}?${sessionQuery}`, {
         transitionTypes: [OPEN_ARTICLE],
       });
     });

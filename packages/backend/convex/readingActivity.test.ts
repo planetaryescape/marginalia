@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
-import { ownerTest } from "../test/owner";
+import { ownerTest, secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import { capDwell, furthestParagraph } from "./lib/readingActivity";
 
@@ -37,6 +37,126 @@ async function fixture() {
   };
 }
 describe("reading checkpoints", () => {
+  it("resolves concurrent creation idempotently and scopes identical keys to their authenticated reader", async () => {
+    const f = await secondReaderTest(modules);
+    const clientKey = "2bffb0eb-fcc8-499f-b369-7c7f4c307290";
+    const input = { clientKey, requestedMinutes: 17 };
+    const [first, repeated] = await Promise.all([
+      f.owner.mutation(api.sessions.create, input),
+      f.owner.mutation(api.sessions.create, input),
+    ]);
+    expect(first).toBe(repeated);
+    const other = await f.reader.mutation(api.sessions.create, {
+      clientKey,
+      requestedMinutes: 23,
+    });
+    expect(other).not.toBe(first);
+    expect(
+      await f.owner.query(api.sessions.getByClientKey, { clientKey }),
+    ).toEqual({ sessionId: first });
+    expect(
+      await f.reader.query(api.sessions.getByClientKey, { clientKey }),
+    ).toEqual({ sessionId: other });
+  });
+  it("keeps attribution and credits each day once when a queued finish crosses midnight", async () => {
+    const { t, checkpoint } = await fixture();
+    const sessionKey = "2bffb0eb-fcc8-499f-b369-7c7f4c307290";
+    const first = {
+      ...checkpoint,
+      startedAt: checkpoint.startedAt - 86_400_000,
+      updatedAt: checkpoint.updatedAt - 86_400_000,
+      day: new Date(checkpoint.startedAt - 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+      sessionKey,
+      requestedMinutes: 17,
+    };
+    const last = {
+      ...checkpoint,
+      sessionKey,
+      requestedMinutes: 17,
+      finished: true,
+    };
+    for (const snapshot of [first, last, first, last])
+      await t.mutation(api.readingActivity.checkpoint, snapshot);
+    const sessionId = await t.mutation(api.sessions.create, {
+      clientKey: sessionKey,
+      requestedMinutes: 17,
+    });
+    expect(await t.query(api.sessions.getById, { sessionId })).toMatchObject({
+      timeSpentMs: 12_000,
+      readingStatus: "completed",
+    });
+    const rows = await t.run((ctx) => ctx.db.query("readingActivity").take(5));
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.sessionId === sessionId)).toBe(true);
+    const interactions = await t.run((ctx) =>
+      ctx.db.query("articleInteractions").take(10),
+    );
+    expect(
+      interactions.filter((row) => row.action === "finished"),
+    ).toHaveLength(1);
+  });
+  it("finishes against the original session before desk creation resolves, without a late open downgrading Done", async () => {
+    const { t, articleId, checkpoint } = await fixture();
+    const sessionKey = "2bffb0eb-fcc8-499f-b369-7c7f4c307290";
+    await t.mutation(api.readingActivity.checkpoint, {
+      ...checkpoint,
+      sessionKey,
+      requestedMinutes: 17,
+      finished: true,
+    });
+    const sessionId = await t.mutation(api.sessions.create, {
+      clientKey: sessionKey,
+      requestedMinutes: 17,
+    });
+    await t.mutation(api.sessions.updateStatus, {
+      sessionId,
+      articleId,
+      readingStatus: "reading",
+    });
+    await t.mutation(api.readingActivity.checkpoint, {
+      ...checkpoint,
+      sessionKey,
+      requestedMinutes: 17,
+    });
+    expect(await t.query(api.sessions.getById, { sessionId })).toMatchObject({
+      readingStatus: "completed",
+      requestedMinutes: 17,
+      timeSpentMs: 6000,
+    });
+    const visits = await t.run((ctx) =>
+      ctx.db.query("readingActivity").take(5),
+    );
+    expect(visits).toHaveLength(1);
+    expect(visits[0].sessionId).toBe(sessionId);
+    await expect(
+      t.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint,
+        sessionKey,
+        requestedMinutes: 20,
+      }),
+    ).rejects.toThrow("time changed");
+  });
+  it("fences a reading visit against a different session even at the same time window", async () => {
+    const { t, checkpoint } = await fixture();
+    const first = await t.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    const second = await t.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    await t.mutation(api.readingActivity.checkpoint, {
+      ...checkpoint,
+      sessionId: first,
+    });
+    await expect(
+      t.mutation(api.readingActivity.checkpoint, {
+        ...checkpoint,
+        sessionId: second,
+      }),
+    ).rejects.toThrow("session changed");
+  });
   it("copies the article's length onto the visit", async () => {
     const { t, articleId, checkpoint } = await fixture();
     await t.run((ctx) =>

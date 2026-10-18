@@ -36,6 +36,7 @@ import type * as auth from "../auth.js";
 import type * as background from "../background.js";
 import type * as bookIndex from "../bookIndex.js";
 import type * as books from "../books.js";
+import type * as readerBootstrap from "../readerBootstrap.js";
 import type * as catchUp from "../catchUp.js";
 import type * as chatgpt from "../chatgpt.js";
 import type * as citedArticles from "../citedArticles.js";
@@ -178,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   background: typeof background;
   bookIndex: typeof bookIndex;
   books: typeof books;
+  readerBootstrap: typeof readerBootstrap;
   catchUp: typeof catchUp;
   chatgpt: typeof chatgpt;
   citedArticles: typeof citedArticles;

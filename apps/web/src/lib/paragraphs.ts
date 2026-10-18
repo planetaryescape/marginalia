@@ -11,6 +11,10 @@ export {
 } from "@planetaryescape/reader";
 
 import { getArticleBody } from "@planetaryescape/reader";
+import {
+  invalidateParagraphGeometry,
+  paragraphGeometry,
+} from "./paragraph-geometry";
 
 /** Marks our own UI placed among the article's blocks (answers unfolded on a phone). */
 export const UI_HOST_ATTRIBUTE = "data-marginalia-ui";
@@ -61,11 +65,11 @@ function tagParagraphs(body: HTMLElement): HTMLElement[] {
 }
 
 function measureIndents(body: HTMLElement, leaves: HTMLElement[]) {
-  const bodyLeft = body.getBoundingClientRect().left;
+  const geometry = paragraphGeometry(body);
+  if (!geometry) return;
+  const bodyLeft = geometry.body.left;
   // Read the whole column before writing any paragraph's style.
-  const indents = leaves.map(
-    (el) => el.getBoundingClientRect().left - bodyLeft,
-  );
+  const indents = leaves.map((_el, i) => geometry.rects[i].left - bodyLeft);
   leaves.forEach((el, i) => {
     const value = `${indents[i]}px`;
     if (el.style.getPropertyValue("--para-indent") !== value)
@@ -115,6 +119,7 @@ export function useParagraphs(
         const proseChanged = contentChanged;
         if (proseChanged) {
           leaves = tagParagraphs(body);
+          invalidateParagraphGeometry(body);
           contentChanged = false;
         }
         if (indentsChanged) measureIndents(body, leaves);

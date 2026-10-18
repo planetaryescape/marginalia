@@ -353,6 +353,26 @@ export default defineSchema({
     .index("by_userId_and_finished", ["userId", "finished"]),
 
   // A book's text, one reading unit per row (a unit is a few thousand words)
+  bookUnitStatus: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    index: v.number(),
+    unitId: v.id("bookUnits"),
+    annotationStatus: v.union(
+      v.literal("pending"),
+      v.literal("annotated"),
+      v.literal("failed"),
+      v.literal("skipped"),
+      v.literal("deferred"),
+    ),
+    skipReason: v.optional(v.literal("no_provider")),
+    annotationRetries: v.optional(v.number()),
+  }).index("by_userId_and_articleId_and_index", [
+    "userId",
+    "articleId",
+    "index",
+  ]),
+
   bookUnits: defineTable({
     userId: v.string(),
     articleId: v.id("articles"),
@@ -589,6 +609,7 @@ export default defineSchema({
 
   sessions: defineTable({
     userId: v.string(),
+    clientKey: v.optional(v.string()),
     requestedMinutes: v.number(),
     startedAt: v.number(),
     endedAt: v.optional(v.number()),
@@ -605,6 +626,7 @@ export default defineSchema({
     timeSpentMs: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
+    .index("by_userId_and_clientKey", ["userId", "clientKey"])
     .index("by_user_recent", ["userId", "startedAt"]),
 
   articleInteractions: defineTable({

@@ -10,8 +10,8 @@ type Action = "presented" | "skipped" | "saved";
 export type SessionRecorder = {
   /** Queued until the session id exists, then sent in the order it was called. */
   record: (input: { articleId: Id<"articles">; action: Action }) => void;
-  /** Records the article as opened and the session as reading; resolves to the session id. */
-  open: (articleId: Id<"articles">) => Promise<SessionId>;
+  /** Queues the open and returns stable URL attribution without waiting for creation. */
+  open: (articleId: Id<"articles">) => string;
 };
 
 /**
@@ -28,6 +28,7 @@ export function useSessionRecorder(input: {
   const createSession = useMutation(api.sessions.create);
   const recordInteraction = useMutation(api.sessions.recordInteraction);
   const updateStatus = useMutation(api.sessions.updateStatus);
+  const [clientKey] = useState(() => crypto.randomUUID());
 
   const [ready] = useState(() => {
     let resolve: (id: SessionId) => void = () => {};
@@ -45,14 +46,20 @@ export function useSessionRecorder(input: {
     // A ref survives React's development re-run of effects, so this creates one session
     if (started.current || input.existingId) return;
     started.current = true;
-    createSession({ requestedMinutes: input.requestedMinutes }).then(
+    createSession({ requestedMinutes: input.requestedMinutes, clientKey }).then(
       ready.resolve,
       (error) => {
         console.error("Couldn't create the session", error);
         ready.resolve(undefined);
       },
     );
-  }, [createSession, ready, input.existingId, input.requestedMinutes]);
+  }, [
+    createSession,
+    ready,
+    input.existingId,
+    input.requestedMinutes,
+    clientKey,
+  ]);
 
   const enqueue = (task: (sessionId: SessionId) => Promise<void>) => {
     tail.current = tail.current.then(async () => {
@@ -79,9 +86,14 @@ export function useSessionRecorder(input: {
           );
       else enqueue(send);
     },
-    open: async (articleId) => {
-      const sessionId = await ready.promise;
-      enqueue(async () => {
+    open: (articleId) => {
+      enqueue(async (resolvedId) => {
+        const sessionId =
+          resolvedId ??
+          (await createSession({
+            requestedMinutes: input.requestedMinutes,
+            clientKey,
+          }));
         await recordInteraction({ articleId, sessionId, action: "opened" });
         if (sessionId)
           await updateStatus({
@@ -90,7 +102,9 @@ export function useSessionRecorder(input: {
             articleId,
           });
       });
-      return sessionId;
+      return input.existingId
+        ? `session=${encodeURIComponent(input.existingId)}`
+        : `sessionKey=${clientKey}&minutes=${input.requestedMinutes}`;
     },
   };
 }
