@@ -336,7 +336,8 @@ export function useCompanion({
 
       // Define is told which usage of the words was selected, not just the words.
       const sentence =
-        base.mode === "define"
+        context.sentence ??
+        (base.mode === "define"
           ? sentenceAround(
               base.paragraphIndex === null
                 ? ""
@@ -347,7 +348,7 @@ export function useCompanion({
               base.selection,
               base.occurrence,
             )
-          : undefined;
+          : undefined);
 
       let answer = "";
       let model: string | null = base.model ?? null;
@@ -375,8 +376,8 @@ export function useCompanion({
             title,
             ...context,
             selection: base.selection,
-            paragraphIndex: base.paragraphIndex,
-            paragraphEnd: base.paragraphEnd,
+            paragraphIndex: context.paragraphIndex ?? base.paragraphIndex,
+            paragraphEnd: context.paragraphEnd ?? base.paragraphEnd,
             sentence,
             // Define names the usage; a passage Ask's long paragraph is cut around it
             occurrence:

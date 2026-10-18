@@ -15,6 +15,20 @@ const DAY = 24 * 60 * 60_000;
 const embedder = { provider: "openrouter" as const, apiKey: "test-only" };
 const MODEL = "openai/text-embedding-3-small";
 
+async function cacheTest() {
+  const t = readerTest(modules);
+  await t.run(async (ctx) => {
+    for (const libraryId of ["reader-a", "reader-b"])
+      await ctx.db.insert("readers", {
+        libraryId,
+        authId: `fixture-${libraryId}`,
+        status: "active",
+        createdAt: 0,
+      });
+  });
+  return t;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -59,7 +73,7 @@ describe("normaliseQuery", () => {
 
 describe("cachedQueryEmbedding", () => {
   it("embeds a miss once, then serves the repeat from the cache", async () => {
-    const t = readerTest(modules);
+    const t = await cacheTest();
     const calls = embeddingCalls();
     const ctx = actionCtx(t);
 
@@ -84,7 +98,7 @@ describe("cachedQueryEmbedding", () => {
   });
 
   it("treats differently spaced and cased queries as one entry", async () => {
-    const t = readerTest(modules);
+    const t = await cacheTest();
     const calls = embeddingCalls();
     const ctx = actionCtx(t);
 
@@ -105,24 +119,26 @@ describe("cachedQueryEmbedding", () => {
   });
 
   it("keeps each reader's entries to themselves", async () => {
-    const t = readerTest(modules);
+    const t = await cacheTest();
     const calls = embeddingCalls();
     const ctx = actionCtx(t);
 
-    await cachedQueryEmbedding(ctx, "reader-a", "rust async", embedder);
+    await (await cachedQueryEmbedding(ctx, "reader-a", "rust async", embedder))
+      .publication;
     const other = await cachedQueryEmbedding(
       ctx,
       "reader-b",
       "rust async",
       embedder,
     );
+    await other.publication;
 
     expect(other.cached).toBe(false);
     expect(calls).toHaveLength(2);
   });
 
   it("misses when the entry came from another model, and replaces it", async () => {
-    const t = readerTest(modules);
+    const t = await cacheTest();
     const calls = embeddingCalls();
     const ctx = actionCtx(t);
     await t.mutation(internal.queryEmbeddings.store, {
@@ -185,7 +201,7 @@ describe("cachedQueryEmbedding", () => {
 
 describe("queryEmbeddings expiry and cap", () => {
   it("ignores an entry once it is 30 days old, and keeps one just inside", async () => {
-    const t = readerTest(modules);
+    const t = await cacheTest();
     const stored = 1_700_000_000_000;
     await t.mutation(internal.queryEmbeddings.store, {
       userId: "reader-a",
@@ -209,7 +225,7 @@ describe("queryEmbeddings expiry and cap", () => {
   });
 
   it("keeps a reader at the cap by dropping the oldest entries on insert", async () => {
-    const t = readerTest(modules);
+    const t = await cacheTest();
     const base = 1_700_000_000_000;
     for (let i = 0; i <= QUERY_EMBEDDING_CAP; i++) {
       await t.mutation(internal.queryEmbeddings.store, {
@@ -248,7 +264,7 @@ describe("queryEmbeddings expiry and cap", () => {
   });
 
   it("removes expired entries when a new one is stored", async () => {
-    const t = readerTest(modules);
+    const t = await cacheTest();
     const base = 1_700_000_000_000;
     await t.mutation(internal.queryEmbeddings.store, {
       userId: "reader-a",

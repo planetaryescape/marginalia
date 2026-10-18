@@ -1,7 +1,10 @@
 import { expect, it } from "vitest";
+import { LOCAL_PARAGRAPH_CHARS } from "./lib/localContext";
 import {
   buildCompanionPrompt,
   companionRequestSchema,
+  MAX_CONTEXT_CHARS,
+  selectContext,
 } from "./lib/readingCompanion";
 
 it("sparse local tools preserve exactly the old prompt and original paragraph citations", () => {
@@ -34,10 +37,14 @@ it("sparse local tools preserve exactly the old prompt and original paragraph ci
   }
 });
 
-it("keeps a huge single selected paragraph intact within a near-300000-character packet", () => {
-  const text = `${"x".repeat(292_000)} selected ending`;
+it.each([
+  "define",
+  "explain",
+  "simplify",
+] as const)("bounds %s for a near-limit paragraph while retaining its selected ending and original citation", (mode) => {
+  const text = `${"Earlier background. ".repeat(15_000).slice(0, 299_000)} selected ending`;
   const body = {
-    mode: "explain",
+    mode,
     title: "Fixture",
     selection: "selected ending",
     paragraphIndex: 149,
@@ -47,8 +54,79 @@ it("keeps a huge single selected paragraph intact within a near-300000-character
   expect(JSON.stringify(body).length).toBeLessThan(300_000);
   const parsed = companionRequestSchema.parse(body);
   const prompt = buildCompanionPrompt(parsed).messages[0].content;
-  expect(prompt).toContain(text);
+  expect(prompt.length).toBeLessThan(LOCAL_PARAGRAPH_CHARS + 5000);
+  expect(prompt).toContain("background.");
+  expect(prompt).toContain("selected ending");
+  expect(prompt).not.toContain(text);
   expect(prompt).toContain("¶150");
+});
+
+it("preserves ordinary 20k paragraphs verbatim", () => {
+  const paragraphs = [
+    "before ".padEnd(20_000, "b"),
+    "selected ".padEnd(20_000, "s"),
+    "after ".padEnd(20_000, "a"),
+  ];
+  const request = companionRequestSchema.parse({
+    mode: "explain",
+    title: "Fixture",
+    paragraphs,
+    selection: "selected",
+    paragraphIndex: 1,
+  });
+  const prompt = buildCompanionPrompt(request).messages[0].content;
+  for (const paragraph of paragraphs) expect(prompt).toContain(paragraph);
+});
+
+it("keeps both crossing edges and neighbours without uploading oversized paragraphs", () => {
+  const paragraphs = [
+    "previous context",
+    `${"before ".repeat(20_000)}selected tail`,
+    `selected head ${"after ".repeat(20_000)}`,
+    "following context",
+  ];
+  const body = {
+    mode: "explain",
+    title: "Fixture",
+    paragraphs,
+    selection: "selected tail selected head",
+    paragraphIndex: 1,
+    paragraphEnd: 2,
+  };
+  expect(JSON.stringify(body).length).toBeLessThan(300_000);
+  const request = companionRequestSchema.parse(body);
+  const context = selectContext(request);
+  expect(
+    [...context.excerpts!.values()].reduce((sum, text) => sum + text.length, 0),
+  ).toBeLessThanOrEqual(MAX_CONTEXT_CHARS);
+  const prompt = buildCompanionPrompt(request).messages[0].content;
+  expect(prompt).toContain("¶2 ←");
+  expect(prompt).toContain("¶3 ←");
+  expect(prompt).toContain("selected tail");
+  expect(prompt).toContain("selected head");
+  expect(prompt).toContain("previous context");
+  expect(prompt).toContain("following context");
+  expect(prompt.length).toBeLessThan(45_000);
+});
+
+it("caps many selected paragraphs at the aggregate budget, not just per paragraph", () => {
+  const paragraphs = Array.from({ length: 14 }, (_, i) =>
+    `${i} selected text `.padEnd(20_000, "x"),
+  );
+  const request = companionRequestSchema.parse({
+    mode: "simplify",
+    title: "Fixture",
+    paragraphs,
+    selection: "selected text",
+    paragraphIndex: 1,
+    paragraphEnd: 12,
+  });
+  const context = selectContext(request);
+  expect(
+    [...context.excerpts!.values()].reduce((sum, text) => sum + text.length, 0),
+  ).toBeLessThanOrEqual(MAX_CONTEXT_CHARS);
+  expect(context.indices).toContain(1);
+  expect(context.indices).toContain(12);
 });
 
 it("never accepts sparse retrieval or duplicate/out-of-order citation indices", () => {

@@ -2,6 +2,7 @@
 import { act, type RefObject, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { useCompanion } from "./companion";
 import { DEFAULT_SETTINGS } from "./reader-settings";
 
@@ -193,6 +194,29 @@ afterEach(async () => {
 });
 
 describe("answers are temporary until kept", () => {
+  it("clips a huge Define context without changing the lookup's original occurrence", async () => {
+    const paragraph = article.querySelectorAll("p")[1];
+    paragraph.textContent = `${"The river bank is muddy. ".repeat(12_000)}This bank lends money.`;
+    const text = paragraph.firstChild!;
+    const at = text.textContent!.lastIndexOf("bank");
+    range.setStart(text, at);
+    range.setEnd(text, at + 4);
+    await mount();
+    await ask("define");
+    expect(
+      z.array(z.string()).parse(bodies[0].paragraphs).join("").length,
+    ).toBeLessThanOrEqual(20_000);
+    expect(bodies[0].sentence).toBe("This bank lends money.");
+    expect(bodies[0].occurrence).toBe(12_000);
+    await finish("A bank is a financial institution.");
+    expect(mocks.recordLookup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        occurrence: 12_000,
+        sentence: "This bank lends money.",
+        paragraphIndex: 1,
+      }),
+    );
+  });
   it("flushes Stop independently for concurrent answers and never paints a superseded generation", async () => {
     await mount();
     await ask();
