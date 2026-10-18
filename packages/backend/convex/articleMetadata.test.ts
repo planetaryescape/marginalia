@@ -54,7 +54,8 @@ describe("physical article metadata", () => {
     const row = await t.run((ctx) => ctx.db.query("articleMetadata").first());
     expect(row?.title).toBe("x".repeat(2047));
     expect(row?.author).toBe("x".repeat(511));
-    expect(row?.url).toBe("x".repeat(8191));
+    expect(row?.url).toBe("");
+    expect(row?.urlDeferred).toBe(true);
   });
   it("initializes only truly empty new libraries, not populated legacy or disabled readers", async () => {
     const f = await secondReaderTest(modules);
@@ -92,8 +93,22 @@ describe("physical article metadata", () => {
     for (let i = 0; i < 40; i++) {
       ids.push(
         await t.run(async (ctx) => {
+          const annotationStatus =
+            i >= 32 && i < 36
+              ? ("failed" as const)
+              : i >= 24 && i < 32
+                ? ("deferred" as const)
+                : ("annotated" as const);
+          const estimatedReadMinutes =
+            i < 12 || (i >= 24 && i < 28) || (i >= 32 && i < 34)
+              ? 9
+              : i < 36
+                ? 11
+                : 10;
           const fields = {
             ...article(libraryId, `Metadata choice ${i}`),
+            annotationStatus,
+            estimatedReadMinutes,
             content: "x".repeat(990_000),
           };
           const id = await ctx.db.insert("articles", fields);
@@ -432,20 +447,22 @@ describe("physical article metadata", () => {
   });
 
   it("uses one fallback budget across nested identity helpers, never a false not-owned result", async () => {
-    const t = await ownerTest(modules);
-    const ids = await t.run(async (ctx) => {
-      const rows = [];
-      for (let i = 0; i < 9; i++)
-        rows.push(
-          await ctx.db.insert("articles", article("default_user", `old ${i}`)),
-        );
-      return rows;
-    });
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const ids: Id<"articles">[] = [];
+    for (let i = 0; i < 12; i++)
+      ids.push(
+        await t.run((ctx) =>
+          ctx.db.insert("articles", {
+            ...article("default_user", `old ${i}`),
+            content: "x".repeat(990_000),
+          }),
+        ),
+      );
     await expect(
       t.run(async (ctx) => {
         for (const id of ids) await ownedArticleCard(ctx, id, "default_user");
       }),
-    ).rejects.toThrow("metadata is updating");
+    ).rejects.toThrow("read budget");
   });
 
   it("pins existing opaque and versioned pagination cursors to their physical source across readiness", async () => {

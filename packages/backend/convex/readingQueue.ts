@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, type MutationCtx } from "./_generated/server";
 import { libraryIsActive } from "./access";
+import { internalMutation, type MutationCtx } from "./functions";
 
 function contribution(article: Doc<"articles"> | null) {
   // A deferred article is as much in the queue as an annotated one; only its
@@ -126,8 +126,10 @@ export const initialize = internalMutation({
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .paginate({
         cursor: stats.cursor ?? null,
-        numItems: 8,
-        maximumBytesRead: 4_000_000,
+        numItems: 4,
+        // Leave room for trigger pre/post reads, the patch syscall and
+        // historical finish rows; the page can overshoot by one document.
+        maximumBytesRead: 1_500_000,
       });
     for (const article of page.page) {
       if (!article.queueCounted) await updateQueueStats(ctx, null, article);

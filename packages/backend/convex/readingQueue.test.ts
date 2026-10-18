@@ -41,7 +41,7 @@ describe("whole-library reading queue counts", () => {
       return ids;
     });
     expect((await t.query(api.home.counts, {})).waiting).toBeNull();
-    for (let i = 0; i < 40; i++)
+    for (let i = 0; i < 80; i++)
       await t.mutation(internal.readingQueue.initialize, {
         userId: "default_user",
       });

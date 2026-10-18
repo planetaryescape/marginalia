@@ -1,9 +1,10 @@
 import type {
+  GenericDocument,
   OrderedQuery,
   PaginationOptions,
   PaginationResult,
 } from "convex/server";
-import { ConvexError } from "convex/values";
+import { ConvexError, getDocumentSize } from "convex/values";
 import { z } from "zod";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -23,10 +24,15 @@ export function articleProjection(a: Doc<"articles">) {
     userId: a.userId,
     sourceCreationTime: a._creationTime,
     title: displayText(a.title, 2048),
-    url: displayText(a.url, 8192),
-    guid: displayText(a.guid, 8192),
+    // Empty + explicit deferred marker is not a different URL/identity.
+    // Actual card callers resolve rare oversized originals under the shared
+    // byte budget; ordinary cards never read their source body.
+    url: a.url.length <= 8192 ? a.url : "",
+    guid: a.guid.length <= 8192 ? a.guid : "",
+    urlDeferred: a.url.length > 8192 ? true : undefined,
+    guidDeferred: a.guid.length > 8192 ? true : undefined,
     author: a.author && displayText(a.author, 512),
-    imageUrl: a.imageUrl && displayText(a.imageUrl, 8192),
+    imageUrl: a.imageUrl && a.imageUrl.length <= 8192 ? a.imageUrl : undefined,
     excerpt: a.excerpt && displayText(a.excerpt, 512),
     feedId: a.feedId,
     publishedAt: a.publishedAt,
@@ -35,6 +41,8 @@ export function articleProjection(a: Doc<"articles">) {
     extractionStatus: a.extractionStatus,
     annotationStatus: a.annotationStatus,
     annotationRetries: a.annotationRetries,
+    annotationVersion: a.annotationVersion,
+    hasContent: Boolean(a.content),
     finishedAt: a.finishedAt,
     bookUnitCount: a.bookUnitCount,
     uploadedFileName:
@@ -51,9 +59,7 @@ export type ArticleCard = Omit<
 > &
   Pick<Doc<"articles">, "_id" | "_creationTime">;
 
-export function articleCard(
-  a: Doc<"articles"> | Doc<"articleMetadata">,
-): ArticleCard {
+function articleCard(a: Doc<"articles"> | Doc<"articleMetadata">): ArticleCard {
   const { articleId, sourceCreationTime, ...fields } =
     "articleId" in a ? a : articleProjection(a);
   // Do not expose the derived table's system identity.
@@ -196,16 +202,93 @@ export async function initializeEmptyMetadata(
   return true;
 }
 
-// Only a transaction-local numeric budget, never an auth or personal-data cache.
-// All legacy identity/part fallbacks in this transaction share the same db handle.
-const legacyReads = new WeakMap<QueryCtx["db"], number>();
-export function reserveLegacyReads(ctx: Pick<QueryCtx, "db">, count = 1) {
-  const used = legacyReads.get(ctx.db) ?? 0;
-  if (used + count > 8)
+// Transaction-local bytes only, not a personal-data/auth cache. Reserve a full
+// document before every read, then charge its actual Convex storage size.
+const MAX_DOCUMENT_BYTES = 1024 * 1024;
+const LEGACY_BYTES = 10 * MAX_DOCUMENT_BYTES;
+type LegacyBudget = { used: number; reserved: number; tail: Promise<void> };
+const legacyReads = new WeakMap<QueryCtx["db"], LegacyBudget>();
+function legacyBudget(ctx: Pick<QueryCtx, "db">) {
+  let budget = legacyReads.get(ctx.db);
+  if (!budget) {
+    budget = { used: 0, reserved: 0, tail: Promise.resolve() };
+    legacyReads.set(ctx.db, budget);
+  }
+  return budget;
+}
+function reserveLegacyBytes(ctx: Pick<QueryCtx, "db">, bytes: number) {
+  const budget = legacyBudget(ctx);
+  if (budget.used + budget.reserved + bytes > LEGACY_BYTES)
     throw new ConvexError(
-      "Library metadata is updating. Please try again shortly.",
+      "Article headers exceed this request's read budget. Request fewer articles.",
     );
-  legacyReads.set(ctx.db, used + count);
+  budget.reserved += bytes;
+  return (actual: number) => {
+    budget.reserved -= bytes;
+    budget.used += actual;
+  };
+}
+
+export function readLegacyDocument<T extends GenericDocument>(
+  ctx: Pick<QueryCtx, "db">,
+  read: () => Promise<T | null>,
+): Promise<T | null> {
+  const budget = legacyBudget(ctx);
+  // Do not reject 40 small concurrent identity joins merely because their
+  // worst-case reservations overlap. Only legacy/deferred body reads queue.
+  const result = budget.tail.then(async () => {
+    const charge = reserveLegacyBytes(ctx, MAX_DOCUMENT_BYTES);
+    let row: T | null = null;
+    try {
+      row = await read();
+      return row;
+    } finally {
+      charge(row ? getDocumentSize(row) : 0);
+    }
+  });
+  budget.tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+/** A paginated filtered range may read non-returned rows. Reserve its entire
+ * physical byte ceiling plus one document of overshoot, not just page.length. */
+export function reserveLegacyPage(
+  ctx: Pick<QueryCtx, "db">,
+  maximumBytesRead: number,
+) {
+  const reserved = maximumBytesRead + MAX_DOCUMENT_BYTES;
+  reserveLegacyBytes(ctx, reserved)(reserved);
+}
+
+export async function resolveArticleCard(
+  ctx: Pick<QueryCtx, "db">,
+  row: Doc<"articles"> | Doc<"articleMetadata">,
+): Promise<ArticleCard | null> {
+  const card = articleCard(row);
+  if (!("articleId" in row)) return { ...card, url: row.url, guid: row.guid };
+  if (!row.urlDeferred && !row.guidDeferred) return card;
+  const original = await readLegacyDocument(ctx, () =>
+    ctx.db.get("articles", row.articleId),
+  );
+  return original?.userId === row.userId
+    ? { ...card, url: original.url, guid: original.guid }
+    : null;
+}
+
+export async function resolveArticleCards(
+  ctx: Pick<QueryCtx, "db">,
+  rows: (Doc<"articles"> | Doc<"articleMetadata">)[],
+) {
+  const cards: ArticleCard[] = [];
+  // Serial only for rare deferred originals; this shares the same byte ledger.
+  for (const row of rows) {
+    const card = await resolveArticleCard(ctx, row);
+    if (card) cards.push(card);
+  }
+  return cards;
 }
 
 export async function ownedArticleCard(
@@ -217,11 +300,10 @@ export async function ownedArticleCard(
     .query("articleMetadata")
     .withIndex("by_articleId", (q) => q.eq("articleId", articleId))
     .unique();
-  if (row) return row.userId === userId ? articleCard(row) : null;
+  if (row) return row.userId === userId ? resolveArticleCard(ctx, row) : null;
   if (await metadataReady(ctx, userId)) return null;
-  reserveLegacyReads(ctx);
-  const article = await ctx.db.get(articleId);
-  return article?.userId === userId ? articleCard(article) : null;
+  const article = await readLegacyDocument(ctx, () => ctx.db.get(articleId));
+  return article?.userId === userId ? resolveArticleCard(ctx, article) : null;
 }
 
 export async function bookPartCard(
@@ -243,21 +325,22 @@ export async function bookPartCard(
     .unique();
   if (state && state.phase !== "articles" && state.phase !== "parts")
     return null;
-  reserveLegacyReads(ctx);
-  const unit = await ctx.db
-    .query("bookUnits")
-    .withIndex("by_userId_and_articleId_and_index", (q) =>
-      q.eq("userId", userId).eq("articleId", articleId).eq("index", index),
-    )
-    .unique();
+  const unit = await readLegacyDocument(ctx, () =>
+    ctx.db
+      .query("bookUnits")
+      .withIndex("by_userId_and_articleId_and_index", (q) =>
+        q.eq("userId", userId).eq("articleId", articleId).eq("index", index),
+      )
+      .unique(),
+  );
   return unit
     ? { title: unit.title, minutes: unit.estimatedReadMinutes }
     : null;
 }
 
 type CardQuery =
-  | Pick<OrderedQuery<DataModel["articles"]>, "take" | "paginate">
-  | Pick<OrderedQuery<DataModel["articleMetadata"]>, "take" | "paginate">;
+  | OrderedQuery<DataModel["articles"]>
+  | OrderedQuery<DataModel["articleMetadata"]>;
 
 export async function windowSource(
   ctx: Pick<QueryCtx, "db">,
@@ -402,21 +485,26 @@ export async function cardPagination(
 export async function takeCards(
   ctx: Pick<QueryCtx, "db">,
   userId: string,
-  source: Pick<CardQuery, "take">,
+  source: CardQuery,
   limit: number,
 ): Promise<ArticleCard[]> {
   if (await metadataReady(ctx, userId))
-    return (await source.take(limit)).map(articleCard);
-  const remaining = 8 - (legacyReads.get(ctx.db) ?? 0);
-  if (remaining === 0)
-    throw new ConvexError(
-      "Library metadata is updating. Please try again shortly.",
-    );
-  const rows = await source.take(Math.min(limit, remaining));
-  reserveLegacyReads(ctx, rows.length);
-  if (rows.length === remaining && limit > remaining)
-    throw new ConvexError(
-      "Library metadata is updating. Please try again shortly.",
-    );
-  return rows.map(articleCard);
+    return resolveArticleCards(ctx, await source.take(limit));
+  const rows: (Doc<"articles"> | Doc<"articleMetadata">)[] = [];
+  const iterator = source[Symbol.asyncIterator]();
+  try {
+    while (rows.length < limit) {
+      const row = await readLegacyDocument<
+        Doc<"articles"> | Doc<"articleMetadata">
+      >(ctx, async () => {
+        const next = await iterator.next();
+        return next.done ? null : next.value;
+      });
+      if (!row) break;
+      rows.push(row);
+    }
+  } finally {
+    await iterator.return?.();
+  }
+  return resolveArticleCards(ctx, rows);
 }
