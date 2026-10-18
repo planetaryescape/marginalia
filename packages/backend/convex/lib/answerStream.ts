@@ -5,6 +5,7 @@ import {
   sourcesFooter,
   streamChat,
 } from "./companionStream";
+import { resolveTarget } from "./providerTarget";
 import {
   ANSWER_DEADLINES,
   interruptible,
@@ -49,16 +50,22 @@ export async function streamWithFallback(
     signal.throwIfAborted();
     const attempt = requestAttempt(signal, deadlines.totalMs);
     const firstWait = requestAttempt(attempt.signal, deadlines.firstTokenMs);
-    const events = streamChat({
-      target,
-      messages: chat,
-      web,
-      maxTokens,
-      signal: attempt.signal,
-    });
+    let events: AsyncGenerator<StreamEvent> | undefined;
     const citations: { url: string; title?: string }[] = [];
     let first: string | null = null;
     try {
+      // Do not detach a rotating-token refresh when Stop wins the token wait.
+      // The browser cancels immediately; this server waiter still joins lease
+      // publication before returning. API-key targets have no refresh work.
+      const resolved = await resolveTarget(target);
+      attempt.signal.throwIfAborted();
+      events = streamChat({
+        target: resolved,
+        messages: chat,
+        web,
+        maxTokens,
+        signal: attempt.signal,
+      });
       while (first === null) {
         const next = await interruptible(events.next(), firstWait.signal);
         if (next.done) throw new Error("Provider returned no answer");
@@ -71,7 +78,7 @@ export async function streamWithFallback(
       // The previous attempt is always aborted before another provider starts.
       attempt.abort(error);
       firstWait.dispose();
-      await closeEvents(events);
+      if (events) await closeEvents(events);
       attempt.dispose();
       options.timings?.mark(`attempt-${index + 1}-failed`);
       signal.throwIfAborted();
@@ -84,6 +91,7 @@ export async function streamWithFallback(
       continue;
     }
     firstWait.dispose();
+    const activeEvents = events;
     options.timings?.mark("first-token");
     let answer = first;
     let pending: string | null = first;
@@ -94,7 +102,7 @@ export async function streamWithFallback(
       if (cleanup) return cleanup;
       finished = true;
       attempt.abort();
-      cleanup = closeEvents(events).finally(() => attempt.dispose());
+      cleanup = closeEvents(activeEvents).finally(() => attempt.dispose());
       return cleanup;
     };
     const body = new ReadableStream<Uint8Array>(
@@ -112,7 +120,10 @@ export async function streamWithFallback(
             const idle = requestAttempt(attempt.signal, deadlines.idleMs);
             try {
               for (;;) {
-                const next = await interruptible(events.next(), idle.signal);
+                const next = await interruptible(
+                  activeEvents.next(),
+                  idle.signal,
+                );
                 if (next.done) {
                   const footer = sourcesFooter(answer, citations);
                   if (footer) controller.enqueue(encoder.encode(footer));

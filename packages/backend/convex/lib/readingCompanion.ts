@@ -5,11 +5,17 @@ import {
   type Segment,
 } from "./articleAsk";
 import { type BookAskContext, formatBookContext } from "./bookAsk";
+import {
+  boundedLocalContext,
+  crossInto,
+  MAX_CONTEXT_CHARS,
+  occurrenceAt,
+} from "./localContext";
 
 // Gemini Flash takes far more than this, but a long article plus every
 // follow-up adds up quickly; beyond this budget only the paragraphs nearest
 // the highlighted passage are sent.
-export const MAX_CONTEXT_CHARS = 120_000;
+export { MAX_CONTEXT_CHARS } from "./localContext";
 
 export const companionRequestSchema = z
   .object({
@@ -21,7 +27,12 @@ export const companionRequestSchema = z
     // For a book, the part on screen; the paragraphs sent are that part's
     unitIndex: z.number().int().min(0).max(100_000).optional(),
     title: z.string().max(500),
-    paragraphs: z.array(z.string().max(20_000)).max(4000),
+    paragraphs: z.array(z.string().max(300_000)).max(4000),
+    // Additive contract: only local tools may send sparse, original indices.
+    paragraphIndices: z
+      .array(z.number().int().min(0).max(3999))
+      .max(4000)
+      .optional(),
     selection: z.string().trim().max(4000).default(""),
     paragraphIndex: z.number().int().min(0).nullable(),
     // The last paragraph the selection crosses, from the reader's own range.
@@ -31,6 +42,8 @@ export const companionRequestSchema = z
     // the word in its paragraph it was, so a repeated word is defined as used.
     sentence: z.string().trim().max(2000).optional(),
     occurrence: z.number().int().min(0).optional(),
+    // A clipped local window has its own match count; occurrence stays original.
+    contextOccurrence: z.number().int().min(0).optional(),
     question: z.string().trim().max(2000).optional(),
     length: z.enum(["brief", "standard", "detailed"]).default("standard"),
     level: z.enum(["plain", "balanced", "expert"]).default("balanced"),
@@ -56,6 +69,32 @@ export const companionRequestSchema = z
   .refine((r) => r.mode === "article" || Boolean(r.selection), {
     message: "Explain, Simplify, Define and Ask need a highlighted passage",
     path: ["selection"],
+  })
+  .refine(
+    (r) =>
+      !r.paragraphIndices ||
+      (r.mode !== "ask" &&
+        r.mode !== "article" &&
+        r.paragraphIndices.length === r.paragraphs.length &&
+        r.paragraphIndices.every((n, i, all) => i === 0 || n > all[i - 1]) &&
+        r.paragraphIndex !== null &&
+        r.paragraphIndices.includes(r.paragraphIndex) &&
+        (r.mode === "define" ||
+          r.paragraphEnd === undefined ||
+          r.paragraphIndices.includes(
+            Math.min(r.paragraphEnd, r.paragraphIndex + 20),
+          ))),
+    { message: "Invalid local paragraph context" },
+  )
+  .transform((r) => {
+    if (!r.paragraphIndices) return r;
+    const paragraphs = new Array<string>(
+      (r.paragraphIndices.at(-1) ?? -1) + 1,
+    ).fill("");
+    r.paragraphIndices.forEach((index, i) => {
+      paragraphs[index] = r.paragraphs[i];
+    });
+    return { ...r, paragraphs };
   });
 
 export type CompanionRequest = z.infer<typeof companionRequestSchema>;
@@ -170,30 +209,6 @@ function passageStart(request: CompanionRequest): number | null {
   return found < 0 ? null : found;
 }
 
-/** Least text a selection must share with two paragraphs' edges to count as crossing between them. */
-const MIN_CROSSING = 12;
-
-/**
- * Where the rest of a selection leaves `paragraph` for `next`: the selection
- * so far ends the paragraph, and what follows is the start of the next one,
- * however little of it. Returns that remainder, or null if it stays inside.
- */
-function crossInto(rest: string, paragraph: string, next: string) {
-  for (let cut = Math.min(rest.length, paragraph.length); cut > 0; cut--) {
-    if (!paragraph.endsWith(rest.slice(0, cut))) continue;
-    const remainder = rest.slice(cut).trimStart();
-    if (!remainder) return null;
-    const shared = Math.min(remainder.length, next.length);
-    if (
-      shared > 0 &&
-      cut + shared >= MIN_CROSSING &&
-      next.startsWith(remainder.slice(0, shared))
-    )
-      return remainder;
-  }
-  return null;
-}
-
 /** The last paragraph of a passage that runs across several. */
 function passageEnd(request: CompanionRequest, start: number): number {
   const last = Math.min(
@@ -229,6 +244,30 @@ export interface ParagraphContext {
   excerpts?: Map<number, string>;
 }
 
+function selectLocalContext(
+  request: CompanionRequest,
+  indices: number[],
+  marked: Set<number>,
+  start: number,
+  end: number,
+): ParagraphContext {
+  const bounded = boundedLocalContext({
+    paragraphs: indices.map((index) => ({
+      index,
+      text: request.paragraphs[index],
+    })),
+    start,
+    end,
+    selection: request.selection,
+    occurrence: request.contextOccurrence ?? request.occurrence ?? 0,
+  });
+  return {
+    indices: bounded.paragraphs.map((p) => p.index),
+    marked,
+    excerpts: new Map(bounded.paragraphs.map((p) => [p.index, p.text])),
+  };
+}
+
 export function selectContext(request: CompanionRequest): ParagraphContext {
   const { paragraphs, mode } = request;
   const start = mode === "article" ? null : passageStart(request);
@@ -236,12 +275,17 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
     // No passage to centre on: either the whole-article tool or a selection
     // that could not be placed. Both keep the legacy window from ¶1, except
     // that a passage Ask never sends more than the retrieval budget.
+    const indices = selectParagraphWindow(
+      paragraphs,
+      request.paragraphIndex,
+      mode === "ask" ? ASK_BUDGET_CHARS : MAX_CONTEXT_CHARS,
+    );
+    if (mode !== "article" && mode !== "ask") {
+      const centre = request.paragraphIndex ?? indices[0] ?? 0;
+      return selectLocalContext(request, indices, new Set(), centre, centre);
+    }
     return {
-      indices: selectParagraphWindow(
-        paragraphs,
-        request.paragraphIndex,
-        mode === "ask" ? ASK_BUDGET_CHARS : MAX_CONTEXT_CHARS,
-      ),
+      indices,
       marked: new Set(),
     };
   }
@@ -266,7 +310,8 @@ export function selectContext(request: CompanionRequest): ParagraphContext {
     indices.push(i);
   const marked = new Set<number>();
   for (let i = start; i <= end; i++) marked.add(i);
-  if (mode !== "ask") return { indices, marked };
+  if (mode !== "ask")
+    return selectLocalContext(request, indices, marked, start, end);
   return {
     indices: trimWindow(paragraphs, indices, marked, ASK_BUDGET_CHARS),
     marked,
@@ -361,41 +406,6 @@ function selectionAt(
     return text.length;
   }
   return occurrenceAt(text, wanted, occurrence);
-}
-
-/**
- * Where the chosen occurrence of `needle` starts in `text`, counted as the
- * reader's client counts it: ignoring case, with whitespace runs as one space.
- * Falls back to the last match, then to the start.
- */
-function occurrenceAt(text: string, needle: string, occurrence: number) {
-  // The squashed text, and where each of its characters sits in `text`
-  let squashed = "";
-  const rawOf: number[] = [];
-  for (let i = 0; i < text.length; i++) {
-    if (/\s/.test(text[i])) {
-      if (!squashed || squashed.endsWith(" ")) continue;
-      squashed += " ";
-    } else squashed += text[i];
-    rawOf.push(i);
-  }
-  // Lowercased whole, as the client does, so final sigma and the like agree.
-  // A character can lowercase to more than one (İ), so each lowered character
-  // is mapped through its source character's lowered length.
-  const lowered = squashed.toLowerCase();
-  const raw: number[] = [];
-  for (let k = 0; k < squashed.length; k++)
-    for (let n = squashed[k].toLowerCase().length; n > 0; n--)
-      raw.push(rawOf[k]);
-  const target = squash(needle).toLowerCase();
-  if (!target) return 0;
-  let at = -1;
-  for (let n = 0; n <= occurrence; n++) {
-    const next = lowered.indexOf(target, at + 1);
-    if (next < 0) break;
-    at = next;
-  }
-  return at < 0 ? 0 : (raw[at] ?? 0);
 }
 
 export function formatArticle(

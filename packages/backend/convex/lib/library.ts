@@ -8,6 +8,11 @@ import type { LibraryFindMatch } from "./librarySearch";
 import { cachedQueryEmbedding } from "./queryEmbeddingCache";
 import type { Timings } from "./serverTiming";
 
+type LibraryRunner = Pick<
+  ActionCtx,
+  "runQuery" | "runMutation" | "vectorSearch"
+>;
+
 export const libraryRequestSchema = z.object({
   question: z.string().trim().min(1).max(2000),
   history: z
@@ -50,57 +55,76 @@ function day(timestamp: number) {
   });
 }
 
+function fulfilled<T>(result: PromiseSettledResult<T>): T {
+  if (result.status === "rejected") throw result.reason;
+  return result.value;
+}
+
 /**
  * Picks the library items relevant to the question, by meaning and by recency,
  * and formats them with read status, dates and the reader's own impressions.
  */
 export async function retrieveLibraryContext(
-  ctx: ActionCtx,
+  ctx: LibraryRunner,
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
   timings?: Timings,
 ) {
-  const [activity, hits] = await Promise.all([
+  const [activityResult, hitsResult] = await Promise.allSettled([
     ctx.runQuery(internal.library.recentActivity, { userId }),
     (async () => {
-      const { vector, cached } = await cachedQueryEmbedding(
+      const { vector, cached, publication } = await cachedQueryEmbedding(
         ctx,
         userId,
         question,
         embedder,
       );
-      timings?.mark(cached ? "embed-cached" : "embed");
-      embedder.signal?.throwIfAborted();
-      return Promise.all([
-        ctx.vectorSearch("articles", "by_embedding", {
-          vector,
-          limit: 24,
-          filter: (q) => q.eq("userId", userId),
-        }),
-        ctx.vectorSearch("impressions", "by_embedding", {
-          vector,
-          limit: 10,
-          filter: (q) => q.eq("userId", userId),
-        }),
-        ctx.vectorSearch("userNotes", "by_embedding", {
-          vector,
-          limit: 8,
-          filter: (q) => q.eq("userId", userId),
-        }),
-        ctx.vectorSearch("highlights", "by_embedding", {
-          vector,
-          limit: 8,
-          filter: (q) => q.eq("userId", userId),
-        }),
-        ctx.vectorSearch("companionThreads", "by_embedding", {
-          vector,
-          limit: 6,
-          filter: (q) => q.eq("userId", userId),
-        }),
-      ]);
+      try {
+        timings?.mark(cached ? "embed-cached" : "embed");
+        embedder.signal?.throwIfAborted();
+        const [articles, impressions, notes, highlights, threads] =
+          await Promise.allSettled([
+            ctx.vectorSearch("articles", "by_embedding", {
+              vector,
+              limit: 24,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("impressions", "by_embedding", {
+              vector,
+              limit: 10,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("userNotes", "by_embedding", {
+              vector,
+              limit: 8,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("highlights", "by_embedding", {
+              vector,
+              limit: 8,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("companionThreads", "by_embedding", {
+              vector,
+              limit: 6,
+              filter: (q) => q.eq("userId", userId),
+            }),
+          ]);
+        return [
+          fulfilled(articles),
+          fulfilled(impressions),
+          fulfilled(notes),
+          fulfilled(highlights),
+          fulfilled(threads),
+        ] as const;
+      } finally {
+        await publication;
+      }
     })(),
   ]);
+  const activity = fulfilled(activityResult);
+  const hits = fulfilled(hitsResult);
   embedder.signal?.throwIfAborted();
   const [articleHits, impressionHits, noteHits, highlightHits, threadHits] =
     hits;
@@ -291,63 +315,67 @@ const STATUS_ORDER: Record<string, number> = {
  * could I read", and the order is otherwise the vector rank.
  */
 export async function findLibraryArticles(
-  ctx: ActionCtx,
+  ctx: LibraryRunner,
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
   timings: Timings,
 ): Promise<{ matches: LibraryFindMatch[]; more: boolean }> {
-  const { vector, cached } = await cachedQueryEmbedding(
+  const { vector, cached, publication } = await cachedQueryEmbedding(
     ctx,
     userId,
     question,
     embedder,
   );
-  timings.mark(cached ? "embed-cached" : "embed");
-  embedder.signal?.throwIfAborted();
-  const hits = await ctx.vectorSearch("articles", "by_embedding", {
-    vector,
-    limit: FIND_LIMIT,
-    filter: (q) => q.eq("userId", userId),
-  });
-  timings.mark("search");
-  embedder.signal?.throwIfAborted();
-  const rows: {
-    articleId: Id<"articles">;
-    title: string;
-    url: string;
-    author: string | null;
-    minutes: number | null;
-    status: string;
-  }[] = await ctx.runQuery(internal.library.findArticles, {
-    userId,
-    articleIds: hits.map((hit) => hit._id),
-  });
-  timings.mark("load");
-  const byId = new Map(rows.map((row) => [row.articleId, row]));
-  const seenUrls = new Set<string>();
-  const ranked = hits.flatMap((hit, rank) => {
-    const row = byId.get(hit._id);
-    // The same page saved twice is one choice.
-    if (!row || seenUrls.has(row.url)) return [];
-    seenUrls.add(row.url);
-    return [{ rank, row }];
-  });
-  ranked.sort(
-    (a, b) =>
-      (STATUS_ORDER[a.row.status] ?? 0) - (STATUS_ORDER[b.row.status] ?? 0) ||
-      a.rank - b.rank,
-  );
-  return {
-    matches: ranked.map(({ row }) => ({
-      articleId: row.articleId,
-      title: row.title,
-      author: row.author,
-      source: host(row.url) ?? null,
-      url: row.url,
-      minutes: row.minutes,
-      status: row.status,
-    })),
-    more: hits.length >= FIND_LIMIT,
-  };
+  try {
+    timings.mark(cached ? "embed-cached" : "embed");
+    embedder.signal?.throwIfAborted();
+    const hits = await ctx.vectorSearch("articles", "by_embedding", {
+      vector,
+      limit: FIND_LIMIT,
+      filter: (q) => q.eq("userId", userId),
+    });
+    timings.mark("search");
+    embedder.signal?.throwIfAborted();
+    const rows: {
+      articleId: Id<"articles">;
+      title: string;
+      url: string;
+      author: string | null;
+      minutes: number | null;
+      status: string;
+    }[] = await ctx.runQuery(internal.library.findArticles, {
+      userId,
+      articleIds: hits.map((hit) => hit._id),
+    });
+    timings.mark("load");
+    const byId = new Map(rows.map((row) => [row.articleId, row]));
+    const seenUrls = new Set<string>();
+    const ranked = hits.flatMap((hit, rank) => {
+      const row = byId.get(hit._id);
+      // The same page saved twice is one choice.
+      if (!row || seenUrls.has(row.url)) return [];
+      seenUrls.add(row.url);
+      return [{ rank, row }];
+    });
+    ranked.sort(
+      (a, b) =>
+        (STATUS_ORDER[a.row.status] ?? 0) - (STATUS_ORDER[b.row.status] ?? 0) ||
+        a.rank - b.rank,
+    );
+    return {
+      matches: ranked.map(({ row }) => ({
+        articleId: row.articleId,
+        title: row.title,
+        author: row.author,
+        source: host(row.url) ?? null,
+        url: row.url,
+        minutes: row.minutes,
+        status: row.status,
+      })),
+      more: hits.length >= FIND_LIMIT,
+    };
+  } finally {
+    await publication;
+  }
 }

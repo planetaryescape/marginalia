@@ -1,53 +1,23 @@
 "use client";
+import { api } from "@marginalia/backend/convex/_generated/api";
 import type { ReadingCheckpoint } from "@marginalia/backend/reading-activity";
+import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  acknowledgeCheckpoint,
-  mergeCheckpoint,
-  parseCheckpoints,
-} from "./checkpoint-queue";
+import { drainCheckpoints, queueCheckpoints } from "./checkpoint-queue";
 import { observeParagraphsInView } from "./paragraph-dwell";
-import { getArticleBody, getParagraphs } from "./paragraphs";
+import {
+  observeParagraphGeometry,
+  paragraphGeometry,
+} from "./paragraph-geometry";
+import { getArticleBody } from "./paragraphs";
 import { paragraphAtViewTop } from "./place-restore";
 import { articleProgress, ReadingClock } from "./reading-clock";
 
-const QUEUE_KEY = "marginalia-reading-checkpoints-v1";
-function queueCheckpoint(snapshot: ReadingCheckpoint) {
-  try {
-    const queue = parseCheckpoints(localStorage.getItem(QUEUE_KEY));
-    localStorage.setItem(
-      QUEUE_KEY,
-      JSON.stringify(mergeCheckpoint(queue, snapshot)),
-    );
-  } catch {
-    /* Private/full storage: the live request still runs. */
-  }
-}
-function acknowledge(snapshot: ReadingCheckpoint) {
-  try {
-    const queue = parseCheckpoints(localStorage.getItem(QUEUE_KEY));
-    localStorage.setItem(
-      QUEUE_KEY,
-      JSON.stringify(acknowledgeCheckpoint(queue, snapshot)),
-    );
-  } catch {
-    /* Nothing durable to acknowledge. */
-  }
-}
-async function send(snapshot: ReadingCheckpoint) {
-  queueCheckpoint(snapshot);
-  const result = await fetch("/api/engagement", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(snapshot),
-    keepalive: true,
-  });
-  if (!result.ok) throw new Error("Reading activity hasn't synced yet.");
-  acknowledge(snapshot);
-}
 export function useEngagementTracker({
   articleId,
   sessionId,
+  sessionKey,
+  requestedMinutes,
   ready,
   containerRef,
   listening,
@@ -55,17 +25,25 @@ export function useEngagementTracker({
 }: {
   articleId: string;
   sessionId: string | null;
+  sessionKey?: string | null;
+  requestedMinutes?: number;
   ready: boolean;
   containerRef: React.RefObject<HTMLElement | null>;
   listening: boolean;
-  /** Bumps when paragraphs are renumbered, so the observer follows the new elements */
   paragraphVersion?: number;
 }) {
+  const checkpoint = useMutation(api.readingActivity.checkpoint);
   const clockRef = useRef<ReadingClock | null>(null);
   const flushRef = useRef<((finish?: boolean) => Promise<void>) | null>(null);
-  const retryRef = useRef<(() => Promise<void>) | null>(null);
   const [saveError, setSaveError] = useState(false);
   const [progress, setProgress] = useState(0);
+  // Attribution can resolve late without replacing the clock or crediting elapsed time twice.
+  const attribution = useRef({ sessionId, sessionKey, requestedMinutes });
+  const speech = useRef(listening);
+  useEffect(() => {
+    attribution.current = { sessionId, sessionKey, requestedMinutes };
+    speech.current = listening;
+  }, [sessionId, sessionKey, requestedMinutes, listening]);
   useEffect(() => {
     if (!ready) return;
     const clock = new ReadingClock(
@@ -74,48 +52,94 @@ export function useEngagementTracker({
       !document.hidden && document.hasFocus(),
     );
     clockRef.current = clock;
+    clock.speech(speech.current, Date.now(), performance.now());
     const visitId = crypto.randomUUID();
     let finished = false;
+    let finishRequested = false;
     let mounted = true;
+    let draining: Promise<void> | null = null;
+    const identity = { ...attribution.current, sessionKey };
+    const sendCheckpoint = async (snapshot: ReadingCheckpoint) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // A timed-out mutation may still commit. Keep its queue entry until a
+        // later acknowledged retry; cumulative backend checkpoints are idempotent.
+        await Promise.race([
+          checkpoint(snapshot),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("Reading activity hasn't synced yet.")),
+              5000,
+            );
+          }),
+        ]);
+        // A shared drain can also deliver other visits' durable backlog. Only
+        // this visit's successful delivery may prune its clock, never a timeout.
+        if (snapshot.visitId === visitId && snapshot.articleId === articleId)
+          clock.acknowledge(snapshot);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
     const samples = (finish = false): ReadingCheckpoint[] =>
       clock.snapshots(Date.now(), performance.now()).map((s, i, all) => ({
         ...s,
         articleId,
-        sessionId: sessionId ?? undefined,
+        sessionId: identity.sessionId ?? undefined,
+        sessionKey: identity.sessionKey ?? undefined,
+        requestedMinutes: identity.requestedMinutes,
         visitId,
-        finished: finish && i === all.length - 1,
+        finished: (finish || finishRequested) && i === all.length - 1,
       }));
-    const flush = async (finish = false) => {
-      try {
-        for (const s of samples(finish)) {
-          await send(s);
-          clock.acknowledge(s.day);
-        }
-        if (finish) finished = true;
-        if (mounted) setSaveError(false);
-      } catch (error) {
-        if (mounted) setSaveError(true);
-        throw error;
-      }
+    const flush = (finish = false): Promise<void> => {
+      if (finished) return Promise.resolve();
+      // Periodic signals coalesce. Done never joins a non-finishing snapshot:
+      // it queues its own cumulative finish after the active request.
+      if (draining && !finish) return draining;
+      if (finish) finishRequested = true;
+      const snapshots = samples(finish);
+      queueCheckpoints(snapshots);
+      const work = drainCheckpoints(
+        sendCheckpoint,
+        finish ? snapshots : undefined,
+      ).then(
+        () => {
+          if (finish) finished = true;
+          if (mounted) setSaveError(false);
+        },
+        (error: unknown) => {
+          if (mounted) setSaveError(true);
+          throw error;
+        },
+      );
+      draining = work;
+      void work
+        .finally(() => {
+          if (draining === work) draining = null;
+        })
+        .catch(() => {});
+      return work;
     };
     flushRef.current = flush;
     const active = () => clock.activity(Date.now(), performance.now());
     const measure = () => {
-      const body = getArticleBody(containerRef.current);
-      if (!body) return;
-      const rect = body.getBoundingClientRect();
-      const p = articleProgress(rect.top, rect.height, window.innerHeight);
+      const geometry = paragraphGeometry(containerRef.current);
+      if (!geometry) return;
+      const p = articleProgress(
+        geometry.body.top,
+        geometry.body.height,
+        window.innerHeight,
+      );
       clock.progress(
         p,
-        paragraphAtViewTop(
-          getParagraphs(body).map((el) => el.getBoundingClientRect().bottom),
-        ) ?? undefined,
+        paragraphAtViewTop(geometry.rects.map((rect) => rect.bottom)) ??
+          undefined,
       );
       setProgress(p);
     };
-    const scroll = () => {
-      active();
-      measure();
+    const backgroundFlush = () => {
+      if (!finished && navigator.onLine !== false && !document.hidden)
+        void flush().catch(() => {});
     };
     const visibility = () => {
       clock.visibility(
@@ -123,81 +147,66 @@ export function useEngagementTracker({
         Date.now(),
         performance.now(),
       );
-      if (document.hidden && !finished) void flush().catch(() => {});
+      if (document.hidden) {
+        queueCheckpoints(samples());
+        if (navigator.onLine !== false) void flush().catch(() => {});
+      } else backgroundFlush();
     };
     const leave = () => {
-      if (!finished)
-        for (const s of samples()) {
-          queueCheckpoint(s);
-          navigator.sendBeacon?.(
-            "/api/engagement",
-            new Blob([JSON.stringify(s)], { type: "application/json" }),
-          );
-        }
+      if (finished) return;
+      const snapshots = samples();
+      queueCheckpoints(snapshots);
+      for (const s of snapshots)
+        navigator.sendBeacon?.(
+          "/api/engagement",
+          new Blob([JSON.stringify(s)], { type: "application/json" }),
+        );
     };
-    const retry = async () => {
-      try {
-        let queued: ReadingCheckpoint[] = [];
-        try {
-          queued = parseCheckpoints(localStorage.getItem(QUEUE_KEY));
-        } catch {
-          /* Storage unavailable: still send this visit. */
-        }
-        for (const entry of queued) await send(entry);
-        await flush();
-      } catch {
-        if (mounted) setSaveError(true);
-      }
-    };
-    retryRef.current = retry;
-    measure();
-    void retry();
-    window.addEventListener("scroll", scroll, { passive: true });
-    window.addEventListener("resize", measure);
+    const stopGeometry = observeParagraphGeometry(
+      containerRef.current,
+      measure,
+    );
+    backgroundFlush();
+    window.addEventListener("scroll", active, { passive: true });
     window.addEventListener("pointerdown", active, { passive: true });
     window.addEventListener("keydown", active);
     window.addEventListener("focus", visibility);
     window.addEventListener("blur", visibility);
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("pagehide", leave);
-    window.addEventListener("online", retry);
+    window.addEventListener("online", backgroundFlush);
     const tick = window.setInterval(
       () => clock.heartbeat(Date.now(), performance.now()),
       1000,
     );
-    const save = window.setInterval(() => {
-      if (!finished) void retry();
-    }, 15_000);
-    const observer = new ResizeObserver(measure);
-    if (containerRef.current) observer.observe(containerRef.current);
+    const save = window.setInterval(backgroundFlush, 15_000);
     return () => {
       mounted = false;
-      if (!finished) void flush().catch(() => {});
+      if (!finished) {
+        queueCheckpoints(samples());
+        if (navigator.onLine !== false && !document.hidden)
+          void flush().catch(() => {});
+      }
       if (clockRef.current === clock) {
         clockRef.current = null;
         flushRef.current = null;
-        retryRef.current = null;
       }
       clearInterval(tick);
       clearInterval(save);
-      observer.disconnect();
-      window.removeEventListener("scroll", scroll);
-      window.removeEventListener("resize", measure);
+      stopGeometry();
+      window.removeEventListener("scroll", active);
       window.removeEventListener("pointerdown", active);
       window.removeEventListener("keydown", active);
       window.removeEventListener("focus", visibility);
       window.removeEventListener("blur", visibility);
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("pagehide", leave);
-      window.removeEventListener("online", retry);
+      window.removeEventListener("online", backgroundFlush);
     };
-  }, [ready, articleId, sessionId, containerRef]);
-  // Declared after the clock's effect so the clock exists when this runs
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `sessionId` re-creates the clock and `paragraphVersion` renumbers paragraphs, so both need a fresh observer
+  }, [ready, articleId, sessionKey, containerRef, checkpoint]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: prose epochs replace observed elements, not clocks
   useEffect(() => {
     const body = ready ? getArticleBody(containerRef.current) : null;
-    // Bound to this clock, not the ref: a late delivery from an observer that
-    // has been replaced must not credit the next article's clock
     const clock = clockRef.current;
     if (!body || !clock) return;
     const stop = observeParagraphsInView(body, (inView) =>
@@ -207,7 +216,7 @@ export function useEngagementTracker({
       stop();
       clock.paragraphs([], Date.now(), performance.now());
     };
-  }, [ready, articleId, sessionId, containerRef, paragraphVersion]);
+  }, [ready, articleId, sessionKey, containerRef, paragraphVersion]);
   useEffect(() => {
     clockRef.current?.speech(listening, Date.now(), performance.now());
   }, [listening]);
@@ -219,7 +228,7 @@ export function useEngagementTracker({
     await flushRef.current(true);
   }, []);
   const retry = useCallback(async () => {
-    await retryRef.current?.();
+    await flushRef.current?.();
   }, []);
   return { trackAnnotationOpen, finish, retry, saveError, progress };
 }

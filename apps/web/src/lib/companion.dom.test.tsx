@@ -2,6 +2,7 @@
 import { act, type RefObject, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { useCompanion } from "./companion";
 import { DEFAULT_SETTINGS } from "./reader-settings";
 
@@ -37,10 +38,17 @@ let article: HTMLElement;
 let range: Range;
 const container: RefObject<HTMLElement | null> = { current: null };
 
-function Harness({ articleId = "a1" }: { articleId?: string }) {
+function Harness({
+  articleId = "a1",
+  unitIndex,
+}: {
+  articleId?: string;
+  unitIndex?: number;
+}) {
   container.current = article;
   latest = useCompanion({
     articleId: articleId as never,
+    unitIndex,
     containerRef: container,
     title: "Hill walking",
     settings: DEFAULT_SETTINGS,
@@ -125,6 +133,16 @@ const finish = async (text: string, index = streams.length - 1) => {
 const stored = (id = "a1") =>
   JSON.parse(sessionStorage.getItem(`marginalia:answers:${id}`) ?? "[]");
 
+it("records a completed Define in the displayed book part", async () => {
+  await act(async () => root.render(<Harness unitIndex={4} />));
+  await ask("define");
+  await finish("A concise definition.");
+  expect(mocks.recordLookup).toHaveBeenCalledTimes(1);
+  expect(mocks.recordLookup).toHaveBeenCalledWith(
+    expect.objectContaining({ articleId: "a1", unitIndex: 4 }),
+  );
+});
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   sessionStorage.clear();
@@ -176,6 +194,61 @@ afterEach(async () => {
 });
 
 describe("answers are temporary until kept", () => {
+  it("clips a huge Define context without changing the lookup's original occurrence", async () => {
+    const paragraph = article.querySelectorAll("p")[1];
+    paragraph.textContent = `${"The river bank is muddy. ".repeat(12_000)}This bank lends money.`;
+    const text = paragraph.firstChild!;
+    const at = text.textContent!.lastIndexOf("bank");
+    range.setStart(text, at);
+    range.setEnd(text, at + 4);
+    await mount();
+    await ask("define");
+    expect(
+      z.array(z.string()).parse(bodies[0].paragraphs).join("").length,
+    ).toBeLessThanOrEqual(20_000);
+    expect(bodies[0].sentence).toBe("This bank lends money.");
+    expect(bodies[0].occurrence).toBe(12_000);
+    await finish("A bank is a financial institution.");
+    expect(mocks.recordLookup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        occurrence: 12_000,
+        sentence: "This bank lends money.",
+        paragraphIndex: 1,
+      }),
+    );
+  });
+  it("flushes Stop independently for concurrent answers and never paints a superseded generation", async () => {
+    await mount();
+    await ask();
+    const first = latest.answers[0].id;
+    await ask();
+    const second = latest.answers[1].id;
+    await act(async () => {
+      for (let i = 0; i < 100; i++) streams[0].push("x");
+      streams[0].push("last");
+      streams[1].push("second");
+    });
+    await settle();
+    await act(async () => latest.stop(first));
+    expect(
+      latest.answers.find((answer) => answer.id === first)?.turns.at(-1)
+        ?.content,
+    ).toBe(`${"x".repeat(100)}last`);
+    expect(streams[0].signal.aborted).toBe(true);
+    expect(streams[1].signal.aborted).toBe(false);
+    await finish(" final", 1);
+    expect(
+      latest.answers.find((answer) => answer.id === second)?.turns.at(-1)
+        ?.content,
+    ).toBe("second final");
+    await act(async () => latest.openAnswer(first));
+    await act(async () => latest.regenerate());
+    streams[0].push("stale");
+    await finish("replacement", 2);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(latest.thread?.turns.at(-1)?.content).toBe("replacement");
+  });
+
   it("streams an answer without writing anything to the server", async () => {
     await mount();
     await ask();

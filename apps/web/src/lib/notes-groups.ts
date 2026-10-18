@@ -1,7 +1,30 @@
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
+import type { NotePreview, ThreadPreview } from "./reader-previews";
 
 /** A kept answer as the Notes page receives it: the record without its embedding. */
-export type KeptThread = Omit<Doc<"companionThreads">, "embedding">;
+export type KeptThread = Pick<
+  ThreadPreview,
+  | "_id"
+  | "articleId"
+  | "mode"
+  | "selection"
+  | "question"
+  | "paragraphIndex"
+  | "unitIndex"
+  | "keptAt"
+  | "createdAt"
+  | "updatedAt"
+>;
+export type KeptNote = Pick<
+  NotePreview,
+  | "_id"
+  | "articleId"
+  | "selectedText"
+  | "unitIndex"
+  | "contentPlain"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 /** A highlight or underline as the Notes page receives it, from `highlights.listMine`. */
 export type KeptMark = Pick<
@@ -17,7 +40,7 @@ export type KeptMark = Pick<
 >;
 
 export type GroupItem =
-  | { type: "note"; at: number; note: Doc<"userNotes"> }
+  | { type: "note"; at: number; note: KeptNote }
   | { type: "mark"; at: number; mark: KeptMark }
   | { type: "answer"; at: number; thread: KeptThread };
 
@@ -35,7 +58,7 @@ export interface ArticleGroup {
  * the reader made them, so the page reads like a commonplace book.
  */
 export function groupByArticle(
-  notes: Doc<"userNotes">[],
+  notes: KeptNote[],
   kept: KeptThread[],
   marks: KeptMark[] = [],
 ): ArticleGroup[] {

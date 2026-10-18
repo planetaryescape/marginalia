@@ -103,6 +103,37 @@ function sse(lines: string[]) {
 }
 
 describe("companion HTTP streaming", () => {
+  it("accepts a near-limit legacy local upload but sends only its bounded selected context to the provider", async () => {
+    const t = await ownerWithKey(modules);
+    let prompt = "";
+    const provider = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      prompt = body.messages.find(
+        (message: { role: string }) => message.role === "user",
+      ).content;
+      return sse([
+        '{"choices":[{"delta":{"content":"Bounded answer."}}]}',
+        "[DONE]",
+      ]);
+    });
+    vi.stubGlobal("fetch", provider);
+    const body = JSON.stringify({
+      ...request,
+      paragraphs: [`${"x".repeat(299_000)} selected ending`],
+      paragraphIndices: [149],
+      paragraphIndex: 149,
+      selection: "selected ending",
+    });
+    expect(body.length).toBeGreaterThan(299_000);
+    expect(body.length).toBeLessThan(300_000);
+    const response = await t.fetch("/api/companion", { method: "POST", body });
+    expect(await response.text()).toBe("Bounded answer.");
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(prompt.length).toBeLessThan(25_000);
+    expect(prompt).toContain("selected ending");
+    expect(prompt).toContain("¶150");
+  });
+
   it("keeps the legacy request-size limit on the new direct path", async () => {
     const t = await ownerWithKey(modules);
     const provider = vi.fn();

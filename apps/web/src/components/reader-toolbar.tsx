@@ -43,6 +43,7 @@ export interface ReaderToolbarProps {
   /** Widest the toolbar may run, matched to the article column. */
   maxWidth: string;
   noteCount: number;
+  noteCountHasMore?: boolean;
   notesOpen: boolean;
   onToggleNotes: () => void;
   rating: number | undefined;
@@ -68,6 +69,7 @@ export function ReaderToolbar({
   backLabel,
   maxWidth,
   noteCount,
+  noteCountHasMore = false,
   notesOpen,
   onToggleNotes,
   rating,
@@ -171,7 +173,10 @@ export function ReaderToolbar({
                     aria-keyshortcuts="n"
                     title="Notes (n)"
                   >
-                    Notes{noteCount > 0 ? ` · ${noteCount}` : ""}
+                    Notes
+                    {noteCount > 0 || noteCountHasMore
+                      ? ` · ${noteCount}${noteCountHasMore ? "+" : ""}`
+                      : ""}
                     <Kbd>n</Kbd>
                   </DropdownMenu.Item>
                   <DropdownMenu.Item

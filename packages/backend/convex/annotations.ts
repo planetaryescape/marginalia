@@ -1,6 +1,8 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { libraryIsActive, ownedArticle } from "./access";
 import { setAnnotationStatus } from "./articles";
+import { syncUnitMetadata } from "./books";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { CURRENT_ANNOTATION_VERSION } from "./lib/annotationGate";
 import { annotationType } from "./lib/annotationKinds";
@@ -35,7 +37,50 @@ export const markViewed = mutation({
     const annotation = await ctx.db.get("annotations", args.annotationId);
     if (annotation?.userId !== ctx.readerId)
       throw new Error("Annotation not found");
-    await ctx.db.patch(args.annotationId, { wasViewed: true });
+    if (!annotation.wasViewed)
+      await ctx.db.patch(args.annotationId, { wasViewed: true });
+  },
+});
+
+/** Stable presentation only: viewing/dismissing a card changes no DTO field.
+ * Keep listByArticle for cached clients and bookkeeping consumers. */
+export const listPresentationByArticle = query({
+  args: {
+    articleId: v.id("articles"),
+    unitIndex: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId)))
+      return { page: [], isDone: true, continueCursor: "" };
+    const page = await ctx.db
+      .query("annotations")
+      .withIndex("by_article_and_unitIndex", (q) =>
+        q.eq("articleId", args.articleId).eq("unitIndex", args.unitIndex),
+      )
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(50, args.paginationOpts.numItems)),
+        maximumBytesRead: 2_000_000,
+      });
+    return {
+      ...page,
+      page: page.page
+        .filter((row) => row.userId === ctx.readerId)
+        .map((row) => ({
+          _id: row._id,
+          type: row.type,
+          fallacyName: row.fallacyName,
+          articleRefId: row.articleRefId,
+          anchorText: row.anchorText,
+          anchorStartOffset: row.anchorStartOffset,
+          anchorEndOffset: row.anchorEndOffset,
+          relevanceScore: row.relevanceScore,
+          content: row.content,
+          notePath: row.notePath,
+          noteExcerpt: row.noteExcerpt,
+        })),
+    };
   },
 });
 
@@ -341,5 +386,6 @@ export const replaceForUnit = internalMutation({
     await ctx.db.patch("bookUnits", unit._id, {
       annotationStatus: "annotated",
     });
+    await syncUnitMetadata(ctx, { ...unit, annotationStatus: "annotated" });
   },
 });

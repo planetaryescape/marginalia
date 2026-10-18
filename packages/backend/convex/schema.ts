@@ -353,6 +353,26 @@ export default defineSchema({
     .index("by_userId_and_finished", ["userId", "finished"]),
 
   // A book's text, one reading unit per row (a unit is a few thousand words)
+  bookUnitStatus: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    index: v.number(),
+    unitId: v.id("bookUnits"),
+    annotationStatus: v.union(
+      v.literal("pending"),
+      v.literal("annotated"),
+      v.literal("failed"),
+      v.literal("skipped"),
+      v.literal("deferred"),
+    ),
+    skipReason: v.optional(v.literal("no_provider")),
+    annotationRetries: v.optional(v.number()),
+  }).index("by_userId_and_articleId_and_index", [
+    "userId",
+    "articleId",
+    "index",
+  ]),
+
   bookUnits: defineTable({
     userId: v.string(),
     articleId: v.id("articles"),
@@ -478,8 +498,8 @@ export default defineSchema({
   // About 300-token runs of an ordinary article's paragraphs, embedded the
   // first time the reader asks about the article (D-DES-054). The text isn't
   // stored: the paragraph range says where it is, and `contentHash` says the
-  // article hasn't changed since. Ranked in the action, never by vector index,
-  // so a just-written row can't be missed.
+  // article hasn't changed since. Exact ranking reads bounded server-query
+  // pages, never an eventually consistent approximate vector index.
   articlePassages: defineTable({
     userId: v.string(),
     articleId: v.id("articles"),
@@ -492,6 +512,24 @@ export default defineSchema({
     fromOffset: v.number(),
     toOffset: v.number(),
     embedding: v.array(v.float64()),
+    generation: v.optional(v.number()),
+  })
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId_and_articleId_and_generation", [
+      "userId",
+      "articleId",
+      "generation",
+    ])
+    .index("by_userId", ["userId"]),
+
+  articlePassageState: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    contentHash: v.string(),
+    model: v.string(),
+    generation: v.number(),
+    count: v.number(),
+    total: v.number(),
   })
     .index("by_userId_and_articleId", ["userId", "articleId"])
     .index("by_userId", ["userId"]),
@@ -589,6 +627,7 @@ export default defineSchema({
 
   sessions: defineTable({
     userId: v.string(),
+    clientKey: v.optional(v.string()),
     requestedMinutes: v.number(),
     startedAt: v.number(),
     endedAt: v.optional(v.number()),
@@ -605,6 +644,7 @@ export default defineSchema({
     timeSpentMs: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
+    .index("by_userId_and_clientKey", ["userId", "clientKey"])
     .index("by_user_recent", ["userId", "startedAt"]),
 
   articleInteractions: defineTable({
@@ -869,6 +909,12 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_userId_and_articleId_and_unitIndex_and_answerId", [
+      "userId",
+      "articleId",
+      "unitIndex",
+      "answerId",
+    ])
     .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_article", ["articleId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
@@ -896,6 +942,7 @@ export default defineSchema({
     // Lower-cased `word` without surrounding punctuation, for finding repeats
     wordKey: v.string(),
     sentence: v.string(),
+    unitIndex: v.optional(v.number()),
     paragraphIndex: v.optional(v.number()),
     // Which match of the word in its paragraph was looked up
     occurrence: v.optional(v.number()),
@@ -907,9 +954,31 @@ export default defineSchema({
     articleGone: v.optional(v.boolean()),
     createdAt: v.number(),
   })
+    .index("by_occurrence", [
+      "userId",
+      "articleId",
+      "unitIndex",
+      "wordKey",
+      "paragraphIndex",
+      "occurrence",
+      "sentence",
+    ])
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_user_word", ["userId", "wordKey"])
     .index("by_user_article", ["userId", "articleId"]),
+
+  // Canonical baseline for marks made before explicit colours were stored.
+  // Version 1 freezes the first real browser preference, once per reader/tool.
+  // Continuations must find this exact row; purging it fences queued work.
+  legacyMarkDefaults: defineTable({
+    userId: v.string(),
+    kind: v.union(v.literal("highlight"), v.literal("underline")),
+    color: markColor,
+    version: v.literal(1),
+    status: v.union(v.literal("running"), v.literal("done")),
+    cursor: v.union(v.string(), v.null()),
+    scheduledId: v.optional(v.id("_scheduled_functions")),
+  }).index("by_userId_and_kind", ["userId", "kind"]),
 
   // Highlighter and pen marks, re-anchored by text when the article renders.
   // A mark keeps the colour it was made in; rows without one follow the reader's current setting.
@@ -935,6 +1004,7 @@ export default defineSchema({
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_userId", ["userId"])
     .index("by_reader_highlight", ["readerHighlightId"])
+    .index("by_userId_and_kind_and_color", ["userId", "kind", "color"])
     .index("by_userId_and_readerHighlightId", ["userId", "readerHighlightId"])
     .searchIndex("search_text", {
       searchField: "text",

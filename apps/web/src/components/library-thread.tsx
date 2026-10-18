@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { CompanionAnswer } from "@/components/companion-answer";
 import { CitedRows } from "@/components/library-cited";
 
@@ -25,7 +25,14 @@ export function exchangesOf(turns: LibraryTurn[]): Exchange[] {
   return exchanges;
 }
 
-function Answer({ text, streaming }: { text: string; streaming: boolean }) {
+const noJump = () => {};
+const Answer = memo(function Answer({
+  text,
+  streaming,
+}: {
+  text: string;
+  streaming: boolean;
+}) {
   if (!text)
     return (
       <div
@@ -40,16 +47,11 @@ function Answer({ text, streaming }: { text: string; streaming: boolean }) {
     );
   return (
     <div className="pl-4 border-l-2 border-[var(--pencil-rule)] max-w-2xl">
-      <CompanionAnswer
-        text={text}
-        lead
-        streaming={streaming}
-        onJump={() => {}}
-      />
+      <CompanionAnswer text={text} lead streaming={streaming} onJump={noJump} />
       {!streaming && <CitedRows answer={text} />}
     </div>
   );
-}
+});
 
 /**
  * The conversation with the librarian. Only the newest exchange is open, so

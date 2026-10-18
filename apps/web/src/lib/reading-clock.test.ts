@@ -45,6 +45,40 @@ describe("recorded reading time", () => {
     expect(samples.map((s) => s.activeTimeMs)).toEqual([500, 500]);
     expect(samples.map((s) => s.day)).toEqual(["2026-10-12", "2026-10-13"]);
   });
+  it("prunes an acknowledged closed day but keeps the current cumulative sample", () => {
+    const midnight = new Date(2026, 9, 13).getTime();
+    const clock = new ReadingClock(midnight - 500, 0, true);
+    clock.paragraphs([1], midnight - 500, 0);
+    const [past, current] = clock.snapshots(midnight + 500, 1000);
+    clock.acknowledge(past);
+    clock.acknowledge(current);
+    expect(clock.snapshots(midnight + 1500, 2000)).toMatchObject([
+      { day: "2026-10-13", activeTimeMs: 1500 },
+    ]);
+  });
+  it("does not prune a closed day's newer time, progress, annotation or dwell state", () => {
+    const midnight = new Date(2026, 9, 13).getTime();
+    const clock = new ReadingClock(midnight - 2000, 0, true);
+    clock.paragraphs([1], midnight - 2000, 0);
+    clock.annotation("kept");
+    clock.progress(80, 2);
+    const [past] = clock.snapshots(midnight + 500, 2500);
+    for (const stale of [
+      { ...past, updatedAt: past.updatedAt - 1 },
+      { ...past, activeTimeMs: past.activeTimeMs - 1 },
+      { ...past, visibleTimeMs: past.visibleTimeMs - 1 },
+      { ...past, timeSpentMs: past.timeSpentMs - 1 },
+      { ...past, maxScrollPercent: 79 },
+      { ...past, paragraphIndex: 1 },
+      { ...past, annotationsOpened: [] },
+      { ...past, dwell: { "1": 1000 } },
+    ]) {
+      clock.acknowledge(stale);
+      expect(clock.snapshots(midnight + 500, 2500)).toHaveLength(2);
+    }
+    clock.acknowledge(past);
+    expect(clock.snapshots(midnight + 500, 2500)).toHaveLength(1);
+  });
   it("keeps annotation opens unique and progress bounded for short articles", () => {
     const clock = new ReadingClock(start, 0, true);
     clock.annotation("one");

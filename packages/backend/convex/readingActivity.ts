@@ -20,12 +20,15 @@ import {
   type ReadingCheckpoint,
   readingCheckpointSchema,
 } from "./lib/readingActivity";
+import { ensureReadingSession } from "./lib/readingSession";
 import { updateQueueStats } from "./readingQueue";
 import { queueTasteRefresh } from "./taste";
 
 const args = {
   articleId: v.string(),
   sessionId: v.optional(v.string()),
+  sessionKey: v.optional(v.string()),
+  requestedMinutes: v.optional(v.number()),
   visitId: v.string(),
   day: v.string(),
   startedAt: v.number(),
@@ -58,9 +61,19 @@ async function saveCheckpoint(
   const article = articleId ? await ctx.db.get(articleId) : null;
   if (!article || article.userId !== userId)
     throw new Error("Article not found");
+  const keyedSessionId = s.sessionKey
+    ? await ensureReadingSession(
+        ctx,
+        userId,
+        s.sessionKey,
+        s.requestedMinutes ?? 0,
+      )
+    : null;
   const sessionId = s.sessionId
     ? ctx.db.normalizeId("sessions", s.sessionId)
-    : null;
+    : keyedSessionId;
+  if (keyedSessionId && sessionId !== keyedSessionId)
+    throw new Error("Session identity changed");
   if (s.sessionId && !sessionId) throw new Error("Invalid session");
   const session = sessionId ? await ctx.db.get(sessionId) : null;
   if (sessionId && (!session || session.userId !== userId))
@@ -75,6 +88,8 @@ async function saveCheckpoint(
     .unique();
   if (old && (old.articleId !== article._id || old.startedAt !== s.startedAt))
     throw new Error("This reading visit belongs to another article or day.");
+  if (old && old.sessionId !== (sessionId ?? undefined))
+    throw new Error("Reading session changed");
   if (!old) {
     const previousDay = await ctx.db
       .query("readingActivity")
@@ -149,15 +164,19 @@ async function saveCheckpoint(
   await saveDwell(ctx, data, s.dwell);
   if (session)
     await ctx.db.patch(session._id, {
+      articleId: article._id,
       timeSpentMs:
         (session.timeSpentMs ?? 0) + activeTimeMs - (old?.activeTimeMs ?? 0),
       scrollPercentage: Math.max(
         session.scrollPercentage ?? 0,
         data.maxScrollPercent,
       ),
-      ...(finishing
-        ? { readingStatus: "completed" as const, endedAt: now }
-        : {}),
+      readingStatus: finishing
+        ? "completed"
+        : session.readingStatus === "selecting"
+          ? "reading"
+          : session.readingStatus,
+      endedAt: finishing ? now : session.endedAt,
     });
   if (finishing) {
     // Keep existing reading history and queue semantics, but exclude these
@@ -249,7 +268,8 @@ async function readToTheEnd(
   old: Doc<"readingActivity"> | null,
   next: { maxScrollPercent: number; activeTimeMs: number },
 ) {
-  if (article.finishedAt !== undefined) return false;
+  if (article.finishedAt !== undefined || next.maxScrollPercent < 95)
+    return false;
   const minutes =
     article.estimatedReadMinutes ??
     (Math.ceil((article.wordCount ?? 0) / WORDS_PER_MINUTE) || 1);

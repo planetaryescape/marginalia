@@ -9,6 +9,7 @@
   "exports": {
     "./reading-activity": "./convex/lib/readingActivity.ts",
     "./library-search": "./convex/lib/librarySearch.ts",
+    "./local-context": "./convex/lib/localContext.ts",
     "./reading-sections": "./convex/lib/readingSections.ts",
     "./mark-colours": "./convex/lib/markColours.ts",
     "./*": "./convex/*",
