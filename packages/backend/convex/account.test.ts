@@ -553,6 +553,15 @@ describe("account deletion", () => {
         input: { model, data } as never,
       });
     }
+    for (const userId of [readerLibraryId, OWNER]) {
+      let complete = false;
+      for (let i = 0; i < 100 && !complete; i++) {
+        complete = (
+          await t.mutation(internal.articleMetadata.backfill, { userId })
+        ).complete;
+      }
+      expect(complete).toBe(true);
+    }
     const ownerBefore = await counts(t);
     const legacyJob = await t.run((ctx) =>
       ctx.db
@@ -596,6 +605,11 @@ describe("account deletion", () => {
         userId: readerLibraryId,
       }),
     ).toMatchObject({ inactive: true, processed: 0 });
+    expect(
+      await t.mutation(internal.articleMetadata.backfill, {
+        userId: readerLibraryId,
+      }),
+    ).toMatchObject({ inactive: true, complete: false });
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);
