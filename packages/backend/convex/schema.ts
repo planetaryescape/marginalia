@@ -400,8 +400,8 @@ export default defineSchema({
     "index",
   ]),
 
-  // Where a book's indexing has got (bookIndex.ts): a short summary per unit,
-  // then the book's one point from them, then passages embedded for search.
+  // Where a book's indexing has got (bookIndex.ts): summaries and passages
+  // share a paced queue; the book's one point waits for settled summaries.
   // One row per book; the step that owns `runId` is the only one that advances.
   bookIndexState: defineTable({
     userId: v.string(),
@@ -414,13 +414,31 @@ export default defineSchema({
       v.literal("passages"),
       v.literal("done"),
     ),
-    // Next unit index to look at within the phase
+    // Legacy phase cursor, retained for queued old steps; protocol 2 rescans
+    // the capped small claim rows of both lanes instead.
     cursor: v.number(),
     // Calls made for the book's one point, capped
     pointAttempts: v.number(),
     // When the call for the book's one point was scheduled; a watchdog retries
     // it if that claim is still the current one a TTL later
     pointClaimedAt: v.optional(v.number()),
+    // Protocol 2 shares one paced queue between summaries and passages. Legacy
+    // phase values remain valid; these fields are initialized lazily.
+    protocol: v.optional(v.literal(2)),
+    nextLane: v.optional(v.union(v.literal("summary"), v.literal("passages"))),
+    nextBatchAt: v.optional(v.number()),
+    claimFloor: v.optional(v.number()),
+    // A key resume accepts already-paid completions, but not pauses reported
+    // by actions that loaded the previous key.
+    pauseFloor: v.optional(v.number()),
+    lastClaim: v.optional(v.number()),
+    overviewDone: v.optional(v.boolean()),
+    summaryBlocked: v.optional(
+      v.union(v.literal("no_key"), v.literal("unusable_key")),
+    ),
+    passagesBlocked: v.optional(
+      v.union(v.literal("no_key"), v.literal("unusable_key")),
+    ),
     // Why a run stopped for want of a usable key; saving a key resumes it
     pausedReason: v.optional(
       v.union(v.literal("no_key"), v.literal("unusable_key")),

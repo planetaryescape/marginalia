@@ -20,6 +20,31 @@ export const CLAIM_TTL_MS = 20 * 60_000;
 /** A running index whose last step is older than this has lost its schedule. */
 export const STALE_MS = 10 * 60_000;
 
+export type IndexLane = "summary" | "passages";
+export interface FairBatch<T> {
+  jobs: { stage: IndexLane; value: T }[];
+  nextLane: IndexLane;
+}
+
+/** Alternate individual slots, carrying the turn across odd-sized batches.
+ * An unavailable/empty lane lends its slots, never a second pacing budget. */
+export function fairBatch<T>(
+  lanes: Record<IndexLane, readonly T[]>,
+  first: IndexLane,
+): FairBatch<T> {
+  const offsets = { summary: 0, passages: 0 };
+  const jobs: { stage: IndexLane; value: T }[] = [];
+  let nextLane = first;
+  while (jobs.length < BATCH_JOBS) {
+    const other = nextLane === "summary" ? "passages" : "summary";
+    const stage = offsets[nextLane] < lanes[nextLane].length ? nextLane : other;
+    if (offsets[stage] >= lanes[stage].length) break;
+    jobs.push({ stage, value: lanes[stage][offsets[stage]++] });
+    nextLane = stage === "summary" ? "passages" : "summary";
+  }
+  return { jobs, nextLane };
+}
+
 /** A unit shorter than this has nothing worth a summary (a title page, a divider). */
 export const MIN_SUMMARY_WORDS = 60;
 /** The model reads this much of one unit at most; units are usually 1,500–4,000 tokens. */

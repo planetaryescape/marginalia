@@ -1,6 +1,6 @@
-// Indexes an imported book once it is readable (D-DES-054, D-DES-055): a
-// short summary per reading unit, then the book's one point written from those
-// summaries, then about 300-token passages embedded for Ask about this book.
+// Indexes an imported book once it is readable (D-DES-054, D-DES-055):
+// short summaries and searchable passages in one fair, paced queue. The
+// one point still waits for all summaries to settle.
 // The outline fills in as the summaries land.
 //
 // It follows the catch-up's pacing (catchUp.ts): at most BATCH_JOBS jobs a
@@ -26,8 +26,10 @@ import {
 import {
   BATCH_JOBS,
   CLAIM_TTL_MS,
+  fairBatch,
   INDEX_UNIT_CAP,
   MAX_ATTEMPTS,
+  MAX_PASSAGES_PER_UNIT,
   MAX_PAUSES,
   MAX_UNIT_FAILURES,
   STALE_MS,
@@ -39,20 +41,18 @@ import { spendReaderLimit } from "./limits";
 type Db = Pick<QueryCtx, "db">;
 type Stage = Doc<"bookIndexUnits">["stage"];
 type Phase = Doc<"bookIndexState">["phase"];
+type UnitJob = { index: number; attempts: number };
+interface UnitLanes {
+  summary: UnitJob[];
+  passages: UnitJob[];
+}
 
-/** Units looked at per read; the rows are small. */
-const WINDOW = 100;
-/** Windows looked at per step when they hold nothing to queue. */
-const SCAN_WINDOWS = 5;
 /** Retry after the reader's hourly indexing budget runs out. */
 const LIMIT_RETRY_MS = 10 * 60_000;
 /** Books a backfill starts for one library. */
 const BACKFILL_BOOKS = 200;
 /** Rows deleted or read per call where each carries a vector. */
 const PASSAGE_BATCH = 100;
-
-const stageOf = (phase: Phase): Stage | null =>
-  phase === "summaries" ? "summary" : phase === "passages" ? "passages" : null;
 
 function stateRow(ctx: Db, userId: string, articleId: Id<"articles">) {
   return ctx.db
@@ -105,26 +105,18 @@ async function liveBook(ctx: Db, userId: string, articleId: Id<"articles">) {
 }
 
 /**
- * Whether the library can do a phase's work: summaries need a text key and
- * passages an embedding key. A reader without the key pauses the run with a
- * reason; saving a key resumes it (resumeBooks).
+ * Summaries need text credentials; passages only need embedding credentials.
+ * A missing key blocks that lane, not independently useful work in the other.
  */
-async function keyFor(ctx: Db, userId: string, phase: Phase) {
+async function keysFor(
+  ctx: Db,
+  userId: string,
+): Promise<Record<Stage, "no_key" | undefined>> {
   const { providers } = await readerProviders(ctx, userId);
-  return (
-    phase === "passages"
-      ? embeddingProvider(providers) !== null
-      : providers.length > 0
-  )
-    ? "ok"
-    : "no_key";
-}
-
-async function canRun(ctx: Db, userId: string, phase: Phase) {
-  return (
-    (await libraryIsActive(ctx, userId)) &&
-    (await keyFor(ctx, userId, phase)) === "ok"
-  );
+  return {
+    summary: providers.length ? undefined : "no_key",
+    passages: embeddingProvider(providers) ? undefined : "no_key",
+  };
 }
 
 /** A failed unit that may still be tried, in a later run. */
@@ -189,19 +181,27 @@ export const start = internalMutation({
       ? await bookRow(ctx, args.userId, args.articleId)
       : null;
     if (!article || !book) return "not started: no such book";
+    if (!(await libraryIsActive(ctx, args.userId)))
+      return "not started: inactive library";
     const now = Date.now();
     const row = await stateRow(ctx, args.userId, args.articleId);
-    // Failed units get a fresh run's tries, unless they have failed too often
-    const revived = await reviveFailed(ctx, args.userId, args.articleId);
-    if (row?.phase === "done" && !revived) return "already indexed";
-    const phase: Phase = revived
-      ? revived === "summary"
-        ? "summaries"
-        : "passages"
-      : (row?.phase ?? "summaries");
-    if (!(await canRun(ctx, args.userId, phase)))
-      return "not started: the library needs a key for this step";
-    if (row?.running && !revived) {
+    // Repeated starts must not refund/reset live work or replace its run.
+    if (row?.running) {
+      if (row.summaryBlocked || row.passagesBlocked) {
+        // A key can be saved while the independent lane is still running.
+        // Preserve in-flight paid claims; only old credential pauses expire.
+        await ctx.db.patch("bookIndexState", row._id, {
+          summaryBlocked: undefined,
+          passagesBlocked: undefined,
+          pauseFloor: (row.lastClaim ?? now) + 1,
+          updatedAt: now,
+        });
+        await ctx.scheduler.runAfter(0, internal.bookIndex.step, {
+          ...args,
+          runId: row.runId,
+        });
+        return "resumed";
+      }
       if (now - row.updatedAt < STALE_MS) return "already running";
       await ctx.db.patch("bookIndexState", row._id, { updatedAt: now });
       await ctx.scheduler.runAfter(0, internal.bookIndex.step, {
@@ -210,13 +210,51 @@ export const start = internalMutation({
       });
       return "resumed";
     }
+    // Failed units get a fresh run's tries, unless they have failed too often
+    const revived = await reviveFailed(ctx, args.userId, args.articleId);
+    if (row?.phase === "done" && !revived) return "already indexed";
+    const phase: Phase = revived
+      ? revived === "summary"
+        ? "summaries"
+        : "passages"
+      : (row?.phase ?? "summaries");
+    const keys = await keysFor(ctx, args.userId);
+    if (keys.summary && keys.passages)
+      return "not started: the library needs a key for this step";
+    const lastClaim =
+      row?.lastClaim ??
+      Math.max(
+        row?.pointClaimedAt ?? 0,
+        ...(await laneRows(ctx, args.userId, args.articleId, "summary")).map(
+          (unit) => unit.claimedAt,
+        ),
+        ...(await laneRows(ctx, args.userId, args.articleId, "passages")).map(
+          (unit) => unit.claimedAt,
+        ),
+      );
+    const keyResume = row?.pausedReason !== undefined;
     const fields = {
       running: true,
-      runId: (row?.runId ?? 0) + 1,
+      runId: keyResume ? row.runId : (row?.runId ?? 0) + 1,
       phase,
       cursor: 0,
-      pointAttempts: 0,
-      pointClaimedAt: undefined,
+      pointAttempts: revived === "summary" ? 0 : (row?.pointAttempts ?? 0),
+      pointClaimedAt: keyResume ? row.pointClaimedAt : undefined,
+      protocol: 2 as const,
+      nextLane: row?.nextLane ?? "summary",
+      claimFloor: keyResume ? row.claimFloor : Math.max(now, lastClaim + 1),
+      pauseFloor: lastClaim + 1,
+      lastClaim,
+      // Never bypass a pacing window when resuming or restarting.
+      nextBatchAt:
+        row?.nextBatchAt ?? (row ? row.updatedAt + BATCH_DELAY_MS : now),
+      overviewDone:
+        revived === "summary"
+          ? false
+          : (row?.overviewDone ??
+            (row?.phase === "passages" || row?.phase === "done")),
+      summaryBlocked: undefined,
+      passagesBlocked: undefined,
       pausedReason: undefined,
       recoverable: undefined,
       updatedAt: now,
@@ -281,7 +319,27 @@ export const backfill = internalMutation({
   },
 });
 
-/** Queues one batch of the current phase, then schedules the next. Only the current run advances. */
+async function laneRows(
+  ctx: Db,
+  userId: string,
+  articleId: Id<"articles">,
+  stage: Stage,
+) {
+  return ctx.db
+    .query("bookIndexUnits")
+    .withIndex("by_userId_and_articleId_and_stage_and_unitIndex", (q) =>
+      q.eq("userId", userId).eq("articleId", articleId).eq("stage", stage),
+    )
+    .take(INDEX_UNIT_CAP);
+}
+
+const settledRow = (row: Doc<"bookIndexUnits">) =>
+  row.status === "done" ||
+  row.status === "skipped" ||
+  (row.status === "failed" && row.attempts >= MAX_ATTEMPTS);
+
+/** Both lanes share this single transaction and persisted pacing gate. Old
+ * queued steps safely join it; duplicate steps cannot open another pool. */
 export const step = internalMutation({
   args: {
     userId: v.string(),
@@ -305,98 +363,107 @@ export const step = internalMutation({
       await patch({ running: false, pointClaimedAt: undefined });
       return null;
     }
-    if ((await keyFor(ctx, args.userId, state.phase)) !== "ok") {
+    if (state.protocol !== 2) {
+      // Keep old pending claims and a claimed overview intact. Do not redo
+      // successful work or schedule alongside the last legacy five-job batch.
+      const nextBatchAt = state.queued ? state.updatedAt + BATCH_DELAY_MS : now;
       await patch({
-        running: false,
-        pointClaimedAt: undefined,
-        pausedReason: "no_key",
-        failures: (state.failures ?? 0) + 1,
+        protocol: 2,
+        overviewDone: state.phase === "passages",
+        nextLane: "summary",
+        nextBatchAt,
+        lastClaim: Math.max(
+          state.pointClaimedAt ?? 0,
+          ...(await laneRows(ctx, args.userId, args.articleId, "summary")).map(
+            (row) => row.claimedAt,
+          ),
+          ...(await laneRows(ctx, args.userId, args.articleId, "passages")).map(
+            (row) => row.claimedAt,
+          ),
+        ),
       });
+      await next(Math.max(0, nextBatchAt - now));
+      return null;
+    }
+    if ((state.nextBatchAt ?? 0) > now) {
+      await next((state.nextBatchAt ?? now) - now);
       return null;
     }
     const end = Math.min(book.unitCount, INDEX_UNIT_CAP);
-
-    if (state.phase === "point") {
-      // A call for the point is in flight; its watchdog takes over if it is lost
-      if (
-        state.pointClaimedAt !== undefined &&
-        now - state.pointClaimedAt < CLAIM_TTL_MS
-      )
-        return null;
-      if (state.pointAttempts >= MAX_ATTEMPTS) {
-        // The part-1 point stays; the book is still searchable
-        await patch({
-          phase: "passages",
-          cursor: 0,
-          pointClaimedAt: undefined,
-        });
-        await next(0);
-        return null;
-      }
-      await patch({
-        pointAttempts: state.pointAttempts + 1,
-        pointClaimedAt: now,
-      });
-      // The action moves the run on (pointWritten) or retries it (pointFailed);
-      // if it is lost, the watchdog frees the claim and the step tries again
-      await ctx.scheduler.runAfter(
-        0,
-        internal.actions.indexBook.writeOverview,
-        { ...args, claim: now },
-      );
-      await ctx.scheduler.runAfter(
-        CLAIM_TTL_MS + 1_000,
-        internal.bookIndex.pointWatchdog,
-        { ...args, claim: now },
-      );
-      return null;
-    }
-
-    const stage = stageOf(state.phase);
-    if (!stage) return null;
-    let cursor = state.cursor;
-    const jobs: { index: number; attempts: number }[] = [];
-    for (
-      let page = 0;
-      page < SCAN_WINDOWS && cursor < end && jobs.length < BATCH_JOBS;
-      page++
-    ) {
-      const windowEnd = Math.min(end, cursor + WINDOW);
-      const rows = await ctx.db
-        .query("bookIndexUnits")
-        .withIndex("by_userId_and_articleId_and_stage_and_unitIndex", (q) =>
-          q
-            .eq("userId", args.userId)
-            .eq("articleId", args.articleId)
-            .eq("stage", stage)
-            .gte("unitIndex", cursor)
-            .lt("unitIndex", windowEnd),
-        )
-        .take(WINDOW);
+    const lanes = {
+      summary: await laneRows(ctx, args.userId, args.articleId, "summary"),
+      passages: await laneRows(ctx, args.userId, args.articleId, "passages"),
+    };
+    const keys = await keysFor(ctx, args.userId);
+    const reasons = {
+      summary: state.summaryBlocked ?? keys.summary,
+      passages: state.passagesBlocked ?? keys.passages,
+    };
+    const candidates: UnitLanes = { summary: [], passages: [] };
+    const settled = { summary: false, passages: false };
+    for (const stage of ["summary", "passages"] as const) {
+      const rows = lanes[stage].filter((row) => row.unitIndex < end);
       const byIndex = new Map(rows.map((row) => [row.unitIndex, row]));
-      let index = cursor;
-      for (; index < windowEnd && jobs.length < BATCH_JOBS; index++) {
+      for (let index = 0; index < end; index++) {
         const row = byIndex.get(index) ?? null;
         const verdict = verdictFor(row, now);
-        if (verdict === "queue")
-          jobs.push({ index, attempts: row?.attempts ?? 0 });
-        else if (verdict === "give_up" && row)
+        if (verdict === "give_up" && row) {
           await ctx.db.patch("bookIndexUnits", row._id, {
             status: "failed",
             failures: (row.failures ?? 0) + 1,
           });
+          row.status = "failed";
+        }
+        if (!reasons[stage] && verdict === "queue")
+          candidates[stage].push({ index, attempts: row?.attempts ?? 0 });
       }
-      cursor = index;
+      settled[stage] = rows.filter(settledRow).length === end;
     }
-
-    if (jobs.length) {
+    let overviewDone = state.overviewDone ?? false;
+    const phase: Phase = !settled.summary
+      ? "summaries"
+      : overviewDone
+        ? "passages"
+        : "point";
+    const { jobs, nextLane } = fairBatch(
+      candidates,
+      state.nextLane ?? "summary",
+    );
+    let turn = nextLane;
+    // The overview is another job in the same envelope, never a side pool.
+    const pointLive =
+      state.pointClaimedAt !== undefined &&
+      now - state.pointClaimedAt < CLAIM_TTL_MS;
+    if (settled.summary && !overviewDone && !pointLive) {
+      if (
+        state.pointAttempts >= MAX_ATTEMPTS ||
+        !lanes.summary.some((row) => row.status === "done")
+      )
+        overviewDone = true;
+      else if (!reasons.summary) {
+        // Reserve one existing slot; unit fairness carries into the next batch.
+        if (jobs.length === BATCH_JOBS) {
+          const lent = jobs.pop();
+          if (lent) turn = lent.stage;
+        }
+      }
+    }
+    const queuePoint =
+      settled.summary && !overviewDone && !pointLive && !reasons.summary;
+    const total = jobs.length + Number(queuePoint);
+    if (total) {
       // Nothing is claimed until the batch is allowed to run
       if (!(await spendReaderLimit(ctx, args.userId, "bookIndex"))) {
         await patch({});
         await next(LIMIT_RETRY_MS);
         return null;
       }
-      for (const [at, job] of jobs.entries()) {
+      const claim = Math.max(
+        now,
+        state.claimFloor ?? 0,
+        (state.lastClaim ?? now - 1) + 1,
+      );
+      for (const [at, { stage, value: job }] of jobs.entries()) {
         const existing = await indexRow(
           ctx,
           args.userId,
@@ -406,7 +473,7 @@ export const step = internalMutation({
         );
         const fields = {
           status: "pending" as const,
-          claimedAt: now,
+          claimedAt: claim,
           attempts: job.attempts + 1,
         };
         if (existing)
@@ -422,7 +489,9 @@ export const step = internalMutation({
         const job_args = {
           articleId: args.articleId,
           unitIndex: job.index,
-          claim: now,
+          userId: args.userId,
+          runId: args.runId,
+          claim,
         };
         await ctx.scheduler.runAfter(
           at * JOB_STAGGER_MS,
@@ -432,66 +501,60 @@ export const step = internalMutation({
           job_args,
         );
       }
-      await patch({ cursor, queued: state.queued + jobs.length });
+      if (queuePoint) {
+        await ctx.scheduler.runAfter(
+          jobs.length * JOB_STAGGER_MS,
+          internal.actions.indexBook.writeOverview,
+          { ...args, claim },
+        );
+        await ctx.scheduler.runAfter(
+          CLAIM_TTL_MS + 1_000,
+          internal.bookIndex.pointWatchdog,
+          { ...args, claim },
+        );
+      }
+      await patch({
+        phase: overviewDone
+          ? settled.summary
+            ? "passages"
+            : "summaries"
+          : phase,
+        overviewDone,
+        nextLane: turn,
+        lastClaim: claim,
+        pointAttempts: state.pointAttempts + Number(queuePoint),
+        pointClaimedAt: queuePoint ? claim : state.pointClaimedAt,
+        nextBatchAt: now + BATCH_DELAY_MS,
+        cursor: 0,
+        queued: state.queued + total,
+      });
       await next(BATCH_DELAY_MS);
       return null;
     }
-
-    if (cursor < end) {
-      // Only empty windows were checked: carry on now
-      await patch({ cursor });
-      await next(0);
+    if (settled.summary && settled.passages && overviewDone) {
+      await patch({
+        phase: "done",
+        overviewDone,
+        running: false,
+        finishedAt: now,
+        pausedReason: undefined,
+        recoverable: [...lanes.summary, ...lanes.passages].filter(isRecoverable)
+          .length,
+      });
       return null;
     }
-
-    // Everything has been looked at. The phase is over once every unit is
-    // settled; until then the jobs in flight get time to land, and any that
-    // failed are queued again from the top.
-    const rows = await ctx.db
-      .query("bookIndexUnits")
-      .withIndex("by_userId_and_articleId_and_stage_and_unitIndex", (q) =>
-        q
-          .eq("userId", args.userId)
-          .eq("articleId", args.articleId)
-          .eq("stage", stage),
-      )
-      .take(INDEX_UNIT_CAP + 1);
-    const settled = rows.filter(
-      (row) =>
-        row.unitIndex < end &&
-        (row.status === "done" ||
-          row.status === "skipped" ||
-          (row.status === "failed" && row.attempts >= MAX_ATTEMPTS)),
-    );
-    if (settled.length < end) {
-      await patch({ cursor: 0 });
-      await next(BATCH_DELAY_MS);
-      return null;
-    }
-    if (stage === "summary") {
-      const any = settled.some((row) => row.status === "done");
-      await patch({ phase: any ? "point" : "passages", cursor: 0 });
-      await next(0);
-      return null;
-    }
-    // Units left failed can be tried again by a later start or a saved key,
-    // until they have failed MAX_UNIT_FAILURES times
-    const summaryRows = await ctx.db
-      .query("bookIndexUnits")
-      .withIndex("by_userId_and_articleId_and_stage_and_unitIndex", (q) =>
-        q
-          .eq("userId", args.userId)
-          .eq("articleId", args.articleId)
-          .eq("stage", "summary"),
-      )
-      .take(INDEX_UNIT_CAP + 1);
-    const recoverable = [...summaryRows, ...rows].filter(isRecoverable).length;
+    const textWaiting = !settled.summary || !overviewDone;
+    const blocked =
+      !pointLive &&
+      (!textWaiting || reasons.summary) &&
+      (settled.passages || reasons.passages);
     await patch({
-      phase: "done",
-      running: false,
-      finishedAt: now,
-      recoverable,
+      phase: overviewDone && settled.summary ? "passages" : phase,
+      overviewDone,
+      running: !blocked,
+      pausedReason: blocked ? (reasons.summary ?? reasons.passages) : undefined,
     });
+    if (!blocked) await next(BATCH_DELAY_MS);
     return null;
   },
 });
@@ -505,7 +568,7 @@ const pointArgs = {
 
 /** The state row, if it is the current run waiting on this call for the point. */
 async function pointState(
-  ctx: MutationCtx,
+  ctx: Db,
   args: {
     userId: string;
     articleId: Id<"articles">;
@@ -527,13 +590,28 @@ async function pointState(
 
 /** The book's one point is written: on to the passages. */
 export const pointWritten = internalMutation({
-  args: pointArgs,
+  args: {
+    ...pointArgs,
+    overview: v.optional(
+      v.object({ thesis: v.string(), gist: v.string(), model: v.string() }),
+    ),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const state = await pointState(ctx, args);
     if (!state) return null;
+    if (args.overview) {
+      // Nested mutation shares this transaction: no stale overview can be
+      // saved between claim validation and releasing the claim.
+      await ctx.runMutation(internal.summaries.saveBookOverview, {
+        userId: args.userId,
+        articleId: args.articleId,
+        ...args.overview,
+      });
+    }
     await ctx.db.patch("bookIndexState", state._id, {
       phase: "passages",
+      overviewDone: true,
       cursor: 0,
       pointClaimedAt: undefined,
       updatedAt: Date.now(),
@@ -577,7 +655,7 @@ export const pointWatchdog = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const state = await pointState(ctx, args);
-    if (!state) return null;
+    if (!state || Date.now() - args.claim < CLAIM_TTL_MS) return null;
     await ctx.db.patch("bookIndexState", state._id, {
       pointClaimedAt: undefined,
       updatedAt: Date.now(),
@@ -592,26 +670,82 @@ export const pointWatchdog = internalMutation({
 });
 
 /**
- * A job found no usable key (none saved, or one that won't open): the run
- * stops with a reason instead of retrying, and saving a key resumes it. The
- * pause is counted, and refunded tries don't reset the count.
+ * A job found no usable key: block only its lane. The shared step stops once
+ * no independent work remains. Saving a key resumes it, within MAX_PAUSES.
  */
 export const pauseIndex = internalMutation({
   args: {
     userId: v.string(),
     articleId: v.id("articles"),
     reason: v.union(v.literal("no_key"), v.literal("unusable_key")),
+    stage: v.optional(
+      v.union(v.literal("summary"), v.literal("passages"), v.literal("point")),
+    ),
+    runId: v.optional(v.number()),
+    claim: v.optional(v.number()),
+    unitIndex: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const state = await stateRow(ctx, args.userId, args.articleId);
-    // Only the first of a batch's jobs to report pauses it and counts
-    if (!state?.running) return null;
+    if (!state?.running || !(await liveBook(ctx, args.userId, args.articleId)))
+      return null;
+    if (args.runId !== undefined && state.runId !== args.runId) return null;
+    if (
+      args.claim !== undefined &&
+      args.claim < (state.pauseFloor ?? -Infinity)
+    )
+      return null;
+    const stage =
+      args.stage ??
+      (state.phase === "passages"
+        ? "passages"
+        : state.phase === "point"
+          ? "point"
+          : "summary");
+    if (args.claim !== undefined) {
+      if (stage === "point") {
+        if (
+          !(await pointState(ctx, {
+            ...args,
+            runId: state.runId,
+            claim: args.claim,
+          }))
+        )
+          return null;
+      } else {
+        if (
+          args.unitIndex === undefined ||
+          !(await claimedJob(
+            ctx,
+            {
+              ...args,
+              stage,
+              unitIndex: args.unitIndex,
+              claim: args.claim,
+            },
+            true,
+          ))
+        )
+          return null;
+      }
+    } else if (state.protocol === 2) {
+      // Old actions did not identify the failing claim. They cannot pause a
+      // different run/lane after the protocol upgrades.
+      return null;
+    }
     await ctx.db.patch("bookIndexState", state._id, {
-      running: false,
-      pointClaimedAt: undefined,
-      pausedReason: args.reason,
-      failures: (state.failures ?? 0) + 1,
+      ...(stage === "passages"
+        ? { passagesBlocked: args.reason }
+        : { summaryBlocked: args.reason }),
+      pointClaimedAt: stage === "point" ? undefined : state.pointClaimedAt,
+      pointAttempts:
+        stage === "point"
+          ? Math.max(0, state.pointAttempts - 1)
+          : state.pointAttempts,
+      failures:
+        (state.failures ?? 0) +
+        Number(!state.summaryBlocked && !state.passagesBlocked),
       updatedAt: Date.now(),
     });
     return null;
@@ -620,12 +754,66 @@ export const pauseIndex = internalMutation({
 
 // --- For actions/indexBook.ts ---
 
+const jobIdentity = {
+  runId: v.optional(v.number()),
+};
+
+/** Legacy queued actions lack runId, so a monotonic claim floor also fences
+ * them after restart. Existing live legacy claims survive the lazy upgrade. */
+async function claimedJob(
+  ctx: Db,
+  args: {
+    userId: string;
+    articleId: Id<"articles">;
+    stage: Stage;
+    unitIndex: number;
+    claim: number;
+    runId?: number;
+  },
+  refunded = false,
+) {
+  const state = await stateRow(ctx, args.userId, args.articleId);
+  if (
+    !state ||
+    (!state.running && !state.pausedReason) ||
+    (args.runId !== undefined && args.runId !== state.runId) ||
+    args.claim < (state.claimFloor ?? -Infinity) ||
+    !(await liveBook(ctx, args.userId, args.articleId))
+  )
+    return null;
+  const row = await indexRow(
+    ctx,
+    args.userId,
+    args.articleId,
+    args.stage,
+    args.unitIndex,
+  );
+  if (
+    !row ||
+    row.status !== (refunded ? "failed" : "pending") ||
+    row.claimedAt !== args.claim
+  )
+    return null;
+  const unit = await ctx.db
+    .query("bookUnits")
+    .withIndex("by_userId_and_articleId_and_index", (q) =>
+      q
+        .eq("userId", args.userId)
+        .eq("articleId", args.articleId)
+        .eq("index", args.unitIndex),
+    )
+    .unique();
+  return unit ? { row, unit, state } : null;
+}
+
 /**
  * One unit's text for a job, if the job still holds its claim. The unit row
  * can be about 400 KB, so it is read only here, one at a time.
  */
 export const unitForJob = internalQuery({
   args: {
+    ...jobIdentity,
+    userId: v.optional(v.string()),
     articleId: v.id("articles"),
     unitIndex: v.number(),
     stage: v.union(v.literal("summary"), v.literal("passages")),
@@ -635,25 +823,10 @@ export const unitForJob = internalQuery({
     const article = await ctx.db.get("articles", args.articleId);
     if (!article?.bookOutline) return null;
     const userId = article.userId;
-    const row = await indexRow(
-      ctx,
-      userId,
-      args.articleId,
-      args.stage,
-      args.unitIndex,
-    );
-    if (row?.status !== "pending" || row.claimedAt !== args.claim) return null;
-    if (!(await libraryIsActive(ctx, userId))) return null;
-    const unit = await ctx.db
-      .query("bookUnits")
-      .withIndex("by_userId_and_articleId_and_index", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("articleId", args.articleId)
-          .eq("index", args.unitIndex),
-      )
-      .unique();
-    if (!unit) return null;
+    if (args.userId !== undefined && args.userId !== userId) return null;
+    const found = await claimedJob(ctx, { ...args, userId });
+    if (!found?.state.running) return null;
+    const { unit } = found;
     return {
       userId,
       bookTitle: article.title,
@@ -672,6 +845,7 @@ export const unitForJob = internalQuery({
 /** Ends a job. A stale job (its claim was replaced) changes nothing. */
 export const completeJob = internalMutation({
   args: {
+    ...jobIdentity,
     userId: v.string(),
     articleId: v.id("articles"),
     stage: v.union(v.literal("summary"), v.literal("passages")),
@@ -690,15 +864,9 @@ export const completeJob = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    if (!(await liveBook(ctx, args.userId, args.articleId))) return false;
-    const row = await indexRow(
-      ctx,
-      args.userId,
-      args.articleId,
-      args.stage,
-      args.unitIndex,
-    );
-    if (row?.status !== "pending" || row.claimedAt !== args.claim) return false;
+    const found = await claimedJob(ctx, args);
+    if (!found) return false;
+    const { row } = found;
     await ctx.db.patch("bookIndexUnits", row._id, {
       status: args.status,
       attempts: args.refund ? Math.max(0, row.attempts - 1) : row.attempts,
@@ -715,12 +883,38 @@ export const completeJob = internalMutation({
   },
 });
 
-/** The book's title and its parts' summaries so far, for the one point. */
+/** The book's title and settled parts' summaries, for the one point. */
 export const summariesForPoint = internalQuery({
-  args: { articleId: v.id("articles") },
+  args: {
+    articleId: v.id("articles"),
+    userId: v.optional(v.string()),
+    runId: v.optional(v.number()),
+    claim: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const article = await ctx.db.get("articles", args.articleId);
     if (!article?.bookOutline) return null;
+    if (!(await liveBook(ctx, article.userId, args.articleId))) return null;
+    if (args.userId !== undefined && args.userId !== article.userId)
+      return null;
+    if (
+      args.runId !== undefined &&
+      args.claim !== undefined &&
+      !(await pointState(ctx, {
+        ...args,
+        userId: article.userId,
+        runId: args.runId,
+        claim: args.claim,
+      }))
+    )
+      return null;
+    const rows = await laneRows(ctx, article.userId, args.articleId, "summary");
+    const end = Math.min(article.bookOutline.length, INDEX_UNIT_CAP);
+    if (
+      rows.filter((row) => row.unitIndex < end && settledRow(row)).length !==
+      end
+    )
+      return null;
     const summaries = await summariesOf(ctx, article.userId, article._id);
     return {
       userId: article.userId,
@@ -767,6 +961,7 @@ export async function unitSummaries(
 /** Removes a unit's passages, a batch at a time; true when more remain. */
 export const clearPassages = internalMutation({
   args: {
+    ...jobIdentity,
     userId: v.string(),
     articleId: v.id("articles"),
     unitIndex: v.number(),
@@ -774,15 +969,7 @@ export const clearPassages = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    if (!(await liveBook(ctx, args.userId, args.articleId))) return false;
-    const row = await indexRow(
-      ctx,
-      args.userId,
-      args.articleId,
-      "passages",
-      args.unitIndex,
-    );
-    if (row?.status !== "pending" || row.claimedAt !== args.claim) return false;
+    if (!(await claimedJob(ctx, { ...args, stage: "passages" }))) return false;
     const rows = await ctx.db
       .query("bookPassages")
       .withIndex("by_userId_and_articleId_and_unitIndex", (q) =>
@@ -801,6 +988,7 @@ export const clearPassages = internalMutation({
 /** Adds a batch of a unit's embedded passages, if the job still holds its claim. */
 export const addPassages = internalMutation({
   args: {
+    ...jobIdentity,
     userId: v.string(),
     articleId: v.id("articles"),
     unitIndex: v.number(),
@@ -816,22 +1004,27 @@ export const addPassages = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    if (!(await liveBook(ctx, args.userId, args.articleId))) return false;
-    const row = await indexRow(
-      ctx,
-      args.userId,
-      args.articleId,
-      "passages",
-      args.unitIndex,
-    );
-    if (row?.status !== "pending" || row.claimedAt !== args.claim) return false;
+    if (!(await claimedJob(ctx, { ...args, stage: "passages" }))) return false;
+    const existing = await ctx.db
+      .query("bookPassages")
+      .withIndex("by_userId_and_articleId_and_unitIndex", (q) =>
+        q
+          .eq("userId", args.userId)
+          .eq("articleId", args.articleId)
+          .eq("unitIndex", args.unitIndex),
+      )
+      .take(MAX_PASSAGES_PER_UNIT);
+    const written = new Set(existing.map((row) => row.passageIndex));
     for (const passage of args.passages)
-      await ctx.db.insert("bookPassages", {
-        userId: args.userId,
-        articleId: args.articleId,
-        unitIndex: args.unitIndex,
-        ...passage,
-      });
+      if (!written.has(passage.passageIndex)) {
+        await ctx.db.insert("bookPassages", {
+          userId: args.userId,
+          articleId: args.articleId,
+          unitIndex: args.unitIndex,
+          ...passage,
+        });
+        written.add(passage.passageIndex);
+      }
     return true;
   },
 });
@@ -902,6 +1095,10 @@ export const status = internalQuery({
       queued: row.queued,
       updatedAt: row.updatedAt,
       finishedAt: row.finishedAt,
+      pausedReason: row.pausedReason,
+      recoverable: row.recoverable,
+      summaryBlocked: row.summaryBlocked,
+      passagesBlocked: row.passagesBlocked,
     }));
   },
 });
