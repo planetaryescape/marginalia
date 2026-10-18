@@ -77,6 +77,20 @@ export const save = mutation({
   },
 });
 
+/** Same bounded eligibility as listRecent, without fetching any articles. */
+export const recentCount = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("impressions")
+      .withIndex("by_user_updated", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .take(100);
+    return rows.filter((row) => row.rating || row.tags.length || row.note)
+      .length;
+  },
+});
+
 /** Your rated and described reads, newest first, with their titles. */
 export const listRecent = query({
   args: {},

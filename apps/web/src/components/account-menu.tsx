@@ -106,18 +106,29 @@ function ThemeRow() {
  */
 export function sourceStatus(
   readwise: ReadwiseStatus | null | undefined,
-  feeds: FeedStatus[] | undefined,
+  feeds:
+    | FeedStatus[]
+    | { count: number; failingCount: number; failedTitle: string | null }
+    | undefined,
 ): { line: string; failed: boolean } {
-  const failing = feeds?.filter((feed) => feed.lastError) ?? [];
+  const failing = Array.isArray(feeds)
+    ? feeds.filter((feed) => feed.lastError)
+    : [];
+  const failingCount = Array.isArray(feeds)
+    ? failing.length
+    : (feeds?.failingCount ?? 0);
+  const failedTitle = Array.isArray(feeds)
+    ? failing[0]?.title
+    : feeds?.failedTitle;
   if (readwise?.error) return { line: "Readwise sync failed.", failed: true };
-  if (failing.length === 1)
+  if (failingCount === 1)
     return {
-      line: `“${failing[0].title}” couldn’t be fetched.`,
+      line: `“${failedTitle}” couldn’t be fetched.`,
       failed: true,
     };
-  if (failing.length > 1)
+  if (failingCount > 1)
     return {
-      line: `${failing.length} sources couldn’t be fetched.`,
+      line: `${failingCount} sources couldn’t be fetched.`,
       failed: true,
     };
 
@@ -129,10 +140,11 @@ export function sourceStatus(
     else parts.push("Readwise first sync pending");
   }
   if (feeds) {
+    const count = Array.isArray(feeds) ? feeds.length : feeds.count;
     parts.push(
-      feeds.length === 0
+      count === 0
         ? "No sources yet"
-        : `${feeds.length} ${feeds.length === 1 ? "source" : "sources"}`,
+        : `${count} ${count === 1 ? "source" : "sources"}`,
     );
   }
   return { line: parts.join(" · "), failed: false };
@@ -146,10 +158,10 @@ export function sourceStatus(
 export function AccountMenu() {
   const reader = useQuery(api.auth.currentReader, {});
   const readwise = useQuery(api.readwise.status, {});
-  const feeds = useQuery(api.feeds.list, {});
+  const feeds = useQuery(api.feeds.statusSummary, {});
   const isOwner = reader?.isOwner === true;
-  const requests = useQuery(api.waitlist.listRequests, isOwner ? {} : "skip");
-  const waiting = requests?.pending.length ?? 0;
+  const waiting =
+    useQuery(api.waitlist.pendingCount, isOwner ? {} : "skip") ?? 0;
   const { installed, prompt, clearPrompt } = useInstallPrompt();
   const [menuOpen, setMenuOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);

@@ -6,7 +6,7 @@ import { savedScroll } from "@/lib/reader-return";
 import { RoomMemoryTracker } from "./reader-room-memory";
 
 let root: Root;
-let scrollY = 0;
+let scroller: HTMLElement;
 
 const frames = () => new Promise((resolve) => setTimeout(resolve, 60));
 
@@ -17,29 +17,31 @@ async function goTo(pathname: string) {
 }
 /** A scroll event at a given position, as the browser fires them. */
 function scrollEvent(y: number) {
-  scrollY = y;
-  window.dispatchEvent(new Event("scroll"));
+  scroller.scrollTop = y;
+  scroller.dispatchEvent(new Event("scroll"));
 }
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  Object.defineProperty(window, "innerHeight", {
+  window.scrollTo = vi.fn();
+  document.body.innerHTML =
+    '<div class="desk-route"><div id="root"></div></div>';
+  const viewport = document.querySelector<HTMLElement>(".desk-route");
+  const host = document.getElementById("root");
+  if (!viewport || !host) throw new Error("Missing room fixture");
+  scroller = viewport;
+  Object.defineProperty(scroller, "clientHeight", {
     value: 800,
     configurable: true,
   });
-  Object.defineProperty(window, "scrollY", {
+  Object.defineProperty(scroller, "scrollHeight", {
+    value: 3000,
     configurable: true,
-    get: () => scrollY,
   });
-  Object.defineProperty(document.documentElement, "scrollHeight", {
-    configurable: true,
-    get: () => 3000,
+  scroller.scrollTo = vi.fn((opts?: ScrollToOptions | number, y?: number) => {
+    scroller.scrollTop = typeof opts === "number" ? (y ?? 0) : (opts?.top ?? 0);
   });
-  window.scrollTo = vi.fn((opts: ScrollToOptions) => {
-    scrollY = opts.top ?? 0;
-  }) as unknown as typeof window.scrollTo;
-  document.body.innerHTML = '<div id="root"></div>';
-  root = createRoot(document.getElementById("root") as HTMLElement);
+  root = createRoot(host);
 });
 
 afterEach(async () => {
@@ -49,6 +51,40 @@ afterEach(async () => {
 });
 
 describe("room scroll memory", () => {
+  it("waits for the actual room viewport rather than restoring the article window", async () => {
+    await goTo("/library?shelf=loved");
+    scrollEvent(600);
+    await goTo("/read/a1");
+    scroller.remove();
+    await goTo("/library?shelf=loved");
+    await frames();
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    document.body.append(scroller);
+    await frames();
+    expect(scroller.scrollTo).toHaveBeenLastCalledWith({
+      top: 600,
+      behavior: "instant",
+    });
+  });
+  it("restores the desk viewport and keeps shelf/search identity", async () => {
+    await goTo("/library?shelf=saved");
+    scroller.scrollTop = 900;
+    scroller.dispatchEvent(new Event("scroll"));
+    expect(savedScroll("/library?shelf=saved")).toBe(900);
+    await goTo("/read/a1");
+    await goTo("/library?shelf=saved");
+    await frames();
+    expect(scroller.scrollTo).toHaveBeenLastCalledWith({
+      top: 900,
+      behavior: "instant",
+    });
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    await goTo("/library?q=focus");
+    expect(scroller.scrollTo).toHaveBeenLastCalledWith({
+      top: 0,
+      behavior: "instant",
+    });
+  });
   it("keeps the saved position when Next scrolls the room to the top around the restore", async () => {
     await goTo("/library");
     scrollEvent(1200);
@@ -64,7 +100,7 @@ describe("room scroll memory", () => {
     await goTo("/library");
     scrollEvent(0);
     await frames();
-    expect(window.scrollTo).toHaveBeenLastCalledWith({
+    expect(scroller.scrollTo).toHaveBeenLastCalledWith({
       top: 1200,
       behavior: "instant",
     });
@@ -82,6 +118,10 @@ describe("room scroll memory", () => {
     await goTo("/saved");
     await goTo("/notes");
     await frames();
+    expect(scroller.scrollTo).toHaveBeenLastCalledWith({
+      top: 0,
+      behavior: "instant",
+    });
     expect(window.scrollTo).not.toHaveBeenCalled();
   });
 });

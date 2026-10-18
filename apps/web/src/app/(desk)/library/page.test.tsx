@@ -22,12 +22,14 @@ vi.mock("next/navigation", () => ({
 vi.mock("convex/react", () => ({
   useQuery: (ref: unknown) => {
     switch (getFunctionName(ref as Parameters<typeof getFunctionName>[0])) {
-      case "home:overview":
+      case "home:counts":
         return { waiting: 130, upNext: [], countsReady: true };
       case "savedArticles:count":
         return 1;
       case "lovedArticles:count":
         return 4;
+      case "impressions:recentCount":
+        return 1;
       case "impressions:listRecent":
         return [
           {

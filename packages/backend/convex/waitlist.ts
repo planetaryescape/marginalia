@@ -125,6 +125,20 @@ export const listRequests = ownerQuery({
   },
 });
 
+/** Matches the existing menu's bounded pending count without request details. */
+export const pendingCount = ownerQuery({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) =>
+    (
+      await ctx.db
+        .query("accessRequests")
+        .withIndex("by_status_and_createdAt", (q) => q.eq("status", "pending"))
+        .order("desc")
+        .take(50)
+    ).length,
+});
+
 /**
  * Approves a request and returns its invite link. The plaintext token exists
  * only in this response; the database keeps its hash.

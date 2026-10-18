@@ -8,6 +8,29 @@ import { unreadQueue } from "./lib/unreadQueue";
 
 const BOOKS_ON_THE_SHELF = 5;
 
+/** Current desk callers need counters, not the legacy hydrated overview. */
+export const counts = query({
+  args: {},
+  handler: async (ctx) => {
+    const stats = await ctx.db
+      .query("readingQueueStats")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+      .unique();
+    return {
+      countsReady: stats?.ready ?? false,
+      annotatedTotal: stats?.ready ? stats.annotated : null,
+      waiting: stats?.ready ? stats.waiting : null,
+      pending: stats?.ready ? stats.pending : null,
+      fits: {
+        5: stats?.ready ? stats.fits5 : null,
+        10: stats?.ready ? stats.fits10 : null,
+        20: stats?.ready ? stats.fits20 : null,
+        30: stats?.ready ? stats.waiting : null,
+      },
+    };
+  },
+});
+
 function hostOf(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, "");

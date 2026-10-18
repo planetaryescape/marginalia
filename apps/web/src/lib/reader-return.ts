@@ -41,8 +41,10 @@ export function backTarget(
   originPath: string | null,
   sessionId: string | null,
 ): BackTarget {
-  if (originPath === "/library") return { label: "Library", href: "/library" };
-  if (originPath === "/notes") return { label: "Notes", href: "/notes" };
+  if (originPath?.split("?")[0] === "/library")
+    return { label: "Library", href: originPath };
+  if (originPath?.split("?")[0] === "/notes")
+    return { label: "Notes", href: originPath };
   if (originPath?.startsWith("/session/")) {
     return { label: "Desk", href: originPath };
   }
@@ -65,6 +67,11 @@ export function doneDestination(back: BackTarget): {
 }
 
 export function rememberScroll(room: string, y: number): void {
+  roomScroll.delete(room);
+  if (roomScroll.size >= 40) {
+    const oldest = roomScroll.keys().next().value;
+    if (oldest !== undefined) roomScroll.delete(oldest);
+  }
   roomScroll.set(room, y);
 }
 

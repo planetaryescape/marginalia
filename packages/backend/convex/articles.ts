@@ -32,6 +32,24 @@ export const getById = query({
   },
 });
 
+/** Notes headings only; missing and foreign articles are indistinguishable. */
+export const headers = query({
+  args: { articleIds: v.array(v.id("articles")) },
+  handler: async (ctx, { articleIds }) => {
+    // Article rows can approach 1 MiB even though the response is tiny.
+    if (articleIds.length > 8) throw new Error("Too many article headers");
+    return Promise.all(
+      [...new Set(articleIds)].map(async (articleId) => {
+        const article = await ownedArticle(ctx, articleId, ctx.readerId);
+        return {
+          articleId,
+          article: article ? { title: article.title, url: article.url } : null,
+        };
+      }),
+    );
+  },
+});
+
 export const listByFeed = query({
   args: { feedId: v.id("feeds") },
   handler: async (ctx, args) => {

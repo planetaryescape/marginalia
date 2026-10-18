@@ -39,20 +39,31 @@ export type SuggestionDeck = {
  * a previous browse leaks into the next.
  */
 export function useSuggestionDeck(requestedMinutes: number): SuggestionDeck {
-  const live = useQuery(api.suggestions.forWindow, { requestedMinutes });
+  const [captured, setCaptured] = useState(false);
+  const live = useQuery(
+    api.suggestions.forWindow,
+    captured ? "skip" : { requestedMinutes },
+  );
   // Keep the first answer: a live update mustn't reshuffle cards mid-browse.
   // Seeded from the query's current value so a prefetched answer renders at once.
   const [head, setHead] = useState(live);
   useEffect(() => {
     if (live && !head) setHead(live);
+    if (live !== undefined) setCaptured(true);
   }, [live, head]);
 
+  const [index, setIndex] = useState(0);
+  // Keep the warm head fast path; continuation starts only as its end nears.
+  const continueDeck =
+    head !== undefined &&
+    (index > 0 ||
+      head.filter((card) => card.estimatedReadMinutes <= requestedMinutes)
+        .length < 2);
   const { results, status, loadMore } = usePaginatedQuery(
     api.suggestions.moreForWindow,
-    { requestedMinutes },
+    continueDeck ? { requestedMinutes } : "skip",
     { initialNumItems: PAGE_SIZE },
   );
-  const [index, setIndex] = useState(0);
   const [deck, setDeck] = useState<Card[]>(() =>
     appendFitting([], live ?? [], requestedMinutes),
   );
@@ -99,7 +110,11 @@ export function useSuggestionDeck(requestedMinutes: number): SuggestionDeck {
     size: deck.length,
     exhausted,
     shortest,
-    advance: (fromIndex) => setIndex(fromIndex + 1),
-    back: (fromIndex) => setIndex(Math.max(0, fromIndex - 1)),
+    advance: (fromIndex) =>
+      setIndex((current) => (current === fromIndex ? current + 1 : current)),
+    back: (fromIndex) =>
+      setIndex((current) =>
+        current === fromIndex ? Math.max(0, current - 1) : current,
+      ),
   };
 }

@@ -9,6 +9,7 @@ export const QUICK = { duration: 0.16, ease: EASE } as const;
  * with reduced motion. Later picks slide as before.
  */
 export function pickTransition(direction: number, reduced: boolean | null) {
+  if (reduced) return { duration: 0 };
   if (direction !== 0) return MOVE;
-  return reduced ? { duration: 0 } : QUICK;
+  return QUICK;
 }
