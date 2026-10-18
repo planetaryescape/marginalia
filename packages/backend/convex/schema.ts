@@ -732,6 +732,18 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
 
+  vaultFiles: defineTable({
+    userId: v.string(),
+    filePath: v.string(),
+    fileHash: v.union(v.string(), v.null()),
+  }).index("by_user_file", ["userId", "filePath"]),
+
+  vaultManifestBackfills: defineTable({
+    userId: v.string(),
+    afterPath: v.optional(v.string()),
+    complete: v.boolean(),
+  }).index("by_user", ["userId"]),
+
   noteChunks: defineTable({
     userId: v.string(),
     filePath: v.string(),
