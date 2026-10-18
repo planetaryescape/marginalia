@@ -73,6 +73,10 @@ export function useEngagementTracker({
             );
           }),
         ]);
+        // A shared drain can also deliver other visits' durable backlog. Only
+        // this visit's successful delivery may prune its clock, never a timeout.
+        if (snapshot.visitId === visitId && snapshot.articleId === articleId)
+          clock.acknowledge(snapshot);
       } finally {
         clearTimeout(timer);
       }

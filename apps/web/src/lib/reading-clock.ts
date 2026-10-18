@@ -17,6 +17,9 @@ export interface ReadingSample {
   /** Active time not yet credited to the paragraphs on screen */
   dwellPending: number;
 }
+export type ReadingSnapshot = Omit<ReadingSample, "dwell" | "dwellPending"> & {
+  dwell?: Record<string, number>;
+};
 export function articleProgress(
   top: number,
   height: number,
@@ -152,7 +155,7 @@ export class ReadingClock {
     if (!s.annotationsOpened.includes(id) && s.annotationsOpened.length < 128)
       s.annotationsOpened.push(id);
   }
-  snapshots(at: number, tick: number) {
+  snapshots(at: number, tick: number): ReadingSnapshot[] {
     this.heartbeat(at, tick);
     return [...this.samples.values()].map(
       ({ dwell, dwellPending: _, ...s }) => ({
@@ -162,7 +165,26 @@ export class ReadingClock {
       }),
     );
   }
-  acknowledge(day: string) {
-    if (day !== localDay(this.lastAt)) this.samples.delete(day);
+  /** Prune only a closed day whose complete cumulative state was delivered. */
+  acknowledge(sent: ReadingSnapshot) {
+    const sample = this.samples.get(sent.day);
+    if (!sample || sent.day === localDay(this.lastAt)) return;
+    const annotations = new Set(sent.annotationsOpened);
+    if (
+      sample.startedAt !== sent.startedAt ||
+      sample.updatedAt > sent.updatedAt ||
+      sample.activeTimeMs > sent.activeTimeMs ||
+      sample.visibleTimeMs > sent.visibleTimeMs ||
+      sample.timeSpentMs > sent.timeSpentMs ||
+      sample.maxScrollPercent > sent.maxScrollPercent ||
+      sample.paragraphIndex !== sent.paragraphIndex ||
+      sample.annotationsOpened.some((id) => !annotations.has(id)) ||
+      sample.dwellPending > 0 ||
+      Object.entries(capDwell(sample.dwell) ?? {}).some(
+        ([key, ms]) => ms > (sent.dwell?.[key] ?? 0),
+      )
+    )
+      return;
+    this.samples.delete(sent.day);
   }
 }

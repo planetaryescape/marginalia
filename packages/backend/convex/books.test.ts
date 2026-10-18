@@ -1,9 +1,12 @@
 /// <reference types="vite/client" />
+import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startImport } from "../test/imports";
-import { saveTestCredential, secondReaderTest } from "../test/owner";
+import { addReader, saveTestCredential, secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import authSchema from "./betterAuth/schema";
+import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -19,7 +22,7 @@ type Fixture = Awaited<ReturnType<typeof secondReaderTest>>;
 
 /** A book of units with these lengths in minutes, owned by `userId`. */
 async function seedBook(
-  { t }: Fixture,
+  { t }: Pick<Fixture, "t">,
   userId: string,
   minutes: number[],
   title = "Thinking in Systems",
@@ -607,6 +610,73 @@ describe("marking a book unread", () => {
 });
 
 describe("a unit whose margin did not arrive", () => {
+  it("synchronizes completed metadata and never reads the large body or starts annotation again on progress", async () => {
+    const t = convexTest({
+      schema,
+      modules,
+      transactionLimits: { bytesRead: 64 * 1024 },
+    });
+    t.registerComponent(
+      "betterAuth",
+      authSchema,
+      import.meta.glob("./betterAuth/**/*.ts"),
+    );
+    const { client, libraryId } = await addReader(t, {
+      email: "metadata-reader@example.com",
+    });
+    const articleId = await seedBook({ t }, libraryId, [4]);
+    await t.mutation(internal.books.setUnitStatus, {
+      userId: libraryId,
+      articleId,
+      unitIndex: 0,
+      status: "pending",
+    });
+    const pending = await t.run((ctx) =>
+      ctx.db.query("bookUnitStatus").first(),
+    );
+    expect(pending).toMatchObject({ annotationStatus: "pending" });
+    await t.mutation(internal.annotations.replaceForUnit, {
+      userId: libraryId,
+      articleId,
+      unitIndex: 0,
+      notes: [],
+    });
+    const status = await t.run((ctx) => ctx.db.query("bookUnitStatus").first());
+    expect(status).toMatchObject({
+      _id: pending?._id,
+      articleId,
+      index: 0,
+      annotationStatus: "annotated",
+    });
+    if (!status) throw new Error("Missing unit metadata");
+    const body = "body ".repeat(40_000);
+    await t.run((ctx) =>
+      ctx.db.patch("bookUnits", status.unitId, {
+        content: body,
+        contentHtml: `<p>${body}</p>`,
+      }),
+    );
+    // Reading even one 400 KB body would exceed this fixture's 64 KB budget.
+    await expect(
+      client.query(api.books.unit, { articleId, index: 0 }),
+    ).rejects.toThrow("Read too much data");
+    for (const scrollPercent of [0, 10, 20])
+      await client.mutation(api.books.recordProgress, {
+        articleId,
+        unitIndex: 0,
+        unitKey: status.unitId,
+        scrollPercent,
+      });
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(20),
+    );
+    expect(
+      scheduled.filter((task) => task.name.includes("annotateUnit")),
+    ).toEqual([]);
+    expect(
+      await t.run((ctx) => ctx.db.get("bookUnitStatus", status._id)),
+    ).toMatchObject({ annotationStatus: "annotated" });
+  });
   const unitStatus = (f: Fixture) =>
     f.t.run(async (ctx) => {
       const u = (await ctx.db.query("bookUnits").collect()).find(
@@ -670,6 +740,40 @@ describe("a unit whose margin did not arrive", () => {
     );
     await open(f, id);
     expect((await unitStatus(f)).status).toBe("pending");
+  });
+});
+
+describe("unit metadata backfill lifecycle fencing", () => {
+  it.each([
+    "disabled",
+    "deleting",
+    "deleted",
+  ])("does not recreate purged metadata for a %s reader", async (state) => {
+    const f = await secondReaderTest(modules);
+    const articleId = await seedBook(f, f.readerLibraryId, [4]);
+    const input = { userId: f.readerLibraryId, articleId, fromIndex: 0 };
+    expect(
+      await f.t.mutation(internal.books.backfillUnitMetadata, input),
+    ).toMatchObject({ done: true });
+    await f.t.run(async (ctx) => {
+      const reader = await ctx.db
+        .query("readers")
+        .withIndex("by_libraryId", (q) => q.eq("libraryId", f.readerLibraryId))
+        .unique();
+      if (!reader) throw new Error("Missing fixture reader");
+      for (const metadata of await ctx.db.query("bookUnitStatus").take(8))
+        await ctx.db.delete("bookUnitStatus", metadata._id);
+      if (state === "deleted") await ctx.db.delete("readers", reader._id);
+      else if (state === "deleting")
+        await ctx.db.patch("readers", reader._id, { deletingAt: 0 });
+      else await ctx.db.patch("readers", reader._id, { status: "disabled" });
+    });
+    expect(
+      await f.t.mutation(internal.books.backfillUnitMetadata, input),
+    ).toBeNull();
+    expect(
+      await f.t.run((ctx) => ctx.db.query("bookUnitStatus").take(8)),
+    ).toEqual([]);
   });
 });
 
