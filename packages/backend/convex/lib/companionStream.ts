@@ -9,6 +9,7 @@ import {
   type Provider,
   providerFailure,
 } from "./providers";
+import { interruptible, requestAttempt } from "./requestControl";
 import { dataLines, parseJson as parse, type ResponseBody } from "./sse";
 
 const CHAT_URLS: Record<Exclude<Provider, "anthropic">, string> = {
@@ -231,7 +232,22 @@ export async function* streamChat({
  * One non-streaming JSON answer. OpenRouter and OpenAI enforce the schema;
  * Anthropic follows the system prompt's JSON instructions.
  */
-export async function completeJson({
+export async function completeJson(
+  options: Parameters<typeof completeJsonRequest>[0],
+) {
+  const attempt = requestAttempt(options.signal, 60_000);
+  try {
+    return await interruptible(
+      completeJsonRequest({ ...options, signal: attempt.signal }),
+      attempt.signal,
+    );
+  } finally {
+    attempt.abort();
+    attempt.dispose();
+  }
+}
+
+async function completeJsonRequest({
   target,
   messages,
   maxTokens,

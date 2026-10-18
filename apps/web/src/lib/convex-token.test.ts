@@ -32,6 +32,25 @@ describe("tokenExpiry", () => {
 });
 
 describe("getConvexToken", () => {
+  it("aborts one waiter without cancelling the shared refresh or losing its cache", async () => {
+    const fresh = jwt(NOW / 1000 + 600);
+    let finish!: (value: string) => void;
+    const fetchToken = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const stopped = getConvexToken(now, fetchToken, controller.signal);
+    const other = getConvexToken(now, fetchToken);
+    controller.abort();
+    await expect(stopped).rejects.toMatchObject({ name: "AbortError" });
+    finish(fresh);
+    expect(await other).toBe(fresh);
+    expect(await getConvexToken(now, fetchToken)).toBe(fresh);
+    expect(fetchToken).toHaveBeenCalledTimes(1);
+  });
   it("reuses a cached token that is more than 60s from expiry", async () => {
     const token = jwt(NOW / 1000 + 300);
     rememberConvexToken("A", token);

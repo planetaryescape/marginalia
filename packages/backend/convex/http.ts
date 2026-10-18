@@ -4,20 +4,16 @@ import { type ActionCtx, httpAction } from "./_generated/server";
 import type { IngestExternalResult } from "./actions/ingestExternal";
 import { type ResolvedToken, TOKEN_PREFIX } from "./apiTokens";
 import { authComponent, createAuth } from "./auth";
+import { streamWithFallback } from "./lib/answerStream";
 import {
   retrieveArticleContext,
   retrievePassageContext,
 } from "./lib/articleAsk";
 import { retrievalQuery, retrieveBookContext } from "./lib/bookAsk";
 import { isTerminalChatGPTError } from "./lib/chatgptResponses";
-import {
-  type ChatMessage,
-  completeJson,
-  sourcesFooter,
-  streamChat,
-} from "./lib/companionStream";
+import { type ChatMessage, completeJson } from "./lib/companionStream";
 import { DEFAULT_USER_ID } from "./lib/constants";
-import { readerPreflight, withReaderCors } from "./lib/cors";
+import { readerOrigins, readerPreflight, withReaderCors } from "./lib/cors";
 import {
   bearerToken,
   externalArticleSchema,
@@ -44,8 +40,9 @@ import {
   companionRequestSchema,
   selectContext,
 } from "./lib/readingCompanion";
-import { loadReaderAI, type ProviderTarget } from "./lib/router";
-import { startTimings } from "./lib/serverTiming";
+import { cancellablePreparation, interruptible } from "./lib/requestControl";
+import { loadReaderAI } from "./lib/router";
+import { startTimings, type Timings } from "./lib/serverTiming";
 import { sha256Hex, siteUrl } from "./lib/tokens";
 import { vaultUploadSchema } from "./lib/vaultUpload";
 import { READER_LIMITS } from "./limits";
@@ -54,11 +51,16 @@ const http = httpRouter();
 authComponent.registerRoutes(http, createAuth);
 
 /** The signed-in reader's library ID, or null when the request isn't signed in. */
-async function signedInReader(ctx: ActionCtx): Promise<string | null> {
+async function signedInReader(
+  ctx: ActionCtx,
+  timings?: Timings,
+): Promise<string | null> {
   try {
     return await ctx.runQuery(internal.access.assertReader, {});
   } catch {
     return null;
+  } finally {
+    timings?.mark("auth");
   }
 }
 
@@ -74,11 +76,13 @@ const CORS_HEADERS = {
 async function aiBudgetExceeded(
   ctx: ActionCtx,
   readerId: string,
+  timings?: Timings,
 ): Promise<Response | null> {
   const allowed: boolean = await ctx.runMutation(internal.limits.spend, {
     userId: readerId,
     bucket: "ai",
   });
+  timings?.mark("budget");
   if (allowed) return null;
   return new Response(
     JSON.stringify({ code: "rate_limited", error: READER_LIMITS.ai.message }),
@@ -94,14 +98,11 @@ async function aiBudgetExceeded(
   );
 }
 
-function jsonError(status: number, body: { code: string; error: string }) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...CORS_HEADERS,
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    },
+/** Distinguish live-auth rejection from a provider's own terminal 401. */
+function readerAuthNeeded() {
+  return new Response("Sign in to your reader", {
+    status: 401,
+    headers: { ...CORS_HEADERS, "X-Reader-Prework-Rejection": "auth" },
   });
 }
 
@@ -172,118 +173,72 @@ http.route({
   }),
 });
 
-/** Said in the answer itself, since a cut-off stream otherwise looks finished. */
-const TRUNCATED_NOTICE =
-  "\n\n(The answer was cut short. Ask again for the rest.)";
-
 /**
  * Output budget for a librarian answer. The answer is short, but a reasoning
  * model spends the same budget thinking and the reply links 40 long ids.
  */
 const LIBRARY_MAX_TOKENS = 4000;
 
-/**
- * Streams a chat completion as plain text, trying each model in turn. It waits
- * for the first token so a failing model can fall back before the response
- * (and its X-Companion-Model header) is committed.
- */
-async function streamWithFallback(
-  chat: ChatMessage[],
-  targets: ProviderTarget[],
-  web: boolean,
-  signal: AbortSignal,
-  onFailure: (error: unknown) => Promise<void>,
-  maxTokens = 1200,
-): Promise<Response> {
-  for (const target of targets) {
-    const modelId = target.id;
-    const events = streamChat({
-      target,
-      messages: chat,
-      web,
-      maxTokens,
-      signal,
-    });
-    const citations: { url: string; title?: string }[] = [];
-    let first: string | null = null;
-    let failed: unknown = null;
-    try {
-      while (first === null && failed === null) {
-        const next = await events.next();
-        if (next.done) break;
-        if (next.value.type === "text") first = next.value.text;
-        else if (next.value.type === "citation") citations.push(next.value);
-        else if (next.value.type === "error") failed = next.value.error;
-      }
-    } catch (error) {
-      failed = error;
-    }
-    if (failed !== null || first === null) {
-      console.error(`Streamed answer: ${modelId} failed`, failed);
-      await events.return(undefined);
-      await onFailure(failed).catch(() => {});
-      // A ChatGPT plan's limit or eligibility is shown to the reader rather
-      // than quietly moving the answer to one of their paid API keys
-      if (isTerminalChatGPTError(failed))
-        return jsonError(failed.responseStatus, {
-          code: `chatgpt_${failed.kind}`,
-          error: failed.readerMessage,
-        });
-      continue;
-    }
+class ReaderBodyTooLargeError extends Error {}
 
-    const encoder = new TextEncoder();
-    let answer = first;
-    const body = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        controller.enqueue(encoder.encode(answer));
-        try {
-          for (;;) {
-            const next = await events.next();
-            if (next.done) break;
-            if (next.value.type === "text") {
-              answer += next.value.text;
-              controller.enqueue(encoder.encode(next.value.text));
-            } else if (next.value.type === "citation") {
-              citations.push(next.value);
-            } else if (next.value.type === "truncated") {
-              console.error(
-                `Streamed answer: ${modelId} hit ${maxTokens} tokens`,
-              );
-              controller.enqueue(encoder.encode(TRUNCATED_NOTICE));
-            } else {
-              console.error(
-                `Streamed answer: ${modelId} failed mid-answer`,
-                next.value.error,
-              );
-              throw new Error("The answer was interrupted. Try again.");
-            }
-          }
-          const footer = sourcesFooter(answer, citations);
-          if (footer) controller.enqueue(encoder.encode(footer));
-          controller.close();
-        } catch (error) {
-          controller.error(error);
-        } finally {
-          await events.return(undefined);
-        }
-      },
-      async cancel() {
-        await events.return(undefined);
-      },
-    });
-    return new Response(body, {
-      headers: {
-        ...CORS_HEADERS,
-        "Content-Type": "text/plain; charset=utf-8",
-        "X-Companion-Model": modelId,
-      },
-    });
+/** Direct JWT calls retain the legacy proxy's character limit. */
+async function readerJson(request: Request): Promise<unknown> {
+  const body = await interruptible(request.text(), request.signal);
+  if (body.length > 300_000) throw new ReaderBodyTooLargeError();
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
   }
+}
 
-  return new Response("Every model failed. Try again shortly.", {
-    status: 502,
-    headers: CORS_HEADERS,
+/** Timings begin at handler entry, including live auth and request budgeting. */
+function readerAIAction(
+  handler: (
+    ctx: ActionCtx,
+    request: Request,
+    timings: Timings,
+  ) => Promise<Response>,
+) {
+  return httpAction(async (ctx, request) => {
+    const timings = startTimings();
+    const origin = request.headers.get("Origin");
+    if (origin && !readerOrigins().includes(origin))
+      return withReaderCors(
+        request,
+        new Response("Invalid origin", { status: 403 }),
+      );
+    let response: Response;
+    try {
+      request.signal.throwIfAborted();
+      response = await interruptible(
+        handler(ctx, request, timings),
+        request.signal,
+      );
+    } catch (error) {
+      response = new Response(
+        error instanceof ReaderBodyTooLargeError
+          ? "Request too large"
+          : request.signal.aborted
+            ? "Request cancelled"
+            : "Couldn't prepare your answer. Try again.",
+        {
+          status:
+            error instanceof ReaderBodyTooLargeError
+              ? 413
+              : request.signal.aborted
+                ? 499
+                : 502,
+        },
+      );
+    }
+    const headers = new Headers(response.headers);
+    headers.set("Server-Timing", timings.header());
+    headers.set("Cache-Control", "no-store");
+    return withReaderCors(
+      request,
+      new Response(response.body, { status: response.status, headers }),
+    );
   });
 }
 
@@ -291,26 +246,20 @@ async function streamWithFallback(
 http.route({
   path: "/api/companion",
   method: "OPTIONS",
-  handler: httpAction(async () => {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
-  }),
+  handler: httpAction(async (_ctx, request) => readerPreflight(request)),
 });
 
 http.route({
   path: "/api/companion",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const readerId = await signedInReader(ctx);
-    if (!readerId)
-      return new Response("Sign in to your reader", {
-        status: 401,
-        headers: CORS_HEADERS,
-      });
-    const limited = await aiBudgetExceeded(ctx, readerId);
+  handler: readerAIAction(async (ctx, request, timings) => {
+    const readerId = await signedInReader(ctx, timings);
+    request.signal.throwIfAborted();
+    if (!readerId) return readerAuthNeeded();
+    const limited = await aiBudgetExceeded(ctx, readerId, timings);
     if (limited) return limited;
-    const parsed = companionRequestSchema.safeParse(
-      await request.json().catch(() => null),
-    );
+    const parsed = companionRequestSchema.safeParse(await readerJson(request));
+    timings.mark("parse");
     if (!parsed.success) {
       return new Response("Bad request", {
         status: 400,
@@ -318,59 +267,76 @@ http.route({
       });
     }
 
-    const ai = await loadReaderAI(ctx, readerId);
+    const preparation = cancellablePreparation(ctx, request.signal);
+    const [summary, { ai, book, article, nearby }] = await Promise.all([
+      parsed.data.articleId
+        ? preparation.runQuery(internal.summaries.forCompanion, {
+            articleId: parsed.data.articleId,
+            userId: readerId,
+          })
+        : null,
+      (async () => {
+        const ai = await loadReaderAI(ctx, readerId, {
+          roles: [parsed.data.depth],
+          signal: request.signal,
+        });
+        request.signal.throwIfAborted();
+        timings.mark("ai");
+        if (!ai.chain(parsed.data.depth).length)
+          return { ai, book: null, article: null, nearby: null };
+        // A question about a whole book carries its outline and the passages that
+        // match it, not the book (D-DES-054)
+        const book =
+          parsed.data.mode === "article" &&
+          parsed.data.articleId &&
+          parsed.data.unitIndex !== undefined
+            ? await retrieveBookContext(preparation, {
+                userId: readerId,
+                articleId: parsed.data.articleId,
+                unitIndex: parsed.data.unitIndex,
+                question: retrievalQuery(
+                  parsed.data.question ?? "",
+                  parsed.data.history,
+                ),
+                embedder: ai.embedder(),
+              })
+            : null;
+        request.signal.throwIfAborted();
+        // So is a question about a long article (the summary is sent either way)
+        const article =
+          parsed.data.mode === "article" && !book
+            ? await retrieveArticleContext(preparation, {
+                userId: readerId,
+                articleId: parsed.data.articleId,
+                paragraphs: parsed.data.paragraphs,
+                paragraphIndex: parsed.data.paragraphIndex,
+                question: parsed.data.question ?? "",
+                history: parsed.data.history,
+                embedder: ai.embedder(),
+              })
+            : null;
+        request.signal.throwIfAborted();
+        // Ask about a passage can reach beyond its window into the same article.
+        // A book's parts are searched by their own path, so only an article here.
+        const nearby =
+          parsed.data.mode === "ask" && parsed.data.unitIndex === undefined
+            ? await retrievePassageContext(preparation, {
+                userId: readerId,
+                articleId: parsed.data.articleId,
+                paragraphs: parsed.data.paragraphs,
+                window: selectContext(parsed.data).indices,
+                question: parsed.data.question ?? "",
+                history: parsed.data.history,
+                embedder: ai.embedder(),
+              })
+            : null;
+        request.signal.throwIfAborted();
+        return { ai, book, article, nearby };
+      })(),
+    ]);
     const targets = ai.chain(parsed.data.depth);
     if (!targets.length) return setupNeeded("no_provider");
-    const summary = parsed.data.articleId
-      ? await ctx.runQuery(internal.summaries.forCompanion, {
-          articleId: parsed.data.articleId,
-          userId: readerId,
-        })
-      : null;
-    // A question about a whole book carries its outline and the passages that
-    // match it, not the book (D-DES-054)
-    const book =
-      parsed.data.mode === "article" &&
-      parsed.data.articleId &&
-      parsed.data.unitIndex !== undefined
-        ? await retrieveBookContext(ctx, {
-            userId: readerId,
-            articleId: parsed.data.articleId,
-            unitIndex: parsed.data.unitIndex,
-            question: retrievalQuery(
-              parsed.data.question ?? "",
-              parsed.data.history,
-            ),
-            embedder: ai.embedder(),
-          })
-        : null;
-    // So is a question about a long article (the summary is sent either way)
-    const article =
-      parsed.data.mode === "article" && !book
-        ? await retrieveArticleContext(ctx, {
-            userId: readerId,
-            articleId: parsed.data.articleId,
-            paragraphs: parsed.data.paragraphs,
-            paragraphIndex: parsed.data.paragraphIndex,
-            question: parsed.data.question ?? "",
-            history: parsed.data.history,
-            embedder: ai.embedder(),
-          })
-        : null;
-    // Ask about a passage can reach beyond its window into the same article.
-    // A book's parts are searched by their own path, so only an article here.
-    const nearby =
-      parsed.data.mode === "ask" && parsed.data.unitIndex === undefined
-        ? await retrievePassageContext(ctx, {
-            userId: readerId,
-            articleId: parsed.data.articleId,
-            paragraphs: parsed.data.paragraphs,
-            window: selectContext(parsed.data).indices,
-            question: parsed.data.question ?? "",
-            history: parsed.data.history,
-            embedder: ai.embedder(),
-          })
-        : null;
+    timings.mark("retrieve");
     if (article)
       console.log(
         `ask article context: ${article.mode}, ${article.charsBefore} chars before, ${article.charsAfter} after`,
@@ -397,6 +363,8 @@ http.route({
       parsed.data.web,
       request.signal,
       ai.noteFailure,
+      1200,
+      { depth: parsed.data.depth, timings },
     );
   }),
 });
@@ -499,44 +467,46 @@ http.route({
 http.route({
   path: "/api/library",
   method: "OPTIONS",
-  handler: httpAction(async () => {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
-  }),
+  handler: httpAction(async (_ctx, request) => readerPreflight(request)),
 });
 
 http.route({
   path: "/api/library",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const readerId = await signedInReader(ctx);
-    if (!readerId)
-      return new Response("Sign in to your reader", {
-        status: 401,
-        headers: CORS_HEADERS,
-      });
-    const limited = await aiBudgetExceeded(ctx, readerId);
+  handler: readerAIAction(async (ctx, request, timings) => {
+    const readerId = await signedInReader(ctx, timings);
+    request.signal.throwIfAborted();
+    if (!readerId) return readerAuthNeeded();
+    const limited = await aiBudgetExceeded(ctx, readerId, timings);
     if (limited) return limited;
-    const parsed = libraryRequestSchema.safeParse(
-      await request.json().catch(() => null),
-    );
+    const parsed = libraryRequestSchema.safeParse(await readerJson(request));
+    timings.mark("parse");
     if (!parsed.success) {
       return new Response("Bad request", {
         status: 400,
         headers: CORS_HEADERS,
       });
     }
-    const ai = await loadReaderAI(ctx, readerId);
+    const ai = await loadReaderAI(ctx, readerId, {
+      roles: ["quick"],
+      signal: request.signal,
+    });
+    request.signal.throwIfAborted();
+    timings.mark("ai");
     const targets = ai.chain("quick");
     if (!targets.length) return setupNeeded("no_provider");
     const embedder = ai.embedder();
     if (!embedder) return setupNeeded("no_embeddings");
     const context = await buildLibraryContext(
-      ctx,
+      cancellablePreparation(ctx, request.signal),
       readerId,
       parsed.data.question,
       embedder,
       parsed.data.history,
+      timings,
     );
+    request.signal.throwIfAborted();
+    timings.mark("retrieve");
     const chat: ChatMessage[] = [
       { role: "system", content: LIBRARY_SYSTEM },
       {
@@ -564,6 +534,7 @@ http.route({
       request.signal,
       ai.noteFailure,
       LIBRARY_MAX_TOKENS,
+      { timings },
     );
   }),
 });
@@ -581,19 +552,14 @@ http.route({
   method: "POST",
   // Browsers call this directly with the Convex JWT as a Bearer token, so
   // the CORS headers depend on the request's origin.
-  handler: httpAction(async (ctx, request) =>
-    withReaderCors(request, await findLibrary(ctx, request)),
-  ),
+  handler: readerAIAction(findLibrary),
 });
 
-async function findLibrary(ctx: ActionCtx, request: Request) {
-  const readerId = await signedInReader(ctx);
-  if (!readerId)
-    return new Response("Sign in to your reader", {
-      status: 401,
-      headers: CORS_HEADERS,
-    });
-  const limited = await aiBudgetExceeded(ctx, readerId);
+async function findLibrary(ctx: ActionCtx, request: Request, timings: Timings) {
+  const readerId = await signedInReader(ctx, timings);
+  request.signal.throwIfAborted();
+  if (!readerId) return readerAuthNeeded();
+  const limited = await aiBudgetExceeded(ctx, readerId, timings);
   if (limited) return limited;
   const headers = {
     ...CORS_HEADERS,
@@ -601,8 +567,9 @@ async function findLibrary(ctx: ActionCtx, request: Request) {
     "Cache-Control": "no-store",
   };
   const parsed = librarySearchRequestSchema.safeParse(
-    await request.json().catch(() => null),
+    await readerJson(request),
   );
+  timings.mark("parse");
   if (!parsed.success)
     return new Response(
       JSON.stringify({
@@ -610,14 +577,16 @@ async function findLibrary(ctx: ActionCtx, request: Request) {
       }),
       { status: 400, headers },
     );
-  const timings = startTimings();
-  const ai = await loadReaderAI(ctx, readerId);
+  const ai = await loadReaderAI(ctx, readerId, {
+    text: false,
+    signal: request.signal,
+  });
   timings.mark("ai");
   const embedder = ai.embedder();
   if (!embedder) return setupNeeded("no_embeddings");
   try {
     const found = await findLibraryArticles(
-      ctx,
+      cancellablePreparation(ctx, request.signal),
       readerId,
       parsed.data.question,
       embedder,
@@ -627,7 +596,7 @@ async function findLibrary(ctx: ActionCtx, request: Request) {
       headers: { ...headers, "Server-Timing": timings.header() },
     });
   } catch (error) {
-    console.error("Library find failed", error);
+    console.error("Library find failed");
     await ai.noteFailure(error).catch(() => {});
     return new Response(
       JSON.stringify({ error: "Couldn't search your library. Try again." }),
@@ -647,19 +616,18 @@ http.route({
   method: "POST",
   // Browsers call this directly with the Convex JWT as a Bearer token, so
   // the CORS headers depend on the request's origin.
-  handler: httpAction(async (ctx, request) =>
-    withReaderCors(request, await searchLibrary(ctx, request)),
-  ),
+  handler: readerAIAction(searchLibrary),
 });
 
-async function searchLibrary(ctx: ActionCtx, request: Request) {
-  const readerId = await signedInReader(ctx);
-  if (!readerId)
-    return new Response("Sign in to your reader", {
-      status: 401,
-      headers: CORS_HEADERS,
-    });
-  const limited = await aiBudgetExceeded(ctx, readerId);
+async function searchLibrary(
+  ctx: ActionCtx,
+  request: Request,
+  timings: Timings,
+) {
+  const readerId = await signedInReader(ctx, timings);
+  request.signal.throwIfAborted();
+  if (!readerId) return readerAuthNeeded();
+  const limited = await aiBudgetExceeded(ctx, readerId, timings);
   if (limited) return limited;
   const headers = {
     ...CORS_HEADERS,
@@ -667,8 +635,9 @@ async function searchLibrary(ctx: ActionCtx, request: Request) {
     "Cache-Control": "no-store",
   };
   const parsed = librarySearchRequestSchema.safeParse(
-    await request.json().catch(() => null),
+    await readerJson(request),
   );
+  timings.mark("parse");
   if (!parsed.success)
     return new Response(
       JSON.stringify({
@@ -676,8 +645,10 @@ async function searchLibrary(ctx: ActionCtx, request: Request) {
       }),
       { status: 400, headers },
     );
-  const timings = startTimings();
-  const ai = await loadReaderAI(ctx, readerId);
+  const ai = await loadReaderAI(ctx, readerId, {
+    roles: ["quick"],
+    signal: request.signal,
+  });
   timings.mark("ai");
   const targets = ai.chain("quick");
   if (!targets.length) return setupNeeded("no_provider");
@@ -685,7 +656,7 @@ async function searchLibrary(ctx: ActionCtx, request: Request) {
   if (!embedder) return setupNeeded("no_embeddings");
   try {
     const { context, articles } = await retrieveLibraryContext(
-      ctx,
+      cancellablePreparation(ctx, request.signal),
       readerId,
       parsed.data.question,
       embedder,
@@ -721,7 +692,7 @@ async function searchLibrary(ctx: ActionCtx, request: Request) {
         });
       } catch (error) {
         if (request.signal.aborted) break;
-        console.error(`Library search: ${target.id} failed`, error);
+        console.error(`Library search: ${target.id} failed`);
         await ai.noteFailure(error).catch(() => {});
         if (isTerminalChatGPTError(error))
           return new Response(
@@ -733,8 +704,8 @@ async function searchLibrary(ctx: ActionCtx, request: Request) {
           );
       }
     }
-  } catch (error) {
-    console.error("Library search retrieval failed", error);
+  } catch {
+    console.error("Library search retrieval failed");
   }
   return new Response(
     JSON.stringify({ error: "Couldn't search your library. Try again." }),

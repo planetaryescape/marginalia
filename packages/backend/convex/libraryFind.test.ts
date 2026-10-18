@@ -28,6 +28,64 @@ function embeddingsOnly() {
 }
 
 describe("search-only library path", () => {
+  it("reuses one cached embedding across find and its explanation", async () => {
+    const t = await ownerWithKey(modules);
+    const articleId = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "paired",
+        url: "https://example.com/paired",
+        title: "Paired",
+        excerpt: "Paired",
+        embedding,
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      }),
+    );
+    let embeds = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/embeddings")) {
+        embeds++;
+        return Response.json({ data: [{ index: 0, embedding }] });
+      }
+      if (url.endsWith("/chat/completions"))
+        return Response.json({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  matches: [
+                    {
+                      articleId,
+                      relevant: true,
+                      reason: "A relevant explanation.",
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        });
+      throw new Error("Unexpected fixture request");
+    });
+    const send = (path: string) =>
+      t.fetch(`/api/library/${path}`, {
+        method: "POST",
+        body: JSON.stringify({ question: "paired" }),
+      });
+    expect((await send("find")).status).toBe(200);
+    await t.finishAllScheduledFunctions(
+      () => new Promise((resolve) => setTimeout(resolve, 0)),
+    );
+    const explanation = await send("search");
+    expect(explanation.status).toBe(200);
+    expect(await explanation.json()).toMatchObject({
+      matches: [{ articleId, reason: "A relevant explanation." }],
+    });
+    expect(embeds).toBe(1);
+  });
   it("returns ranked articles without calling a model, and times each stage", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only");
     const t = await ownerWithKey(modules);
@@ -92,6 +150,9 @@ describe("search-only library path", () => {
     });
     expect(response.headers.get("Server-Timing")).toMatch(
       /ai;dur=\d+, embed;dur=\d+, search;dur=\d+, load;dur=\d+, total;dur=\d+/,
+    );
+    expect(response.headers.get("Server-Timing")).toMatch(
+      /^auth;dur=\d+, budget;dur=\d+, parse;dur=\d+, /,
     );
     expect(calls.every((url) => url.endsWith("/embeddings"))).toBe(true);
   });

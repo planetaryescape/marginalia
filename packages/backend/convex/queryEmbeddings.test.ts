@@ -38,7 +38,10 @@ function actionCtx(t: ReturnType<typeof readerTest>) {
   };
   return {
     runQuery: (ref: unknown, args: unknown) => run.query(ref, args),
-    runMutation: (ref: unknown, args: unknown) => run.mutation(ref, args),
+    scheduler: {
+      runAfter: (_delay: number, ref: unknown, args: unknown) =>
+        run.mutation(ref, args),
+    },
   } as never;
 }
 
@@ -156,8 +159,10 @@ describe("cachedQueryEmbedding", () => {
       runQuery: async () => {
         throw new Error("cache unavailable");
       },
-      runMutation: async () => {
-        throw new Error("cache unavailable");
+      scheduler: {
+        runAfter: async () => {
+          throw new Error("cache unavailable");
+        },
       },
     } as never;
 

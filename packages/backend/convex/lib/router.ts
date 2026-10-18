@@ -34,8 +34,17 @@ type Runner = Pick<ActionCtx, "runQuery" | "runMutation">;
 export async function loadReaderAI(
   ctx: Runner,
   userId: string,
-  { text = true }: { text?: boolean } = {},
+  {
+    text = true,
+    roles = ["annotations", "quick", "deep"],
+    signal,
+  }: {
+    text?: boolean;
+    roles?: ModelRole[];
+    signal?: AbortSignal;
+  } = {},
 ): Promise<ReaderAI> {
+  signal?.throwIfAborted();
   const routing = await ctx.runQuery(internal.providerCredentials.routing, {
     userId,
   });
@@ -51,15 +60,30 @@ export async function loadReaderAI(
 
   // Embedding-only callers don't need the plan, so they never refresh its token
   const chatgptModels = routing.chatgptModels ?? [];
-  if (text && routing.chatgptModels) {
+  const availableProviders: ModelProvider[] = [
+    ...keys.keys(),
+    ...(routing.chatgptModels ? ["chatgpt" as const] : []),
+  ];
+  const needsPlan =
+    text &&
+    roles.some((role) =>
+      modelChain(
+        routing.models[role],
+        role,
+        availableProviders,
+        chatgptModels,
+      ).some((model) => model.provider === "chatgpt"),
+    );
+  if (needsPlan) {
     try {
       const token = await chatgptAccessToken(ctx, userId);
       if (token) keys.set("chatgpt", token);
-    } catch (error) {
-      console.error("ChatGPT is unavailable for this request", error);
+    } catch {
+      console.error("ChatGPT is unavailable for this request");
     }
   }
   const providers = [...keys.keys()];
+  signal?.throwIfAborted();
 
   return {
     providers,
@@ -73,7 +97,10 @@ export async function loadReaderAI(
     embedder: () => {
       const provider = embeddingProvider(providers);
       const apiKey = provider && keys.get(provider);
-      return provider && apiKey ? { provider, apiKey } : null;
+      if (!provider || !apiKey) return null;
+      const target: EmbeddingTarget = { provider, apiKey };
+      if (signal) target.signal = signal;
+      return target;
     },
     noteFailure: async (error) => {
       if (!(error instanceof ChatGPTRequestError)) return;

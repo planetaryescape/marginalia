@@ -8,6 +8,7 @@ import { internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { alreadySaid, buildAlongsidePrompt } from "../lib/alongsidePrompt";
 import { annotationBudget, gateNotes } from "../lib/annotationGate";
+import { annotationOutputTokens } from "../lib/annotationOutputBudget";
 import { buildMarginaliaContext } from "../lib/marginaliaContext";
 import { hashSources } from "../lib/marginaliaFingerprint";
 import { beyondImportPass, sectionRanges } from "../lib/readingSections";
@@ -74,7 +75,7 @@ export const pass = internalAction({
         await settleWith("skipped");
         return;
       }
-      const ai = await loadReaderAI(ctx, userId);
+      const ai = await loadReaderAI(ctx, userId, { roles: ["annotations"] });
       const targets = ai.chain("annotations");
       if (!targets.length) {
         console.log(`Skipped reading pass for ${label}: no AI provider key`);
@@ -148,6 +149,7 @@ export const pass = internalAction({
           wordCount: words,
         }),
         targets,
+        maxOutputTokens: annotationOutputTokens(words),
         onFailure: ai.noteFailure,
       });
 

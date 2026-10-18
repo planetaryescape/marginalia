@@ -7,6 +7,7 @@ import { type ActionCtx, internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { annotationBudget, gateNotes } from "../lib/annotationGate";
 import { KIND_FAMILIES } from "../lib/annotationKinds";
+import { annotationOutputTokens } from "../lib/annotationOutputBudget";
 import { outlineAfterWindow } from "../lib/articleOutline";
 import { type EmbeddingTarget, embedTexts } from "../lib/embeddings";
 import {
@@ -334,7 +335,9 @@ async function annotateArticle(
   }
 
   // Marginalia use the keys of the library that owns the article
-  const ai = await loadReaderAI(ctx, article.userId);
+  const ai = await loadReaderAI(ctx, article.userId, {
+    roles: ["annotations"],
+  });
   const targets = ai.chain("annotations");
   if (!targets.length) {
     console.warn(
@@ -395,6 +398,7 @@ async function annotateArticle(
           vocabulary: vocabulary.map((tag) => tag.name),
         }),
         targets,
+        maxOutputTokens: annotationOutputTokens(wordCount),
         onFailure: ai.noteFailure,
       });
 

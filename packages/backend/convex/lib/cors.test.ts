@@ -24,6 +24,13 @@ describe("reader origins", () => {
       "https://b.com",
     ]);
   });
+  it("rejects null, wildcard, credentials, paths and non-HTTP origins", () => {
+    expect(
+      readerOrigins(
+        "null,*,https://a.com/path,https://u:p@a.com,file://host,http://localhost:3000",
+      ),
+    ).toEqual(["http://localhost:3000"]);
+  });
 });
 
 describe("reader CORS headers", () => {
@@ -41,7 +48,10 @@ describe("reader CORS headers", () => {
     expect(headers["Access-Control-Allow-Headers"]).toBe(
       "authorization, content-type",
     );
-    expect(headers["Access-Control-Expose-Headers"]).toBe("Server-Timing");
+    expect(headers["Access-Control-Expose-Headers"]).toBe(
+      "Server-Timing, X-Companion-Model, X-Reader-Prework-Rejection",
+    );
+    expect(headers["Timing-Allow-Origin"]).toBe("https://reader.bhekani.com");
     expect(headers.Vary).toBe("Origin");
     expect(headers["Access-Control-Allow-Credentials"]).toBeUndefined();
   });
@@ -62,6 +72,9 @@ describe("reader CORS headers", () => {
         status: 401,
         headers: {
           "Access-Control-Allow-Origin": "https://reader.bhekani.com",
+          "Server-Timing": "auth;dur=1",
+          "Timing-Allow-Origin": "*",
+          "X-Companion-Model": "private-model",
         },
       }),
       origins,
@@ -69,6 +82,9 @@ describe("reader CORS headers", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
     expect(response.headers.get("Vary")).toBe("Origin");
+    expect(response.headers.get("Timing-Allow-Origin")).toBeNull();
+    expect(response.headers.get("Server-Timing")).toBeNull();
+    expect(response.headers.get("X-Companion-Model")).toBeNull();
   });
 
   it("answers a preflight with 204", () => {
