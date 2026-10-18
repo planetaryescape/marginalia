@@ -199,6 +199,7 @@ function readerAIAction(
     request: Request,
     timings: Timings,
   ) => Promise<Response>,
+  { joinPreparation = false }: { joinPreparation?: boolean } = {},
 ) {
   return httpAction(async (ctx, request) => {
     const timings = startTimings();
@@ -211,10 +212,17 @@ function readerAIAction(
     let response: Response;
     try {
       request.signal.throwIfAborted();
-      response = await interruptible(
-        handler(ctx, request, timings),
-        request.signal,
-      );
+      const work = handler(ctx, request, timings);
+      // Library preparation owns a durable cache publication. Its finally
+      // must finish before the HTTP action exits, even though the browser has
+      // already abandoned the response on Stop.
+      response = joinPreparation
+        ? await work
+        : await interruptible(work, request.signal);
+      if (joinPreparation && request.signal.aborted) {
+        await response.body?.cancel();
+        request.signal.throwIfAborted();
+      }
     } catch (error) {
       response = new Response(
         error instanceof ReaderBodyTooLargeError
@@ -481,70 +489,73 @@ http.route({
 http.route({
   path: "/api/library",
   method: "POST",
-  handler: readerAIAction(async (ctx, request, timings) => {
-    const readerId = await signedInReader(ctx, timings);
-    request.signal.throwIfAborted();
-    if (!readerId) return readerAuthNeeded();
-    const limited = await aiBudgetExceeded(ctx, readerId, timings);
-    if (limited) return limited;
-    const parsed = libraryRequestSchema.safeParse(await readerJson(request));
-    timings.mark("parse");
-    if (!parsed.success) {
-      return new Response("Bad request", {
-        status: 400,
-        headers: CORS_HEADERS,
+  handler: readerAIAction(
+    async (ctx, request, timings) => {
+      const readerId = await signedInReader(ctx, timings);
+      request.signal.throwIfAborted();
+      if (!readerId) return readerAuthNeeded();
+      const limited = await aiBudgetExceeded(ctx, readerId, timings);
+      if (limited) return limited;
+      const parsed = libraryRequestSchema.safeParse(await readerJson(request));
+      timings.mark("parse");
+      if (!parsed.success) {
+        return new Response("Bad request", {
+          status: 400,
+          headers: CORS_HEADERS,
+        });
+      }
+      const ai = await loadReaderAI(ctx, readerId, {
+        roles: ["quick"],
+        signal: request.signal,
       });
-    }
-    const ai = await loadReaderAI(ctx, readerId, {
-      roles: ["quick"],
-      signal: request.signal,
-    });
-    request.signal.throwIfAborted();
-    timings.mark("ai");
-    const targets = ai.chain("quick");
-    if (!targets.length) return setupNeeded("no_provider");
-    const embedder = ai.embedder();
-    if (!embedder) return setupNeeded("no_embeddings");
-    const context = await buildLibraryContext(
-      cancellablePreparation(ctx, request.signal),
-      readerId,
-      parsed.data.question,
-      embedder,
-      parsed.data.history,
-      timings,
-    );
-    request.signal.throwIfAborted();
-    timings.mark("retrieve");
-    const chat: ChatMessage[] = [
-      { role: "system", content: LIBRARY_SYSTEM },
-      {
-        role: "user",
-        content: `${context}\n\nQuestion: ${parsed.data.question}`,
-      },
-    ];
-    // Follow-ups: earlier turns come after the library, newest question last
-    if (parsed.data.history.length) {
-      chat.splice(
-        1,
-        1,
-        { role: "user", content: context },
-        ...parsed.data.history,
+      request.signal.throwIfAborted();
+      timings.mark("ai");
+      const targets = ai.chain("quick");
+      if (!targets.length) return setupNeeded("no_provider");
+      const embedder = ai.embedder();
+      if (!embedder) return setupNeeded("no_embeddings");
+      const context = await buildLibraryContext(
+        cancellablePreparation(ctx, request.signal),
+        readerId,
+        parsed.data.question,
+        embedder,
+        parsed.data.history,
+        timings,
+      );
+      request.signal.throwIfAborted();
+      timings.mark("retrieve");
+      const chat: ChatMessage[] = [
+        { role: "system", content: LIBRARY_SYSTEM },
         {
           role: "user",
-          content: parsed.data.question,
+          content: `${context}\n\nQuestion: ${parsed.data.question}`,
         },
+      ];
+      // Follow-ups: earlier turns come after the library, newest question last
+      if (parsed.data.history.length) {
+        chat.splice(
+          1,
+          1,
+          { role: "user", content: context },
+          ...parsed.data.history,
+          {
+            role: "user",
+            content: parsed.data.question,
+          },
+        );
+      }
+      return streamWithFallback(
+        chat,
+        targets,
+        false,
+        request.signal,
+        ai.noteFailure,
+        LIBRARY_MAX_TOKENS,
+        { timings },
       );
-    }
-    return streamWithFallback(
-      chat,
-      targets,
-      false,
-      request.signal,
-      ai.noteFailure,
-      LIBRARY_MAX_TOKENS,
-      { timings },
-    );
-  }),
+    },
+    { joinPreparation: true },
+  ),
 });
 
 http.route({
@@ -560,7 +571,7 @@ http.route({
   method: "POST",
   // Browsers call this directly with the Convex JWT as a Bearer token, so
   // the CORS headers depend on the request's origin.
-  handler: readerAIAction(findLibrary),
+  handler: readerAIAction(findLibrary, { joinPreparation: true }),
 });
 
 async function findLibrary(ctx: ActionCtx, request: Request, timings: Timings) {
@@ -624,7 +635,7 @@ http.route({
   method: "POST",
   // Browsers call this directly with the Convex JWT as a Bearer token, so
   // the CORS headers depend on the request's origin.
-  handler: readerAIAction(searchLibrary),
+  handler: readerAIAction(searchLibrary, { joinPreparation: true }),
 });
 
 async function searchLibrary(
