@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
+import { metadataContext } from "../test/metadata";
 import { secondReaderTest } from "../test/owner";
 import { api } from "./_generated/api";
 
@@ -28,7 +29,8 @@ async function seed(
   userId: string,
   n: number,
 ) {
-  return f.t.run(async (ctx) => {
+  return f.t.run(async (raw) => {
+    const ctx = metadataContext(raw);
     const ids = [];
     for (let i = 0; i < n; i++) {
       const articleId = await ctx.db.insert("articles", article(userId, i));

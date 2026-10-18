@@ -1,10 +1,21 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { DatabaseReader } from "../_generated/server";
-import { ownedArticle } from "../access";
+import { ownedArticleCard } from "../access";
 
 // A shelf row draws a title, author and length, so the article's content and
 // HTML (up to ~900 KB each) never need to leave the server.
-export function shelfArticle(a: Doc<"articles">) {
+export function shelfArticle(
+  a: Pick<
+    Doc<"articles">,
+    | "_id"
+    | "title"
+    | "url"
+    | "author"
+    | "estimatedReadMinutes"
+    | "annotationStatus"
+    | "finishedAt"
+  >,
+) {
   return {
     _id: a._id,
     title: a.title,
@@ -16,13 +27,11 @@ export function shelfArticle(a: Doc<"articles">) {
   };
 }
 
-// One shelf page reads at most this many saved or loved rows, and each row
-// fetches one whole article of up to ~900 KB: 12 x 900 KB = ~10.8 MB, under
-// Convex's 16 MiB read limit with room for the small shelf rows themselves.
+// Keep stable paging while joining physically small owned card records.
 export const SHELF_PAGE_ROWS = 12;
 
-// Shelf ids and counts read small rows only, so this bound is about response
-// size, not the read limit.
+// Compatibility-only ID endpoint. Visible cards query their own membership;
+// exact counts use initialized counters, not this bound.
 export const SHELF_ID_BOUND = 2000;
 
 /**
@@ -32,7 +41,7 @@ export const SHELF_ID_BOUND = 2000;
 export async function isReading(
   ctx: { db: DatabaseReader },
   userId: string,
-  article: Doc<"articles">,
+  article: Pick<Doc<"articles">, "_id" | "finishedAt">,
 ): Promise<boolean> {
   if (article.finishedAt !== undefined) return false;
   const opened = await ctx.db
@@ -53,7 +62,7 @@ export async function withShelfArticles<
 >(ctx: { db: DatabaseReader; readerId: string }, rows: T[]) {
   const items = await Promise.all(
     rows.map(async (row) => {
-      const article = await ownedArticle(ctx, row.articleId, ctx.readerId);
+      const article = await ownedArticleCard(ctx, row.articleId, ctx.readerId);
       if (!article) return null;
       const reading = await isReading(ctx, ctx.readerId, article);
       return { ...row, article: { ...shelfArticle(article), reading } };

@@ -7,6 +7,7 @@ import LibraryPage from "./page";
 const shelf = vi.hoisted(() => ({
   value: null as string | null,
   topic: null as string | null,
+  countsReady: true,
 }));
 
 vi.mock("next/link", () => ({ default: "a" }));
@@ -24,10 +25,10 @@ vi.mock("convex/react", () => ({
     switch (getFunctionName(ref as Parameters<typeof getFunctionName>[0])) {
       case "home:counts":
         return { waiting: 130, upNext: [], countsReady: true };
-      case "savedArticles:count":
-        return 1;
-      case "lovedArticles:count":
-        return 4;
+      case "articleMetadata:counts":
+        return shelf.countsReady
+          ? { ready: true, saved: 1, loved: 4 }
+          : { ready: false, saved: null, loved: null };
       case "impressions:recentCount":
         return 1;
       case "impressions:listRecent":
@@ -89,6 +90,7 @@ describe("Library shelves", () => {
   beforeEach(() => {
     shelf.value = null;
     shelf.topic = null;
+    shelf.countsReady = true;
   });
 
   it("opens on Up next with the four shelves as text tabs and their counts", () => {
@@ -112,6 +114,16 @@ describe("Library shelves", () => {
     expect(html).toContain("example.com · 7 min read");
     expect(html).toContain("More");
     expect(html).not.toContain('aria-label="Shelves"');
+  });
+
+  it("does not present uninitialized membership counts as zero", () => {
+    shelf.countsReady = false;
+    const html = renderToStaticMarkup(<LibraryPage />);
+    const tabs =
+      html.match(/<nav aria-label="Shelves"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(tabs).not.toContain(">4<");
+    expect(tabs).not.toContain(">0<");
+    expect(tabs).toContain("Saved");
   });
 
   it("selects the Saved shelf from the URL and drops the other shelves", () => {

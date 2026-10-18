@@ -9,6 +9,8 @@ const state = vi.hoisted(() => ({
   status: "Exhausted" as string,
   loadMore: vi.fn(),
   saved: [] as unknown[],
+  membershipReady: true,
+  queryCalls: [] as string[],
   calls: [] as { name: string; args: unknown }[],
   fail: false,
   toast: vi.fn(),
@@ -19,10 +21,15 @@ vi.mock("convex/react", async () => {
   const { getFunctionName } =
     await vi.importActual<typeof import("convex/server")>("convex/server");
   return {
-    useQuery: (fn: unknown) =>
-      getFunctionName(fn as never) === "savedArticles:savedIds"
-        ? state.saved
-        : state.overview,
+    useQuery: (fn: unknown, args: { articleId: string }) => {
+      const name = getFunctionName(fn as never);
+      state.queryCalls.push(name);
+      return name === "savedArticles:isSaved"
+        ? state.membershipReady
+          ? state.saved.includes(args.articleId)
+          : undefined
+        : state.overview;
+    },
     usePaginatedQuery: () => ({
       results:
         (state.overview as { upNext: unknown[] } | undefined)?.upNext ?? [],
@@ -88,6 +95,8 @@ beforeEach(() => {
     ],
   };
   state.saved = [];
+  state.membershipReady = true;
+  state.queryCalls = [];
   state.status = "Exhausted";
   state.loadMore = vi.fn();
   state.calls = [];
@@ -103,6 +112,25 @@ afterEach(() => {
 const render = () => act(async () => root.render(<UpNextShelf />));
 
 describe("Up next shelf", () => {
+  it("queries each visible membership instead of a truncated global list, and waits for readiness", async () => {
+    state.saved = ["b"];
+    await render();
+    expect(state.queryCalls).toEqual([
+      "savedArticles:isSaved",
+      "savedArticles:isSaved",
+    ]);
+    const buttons = document.querySelectorAll<HTMLButtonElement>(
+      '[data-nav-action="save"]',
+    );
+    expect(buttons[0].getAttribute("aria-pressed")).toBe("false");
+    expect(buttons[1].getAttribute("aria-pressed")).toBe("true");
+    state.membershipReady = false;
+    await render();
+    expect(buttons[0].disabled).toBe(true);
+    expect(buttons[0].hasAttribute("aria-pressed")).toBe(false);
+    await act(async () => buttons[0].click());
+    expect(state.calls).toEqual([]);
+  });
   it("observes the persistent desk viewport with 600px of load-ahead", async () => {
     let options: IntersectionObserverInit | undefined;
     const observe = vi.fn();

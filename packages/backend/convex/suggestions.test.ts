@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 import type { PaginationResult } from "convex/server";
 import { describe, expect, it } from "vitest";
+import { metadataContext } from "../test/metadata";
 import { ownerTest } from "../test/owner";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -24,6 +25,16 @@ async function library(
         createdAt: Date.now(),
       });
   });
+  for (let i = 0; i < 100; i++) {
+    if (
+      (
+        await t.mutation(internal.articleMetadata.backfill, {
+          userId: "default_user",
+        })
+      ).complete
+    )
+      break;
+  }
   return t;
 }
 
@@ -262,7 +273,7 @@ describe("failed annotations on the desk", () => {
   it("offers a failed article and flags it for its marginalia until the retries run out", async () => {
     const t = await library([]);
     const id = await t.run((ctx) =>
-      ctx.db.insert("articles", {
+      metadataContext(ctx).db.insert("articles", {
         userId: "default_user",
         guid: "failed",
         url: "https://example.com/failed",
@@ -277,7 +288,7 @@ describe("failed annotations on the desk", () => {
       t.query(api.suggestions.forWindow, { requestedMinutes: 10 });
     expect(await pick()).toMatchObject([{ title: "failed", deferred: true }]);
     await t.run((ctx) =>
-      ctx.db.patch("articles", id, { annotationRetries: 2 }),
+      metadataContext(ctx).db.patch("articles", id, { annotationRetries: 2 }),
     );
     expect(await pick()).toMatchObject([{ title: "failed", deferred: false }]);
   });
@@ -335,7 +346,7 @@ describe("shortest unread article", () => {
     wordCount: number,
   ) {
     await t.run(async (ctx) => {
-      await ctx.db.insert("articles", {
+      await metadataContext(ctx).db.insert("articles", {
         userId: "default_user",
         guid: `guid-${title}`,
         url: `https://example.com/${title}`,

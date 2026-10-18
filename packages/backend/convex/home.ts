@@ -1,10 +1,16 @@
 import { paginationOptsValidator } from "convex/server";
-import type { Doc } from "./_generated/dataModel";
-import { ownedArticle } from "./access";
+import type { DatabaseReader } from "./_generated/server";
+import { ownedArticleCard } from "./access";
 import { query } from "./functions";
+import {
+  type ArticleCard,
+  articleCard,
+  cardPagination,
+  reserveLegacyReads,
+  takeCards,
+  unreadSource,
+} from "./lib/articleMetadata";
 import { isReading } from "./lib/shelfArticle";
-import { unfinishedBooks } from "./lib/unfinishedBooks";
-import { unreadQueue } from "./lib/unreadQueue";
 
 const BOOKS_ON_THE_SHELF = 5;
 
@@ -39,7 +45,7 @@ function hostOf(url: string) {
   }
 }
 
-function queuedEntry(a: Doc<"articles">) {
+function queuedEntry(a: ArticleCard) {
   return {
     _id: a._id,
     title: a.title,
@@ -51,7 +57,7 @@ function queuedEntry(a: Doc<"articles">) {
   };
 }
 
-function bookEntry(a: Doc<"articles">) {
+function bookEntry(a: ArticleCard) {
   return {
     _id: a._id,
     title: a.title,
@@ -68,7 +74,7 @@ export const overview = query({
   args: {},
   handler: async (ctx) => {
     const [unread, stats, notes, books] = await Promise.all([
-      unreadQueue(ctx, 10),
+      unreadCards(ctx, 10),
       ctx.db
         .query("readingQueueStats")
         .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
@@ -78,7 +84,7 @@ export const overview = query({
         .withIndex("by_user_recent", (q) => q.eq("userId", ctx.readerId))
         .order("desc")
         .take(1),
-      unfinishedBooks(ctx, BOOKS_ON_THE_SHELF),
+      unfinishedCardBooks(ctx),
     ]);
     // A book keeps no text on its article row and isn't in the unread queue,
     // so the shelf lists it from its own row
@@ -86,7 +92,7 @@ export const overview = query({
 
     const latest = notes[0];
     const latestNoteArticle = latest
-      ? await ownedArticle(ctx, latest.articleId, ctx.readerId)
+      ? await ownedArticleCard(ctx, latest.articleId, ctx.readerId)
       : null;
 
     return {
@@ -115,9 +121,8 @@ export const overview = query({
   },
 });
 
-// A page ends at this many articles or bytes read, whichever comes first, and
-// the client asks for the next. An article row can be close to a megabyte, so
-// the byte limit is what keeps a page under Convex's 16 MiB read limit.
+// Preserve the established paging size. During migration legacy body reads
+// share the transaction-wide fallback budget with the first page's books.
 const UP_NEXT_PAGE_MAX = 8;
 const UP_NEXT_PAGE_BYTES = 8_000_000;
 
@@ -129,35 +134,31 @@ const UP_NEXT_PAGE_BYTES = 8_000_000;
 export const upNextPage = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, { paginationOpts }) => {
-    const result = await ctx.db
-      .query("articles")
-      .withIndex("by_user_finishedAt", (q) =>
-        q.eq("userId", ctx.readerId).eq("finishedAt", undefined),
-      )
-      .order("desc")
-      .filter((q) =>
-        q.or(
-          q.eq(q.field("annotationStatus"), "annotated"),
-          q.eq(q.field("annotationStatus"), "deferred"),
-        ),
-      )
-      .paginate({
-        ...paginationOpts,
+    const paging = await cardPagination(ctx, ctx.readerId, paginationOpts);
+    if (paging.legacy)
+      reserveLegacyReads(
+        ctx,
+        Math.min(paginationOpts.numItems, UP_NEXT_PAGE_MAX),
+      );
+    const result = paging.wrap(
+      await (
+        await unreadSource(ctx, ctx.readerId, undefined, paging.legacy)
+      ).paginate({
+        ...paging.opts,
         numItems: Math.min(paginationOpts.numItems, UP_NEXT_PAGE_MAX),
         maximumBytesRead: UP_NEXT_PAGE_BYTES,
-      });
+      }),
+    );
     const books =
-      paginationOpts.cursor === null
-        ? await unfinishedBooks(ctx, BOOKS_ON_THE_SHELF)
-        : [];
-    const withReading = (article: Doc<"articles">) =>
+      paginationOpts.cursor === null ? await unfinishedCardBooks(ctx) : [];
+    const withReading = (article: ArticleCard) =>
       isReading(ctx, ctx.readerId, article).then((reading) => ({
         article,
         reading,
       }));
     const [bookRows, pageRows] = await Promise.all([
       Promise.all(books.map(({ article }) => withReading(article))),
-      Promise.all(result.page.map(withReading)),
+      Promise.all(result.page.map(articleCard).map(withReading)),
     ]);
     return {
       ...result,
@@ -174,3 +175,44 @@ export const upNextPage = query({
     };
   },
 });
+
+async function unfinishedCardBooks(ctx: {
+  db: DatabaseReader;
+  readerId: string;
+}) {
+  const books = await ctx.db
+    .query("books")
+    .withIndex("by_userId_and_finished", (q) =>
+      q.eq("userId", ctx.readerId).eq("finished", false),
+    )
+    .order("desc")
+    .take(BOOKS_ON_THE_SHELF);
+  const found: { article: ArticleCard }[] = [];
+  for (const book of books) {
+    const article = await ownedArticleCard(ctx, book.articleId, ctx.readerId);
+    if (article && article.finishedAt === undefined) found.push({ article });
+  }
+  return found;
+}
+
+async function unreadCards(
+  ctx: { db: DatabaseReader; readerId: string },
+  limit: number,
+) {
+  const rows: ArticleCard[] = [];
+  for (const status of ["annotated", "deferred"] as const) {
+    rows.push(
+      ...(await takeCards(
+        ctx,
+        ctx.readerId,
+        await unreadSource(ctx, ctx.readerId, status),
+        limit,
+      )),
+    );
+  }
+  return rows
+    .sort(
+      (a, b) => b._creationTime - a._creationTime || (a._id < b._id ? -1 : 1),
+    )
+    .slice(0, limit);
+}

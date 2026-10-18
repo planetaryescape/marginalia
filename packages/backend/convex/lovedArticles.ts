@@ -1,18 +1,16 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { ownedArticle, requireArticle } from "./access";
+import { ownedArticleCard } from "./access";
 import { mutation, query } from "./functions";
-import {
-  SHELF_ID_BOUND,
-  SHELF_PAGE_ROWS,
-  withShelfArticles,
-} from "./lib/shelfArticle";
+import { SHELF_PAGE_ROWS, withShelfArticles } from "./lib/shelfArticle";
+import { exactShelfCount } from "./lib/shelfCounts";
 import { nextReviewAt, snoozeReviewAt } from "./lib/spacedRepetition";
 
 export const love = mutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId)))
+      throw new Error("Article not found");
     const existing = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_article", (q) =>
@@ -120,7 +118,7 @@ export const getDueForReview = query({
 
     const withArticles = await Promise.all(
       loved.map(async (l) => {
-        const article = await ownedArticle(ctx, l.articleId, ctx.readerId);
+        const article = await ownedArticleCard(ctx, l.articleId, ctx.readerId);
         if (!article) return null;
 
         const daysSinceLastRead = l.lastReviewedAt
@@ -152,15 +150,11 @@ export const page = query({
   },
 });
 
-/** The Loved tab's count; stops at the bound, which no shelf reaches. */
+/** Exact stored memberships; old clients keep their numeric contract. */
 export const count = query({
   args: {},
   handler: async (ctx) => {
-    const loved = await ctx.db
-      .query("lovedArticles")
-      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
-      .take(SHELF_ID_BOUND);
-    return loved.length;
+    return exactShelfCount(ctx, ctx.readerId, "lovedArticles");
   },
 });
 

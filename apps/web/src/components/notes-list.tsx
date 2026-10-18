@@ -155,7 +155,7 @@ function NotesBatch({
   onDelete: (noteId: Id<"userNotes">) => void;
   onDeleteAnswer: (threadId: Id<"companionThreads">) => void;
 }) {
-  const headers = useQuery(api.articles.headers, {
+  const headers = useQuery(api.articleMetadata.headers, {
     articleIds: groups.map((group) => group.articleId),
   });
   const articles = new Map(headers?.map((row) => [row.articleId, row.article]));

@@ -7,12 +7,19 @@ import {
 import { internal } from "./_generated/api";
 import {
   action as rawAction,
+  internalMutation as rawInternalMutation,
   mutation as rawMutation,
   query as rawQuery,
 } from "./_generated/server";
 import { requireOwner, requireReader } from "./access";
+import { metadataTriggers as triggers } from "./lib/metadataTriggers";
 
 export * from "./_generated/server";
+
+export const internalMutation = customMutation(
+  rawInternalMutation,
+  customCtx(triggers.wrapDB),
+);
 
 // Every public function runs for one signed-in reader. `ctx.readerId` is that
 // reader's library ID; it never comes from client arguments.
@@ -22,7 +29,10 @@ export const query = customQuery(
 );
 export const mutation = customMutation(
   rawMutation,
-  customCtx(async (ctx) => ({ readerId: await requireReader(ctx) })),
+  customCtx(async (ctx) => ({
+    ...triggers.wrapDB(ctx),
+    readerId: await requireReader(ctx),
+  })),
 );
 export const action = customAction(
   rawAction,
@@ -47,7 +57,7 @@ export const ownerMutation = customMutation(
   rawMutation,
   customCtx(async (ctx) => {
     await requireOwner(ctx);
-    return {};
+    return triggers.wrapDB(ctx);
   }),
 );
 export const ownerAction = customAction(
