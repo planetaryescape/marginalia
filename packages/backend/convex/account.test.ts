@@ -11,6 +11,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
 import { sealTokens } from "./lib/chatgptTokens";
+import { indexDictionaryLookup } from "./lib/dictionaryIndex";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -280,7 +281,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.db.insert("lookups", {
+    const lookupId = await ctx.db.insert("lookups", {
       userId,
       articleId,
       word: "text",
@@ -289,6 +290,11 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       sense: "Written words.",
       createdAt: now,
     });
+    if (i === 0) {
+      const lookup = await ctx.db.get("lookups", lookupId);
+      if (!lookup) throw new Error("Missing seeded lookup");
+      await indexDictionaryLookup(ctx, lookup);
+    }
     await ctx.db.insert("highlights", {
       userId,
       articleId,
@@ -585,6 +591,11 @@ describe("account deletion", () => {
       color: "blue",
       cursor: "old-page",
     });
+    expect(
+      await t.mutation(internal.dictionary.backfillPage, {
+        userId: readerLibraryId,
+      }),
+    ).toMatchObject({ inactive: true, processed: 0 });
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);

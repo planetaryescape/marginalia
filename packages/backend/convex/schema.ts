@@ -1000,6 +1000,9 @@ export default defineSchema({
     articleTitle: v.optional(v.string()),
     // Set when the article is deleted: the entry stays, its link goes
     articleGone: v.optional(v.boolean()),
+    dictionaryHeadwordId: v.optional(v.id("dictionaryHeadwords")),
+    // String ID tie-break preserves the dictionary's createdAt/id ordering.
+    dictionarySenseOrder: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_occurrence", [
@@ -1013,7 +1016,61 @@ export default defineSchema({
     ])
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_user_word", ["userId", "wordKey"])
+    .index("by_user_word_created_order", [
+      "userId",
+      "wordKey",
+      "createdAt",
+      "dictionarySenseOrder",
+    ])
     .index("by_user_article", ["userId", "articleId"]),
+
+  dictionaryHeadwords: defineTable({
+    userId: v.string(),
+    wordKey: v.string(),
+    orderKey: v.string(),
+    letter: v.string(),
+    firstSeen: v.number(),
+    firstLookupId: v.id("lookups"),
+    occurrences: v.number(),
+    preview: v.string(),
+  })
+    .index("by_user_word", ["userId", "wordKey"])
+    .index("by_user_order", ["userId", "orderKey"])
+    .index("by_user_letter_order", ["userId", "letter", "orderKey"])
+    .index("by_user_firstSeen", ["userId", "firstSeen"]),
+
+  // Bounded folded sense chunks, not article/note bodies. Ordinary Defines
+  // need one row; overlap preserves contains matches across legacy chunk edges.
+  dictionarySearch: defineTable({
+    userId: v.string(),
+    headwordId: v.id("dictionaryHeadwords"),
+    lookupId: v.id("lookups"),
+    generation: v.number(),
+    scanKey: v.string(),
+    foldedWord: v.string(),
+    letter: v.string(),
+    text: v.string(),
+  })
+    .index("by_user_scan", ["userId", "scanKey"])
+    .index("by_user_letter_scan", ["userId", "letter", "scanKey"])
+    .index("by_lookup", ["lookupId"]),
+
+  dictionaryOccurrences: defineTable({
+    userId: v.string(),
+    lookupId: v.id("lookups"),
+    headwordId: v.id("dictionaryHeadwords"),
+    generation: v.number(),
+    senseHash: v.string(),
+  })
+    .index("by_lookup", ["lookupId"])
+    .index("by_user", ["userId"]),
+
+  dictionaryState: defineTable({
+    userId: v.string(),
+    total: v.number(),
+    complete: v.boolean(),
+    cursor: v.union(v.string(), v.null()),
+  }).index("by_user", ["userId"]),
 
   // Canonical baseline for marks made before explicit colours were stored.
   // Version 1 freezes the first real browser preference, once per reader/tool.
