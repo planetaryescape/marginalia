@@ -1,9 +1,16 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { ownedArticle, requireArticle } from "./access";
+import { libraryIsActive, ownedArticle, requireArticle } from "./access";
 import { countFeedOutcome } from "./feedStats";
 import { mutation, query } from "./functions";
+import { bookPartCard } from "./lib/articleMetadata";
+import {
+  initializeEmptyResume,
+  mergeResume,
+  resumeArticle,
+  resumeState,
+} from "./lib/readingResume";
 import { ensureReadingSession } from "./lib/readingSession";
 import { updateQueueStats } from "./readingQueue";
 import { queueTasteRefresh } from "./taste";
@@ -114,6 +121,8 @@ export const recordInteraction = mutation({
       if (session?.userId !== ctx.readerId)
         throw new Error("Session not found");
     }
+    await initializeEmptyResume(ctx, ctx.readerId);
+    const now = Date.now();
     const interactionId = await ctx.db.insert("articleInteractions", {
       userId: ctx.readerId,
       articleId: args.articleId,
@@ -126,8 +135,19 @@ export const recordInteraction = mutation({
       annotationsOpened: args.annotationsOpened,
       totalScrollEvents: args.totalScrollEvents,
       tabHiddenCount: args.tabHiddenCount,
-      createdAt: Date.now(),
+      createdAt: now,
     });
+    if (args.action === "opened" || args.action === "abandoned")
+      await mergeResume(
+        ctx,
+        article,
+        {
+          articleId: article._id,
+          updatedAt: now,
+          maxScrollPercent: args.maxScrollPercent ?? args.scrollPercentage ?? 0,
+        },
+        false,
+      );
     await countFeedOutcome(ctx, article, interactionId);
     // Finishing an article that came from Readwise Reader archives it there
     if (args.action === "finished") {
@@ -147,6 +167,103 @@ export const recordInteraction = mutation({
         },
       );
     }
+  },
+});
+
+/** Versioned compact consumer; the full legacy callable below remains unchanged. */
+export const getContinue = query({
+  args: {},
+  handler: async (ctx) => {
+    if (!(await libraryIsActive(ctx, ctx.readerId)))
+      throw new Error("This library is no longer active.");
+    const state = await resumeState(ctx, ctx.readerId);
+    if (!state) {
+      const activity = await ctx.db
+        .query("readingActivity")
+        .withIndex("by_user_started", (q) => q.eq("userId", ctx.readerId))
+        .first();
+      const interaction = activity
+        ? null
+        : await ctx.db
+            .query("articleInteractions")
+            .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+            .first();
+      return { ready: !activity && !interaction, item: null };
+    }
+    if (state.phase !== "done") return { ready: false, item: null };
+    const candidates = await ctx.db
+      .query("readingResumes")
+      .withIndex(
+        "by_userId_and_eligible_and_lastActivityAt_and_articleId",
+        (q) => q.eq("userId", ctx.readerId).eq("eligible", true),
+      )
+      .order("desc")
+      .take(8);
+    for (const row of candidates) {
+      const article = await resumeArticle(ctx, ctx.readerId, row.articleId);
+      if (!article || article.finishedAt !== undefined) continue;
+      const card = { _id: row.articleId, title: article.title };
+      if (article.bookUnitCount !== undefined) {
+        const book = await ctx.db
+          .query("books")
+          .withIndex("by_userId_and_articleId", (q) =>
+            q.eq("userId", ctx.readerId).eq("articleId", row.articleId),
+          )
+          .unique();
+        if (!book || book.finished || book.unitCount < 1) continue;
+        const done = book.furthestUnit >= 0 && book.furthestScroll >= 95;
+        if (done && book.furthestUnit + 1 >= book.unitCount) continue;
+        const index = done
+          ? book.furthestUnit + 1
+          : Math.max(0, book.furthestUnit);
+        const unit = await bookPartCard(
+          ctx,
+          ctx.readerId,
+          row.articleId,
+          index,
+        );
+        if (!unit) continue;
+        const scroll = done || book.furthestUnit < 0 ? 0 : book.furthestScroll;
+        return {
+          ready: true,
+          item: {
+            article: card,
+            scrollPercent: scroll,
+            remainingMinutes: Math.max(
+              1,
+              Math.round(unit.minutes * (1 - scroll / 100)),
+            ),
+            unitIndex: index,
+            paragraphIndex: done ? undefined : book.furthestParagraph,
+            part: {
+              number: index + 1,
+              count: book.unitCount,
+              title: unit.title,
+            },
+          },
+        };
+      }
+      if (row.maxScrollPercent >= 90) continue;
+      return {
+        ready: true,
+        item: {
+          article: card,
+          scrollPercent: row.maxScrollPercent,
+          paragraphIndex: row.paragraphIndex,
+          remainingMinutes: article.estimatedReadMinutes
+            ? Math.max(
+                1,
+                Math.round(
+                  article.estimatedReadMinutes *
+                    (1 - row.maxScrollPercent / 100),
+                ),
+              )
+            : null,
+        },
+      };
+    }
+    // Bounded exceptional stale/invalid candidates must not imply an empty library.
+    return { ready: candidates.length < 8, item: null };
   },
 });
 

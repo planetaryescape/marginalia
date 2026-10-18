@@ -9,6 +9,7 @@ import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
 import { purgePreparedPage } from "./preparedArticles";
+import { purgeReadingResumes } from "./readingResume";
 import { purgeMetadata } from "./vaultFiles";
 
 export const DELETE_CONFIRMATION = "DELETE";
@@ -279,6 +280,8 @@ const STEPS: Step[] = [
   async (ctx, { userId }) => {
     const prepared = await purgePreparedPage(ctx, userId);
     if (prepared) return prepared;
+    const resumes = await purgeReadingResumes(ctx, userId);
+    if (resumes) return resumes;
     const removed = await purgeArticleMetadata(ctx, userId);
     if (removed) return removed;
     return (await purgeMetadata(ctx, userId)) || PAGE_EMPTY;

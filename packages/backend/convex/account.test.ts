@@ -571,6 +571,13 @@ describe("account deletion", () => {
         ).complete;
       }
       expect(complete).toBe(true);
+      complete = false;
+      for (let i = 0; i < 100 && !complete; i++) {
+        complete = (
+          await t.mutation(internal.readingResume.backfill, { userId })
+        ).complete;
+      }
+      expect(complete).toBe(true);
     }
     const ownerBefore = await counts(t);
     const legacyJob = await t.run((ctx) =>
@@ -617,6 +624,11 @@ describe("account deletion", () => {
     ).toMatchObject({ inactive: true, processed: 0 });
     expect(
       await t.mutation(internal.articleMetadata.backfill, {
+        userId: readerLibraryId,
+      }),
+    ).toMatchObject({ inactive: true, complete: false });
+    expect(
+      await t.mutation(internal.readingResume.backfill, {
         userId: readerLibraryId,
       }),
     ).toMatchObject({ inactive: true, complete: false });
