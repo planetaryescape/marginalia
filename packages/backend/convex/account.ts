@@ -8,6 +8,7 @@ import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
+import { purgePreparedPage } from "./preparedArticles";
 import { purgeMetadata } from "./vaultFiles";
 
 export const DELETE_CONFIRMATION = "DELETE";
@@ -276,6 +277,8 @@ const STEPS: Step[] = [
       .take(BATCH),
   ),
   async (ctx, { userId }) => {
+    const prepared = await purgePreparedPage(ctx, userId);
+    if (prepared) return prepared;
     const removed = await purgeArticleMetadata(ctx, userId);
     if (removed) return removed;
     return (await purgeMetadata(ctx, userId)) || PAGE_EMPTY;

@@ -290,6 +290,16 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       sense: "Written words.",
       createdAt: now,
     });
+    if (i < 5)
+      await ctx.db.insert("preparedArticles", {
+        userId,
+        articleId,
+        format: "safe-paragraphs-v1",
+        sourceHash: "a".repeat(64),
+        representationHash: "b".repeat(64),
+        paragraphs: ["Derived private prose"],
+        bytes: 25,
+      });
     if (i === 0) {
       const lookup = await ctx.db.get("lookups", lookupId);
       if (!lookup) throw new Error("Missing seeded lookup");

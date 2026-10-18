@@ -118,3 +118,49 @@ it("purges valid near-limit bodies under a cumulative 4 MiB read budget", async 
   expect(jobs.length).toBeGreaterThan(10);
   expect(jobs.every((job) => job.state.kind === "success")).toBe(true);
 });
+
+it("drains near-limit prepared text in fresh account-purge transactions", async () => {
+  vi.useFakeTimers();
+  const t = convexTest({ schema, modules, transactionLimits: true });
+  t.registerComponent(
+    "betterAuth",
+    authSchema,
+    import.meta.glob("./betterAuth/**/*.ts"),
+  );
+  const { client, libraryId } = await addReader(t, {
+    email: "prepared-purge@example.com",
+  });
+  const articleId = await t.run((ctx) =>
+    ctx.db.insert("articles", {
+      userId: libraryId,
+      guid: "prepared",
+      url: "https://example.com/prepared",
+      title: "Prepared",
+      content: "Original",
+      extractionStatus: "extracted",
+      annotationStatus: "skipped",
+      createdAt: 0,
+    }),
+  );
+  for (let unitIndex = 0; unitIndex < 7; unitIndex++)
+    await t.run((ctx) =>
+      ctx.db.insert("preparedArticles", {
+        userId: libraryId,
+        articleId,
+        unitIndex,
+        format: "safe-paragraphs-v1",
+        sourceHash: "a".repeat(64),
+        representationHash: "b".repeat(64),
+        paragraphs: Array.from({ length: 4 }, () => "界".repeat(78_000)),
+        bytes: 936_013,
+      }),
+    );
+  await client.mutation(api.account.deleteMine, { confirmation: "DELETE" });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  for (const table of ["preparedArticles", "articles", "readers"] as const)
+    expect(await t.run((ctx) => ctx.db.query(table).take(1))).toHaveLength(0);
+  const jobs = await t.run((ctx) =>
+    ctx.db.system.query("_scheduled_functions").take(100),
+  );
+  expect(jobs.every((job) => job.state.kind === "success")).toBe(true);
+});
