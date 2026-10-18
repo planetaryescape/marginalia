@@ -8,10 +8,13 @@ import { query } from "./functions";
 import { needsAnnotationStart } from "./lib/annotationPolicy";
 import {
   type ArticleCard,
-  articleCard,
   bookPartCard,
   cardPagination,
-  reserveLegacyReads,
+  metadataReady,
+  readLegacyDocument,
+  reserveLegacyPage,
+  resolveArticleCard,
+  resolveArticleCards,
   takeCards,
   windowSource,
 } from "./lib/articleMetadata";
@@ -69,23 +72,33 @@ async function bookPicks(ctx: Reader, minutes: number) {
     )
     .order("desc")
     .take(BOOKS_CONSIDERED);
+  const ready = await metadataReady(ctx, ctx.readerId);
   for (const book of books) {
-    const article = await ownedArticleCard(ctx, book.articleId, ctx.readerId);
+    // Preserve the old pre-migration journey: its one body/outline read also
+    // supplies the next part, rather than adding five large book-unit joins.
+    const legacy = ready
+      ? null
+      : await readLegacyDocument(ctx, () =>
+          ctx.db.get("articles", book.articleId),
+        );
+    const article = ready
+      ? await ownedArticleCard(ctx, book.articleId, ctx.readerId)
+      : legacy?.userId === ctx.readerId
+        ? await resolveArticleCard(ctx, legacy)
+        : null;
     if (!article || article.finishedAt !== undefined) continue;
     const unitIndex = nextUnitIndex(book);
-    const unit = await bookPartCard(
-      ctx,
-      ctx.readerId,
-      book.articleId,
-      unitIndex,
-    );
+    const oldUnit = legacy?.bookOutline?.[unitIndex];
+    const unit = ready
+      ? await bookPartCard(ctx, ctx.readerId, book.articleId, unitIndex)
+      : oldUnit;
     const candidate =
       unit && unit.minutes <= minutes && unitIndex < book.unitCount
         ? {
             unitIndex,
             title: unit.title,
             minutes: unit.minutes,
-            of: book.unitCount,
+            of: legacy?.bookOutline?.length ?? book.unitCount,
           }
         : null;
     if (candidate)
@@ -275,8 +288,7 @@ export const moreForWindow = query({
       cursor: inner,
       endCursor: end.status === status ? end.inner : null,
     });
-    const pageLimit = Math.min(args.paginationOpts.numItems, 8);
-    if (paging.legacy) reserveLegacyReads(ctx, pageLimit);
+    if (paging.legacy) reserveLegacyPage(ctx, 3_000_000);
     const page = paging.wrap(
       await (
         await windowSource(
@@ -291,7 +303,7 @@ export const moreForWindow = query({
       ).paginate({
         ...paging.opts,
         numItems: Math.min(args.paginationOpts.numItems, 8),
-        maximumBytesRead: 8_000_000,
+        maximumBytesRead: 3_000_000,
       }),
     );
     const following = OFFERED[OFFERED.indexOf(status) + 1];
@@ -316,8 +328,7 @@ export const moreForWindow = query({
         ? writeCursor(status, page.splitCursor)
         : page.splitCursor,
       page: [
-        ...page.page
-          .map(articleCard)
+        ...(await resolveArticleCards(ctx, page.page))
           .filter((a) => a.bookUnitCount === undefined)
           .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
           .filter(({ readMin }) => readMin <= targetMinutes)

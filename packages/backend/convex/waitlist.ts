@@ -12,6 +12,7 @@ import {
   ownerMutation,
   ownerQuery,
 } from "./functions";
+import { initializeEmptyMetadata } from "./lib/articleMetadata";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import {
   EMAIL_PATTERN,
@@ -328,5 +329,6 @@ export async function claimInvite(
     name: user.name?.trim() || invite.name,
     createdAt: now,
   });
+  await initializeEmptyMetadata(ctx, user._id);
   return true;
 }

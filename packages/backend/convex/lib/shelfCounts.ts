@@ -79,6 +79,10 @@ export async function membershipChanged(
     await bump(ctx, before.userId, shelf, -1);
   if (after && (!before || before.userId !== after.userId)) {
     await countMembership(ctx, shelf, { ...after, shelfCounted: false });
+  } else if (before?.shelfCounted && after && !after.shelfCounted) {
+    // replace() may omit the derived marker. The membership did not leave
+    // this library, so restore the marker without changing its contribution.
+    await ctx.db.patch(after._id, { shelfCounted: true });
   }
 }
 

@@ -4,9 +4,9 @@ import { ownedArticleCard } from "./access";
 import { query } from "./functions";
 import {
   type ArticleCard,
-  articleCard,
   cardPagination,
-  reserveLegacyReads,
+  reserveLegacyPage,
+  resolveArticleCards,
   takeCards,
   unreadSource,
 } from "./lib/articleMetadata";
@@ -124,7 +124,7 @@ export const overview = query({
 // Preserve the established paging size. During migration legacy body reads
 // share the transaction-wide fallback budget with the first page's books.
 const UP_NEXT_PAGE_MAX = 8;
-const UP_NEXT_PAGE_BYTES = 8_000_000;
+const UP_NEXT_PAGE_BYTES = 3_000_000;
 
 /**
  * The Up next shelf, a page at a time, with Convex's own cursors. One index
@@ -135,11 +135,7 @@ export const upNextPage = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, { paginationOpts }) => {
     const paging = await cardPagination(ctx, ctx.readerId, paginationOpts);
-    if (paging.legacy)
-      reserveLegacyReads(
-        ctx,
-        Math.min(paginationOpts.numItems, UP_NEXT_PAGE_MAX),
-      );
+    if (paging.legacy) reserveLegacyPage(ctx, UP_NEXT_PAGE_BYTES);
     const result = paging.wrap(
       await (
         await unreadSource(ctx, ctx.readerId, undefined, paging.legacy)
@@ -158,7 +154,9 @@ export const upNextPage = query({
       }));
     const [bookRows, pageRows] = await Promise.all([
       Promise.all(books.map(({ article }) => withReading(article))),
-      Promise.all(result.page.map(articleCard).map(withReading)),
+      Promise.all(
+        (await resolveArticleCards(ctx, result.page)).map(withReading),
+      ),
     ]);
     return {
       ...result,

@@ -295,6 +295,8 @@ export default defineSchema({
     title: v.string(),
     url: v.string(),
     guid: v.string(),
+    urlDeferred: v.optional(v.boolean()),
+    guidDeferred: v.optional(v.boolean()),
     author: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     excerpt: v.optional(v.string()),
@@ -315,6 +317,8 @@ export default defineSchema({
       v.literal("deferred"),
     ),
     annotationRetries: v.optional(v.number()),
+    annotationVersion: v.optional(v.number()),
+    hasContent: v.optional(v.boolean()),
     finishedAt: v.optional(v.number()),
     bookUnitCount: v.optional(v.number()),
     uploadedFileName: v.optional(v.string()),
@@ -322,13 +326,19 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_articleId", ["articleId"])
-    .index("by_user", ["userId", "sourceCreationTime"])
-    .index("by_user_finishedAt", ["userId", "finishedAt", "sourceCreationTime"])
+    .index("by_user", ["userId", "sourceCreationTime", "articleId"])
+    .index("by_user_finishedAt", [
+      "userId",
+      "finishedAt",
+      "sourceCreationTime",
+      "articleId",
+    ])
     .index("by_user_annotationStatus_finishedAt", [
       "userId",
       "annotationStatus",
       "finishedAt",
       "sourceCreationTime",
+      "articleId",
     ])
     .index("by_user_annotationStatus_finishedAt_minutes", [
       "userId",
@@ -336,6 +346,7 @@ export default defineSchema({
       "finishedAt",
       "estimatedReadMinutes",
       "sourceCreationTime",
+      "articleId",
     ])
     .searchIndex("search_title", {
       searchField: "title",
@@ -779,6 +790,15 @@ export default defineSchema({
     // Which statuses the scan has reached: annotated articles first, then
     // ones whose first annotation failed
     phase: v.optional(v.literal("failed")),
+    scanSource: v.optional(v.union(v.literal("metadata"), v.literal("legacy"))),
+    scanAfter: v.optional(v.number()),
+    scanCursor: v.optional(v.string()),
+    scanDone: v.optional(v.boolean()),
+    pendingIds: v.optional(v.array(v.id("articles"))),
+    batchStartedAt: v.optional(v.number()),
+    batchQueued: v.optional(v.number()),
+    nextBatchAt: v.optional(v.number()),
+    lastScheduledAt: v.optional(v.number()),
     queued: v.number(),
     startedAt: v.number(),
     updatedAt: v.number(),
@@ -1025,6 +1045,7 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
+    .index("by_articleId_and_annotationId", ["articleId", "annotationId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_user_recent", ["userId", "updatedAt"])
     .searchIndex("search_content", {

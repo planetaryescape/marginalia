@@ -21,16 +21,15 @@ import { libraryIsActive } from "./access";
 import { BATCH_DELAY_MS, JOB_STAGGER_MS, PAGE } from "./catchUp";
 import { internalMutation, internalQuery, type QueryCtx } from "./functions";
 import { CURRENT_ANNOTATION_VERSION } from "./lib/annotationGate";
+import { metadataReady } from "./lib/articleMetadata";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 import { embeddingProvider } from "./lib/providers";
 import { readerProviders } from "./lib/readerAI";
 
 /** Unread articles longer than this wait until they are picked (D-DES-056). */
 export const MAX_BACKFILL_MINUTES = 20;
-/** Articles read per scan; each row carries the article text. */
+/** Small candidates per scan. A legacy scan reads only one full article. */
 const SCAN_ROWS = 20;
-/** Scans per step when they find nothing to queue. */
-const SCAN_PAGES = 5;
 /**
  * How long a scheduled article stays claimed: the longest an action may run
  * plus ten minutes. A run that finds a live claim leaves the article alone.
@@ -48,14 +47,6 @@ function stateRow(ctx: Db, userId: string) {
     .unique();
 }
 
-function minutesOf(article: Doc<"articles">): number | null {
-  if (article.estimatedReadMinutes !== undefined)
-    return article.estimatedReadMinutes;
-  return article.wordCount
-    ? Math.ceil(article.wordCount / WORDS_PER_MINUTE)
-    : null;
-}
-
 /**
  * Whether the backfill should annotate this article again: annotated, unread,
  * short enough, written before the current version, and carrying no reflection
@@ -71,24 +62,22 @@ export async function needsBackfill(
     now - article.reannotateClaimedAt < CLAIM_TTL_MS
   )
     return false;
-  if (article.finishedAt !== undefined) return false;
-  if (article.annotationStatus === "failed") {
-    // Never annotated, so there are no notes a reflection could hang on
-    if (!article.content || (article.wordCount ?? 0) < 100) return false;
-    const minutes = minutesOf(article);
-    return minutes !== null && minutes <= MAX_BACKFILL_MINUTES;
-  }
-  if (article.annotationStatus !== "annotated") return false;
-  if ((article.annotationVersion ?? 0) >= CURRENT_ANNOTATION_VERSION)
+  if (
+    !candidateMayNeedBackfill({
+      ...article,
+      hasContent: Boolean(article.content),
+    })
+  )
     return false;
-  if (!article.content || (article.wordCount ?? 0) < 100) return false;
-  const minutes = minutesOf(article);
-  if (minutes === null || minutes > MAX_BACKFILL_MINUTES) return false;
-  const notes = await ctx.db
+  // Failed means never annotated; preserve the existing retry eligibility.
+  if (article.annotationStatus === "failed") return true;
+  const protectedNote = await ctx.db
     .query("userNotes")
-    .withIndex("by_article", (q) => q.eq("articleId", article._id))
-    .collect();
-  return !notes.some((note) => note.annotationId !== undefined);
+    .withIndex("by_articleId_and_annotationId", (q) =>
+      q.eq("articleId", article._id).gt("annotationId", undefined),
+    )
+    .first();
+  return protectedNote === null;
 }
 
 async function canRun(ctx: Db, userId: string) {
@@ -121,6 +110,14 @@ export const start = internalMutation({
       runId: (row?.runId ?? 0) + 1,
       cursor: undefined,
       phase: undefined,
+      scanSource: undefined,
+      scanAfter: undefined,
+      scanCursor: undefined,
+      scanDone: undefined,
+      pendingIds: undefined,
+      batchStartedAt: undefined,
+      batchQueued: undefined,
+      nextBatchAt: undefined,
       queued: 0,
       startedAt: now,
       updatedAt: now,
@@ -140,7 +137,7 @@ export const start = internalMutation({
   },
 });
 
-/** Queues one batch, then schedules the next. Only the current run advances. */
+/** One bounded claim transaction inside the existing paced batch window. */
 export const step = internalMutation({
   args: { userId: v.string(), runId: v.number() },
   returns: v.null(),
@@ -160,54 +157,133 @@ export const step = internalMutation({
       return null;
     }
 
+    if (row.nextBatchAt !== undefined && now < row.nextBatchAt) {
+      await ctx.scheduler.runAfter(
+        row.nextBatchAt - now,
+        internal.reannotateBackfill.step,
+        args,
+      );
+      return null;
+    }
     let cursor = row.cursor;
     const status = row.phase ?? "annotated";
-    const batch: Doc<"articles">["_id"][] = [];
-    let exhausted = false;
-    for (let page = 0; page < SCAN_PAGES && batch.length < PAGE; page++) {
-      const rows = await ctx.db
-        .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt", (q) => {
-          const range = q
-            .eq("userId", args.userId)
-            .eq("annotationStatus", status)
-            .eq("finishedAt", undefined);
-          return cursor === undefined
-            ? range
-            : range.gt("_creationTime", cursor);
-        })
-        .take(SCAN_ROWS);
-      for (const article of rows) {
-        cursor = article._creationTime;
-        if (batch.length < PAGE && (await needsBackfill(ctx, article, now)))
-          batch.push(article._id);
-        // The batch is full: leave the cursor on the last article queued
-        if (batch.length >= PAGE) break;
-      }
-      if (rows.length < SCAN_ROWS) {
-        exhausted = true;
-        break;
+    const source =
+      row.scanSource ??
+      ((await metadataReady(ctx, args.userId)) ? "metadata" : "legacy");
+    // A running pre-upgrade scan can have a timestamp resume bound. Keep
+    // that bound fixed for every page of its new opaque cursor.
+    const scanAfter = row.scanSource === undefined ? row.cursor : row.scanAfter;
+    let scanCursor = row.scanCursor;
+    let scanDone = row.scanDone ?? false;
+    let pending = row.pendingIds ?? [];
+    let scannedArticle: Doc<"articles"> | undefined;
+    if (!pending.length && !scanDone) {
+      if (source === "metadata") {
+        const page = await ctx.db
+          .query("articleMetadata")
+          .withIndex("by_user_annotationStatus_finishedAt", (q) => {
+            const range = q
+              .eq("userId", args.userId)
+              .eq("annotationStatus", status)
+              .eq("finishedAt", undefined);
+            return scanAfter === undefined
+              ? range
+              : range.gt("sourceCreationTime", scanAfter);
+          })
+          .paginate({
+            cursor: scanCursor ?? null,
+            numItems: SCAN_ROWS,
+            maximumBytesRead: 1_500_000,
+          });
+        pending = page.page
+          .filter(candidateMayNeedBackfill)
+          .map((a) => a.articleId);
+        cursor = page.page.at(-1)?.sourceCreationTime ?? cursor;
+        scanCursor = page.continueCursor;
+        scanDone = page.isDone;
+      } else {
+        const page = await ctx.db
+          .query("articles")
+          .withIndex("by_user_annotationStatus_finishedAt", (q) => {
+            const range = q
+              .eq("userId", args.userId)
+              .eq("annotationStatus", status)
+              .eq("finishedAt", undefined);
+            return scanAfter === undefined
+              ? range
+              : range.gt("_creationTime", scanAfter);
+          })
+          .paginate({
+            cursor: scanCursor ?? null,
+            numItems: 1,
+            maximumBytesRead: 1_000_000,
+          });
+        scannedArticle = page.page[0];
+        pending = page.page.map((a) => a._id);
+        cursor = scannedArticle?._creationTime ?? cursor;
+        scanCursor = page.continueCursor;
+        scanDone = page.isDone;
       }
     }
-
-    for (const [index, articleId] of batch.entries()) {
-      // Claimed in the same transaction that schedules it, so a restart or a
-      // second run can't schedule it again while the first call is in flight
-      await ctx.db.patch("articles", articleId, { reannotateClaimedAt: now });
-      await ctx.scheduler.runAfter(
-        index * JOB_STAGGER_MS,
-        internal.actions.generateAnnotations.generateForArticle,
-        { articleId, claim: now },
+    const [articleId, ...remaining] = pending;
+    const article = articleId
+      ? (scannedArticle ?? (await ctx.db.get("articles", articleId)))
+      : null;
+    let batchStartedAt = row.batchStartedAt;
+    let batchQueued = row.batchQueued ?? 0;
+    let lastScheduledAt = row.lastScheduledAt;
+    let queued = 0;
+    // At most one rich article + one indexed protection row and one claim
+    // patch per transaction, including the trigger's before/after reads.
+    if (
+      article?.userId === args.userId &&
+      article.annotationStatus === status &&
+      (await needsBackfill(ctx, article, now))
+    ) {
+      batchStartedAt ??= Math.max(
+        now,
+        (lastScheduledAt ?? now - JOB_STAGGER_MS) + JOB_STAGGER_MS,
       );
+      // Delayed continuations must not bunch overdue provider jobs at zero.
+      const due = Math.max(
+        now,
+        batchStartedAt + batchQueued * JOB_STAGGER_MS,
+        (lastScheduledAt ?? now - JOB_STAGGER_MS) + JOB_STAGGER_MS,
+      );
+      // A late claim stretches its window rather than borrowing capacity
+      // from the next one. Normal batches still start every 45 seconds.
+      batchStartedAt = Math.max(
+        batchStartedAt,
+        due - batchQueued * JOB_STAGGER_MS,
+      );
+      lastScheduledAt = due;
+      await ctx.db.patch("articles", article._id, { reannotateClaimedAt: now });
+      await ctx.scheduler.runAfter(
+        Math.max(0, due - now),
+        internal.actions.generateAnnotations.generateForArticle,
+        { articleId: article._id, claim: now },
+      );
+      batchQueued++;
+      queued = 1;
     }
-    if (exhausted && !batch.length && status === "failed") {
+    const exhausted = scanDone && !remaining.length;
+    const closeWindow = batchQueued >= PAGE || (exhausted && batchQueued > 0);
+    if (exhausted && !batchQueued && status === "failed") {
       await finish();
       return null;
     }
-    if (exhausted && !batch.length) {
+    if (exhausted && !batchQueued) {
       await ctx.db.patch("reannotateState", row._id, {
         phase: "failed",
         cursor: undefined,
+        scanSource: undefined,
+        scanAfter: undefined,
+        scanCursor: undefined,
+        scanDone: undefined,
+        pendingIds: undefined,
+        batchStartedAt: undefined,
+        batchQueued: undefined,
+        nextBatchAt: undefined,
         updatedAt: now,
       });
       await ctx.scheduler.runAfter(0, internal.reannotateBackfill.step, args);
@@ -215,17 +291,54 @@ export const step = internalMutation({
     }
     await ctx.db.patch("reannotateState", row._id, {
       cursor,
-      queued: row.queued + batch.length,
+      scanSource: source,
+      scanAfter,
+      scanCursor,
+      scanDone,
+      pendingIds: remaining,
+      batchStartedAt: closeWindow ? undefined : batchStartedAt,
+      batchQueued: closeWindow ? 0 : batchQueued,
+      nextBatchAt: closeWindow
+        ? (batchStartedAt ?? now) + BATCH_DELAY_MS
+        : undefined,
+      lastScheduledAt,
+      queued: row.queued + queued,
       updatedAt: now,
     });
     await ctx.scheduler.runAfter(
-      batch.length ? BATCH_DELAY_MS : 0,
+      closeWindow
+        ? Math.max(0, (batchStartedAt ?? now) + BATCH_DELAY_MS - now)
+        : 0,
       internal.reannotateBackfill.step,
       args,
     );
     return null;
   },
 });
+
+type BackfillCandidate = Pick<
+  Doc<"articles">,
+  | "annotationStatus"
+  | "annotationVersion"
+  | "estimatedReadMinutes"
+  | "wordCount"
+  | "finishedAt"
+> & { hasContent?: boolean };
+function candidateMayNeedBackfill(a: BackfillCandidate) {
+  const minutes =
+    a.estimatedReadMinutes ??
+    (a.wordCount ? Math.ceil(a.wordCount / WORDS_PER_MINUTE) : null);
+  return (
+    a.finishedAt === undefined &&
+    a.hasContent !== false &&
+    (a.wordCount ?? 0) >= 100 &&
+    minutes !== null &&
+    minutes <= MAX_BACKFILL_MINUTES &&
+    (a.annotationStatus === "failed" ||
+      (a.annotationStatus === "annotated" &&
+        (a.annotationVersion ?? 0) < CURRENT_ANNOTATION_VERSION))
+  );
+}
 
 /**
  * Ends a claim once the generation scheduled under it has finished, however it
