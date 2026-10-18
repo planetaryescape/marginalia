@@ -33,6 +33,10 @@ import {
   librarySearchRequestSchema,
   parseLibrarySearch,
 } from "./lib/librarySearch";
+import {
+  MAX_PREPARED_BYTES,
+  prepareRequestSchema,
+} from "./lib/preparedRepresentation";
 import { NO_EMBEDDINGS_MESSAGE, NO_PROVIDER_MESSAGE } from "./lib/providers";
 import { readingCheckpointSchema } from "./lib/readingActivity";
 import {
@@ -183,9 +187,12 @@ const LIBRARY_MAX_TOKENS = 4000;
 class ReaderBodyTooLargeError extends Error {}
 
 /** Direct JWT calls retain the legacy proxy's character limit. */
-async function readerJson(request: Request): Promise<unknown> {
+async function readerJson(
+  request: Request,
+  maxChars = 300_000,
+): Promise<unknown> {
   const body = await interruptible(request.text(), request.signal);
-  if (body.length > 300_000) throw new ReaderBodyTooLargeError();
+  if (body.length > maxChars) throw new ReaderBodyTooLargeError();
   try {
     return JSON.parse(body);
   } catch {
@@ -251,6 +258,54 @@ function readerAIAction(
   });
 }
 
+function preparedMiss() {
+  return Response.json(
+    {
+      code: "prepared_reference_miss",
+      error:
+        "The displayed text needs preparing again. If it changed, reopen the article.",
+    },
+    { status: 409 },
+  );
+}
+
+http.route({
+  path: "/api/companion/prepare",
+  method: "OPTIONS",
+  handler: httpAction(async (_ctx, request) => readerPreflight(request)),
+});
+http.route({
+  path: "/api/companion/prepare",
+  method: "POST",
+  handler: readerAIAction(
+    async (ctx, request, timings) => {
+      const readerId = await signedInReader(ctx, timings);
+      if (!readerId) return readerAuthNeeded();
+      const parsed = prepareRequestSchema.safeParse(
+        await readerJson(request, 1_000_000),
+      );
+      timings.mark("parse");
+      if (!parsed.success) return new Response("Bad request", { status: 400 });
+      if (
+        new TextEncoder().encode(JSON.stringify(parsed.data.paragraphs))
+          .byteLength > MAX_PREPARED_BYTES
+      )
+        return new Response("Displayed text too large to prepare", {
+          status: 413,
+        });
+      const prepared = await cancellablePreparation(
+        ctx,
+        request.signal,
+      ).runMutation(internal.preparedArticles.prepare, {
+        ...parsed.data,
+        userId: readerId,
+      });
+      return prepared ? Response.json({ prepared }) : preparedMiss();
+    },
+    { joinPreparation: true },
+  ),
+});
+
 // Reading companion — streams Explain / Simplify / Ask answers for a highlighted passage
 http.route({
   path: "/api/companion",
@@ -277,6 +332,20 @@ http.route({
     }
 
     const preparation = cancellablePreparation(ctx, request.signal);
+    if (parsed.data.prepared && parsed.data.articleId) {
+      const paragraphs = await preparation.runQuery(
+        internal.preparedArticles.read,
+        {
+          userId: readerId,
+          articleId: parsed.data.articleId,
+          unitIndex: parsed.data.unitIndex,
+          reference: parsed.data.prepared,
+        },
+      );
+      // This outcome is exclusively pre-provider. A client may prepare and retry once.
+      if (!paragraphs) return preparedMiss();
+      parsed.data.paragraphs = paragraphs;
+    }
     if (
       parsed.data.articleId &&
       !(await preparation.runQuery(internal.articlePassages.authorized, {

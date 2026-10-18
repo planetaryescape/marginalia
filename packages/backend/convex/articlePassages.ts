@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { libraryIsActive, ownedArticle } from "./access";
 import { rankPassages } from "./lib/articleAsk";
+import { PREPARED_PURGE_BATCH, purgePreparedPage } from "./preparedArticles";
 
 export const authorized = internalQuery({
   args: { userId: v.string(), articleId: v.string() },
@@ -306,6 +307,11 @@ export const replace = internalMutation({
 export const discard = internalMutation({
   args: { userId: v.string(), articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    const preparedRemoved = await purgePreparedPage(
+      ctx,
+      args.userId,
+      args.articleId,
+    );
     const state = await ctx.db
       .query("articlePassageState")
       .withIndex("by_userId_and_articleId", (q) =>
@@ -320,7 +326,10 @@ export const discard = internalMutation({
       )
       .take(DISCARD_BATCH);
     for (const row of rows) await ctx.db.delete("articlePassages", row._id);
-    if (rows.length === DISCARD_BATCH)
+    if (
+      rows.length === DISCARD_BATCH ||
+      preparedRemoved === PREPARED_PURGE_BATCH
+    )
       await ctx.scheduler.runAfter(0, internal.articlePassages.discard, args);
   },
 });

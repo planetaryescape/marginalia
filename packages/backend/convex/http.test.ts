@@ -148,6 +148,7 @@ describe("companion HTTP streaming", () => {
   });
   it.each([
     "companion",
+    "companion/prepare",
     "library",
     "library/find",
     "library/search",

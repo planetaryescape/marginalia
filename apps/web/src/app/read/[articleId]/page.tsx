@@ -233,6 +233,9 @@ export default function ReadPage() {
     unitIndex: unitIndex,
     containerRef: articleRef,
     title: article?.title ?? "",
+    source: article
+      ? { content: article.content, contentHtml: article.contentHtml }
+      : undefined,
     settings,
   });
   const savedAnswer = useSavedAnswerBody(
