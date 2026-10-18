@@ -50,9 +50,10 @@ interface Target {
 }
 type Rows = { _id: Id<TableNames> }[];
 // Each step deletes one bounded batch and reports how many rows it removed,
-// or WAIT to check again after WAIT_MS
+// WAIT checks again after WAIT_MS; PAGE_EMPTY advances in a fresh transaction.
 type Step = (ctx: MutationCtx, target: Target) => Promise<number>;
 const WAIT = -1;
+const PAGE_EMPTY = -2;
 const WAIT_MS = 5_000;
 // How long the purge leaves a ChatGPT connection for its revocation action
 const REVOKE_GRACE_MS = 2 * 60_000;
@@ -62,14 +63,23 @@ const BATCH = 64;
 const ARTICLE_BATCH = 16;
 /** Rows per step where each holds a vector, about 14 KB */
 const PASSAGE_BATCH = 64;
+// A valid body may approach 1 MiB. Pagination may return that first row even
+// over this target; keep room for deletion/trigger reads in the same transaction.
+const BODY_READ_BYTES = 512 * 1024;
+const BODY_PAGE = {
+  cursor: null,
+  numItems: BATCH,
+  maximumBytesRead: BODY_READ_BYTES,
+};
 
 function rows(
   batch: (ctx: MutationCtx, userId: string) => Promise<Rows>,
+  empty = 0,
 ): Step {
   return async (ctx, { userId }) => {
     const found = await batch(ctx, userId);
     for (const row of found) await ctx.db.delete(row._id);
-    return found.length;
+    return found.length || empty;
   };
 }
 
@@ -188,35 +198,51 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
-  rows((ctx, u) =>
-    ctx.db
-      .query("highlights")
-      .withIndex("by_userId_and_readerHighlightId", (q) => q.eq("userId", u))
-      .take(BATCH),
+  rows(
+    async (ctx, u) =>
+      (
+        await ctx.db
+          .query("highlights")
+          .withIndex("by_userId_and_readerHighlightId", (q) =>
+            q.eq("userId", u),
+          )
+          .paginate(BODY_PAGE)
+      ).page,
+    PAGE_EMPTY,
   ),
   (ctx, { userId }) => purgeLegacyMarkDefaults(ctx, userId),
-  rows((ctx, u) =>
-    ctx.db
-      .query("userNotes")
-      .withIndex("by_user", (q) => q.eq("userId", u))
-      .take(BATCH),
+  rows(
+    async (ctx, u) =>
+      (
+        await ctx.db
+          .query("userNotes")
+          .withIndex("by_user", (q) => q.eq("userId", u))
+          .paginate(BODY_PAGE)
+      ).page,
+    PAGE_EMPTY,
   ),
-  rows((ctx, u) =>
-    ctx.db
-      .query("companionThreads")
-      .withIndex("by_user", (q) => q.eq("userId", u))
-      .take(BATCH),
+  rows(
+    async (ctx, u) =>
+      (
+        await ctx.db
+          .query("companionThreads")
+          .withIndex("by_user", (q) => q.eq("userId", u))
+          .paginate(BODY_PAGE)
+      ).page,
+    PAGE_EMPTY,
   ),
   async (ctx, { userId }) => {
     // Keep this step's numeric position for already-scheduled purges.
     const removed = await purgeDictionary(ctx, userId);
     if (removed) return removed;
-    const lookups = await ctx.db
-      .query("lookups")
-      .withIndex("by_user_created", (q) => q.eq("userId", userId))
-      .take(BATCH);
+    const lookups = (
+      await ctx.db
+        .query("lookups")
+        .withIndex("by_user_created", (q) => q.eq("userId", userId))
+        .paginate(BODY_PAGE)
+    ).page;
     for (const row of lookups) await ctx.db.delete(row._id);
-    return lookups.length;
+    return lookups.length || PAGE_EMPTY;
   },
   rows((ctx, u) =>
     ctx.db
@@ -248,7 +274,7 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
-  (ctx, { userId }) => purgeMetadata(ctx, userId),
+  async (ctx, { userId }) => (await purgeMetadata(ctx, userId)) || PAGE_EMPTY,
   rows((ctx, u) =>
     ctx.db
       .query("marginaliaPasses")
@@ -269,11 +295,21 @@ const STEPS: Step[] = [
       .take(BATCH),
   ),
   // A book's units carry its text, like articles do
-  rows((ctx, u) =>
-    ctx.db
-      .query("bookUnits")
-      .withIndex("by_userId_and_articleId_and_index", (q) => q.eq("userId", u))
-      .take(ARTICLE_BATCH),
+  rows(
+    async (ctx, u) =>
+      (
+        await ctx.db
+          .query("bookUnits")
+          .withIndex("by_userId_and_articleId_and_index", (q) =>
+            q.eq("userId", u),
+          )
+          .paginate({
+            cursor: null,
+            numItems: ARTICLE_BATCH,
+            maximumBytesRead: BODY_READ_BYTES,
+          })
+      ).page,
+    PAGE_EMPTY,
   ),
   rows((ctx, u) =>
     ctx.db
@@ -328,13 +364,23 @@ const STEPS: Step[] = [
       .withIndex("by_userId_and_issuedAt", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
-  (ctx, { userId }) => purgeArticleImportKeys(ctx, userId),
-  rows((ctx, u) =>
-    ctx.db
-      .query("articles")
-      .withIndex("by_user", (q) => q.eq("userId", u))
-      .take(ARTICLE_BATCH),
-  ),
+  async (ctx, { userId }) => {
+    // Drain aliases within the existing article step; queued numeric steps stay valid.
+    const removed = await purgeArticleImportKeys(ctx, userId);
+    if (removed) return removed;
+    const articles = (
+      await ctx.db
+        .query("articles")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .paginate({
+          cursor: null,
+          numItems: ARTICLE_BATCH,
+          maximumBytesRead: BODY_READ_BYTES,
+        })
+    ).page;
+    for (const row of articles) await ctx.db.delete(row._id);
+    return articles.length || PAGE_EMPTY;
+  },
   rows((ctx, u) =>
     ctx.db
       .query("feeds")
@@ -515,6 +561,11 @@ export const purge = internalMutation({
     let removed = 0;
     while (step < STEPS.length) {
       removed = await STEPS[step](ctx, args);
+      // A transaction permits one paginated query, including empty pages.
+      if (removed === PAGE_EMPTY) {
+        step++;
+        break;
+      }
       if (removed !== 0) break;
       step++;
     }
