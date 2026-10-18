@@ -433,6 +433,9 @@ export default defineSchema({
     pauseFloor: v.optional(v.number()),
     lastClaim: v.optional(v.number()),
     overviewDone: v.optional(v.boolean()),
+    // One-shot allowance for an overview action already running old code at
+    // protocol adoption. New claims must never create this allowance.
+    legacyPoint: v.optional(v.object({ runId: v.number(), claim: v.number() })),
     summaryBlocked: v.optional(
       v.union(v.literal("no_key"), v.literal("unusable_key")),
     ),
