@@ -52,6 +52,7 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
   Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+  vi.restoreAllMocks();
 });
 
 function select(node: Node) {
@@ -71,11 +72,11 @@ function nativeMenu(target: Element) {
   return event;
 }
 describe("native passage menus", () => {
-  it("suppresses a duplicate touch context menu without clearing the selected passage", () => {
+  it("preserves the native touch context menu and selected passage", () => {
     const passage = article.querySelector("p")!;
     select(passage);
     const event = nativeMenu(passage);
-    expect(event.defaultPrevented).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
     expect(window.getSelection()?.toString()).toBe("A passage worth keeping.");
   });
   it("keeps desktop context menus available", () => {
@@ -94,6 +95,84 @@ describe("native passage menus", () => {
     const outside = document.getElementById("outside")!;
     select(outside);
     expect(nativeMenu(outside).defaultPrevented).toBe(false);
+  });
+});
+
+describe("selection measurement lifecycle", () => {
+  const frame = () =>
+    act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+  it("coalesces selection and viewport events, preserving the range on tool clicks and Ask focus", async () => {
+    await frame();
+    const measure = vi.spyOn(Range.prototype, "getBoundingClientRect");
+    select(article.querySelector("p")!);
+    await act(async () => {
+      for (let i = 0; i < 10; i++) {
+        document.dispatchEvent(new Event("selectionchange"));
+        window.dispatchEvent(new Event("scroll"));
+        window.dispatchEvent(new Event("resize"));
+      }
+      await new Promise(requestAnimationFrame);
+    });
+    expect(measure).toHaveBeenCalledTimes(1);
+    const ask = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === "Ask",
+    )!;
+    const down = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+    });
+    ask.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(window.getSelection()?.toString()).toBe("A passage worth keeping.");
+    await act(async () => ask.click());
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Ask about this passage",
+    );
+    measure.mockRestore();
+  });
+
+  it("cancels collapsed-selection hides after reselection and disposes pending work on unmount", async () => {
+    select(article.querySelector("p")!);
+    await frame();
+    await act(async () => {
+      window.getSelection()?.removeAllRanges();
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise(requestAnimationFrame);
+    });
+    select(article.querySelector("p")!);
+    await frame();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 230));
+    });
+    expect(document.querySelector('[role="toolbar"]')).not.toBeNull();
+    const cancel = vi.spyOn(window, "cancelAnimationFrame");
+    await act(async () => {
+      window.dispatchEvent(new Event("scroll"));
+      root.unmount();
+    });
+    expect(cancel).toHaveBeenCalled();
+    root = createRoot(document.getElementById("toolbar")!);
+    cancel.mockRestore();
+  });
+
+  it("owns and cancels the delayed hide timer on unmount", async () => {
+    const timeout = vi.spyOn(globalThis, "setTimeout");
+    const clear = vi.spyOn(globalThis, "clearTimeout");
+    select(article.querySelector("p")!);
+    await frame();
+    await act(async () => {
+      window.getSelection()?.removeAllRanges();
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise(requestAnimationFrame);
+    });
+    const at = timeout.mock.calls.findLastIndex(([, delay]) => delay === 200);
+    expect(at).toBeGreaterThanOrEqual(0);
+    const timer = timeout.mock.results[at].value;
+    await act(async () => root.unmount());
+    expect(clear).toHaveBeenCalledWith(timer);
+    root = createRoot(document.getElementById("toolbar")!);
   });
 });
 

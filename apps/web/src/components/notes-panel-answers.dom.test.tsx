@@ -2,6 +2,7 @@
 import { act, type PropsWithChildren } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as sanitizer from "@/lib/sanitize";
 import { NotesPanel } from "./notes-panel";
 
 const mocks = vi.hoisted(() => ({
@@ -78,6 +79,7 @@ afterEach(async () => {
   mocks.threads = [];
   mocks.removeThread.mockReset();
   mocks.removeNote.mockReset();
+  vi.restoreAllMocks();
 });
 
 async function render(onAnswerDeleted?: (id: string) => void) {
@@ -98,6 +100,47 @@ const answerLines = () =>
   Array.from(host.querySelectorAll<HTMLElement>('[data-hand="pencil"] button'));
 
 describe("notes pane: your notes and Marginalia's kept answers", () => {
+  it("sanitizes only changed content and preserves unchanged prose DOM and selection across unrelated updates", async () => {
+    mocks.notes = [
+      note({
+        content:
+          "<p>My <strong>unchanged</strong> thought</p><img src=x onerror=alert(1)>",
+      }),
+    ];
+    // Happy-dom does not implement DOMPurify's browser support checks. Verify
+    // the panel renders the sanitizer's output, never the untrusted input.
+    const sanitize = vi
+      .spyOn(sanitizer, "sanitizeHtml")
+      .mockReturnValueOnce(
+        "<p>My <strong>unchanged</strong> thought</p><img src=x>",
+      );
+    await render();
+    const strong = host.querySelector("strong")!;
+    expect(strong).not.toBeNull();
+    expect(host.querySelector("img")?.hasAttribute("onerror")).toBe(false);
+    const range = document.createRange();
+    range.selectNodeContents(strong);
+    window.getSelection()?.addRange(range);
+    const before = sanitize.mock.calls.length;
+    expect(sanitize.mock.calls[0][0]).toContain("onerror=");
+    // New query row identity, but no presentation change.
+    mocks.notes = [
+      note({
+        content:
+          "<p>My <strong>unchanged</strong> thought</p><img src=x onerror=alert(1)>",
+        updatedAt: 42,
+      }),
+    ];
+    await render();
+    expect(sanitize).toHaveBeenCalledTimes(before);
+    expect(host.querySelector("strong")).toBe(strong);
+    expect(window.getSelection()?.toString()).toBe("unchanged");
+    mocks.notes = [note({ content: "<p>Changed text</p>" })];
+    await render();
+    expect(sanitize).toHaveBeenCalledTimes(before + 1);
+    expect(host.textContent).toContain("Changed text");
+    window.getSelection()?.removeAllRanges();
+  });
   it("sets your note in ink with a pen rule, ahead of kept answers", async () => {
     mocks.notes = [note({})];
     mocks.threads = [thread({ keptAt: 5000 })];

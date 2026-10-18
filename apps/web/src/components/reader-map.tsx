@@ -14,7 +14,22 @@ interface Block {
 
 const WIDTH = 34;
 
-export function ReaderMap({
+type ReaderMapProps = Parameters<typeof DesktopReaderMap>[0];
+
+/** Match the CSS lg breakpoint, with no hidden map work during SSR/hydration. */
+export function ReaderMap(props: ReaderMapProps) {
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setDesktop(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return desktop ? <DesktopReaderMap {...props} /> : null;
+}
+
+function DesktopReaderMap({
   containerRef,
   version,
   position,

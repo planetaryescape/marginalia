@@ -125,7 +125,8 @@ function naturalHeight(el: HTMLElement): number {
   return el.dataset.open === "true"
     ? (el.querySelector<HTMLElement>(".sidenote-card")?.offsetHeight ??
         el.offsetHeight)
-    : el.offsetHeight;
+    : (el.querySelector<HTMLElement>(".sidenote-hit")?.offsetHeight ??
+        el.offsetHeight);
 }
 
 function firstRect(rects: DOMRectList | DOMRect[] | undefined): DOMRect | null {
@@ -155,7 +156,7 @@ export function Sidenotes({
 }: {
   containerRef: React.RefObject<HTMLElement | null>;
   mode: MarginMode;
-  /** Bumps when the article's paragraphs are re-tagged, i.e. its HTML or size changed. */
+  /** Prose epoch: bumps when the article DOM changes, not on geometry-only resize. */
   version: number;
   /** Changes with text settings that move lines without resizing the article. */
   layoutKey: ReaderSettings;
@@ -374,7 +375,7 @@ export function Sidenotes({
       labels,
       ticks,
     };
-    const json = JSON.stringify(next);
+    const json = `${openKey ?? ""}|${JSON.stringify(next)}`;
     if (json === layoutJson.current) return;
     layoutJson.current = json;
     setLayout(next);
@@ -388,8 +389,19 @@ export function Sidenotes({
     layoutKey,
   ]);
 
+  const frame = useRef(0);
+  const schedule = useCallback(() => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      run();
+    });
+  }, [run]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `layoutKey` asks for a re-measure
   useLayoutEffect(() => {
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
     if (active) run();
   }, [active, run, layoutKey]);
 
@@ -398,10 +410,10 @@ export function Sidenotes({
     const el = openKey ? nodes.current.get(openKey) : undefined;
     if (!active || !el) return;
     // Observe the card itself: its size is its content's, not the animated slot's.
-    const resize = new ResizeObserver(() => run());
+    const resize = new ResizeObserver(schedule);
     resize.observe(el.querySelector<HTMLElement>(".sidenote-card") ?? el);
     return () => resize.disconnect();
-  }, [active, openKey, run]);
+  }, [active, openKey, schedule]);
 
   // Notes that move slide from where they were, so they never jump. A note that
   // opens or closes also grows or shrinks its slot over the same duration and
@@ -411,17 +423,29 @@ export function Sidenotes({
     new Map<string, { open: boolean; height: number; animation?: Animation }>(),
   );
   // The card of the note being closed stays mounted, fading, until its slot has shrunk.
-  const lastCard = useRef<ReactNode>(null);
+  const lastCards = useRef(new Map<string, ReactNode>());
   useLayoutEffect(() => {
-    if (openCard) lastCard.current = openCard;
+    if (openKey && openCard) lastCards.current.set(openKey, openCard);
   });
   const [closing, setClosing] = useState<{
     key: string;
     card: ReactNode;
   } | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `openKey` must run this pass even when the layout is unchanged
   useLayoutEffect(() => {
+    // All geometry (including interrupted slot heights) precedes any motion writes.
+    const measured = [...nodes.current].map(([key, el]) => ({
+      key,
+      el,
+      open: el.dataset.open === "true",
+      height: naturalHeight(el),
+      from:
+        slots.current.get(key)?.animation?.playState === "running"
+          ? el.offsetHeight
+          : slots.current.get(key)?.height,
+    }));
+    const timing = moveTiming();
+    const moved: HTMLElement[] = [];
     for (const [key, placement] of Object.entries(layout.placements)) {
       const previous = lastTops.current.get(key);
       lastTops.current.set(key, placement.top);
@@ -435,73 +459,90 @@ export function Sidenotes({
         continue;
       el.style.transition = "none";
       el.style.transform = `translateY(${previous - placement.top}px)`;
-      void el.offsetHeight;
+      moved.push(el);
+    }
+    // One shared FLIP barrier, not a synchronous layout per moved note.
+    if (moved.length && layerRef.current) void layerRef.current.offsetHeight;
+    for (const el of moved) {
       el.style.transition = "";
       el.style.transform = "";
     }
-    for (const [key, el] of nodes.current) {
-      const open = el.dataset.open === "true";
+    for (const { key, el, open, height: to, from } of measured) {
       const slot = slots.current.get(key);
       if (!slot) {
-        slots.current.set(key, { open, height: naturalHeight(el) });
+        slots.current.set(key, { open, height: to });
         continue;
       }
       if (slot.open === open) {
         // Track the settled height so the next open or close starts from it.
-        if (slot.animation?.playState !== "running")
-          slot.height = naturalHeight(el);
+        if (slot.animation?.playState !== "running") slot.height = to;
         continue;
       }
       // Measure from the height it settled at, then animate to the new one.
       slot.open = open;
       slot.animation?.cancel();
-      const to = naturalHeight(el);
       const unmountClosing = () =>
         setClosing((current) => (current?.key === key ? null : current));
       if (open) unmountClosing();
       if (!reduced) {
         el.style.overflow = "hidden";
-        if (!open) setClosing({ key, card: lastCard.current });
+        if (!open) setClosing({ key, card: lastCards.current.get(key) });
         const animation = el.animate(
-          [{ height: `${slot.height}px` }, { height: `${to}px` }],
-          moveTiming(),
+          [{ height: `${from ?? slot.height}px` }, { height: `${to}px` }],
+          timing,
         );
         slot.animation = animation;
         animation.finished.then(
           () => {
+            if (slot.animation !== animation) return;
             el.style.overflow = "";
             unmountClosing();
           },
           // Cancelled by a newer change, which owns the overflow now.
-          () => unmountClosing(),
+          () => {
+            if (slot.animation === animation) unmountClosing();
+          },
         );
+      } else {
+        slot.animation = undefined;
+        el.style.overflow = "";
+        unmountClosing();
       }
       slot.height = to;
     }
-  }, [layout, openKey, reduced]);
+  }, [layout, reduced]);
+
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(frame.current);
+      for (const slot of slots.current.values()) {
+        const animation = slot.animation;
+        slot.animation = undefined;
+        animation?.cancel();
+      }
+    },
+    [],
+  );
 
   // Anything that moves lines without a React update: resize, the notes pane, web fonts.
   useEffect(() => {
     const container = containerRef.current;
     if (!active || !container) return;
-    let frame = 0;
     let disposed = false;
-    const schedule = () => {
-      if (disposed) return;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(run);
-    };
     window.addEventListener("resize", schedule);
     const resize = new ResizeObserver(schedule);
     resize.observe(container);
-    document.fonts?.ready.then(schedule);
+    document.fonts?.ready.then(() => {
+      if (!disposed) schedule();
+    });
     return () => {
       disposed = true;
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
       window.removeEventListener("resize", schedule);
       resize.disconnect();
     };
-  }, [active, containerRef, run]);
+  }, [active, containerRef, schedule]);
 
   // The mark is where keyboard and screen reader users meet a note, so it carries the note's text.
   const placedKeys = Object.keys(layout.placements).join(",");

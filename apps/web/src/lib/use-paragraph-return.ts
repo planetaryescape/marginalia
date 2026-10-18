@@ -42,6 +42,7 @@ export function useParagraphReturn(articleRef: RefObject<HTMLElement | null>) {
   // A ref mirrors the stack so scroll and key handlers never act on a stale copy.
   const stackRef = useRef<ReturnEntry[]>([]);
   const settling = useRef<number | null>(null);
+  const cancelSettle = useRef<(() => void) | null>(null);
 
   const setStack = useCallback((next: ReturnEntry[]) => {
     stackRef.current = next;
@@ -51,14 +52,17 @@ export function useParagraphReturn(articleRef: RefObject<HTMLElement | null>) {
   // A jump's own scroll is not the reader scrolling back, so scroll events are ignored
   // until it lands (scrollend, or the timeout where scrollend is unsupported).
   const settle = useCallback(() => {
-    if (settling.current !== null) window.clearTimeout(settling.current);
+    cancelSettle.current?.();
     const done = () => {
+      window.removeEventListener("scrollend", done);
+      if (cancelSettle.current !== done) return;
       if (settling.current !== null) window.clearTimeout(settling.current);
       settling.current = null;
-      window.removeEventListener("scrollend", done);
+      cancelSettle.current = null;
     };
     window.addEventListener("scrollend", done, { once: true });
     settling.current = window.setTimeout(done, SETTLE_MS);
+    cancelSettle.current = done;
   }, []);
 
   const jump = useCallback(
@@ -107,7 +111,7 @@ export function useParagraphReturn(articleRef: RefObject<HTMLElement | null>) {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       window.removeEventListener("scroll", onScroll);
-      if (settling.current !== null) window.clearTimeout(settling.current);
+      cancelSettle.current?.();
     };
   }, [setStack]);
 

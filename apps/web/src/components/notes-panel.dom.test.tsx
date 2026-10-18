@@ -65,7 +65,12 @@ vi.mock("./note-editor", () => ({
       });
       return () => onFlushReady(null);
     }, [onFlushReady, onAutosave]);
-    return <div data-testid="editor">{props.selectedText}</div>;
+    return (
+      <div data-testid="editor">
+        {props.selectedText}
+        <textarea aria-label="Draft fixture" defaultValue="" />
+      </div>
+    );
   },
 }));
 
@@ -187,6 +192,26 @@ describe("non-modal pane", () => {
 });
 
 describe("a new selection while a draft is open", () => {
+  it("keeps the lazy editor's unsaved DOM and focus through parent and autosave-status updates", async () => {
+    await render(true, { text: "A" });
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Draft fixture"]',
+    )!;
+    textarea.value = "Unsent words";
+    textarea.focus();
+    await render(true, { text: "A" });
+    await act(async () => {
+      await mocks.editor!.onAutosave(
+        "<p>Saved earlier words</p>",
+        "Saved earlier words",
+      );
+    });
+    expect(document.querySelector('textarea[aria-label="Draft fixture"]')).toBe(
+      textarea,
+    );
+    expect(textarea.value).toBe("Unsent words");
+    expect(document.activeElement).toBe(textarea);
+  });
   it("saves A under A, then starts B as a separate note", async () => {
     await render(true, { text: "A" });
     mocks.draft = { html: "<p>note a</p>", plain: "note a" };

@@ -1,6 +1,6 @@
 "use client";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   edgeCurve,
@@ -111,6 +111,15 @@ export function IdeaMap({
 
   const selectedIdea = ideas.find((i) => i.id === selected);
   const edgesDelay = rankCount * RANK_DELAY + 0.15;
+  useEffect(() => {
+    // Own one entrance clock, including maps without edges. Hover never restarts it.
+    const duration = Math.max(
+      Math.max(0, rankCount - 1) * RANK_DELAY + 0.45,
+      edgesDelay + Math.max(0, layout.edges.length - 1) * 0.06 + 0.6,
+    );
+    const timer = window.setTimeout(() => setEntered(true), duration * 1000);
+    return () => window.clearTimeout(timer);
+  }, [rankCount, edgesDelay, layout.edges.length]);
   const rankOf = new Map(
     [...new Set(layout.nodes.map((n) => n.y))]
       .sort((a, b) => a - b)
@@ -164,7 +173,7 @@ export function IdeaMap({
                   animate={{ pathLength: 1, opacity: active ? 0.9 : 0.12 }}
                   transition={{
                     pathLength: {
-                      delay: edgesDelay + i * 0.06,
+                      delay: entered ? 0 : edgesDelay + i * 0.06,
                       duration: 0.6,
                       ease: EASE,
                     },
@@ -257,7 +266,7 @@ export function IdeaMap({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ delay: edgesDelay, duration: 0.3 }}
+            transition={{ delay: entered ? 0 : edgesDelay, duration: 0.3 }}
             className="mt-4 text-center text-[11.5px] text-[var(--reader-muted)]"
           >
             Select an idea to see what it means and where it appears
