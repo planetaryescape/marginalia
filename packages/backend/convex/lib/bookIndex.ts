@@ -3,6 +3,7 @@
 // 300-token passages embedded for search. Pure helpers; the queue is in
 // bookIndex.ts and the model calls in actions/indexBook.ts.
 import { z } from "zod";
+import type { Doc } from "../_generated/dataModel";
 import { estimateTokens, splitText } from "./pdf/sections";
 
 /** Units indexed per book. Anything past it still reads; it just isn't searched. */
@@ -19,6 +20,62 @@ export const MAX_UNIT_FAILURES = 6;
 export const CLAIM_TTL_MS = 20 * 60_000;
 /** A running index whose last step is older than this has lost its schedule. */
 export const STALE_MS = 10 * 60_000;
+
+/** The sole claim whose pre-protocol action may still call the old, claimless
+ * overview writer. A protocol-2 claim is never sufficient on its own. */
+export function legacyOverviewClaim(
+  state: Pick<
+    Doc<"bookIndexState">,
+    | "phase"
+    | "runId"
+    | "pointClaimedAt"
+    | "overviewDone"
+    | "protocol"
+    | "legacyPoint"
+  >,
+  now: number,
+): Doc<"bookIndexState">["legacyPoint"] {
+  const claim = state.pointClaimedAt;
+  if (
+    state.phase !== "point" ||
+    state.overviewDone ||
+    claim === undefined ||
+    now - claim >= CLAIM_TTL_MS
+  )
+    return undefined;
+  if (
+    state.protocol === 2 &&
+    (state.legacyPoint?.runId !== state.runId ||
+      state.legacyPoint.claim !== claim)
+  )
+    return undefined;
+  return { runId: state.runId, claim };
+}
+
+export type IndexLane = "summary" | "passages";
+export interface FairBatch<T> {
+  jobs: { stage: IndexLane; value: T }[];
+  nextLane: IndexLane;
+}
+
+/** Alternate individual slots, carrying the turn across odd-sized batches.
+ * An unavailable/empty lane lends its slots, never a second pacing budget. */
+export function fairBatch<T>(
+  lanes: Record<IndexLane, readonly T[]>,
+  first: IndexLane,
+): FairBatch<T> {
+  const offsets = { summary: 0, passages: 0 };
+  const jobs: { stage: IndexLane; value: T }[] = [];
+  let nextLane = first;
+  while (jobs.length < BATCH_JOBS) {
+    const other = nextLane === "summary" ? "passages" : "summary";
+    const stage = offsets[nextLane] < lanes[nextLane].length ? nextLane : other;
+    if (offsets[stage] >= lanes[stage].length) break;
+    jobs.push({ stage, value: lanes[stage][offsets[stage]++] });
+    nextLane = stage === "summary" ? "passages" : "summary";
+  }
+  return { jobs, nextLane };
+}
 
 /** A unit shorter than this has nothing worth a summary (a title page, a divider). */
 export const MIN_SUMMARY_WORDS = 60;

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { libraryIsActive, ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, query } from "./functions";
+import { legacyOverviewClaim } from "./lib/bookIndex";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
@@ -122,15 +123,52 @@ export const saveBookOverview = internalMutation({
     thesis: v.string(),
     gist: v.string(),
     model: v.string(),
+    runId: v.optional(v.number()),
+    claim: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // A late call for a reader who is leaving or a book that is gone writes nothing
     if (!(await libraryIsActive(ctx, args.userId))) return null;
     const article = await ownedArticle(ctx, args.articleId, args.userId);
     if (!article?.bookOutline) return null;
+    const book = await ctx.db
+      .query("books")
+      .withIndex("by_userId_and_articleId", (q) =>
+        q.eq("userId", args.userId).eq("articleId", args.articleId),
+      )
+      .unique();
+    const state = await ctx.db
+      .query("bookIndexState")
+      .withIndex("by_userId_and_articleId", (q) =>
+        q.eq("userId", args.userId).eq("articleId", args.articleId),
+      )
+      .unique();
+    if (
+      !book ||
+      !state?.running ||
+      state.phase !== "point" ||
+      state.overviewDone ||
+      state.pointClaimedAt === undefined
+    )
+      return null;
+    if (args.runId !== undefined || args.claim !== undefined) {
+      // A partial identity must not fall through to legacy acceptance.
+      if (args.runId !== state.runId || args.claim !== state.pointClaimedAt)
+        return null;
+    } else if (!legacyOverviewClaim(state, Date.now())) {
+      return null;
+    }
     const thesis = args.thesis.trim();
     const gist = args.gist.trim();
     if (!thesis || !gist) return null;
+    // Consume legacy permission and settle the paid result atomically. If an
+    // old action is lost before pointWritten, the watchdog/step cannot spend
+    // again on an overview that has already been saved.
+    await ctx.db.patch("bookIndexState", state._id, {
+      legacyPoint: undefined,
+      overviewDone: true,
+      updatedAt: Date.now(),
+    });
     const existing = await ctx.db
       .query("summaries")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))

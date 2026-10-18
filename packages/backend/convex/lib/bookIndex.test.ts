@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   chunkPassages,
+  fairBatch,
   groupSpans,
   inBatches,
   MAX_PASSAGES_PER_UNIT,
@@ -14,6 +15,34 @@ import {
 } from "./bookIndex";
 
 const para = (n: number, chars: number) => `P${n} ${"x".repeat(chars)}`;
+
+describe("fairBatch", () => {
+  it("carries the odd slot to the other lane without reordering either lane", () => {
+    const lanes = { summary: [0, 1, 2, 3, 4], passages: [10, 11, 12, 13, 14] };
+    const first = fairBatch(lanes, "summary");
+    expect(first.jobs.map((job) => job.value)).toEqual([0, 10, 1, 11, 2]);
+    const second = fairBatch(
+      { summary: [3, 4, 5], passages: [12, 13, 14] },
+      first.nextLane,
+    );
+    expect(second.jobs.map((job) => job.value)).toEqual([12, 3, 13, 4, 14]);
+  });
+
+  it("lends idle slots but never opens a second five-job pool", () => {
+    expect(
+      fairBatch(
+        { summary: [], passages: [0, 1, 2, 3, 4, 5] },
+        "summary",
+      ).jobs.map((job) => job.value),
+    ).toEqual([0, 1, 2, 3, 4]);
+    expect(fairBatch({ summary: [1], passages: [] }, "passages").jobs).toEqual([
+      { stage: "summary", value: 1 },
+    ]);
+    expect(fairBatch({ summary: [], passages: [] }, "passages").jobs).toEqual(
+      [],
+    );
+  });
+});
 
 describe("chunkPassages", () => {
   it("packs paragraphs into passages of about 300 tokens under the heading", () => {
