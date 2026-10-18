@@ -49,6 +49,7 @@ function mockProviders() {
   const embedBatches: number[] = [];
   const embedInputs: string[] = [];
   let failSummaries = false;
+  let summaryStatus: number | null = null;
   let embedStatus: number | null = null;
   vi.stubGlobal(
     "fetch",
@@ -81,6 +82,8 @@ function mockProviders() {
         );
       if (failSummaries && !user?.includes("<parts>"))
         return new Response("nope", { status: 400 });
+      if (summaryStatus !== null && !user?.includes("<parts>"))
+        return new Response("refused", { status: summaryStatus });
       const content = user?.includes("<parts>")
         ? { thesis: "The book's point.", gist: "The book's gist." }
         : {
@@ -110,6 +113,9 @@ function mockProviders() {
     },
     failSummaries: (on: boolean) => {
       failSummaries = on;
+    },
+    summaryStatus: (status: number | null) => {
+      summaryStatus = status;
     },
     summaryPrompts: () =>
       prompts.filter((p) => p.system.startsWith("You summarise")),
@@ -229,10 +235,12 @@ describe("the summary queue", () => {
     const rows = await indexRows(f, "summary");
     expect(
       rows.map((row) => [row.unitIndex, row.status, row.attempts]),
-    ).toEqual(Array.from({ length: BATCH_JOBS }, (_, i) => [i, "pending", 1]));
-    const jobs = (await scheduled(f, "summarizeUnit")).sort(
-      (a, b) => a.scheduledTime - b.scheduledTime,
-    );
+    ).toEqual(Array.from({ length: 3 }, (_, i) => [i, "pending", 1]));
+    expect(await indexRows(f, "passages")).toHaveLength(2);
+    const jobs = [
+      ...(await scheduled(f, "summarizeUnit")),
+      ...(await scheduled(f, "embedPassages")),
+    ].sort((a, b) => a.scheduledTime - b.scheduledTime);
     expect(jobs.map((job) => job.scheduledTime - now)).toEqual(
       Array.from({ length: BATCH_JOBS }, (_, i) => i * JOB_STAGGER_MS),
     );
@@ -241,12 +249,13 @@ describe("the summary queue", () => {
       (job) => job.scheduledTime - now >= BATCH_DELAY_MS,
     );
     expect(steps).toHaveLength(1);
-    expect((await state(f, articleId))?.cursor).toBe(BATCH_JOBS);
+    expect((await state(f, articleId))?.nextLane).toBe("passages");
   });
 
   it("does not schedule a unit that holds a live claim, and takes a lost claim again", async () => {
     const f = await secondReaderTest(modules);
-    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    // A text-only lane lends all five slots to summaries.
+    await saveTestCredential(f.t, OWNER, "anthropic", "sk-ant-fixture");
     const articleId = await seedBook(
       f,
       OWNER,
@@ -369,8 +378,549 @@ describe("the summary queue", () => {
   });
 });
 
+describe("the shared two-lane protocol", () => {
+  it.each([
+    true,
+    false,
+  ])("preserves paid in-flight work on a key resume (other lane running: %s) and ignores old-key pauses", async (running) => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}, {}]);
+    await start(f, articleId);
+    await step(f, articleId);
+    const [slow, refused] = await indexRows(f, "summary");
+    const args = {
+      userId: OWNER,
+      articleId,
+      runId: 1,
+      stage: "summary" as const,
+    };
+    await f.t.mutation(internal.bookIndex.completeJob, {
+      ...args,
+      unitIndex: refused.unitIndex,
+      claim: refused.claimedAt,
+      status: "failed",
+      refund: true,
+    });
+    await f.t.mutation(internal.bookIndex.pauseIndex, {
+      ...args,
+      unitIndex: refused.unitIndex,
+      claim: refused.claimedAt,
+      reason: "unusable_key",
+    });
+    if (!running)
+      await f.t.run(async (ctx) => {
+        const s = await ctx.db.query("bookIndexState").first();
+        if (s)
+          await ctx.db.patch("bookIndexState", s._id, {
+            running: false,
+            pausedReason: "unusable_key",
+            protocol: undefined,
+          });
+      });
+    expect(await start(f, articleId)).toBe(running ? "resumed" : "started");
+    expect((await state(f, articleId))?.runId).toBe(1);
+    // A slow success from the previous key remains useful: no second spend.
+    expect(
+      await f.t.mutation(internal.bookIndex.completeJob, {
+        ...args,
+        unitIndex: slow.unitIndex,
+        claim: slow.claimedAt,
+        status: "done",
+        summary: "Paid before the key changed.",
+      }),
+    ).toBe(true);
+    await f.t.mutation(internal.bookIndex.pauseIndex, {
+      ...args,
+      unitIndex: refused.unitIndex,
+      claim: refused.claimedAt,
+      reason: "unusable_key",
+    });
+    expect((await state(f, articleId))?.summaryBlocked).toBeUndefined();
+    expect((await state(f, articleId))?.failures).toBe(1);
+    vi.setSystemTime(Date.now() + BATCH_DELAY_MS);
+    await step(f, articleId);
+    expect((await indexRows(f, "summary"))[0]).toMatchObject({
+      status: "done",
+      attempts: 1,
+    });
+  });
+
+  it("does not let duplicate completions or passage batches refund, duplicate, or pause successful work", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}]);
+    await start(f, articleId);
+    await step(f, articleId);
+    const [row] = await indexRows(f, "passages");
+    const args = {
+      userId: OWNER,
+      articleId,
+      runId: 1,
+      unitIndex: 0,
+      claim: row.claimedAt,
+    };
+    const batch = {
+      ...args,
+      passages: [
+        { passageIndex: 0, heading: "H", text: "T", embedding: vectorFor("") },
+      ],
+    };
+    await Promise.all([
+      f.t.mutation(internal.bookIndex.addPassages, batch),
+      f.t.mutation(internal.bookIndex.addPassages, batch),
+    ]);
+    expect(
+      await f.t.run((ctx) => ctx.db.query("bookPassages").take(10)),
+    ).toHaveLength(1);
+    expect(
+      await f.t.mutation(internal.bookIndex.completeJob, {
+        ...args,
+        stage: "passages",
+        status: "done",
+        passageCount: 1,
+      }),
+    ).toBe(true);
+    expect(
+      await f.t.mutation(internal.bookIndex.completeJob, {
+        ...args,
+        stage: "passages",
+        status: "failed",
+        refund: true,
+      }),
+    ).toBe(false);
+    await f.t.mutation(internal.bookIndex.pauseIndex, {
+      ...args,
+      stage: "passages",
+      reason: "unusable_key",
+    });
+    expect((await state(f, articleId))?.passagesBlocked).toBeUndefined();
+    expect((await indexRows(f, "passages"))[0]).toMatchObject({
+      status: "done",
+      attempts: 1,
+    });
+  });
+
+  it("does not claim either lane or the overview while the unchanged reader batch budget is exhausted", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}]);
+    await start(f, articleId);
+    await f.t.run((ctx) =>
+      ctx.db.insert("readerLimits", {
+        userId: OWNER,
+        bucket: "bookIndex",
+        startedAt: Date.now(),
+        count: 60,
+      }),
+    );
+    await step(f, articleId);
+    expect(await indexRows(f, "summary")).toEqual([]);
+    expect(await indexRows(f, "passages")).toEqual([]);
+    expect((await state(f, articleId))?.queued).toBe(0);
+    expect(await scheduled(f, "writeOverview")).toHaveLength(0);
+  });
+
+  it("retains the 1,500-unit cap and legacy done state without restarting paid work", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}]);
+    await f.t.run(async (ctx) => {
+      const book = await ctx.db.query("books").first();
+      if (book) await ctx.db.patch("books", book._id, { unitCount: 1501 });
+      for (const stage of ["summary", "passages"] as const)
+        for (let unitIndex = 0; unitIndex < 1500; unitIndex++)
+          await ctx.db.insert("bookIndexUnits", {
+            userId: OWNER,
+            articleId,
+            stage,
+            unitIndex,
+            status: "skipped",
+            claimedAt: 0,
+            attempts: 0,
+          });
+    });
+    await start(f, articleId);
+    await step(f, articleId);
+    expect(await state(f, articleId)).toMatchObject({
+      phase: "done",
+      queued: 0,
+    });
+    expect(await scheduled(f, "embedPassages")).toHaveLength(0);
+    await f.t.run(async (ctx) => {
+      const s = await ctx.db.query("bookIndexState").first();
+      if (s)
+        await ctx.db.patch("bookIndexState", s._id, { protocol: undefined });
+    });
+    expect(await start(f, articleId)).toBe("already indexed");
+  });
+
+  it("makes a 102-unit book Ask-searchable in the first batch while summaries remain open, then uses every settled summary for the overview", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const mock = mockProviders();
+    const articleId = await seedBook(
+      f,
+      OWNER,
+      Array.from({ length: 102 }, () => ({ keyword: "alpha" })),
+    );
+    const began = Date.now();
+    await start(f, articleId);
+    await step(f, articleId);
+    const first = await indexRows(f, "passages");
+    // Hold all summary jobs open; complete passages out of claim order.
+    for (const row of [...first].reverse()) {
+      vi.setSystemTime(began + 4 * JOB_STAGGER_MS);
+      await f.t.action(internal.actions.indexBook.embedPassages, {
+        articleId,
+        userId: OWNER,
+        runId: 1,
+        unitIndex: row.unitIndex,
+        claim: row.claimedAt,
+      });
+    }
+    expect((await indexRows(f, "summary")).map((row) => row.status)).toEqual([
+      "pending",
+      "pending",
+      "pending",
+    ]);
+    expect(mock.pointPrompts()).toHaveLength(0);
+    expect(
+      (await f.owner.query(api.books.get, { articleId }))?.summaries,
+    ).toEqual([]);
+    const response = await f.owner.fetch("/api/companion", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "article",
+        articleId,
+        unitIndex: 0,
+        title: "Systems Thinking",
+        paragraphs: ["Current part."],
+        selection: "",
+        paragraphIndex: null,
+        question: "What about alpha?",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("Answer.");
+    expect(mock.prompts.at(-1)?.user).toContain(
+      "[Part 2] Systems Thinking › Unit 2",
+    );
+    expect(Date.now() - began).toBeLessThan(BATCH_DELAY_MS);
+
+    const countsAtOverview: number[] = [];
+    const fetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(init?.body).includes("<parts>"))
+          countsAtOverview.push(
+            (await indexRows(f, "summary")).filter(
+              (row) => row.status === "done",
+            ).length,
+          );
+        return fetch(input, init);
+      },
+    );
+    await runScheduled(f.t, { stepMs: 15_000 });
+    expect(countsAtOverview).toEqual([102]);
+    expect(mock.summaryPrompts()).toHaveLength(102);
+    expect(mock.pointPrompts()[0]?.user).toContain(
+      "Part 102: Unit 102. About part 102.",
+    );
+    expect(await state(f, articleId)).toMatchObject({
+      phase: "done",
+      recoverable: 0,
+    });
+    const allJobs = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(1000),
+    );
+    const perWindow = new Map<number, number>();
+    for (const job of allJobs.filter((job) =>
+      /indexBook:(summarizeUnit|embedPassages|writeOverview)$/.test(job.name),
+    )) {
+      const window = Math.floor((job.scheduledTime - began) / BATCH_DELAY_MS);
+      perWindow.set(window, (perWindow.get(window) ?? 0) + 1);
+    }
+    expect([...perWindow.values()].reduce((sum, count) => sum + count, 0)).toBe(
+      205,
+    );
+    expect(Math.max(...perWindow.values())).toBe(BATCH_JOBS);
+    const jobTimes = allJobs
+      .filter((job) =>
+        /indexBook:(summarizeUnit|embedPassages|writeOverview)$/.test(job.name),
+      )
+      .map((job) => job.scheduledTime)
+      .sort((a, b) => a - b);
+    for (let i = BATCH_JOBS; i < jobTimes.length; i++)
+      expect(jobTimes[i] - jobTimes[i - BATCH_JOBS]).toBeGreaterThanOrEqual(
+        BATCH_DELAY_MS,
+      );
+  });
+
+  it("shares five slots across duplicate steps, carries the fair turn, and charges once per batch", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(
+      f,
+      OWNER,
+      Array.from({ length: 20 }, () => ({})),
+    );
+    await start(f, articleId);
+    await Promise.all([
+      step(f, articleId),
+      step(f, articleId),
+      step(f, articleId),
+    ]);
+    expect(
+      (await indexRows(f, "summary")).length +
+        (await indexRows(f, "passages")).length,
+    ).toBe(5);
+    expect(await start(f, articleId)).toBe("already running");
+    vi.setSystemTime(Date.now() + BATCH_DELAY_MS - 1);
+    await step(f, articleId);
+    expect((await state(f, articleId))?.queued).toBe(5);
+    vi.setSystemTime(Date.now() + 1);
+    await Promise.all([step(f, articleId), step(f, articleId)]);
+    expect(await indexRows(f, "summary")).toHaveLength(5);
+    expect(await indexRows(f, "passages")).toHaveLength(5);
+    expect(
+      await f.t.run((ctx) => ctx.db.query("readerLimits").first()),
+    ).toMatchObject({ bucket: "bookIndex", count: 2 });
+    expect(await scheduled(f, "writeOverview")).toHaveLength(0);
+  });
+
+  it("finishes passages despite refused text credentials, preserves them, and resumes only unfinished text work", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const mock = mockProviders();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mock.summaryStatus(401);
+    const articleId = await seedBook(
+      f,
+      OWNER,
+      Array.from({ length: 7 }, () => ({})),
+    );
+    await start(f, articleId);
+    await runScheduled(f.t, { stepMs: 15_000 });
+    expect(await state(f, articleId)).toMatchObject({
+      running: false,
+      phase: "summaries",
+      summaryBlocked: "unusable_key",
+      pausedReason: "unusable_key",
+      failures: 1,
+    });
+    expect(await indexRows(f, "passages")).toHaveLength(7);
+    expect(
+      (await indexRows(f, "passages")).every((row) => row.status === "done"),
+    ).toBe(true);
+    const embeddings = mock.embedBatches.length;
+    expect(mock.pointPrompts()).toHaveLength(0);
+    mock.summaryStatus(null);
+    await start(f, articleId);
+    await runScheduled(f.t, { stepMs: 15_000 });
+    expect(mock.embedBatches).toHaveLength(embeddings);
+    expect(await state(f, articleId)).toMatchObject({ phase: "done" });
+  });
+
+  it.each([
+    "summaries",
+    "point",
+    "passages",
+  ] as const)("lazily upgrades legacy %s without replacing live claims or successful work", async (phase) => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}, {}]);
+    const claim = Date.now();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("bookIndexState", {
+        userId: OWNER,
+        articleId,
+        runId: 7,
+        running: true,
+        phase,
+        cursor: 1,
+        pointAttempts: phase === "point" ? 1 : 0,
+        pointClaimedAt: phase === "point" ? claim : undefined,
+        queued: 5,
+        startedAt: claim - 1000,
+        updatedAt: claim,
+      });
+      for (const unitIndex of [0, 1])
+        await ctx.db.insert("bookIndexUnits", {
+          userId: OWNER,
+          articleId,
+          unitIndex,
+          stage: "summary",
+          status: phase === "summaries" && unitIndex === 1 ? "pending" : "done",
+          claimedAt: claim,
+          attempts: 1,
+          summary: "Paid summary.",
+        });
+    });
+    await step(f, articleId, 7);
+    expect(await state(f, articleId)).toMatchObject({
+      protocol: 2,
+      runId: 7,
+      phase,
+      pointAttempts: phase === "point" ? 1 : 0,
+    });
+    expect(await scheduled(f, "embedPassages")).toHaveLength(0);
+    vi.setSystemTime(claim + BATCH_DELAY_MS);
+    await step(f, articleId, 7);
+    expect((await indexRows(f, "summary")).map((row) => row.attempts)).toEqual([
+      1, 1,
+    ]);
+    expect(await scheduled(f, "embedPassages")).toHaveLength(2);
+    expect(await scheduled(f, "writeOverview")).toHaveLength(0);
+    if (phase === "summaries") {
+      // A queued pre-upgrade action without runId still holds its original claim.
+      expect(
+        await f.t.mutation(internal.bookIndex.completeJob, {
+          userId: OWNER,
+          articleId,
+          stage: "summary",
+          unitIndex: 1,
+          claim,
+          status: "done",
+          summary: "Late valid summary.",
+        }),
+      ).toBe(true);
+    }
+    if (phase === "point") {
+      await f.t.mutation(internal.bookIndex.pointWritten, {
+        userId: OWNER,
+        articleId,
+        runId: 7,
+        claim,
+      });
+      expect((await state(f, articleId))?.overviewDone).toBe(true);
+    }
+  });
+
+  it("fences old and new jobs on a same-clock restart, including stale pauses, writes, and overview completion", async () => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const articleId = await seedBook(f, OWNER, [{}]);
+    await start(f, articleId);
+    await step(f, articleId);
+    const [row] = await indexRows(f, "passages");
+    await f.t.run(async (ctx) => {
+      const s = await ctx.db.query("bookIndexState").first();
+      if (s) await ctx.db.patch("bookIndexState", s._id, { running: false });
+    });
+    expect(await start(f, articleId)).toBe("started");
+    for (const runId of [undefined, 1]) {
+      const args = {
+        userId: OWNER,
+        articleId,
+        runId,
+        unitIndex: 0,
+        claim: row.claimedAt,
+      };
+      expect(
+        await f.t.query(internal.bookIndex.unitForJob, {
+          ...args,
+          stage: "passages",
+        }),
+      ).toBeNull();
+      expect(
+        await f.t.mutation(internal.bookIndex.completeJob, {
+          ...args,
+          stage: "passages",
+          status: "done",
+        }),
+      ).toBe(false);
+      expect(
+        await f.t.mutation(internal.bookIndex.addPassages, {
+          ...args,
+          passages: [],
+        }),
+      ).toBe(false);
+      await f.t.mutation(internal.bookIndex.pauseIndex, {
+        ...args,
+        stage: "passages",
+        reason: "unusable_key",
+      });
+    }
+    await f.t.mutation(internal.bookIndex.pointWritten, {
+      userId: OWNER,
+      articleId,
+      runId: 1,
+      claim: row.claimedAt,
+      overview: { thesis: "Stale", gist: "Stale", model: "fixture" },
+    });
+    expect(await state(f, articleId)).toMatchObject({
+      runId: 2,
+      running: true,
+    });
+    expect((await state(f, articleId))?.passagesBlocked).toBeUndefined();
+    expect(
+      await f.owner.query(api.summaries.getByArticle, { articleId }),
+    ).toBeNull();
+    await step(f, articleId, 1);
+    expect((await state(f, articleId))?.queued).toBe(2);
+    vi.setSystemTime(Date.now() + CLAIM_TTL_MS + 1);
+    await step(f, articleId, 2);
+    expect((await indexRows(f, "passages"))[0]?.attempts).toBe(2);
+  });
+
+  it.each([
+    "unit",
+    "book",
+    "article",
+  ])("cannot publish or call providers after deleting the %s", async (target) => {
+    const f = await secondReaderTest(modules);
+    await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
+    const mock = mockProviders();
+    const articleId = await seedBook(f, OWNER, [{}]);
+    await start(f, articleId);
+    await step(f, articleId);
+    const [row] = await indexRows(f, "passages");
+    await f.t.run(async (ctx) => {
+      if (target === "article") await ctx.db.delete("articles", articleId);
+      else if (target === "book") {
+        const book = await ctx.db.query("books").first();
+        if (book) await ctx.db.delete("books", book._id);
+      } else {
+        const unit = await ctx.db.query("bookUnits").first();
+        if (unit) await ctx.db.delete("bookUnits", unit._id);
+      }
+    });
+    const args = {
+      userId: OWNER,
+      articleId,
+      runId: 1,
+      unitIndex: 0,
+      claim: row.claimedAt,
+    };
+    await f.t.action(internal.actions.indexBook.embedPassages, args);
+    expect(mock.embedBatches).toEqual([]);
+    expect(
+      await f.t.mutation(internal.bookIndex.completeJob, {
+        ...args,
+        stage: "passages",
+        status: "done",
+      }),
+    ).toBe(false);
+    expect(
+      await f.t.mutation(internal.bookIndex.addPassages, {
+        ...args,
+        passages: [
+          {
+            passageIndex: 0,
+            heading: "H",
+            text: "T",
+            embedding: vectorFor(""),
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("indexing a whole book", () => {
-  it("summarises each unit from its own text, then writes the point from the summaries, then embeds passages", async () => {
+  it("summarises each unit from its own text, interleaves passages, and writes the point from settled summaries", async () => {
     const f = await secondReaderTest(modules);
     await saveTestCredential(f.t, OWNER, "openrouter", OWNER_KEY);
     const mock = mockProviders();
@@ -844,17 +1394,7 @@ describe("when indexing is interrupted", () => {
     expect(claims).toHaveLength(2);
     // A passages job holding a claim, as one would mid-flight
     const claim = Date.now();
-    await f.t.run((ctx) =>
-      ctx.db.insert("bookIndexUnits", {
-        userId,
-        articleId,
-        stage: "passages",
-        unitIndex: 0,
-        status: "pending",
-        claimedAt: claim,
-        attempts: 1,
-      }),
-    );
+    expect((await indexRows(f, "passages", userId))[0]?.claimedAt).toBe(claim);
     const late = async () => ({
       completed: await f.t.mutation(internal.bookIndex.completeJob, {
         userId,
@@ -993,8 +1533,9 @@ describe("when indexing is interrupted", () => {
     }
     await step(f, articleId);
     expect(await state(f, articleId)).toMatchObject({
-      phase: "passages",
-      running: true,
+      // Both passage claims also exhausted while the overview was lost.
+      phase: "done",
+      running: false,
     });
   });
 

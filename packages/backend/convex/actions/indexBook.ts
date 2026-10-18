@@ -29,17 +29,21 @@ import { isAuthFailure } from "../lib/providers";
 import { loadReaderAI } from "../lib/router";
 
 const SUMMARY_MAX_CHARS = 400;
+const unitArgs = {
+  articleId: v.id("articles"),
+  unitIndex: v.number(),
+  claim: v.number(),
+  // Optional only for already queued, pre-upgrade actions.
+  userId: v.optional(v.string()),
+  runId: v.optional(v.number()),
+};
 
 /**
  * Writes one unit's short summary (D-DES-054): the unit's own text and the
  * book's title go to the model, never the rest of the book.
  */
 export const summarizeUnit = internalAction({
-  args: {
-    articleId: v.id("articles"),
-    unitIndex: v.number(),
-    claim: v.number(),
-  },
+  args: unitArgs,
   handler: async (ctx, args): Promise<void> => {
     const found = await ctx.runQuery(internal.bookIndex.unitForJob, {
       ...args,
@@ -59,6 +63,7 @@ export const summarizeUnit = internalAction({
         stage: "summary",
         unitIndex: args.unitIndex,
         claim: args.claim,
+        runId: args.runId,
         ...fields,
       });
     if (unit.wordCount < MIN_SUMMARY_WORDS) {
@@ -74,6 +79,10 @@ export const summarizeUnit = internalAction({
         userId,
         articleId: args.articleId,
         reason: "unusable_key",
+        stage: "summary",
+        runId: args.runId,
+        claim: args.claim,
+        unitIndex: args.unitIndex,
       });
       return;
     }
@@ -113,6 +122,10 @@ export const summarizeUnit = internalAction({
           userId,
           articleId: args.articleId,
           reason: "unusable_key",
+          stage: "summary",
+          runId: args.runId,
+          claim: args.claim,
+          unitIndex: args.unitIndex,
         });
         return;
       }
@@ -137,9 +150,10 @@ export const writeOverview = internalAction({
   handler: async (ctx, args): Promise<void> => {
     const retry = () => ctx.runMutation(internal.bookIndex.pointFailed, args);
     try {
-      const book = await ctx.runQuery(internal.bookIndex.summariesForPoint, {
-        articleId: args.articleId,
-      });
+      const book = await ctx.runQuery(
+        internal.bookIndex.summariesForPoint,
+        args,
+      );
       if (!book || book.userId !== args.userId) return;
       if (!book.lines.some((line) => line.summary)) {
         await ctx.runMutation(internal.bookIndex.pointWritten, args);
@@ -153,6 +167,9 @@ export const writeOverview = internalAction({
           userId: args.userId,
           articleId: args.articleId,
           reason: "unusable_key",
+          stage: "point",
+          runId: args.runId,
+          claim: args.claim,
         });
         return;
       }
@@ -182,14 +199,10 @@ export const writeOverview = internalAction({
         maxOutputTokens: 400,
         onFailure: ai.noteFailure,
       });
-      await ctx.runMutation(internal.summaries.saveBookOverview, {
-        userId: args.userId,
-        articleId: args.articleId,
-        thesis: object.thesis,
-        gist: object.gist,
-        model: modelId,
+      await ctx.runMutation(internal.bookIndex.pointWritten, {
+        ...args,
+        overview: { thesis: object.thesis, gist: object.gist, model: modelId },
       });
-      await ctx.runMutation(internal.bookIndex.pointWritten, args);
     } catch (error) {
       console.error(`Book overview failed for ${args.articleId}:`, error);
       if (isAuthFailure(error)) {
@@ -197,6 +210,9 @@ export const writeOverview = internalAction({
           userId: args.userId,
           articleId: args.articleId,
           reason: "unusable_key",
+          stage: "point",
+          runId: args.runId,
+          claim: args.claim,
         });
         return;
       }
@@ -212,11 +228,7 @@ export const writeOverview = internalAction({
  * when the new ones are ready to be written.
  */
 export const embedPassages = internalAction({
-  args: {
-    articleId: v.id("articles"),
-    unitIndex: v.number(),
-    claim: v.number(),
-  },
+  args: unitArgs,
   handler: async (ctx, args): Promise<void> => {
     const found = await ctx.runQuery(internal.bookIndex.unitForJob, {
       ...args,
@@ -235,6 +247,7 @@ export const embedPassages = internalAction({
         stage: "passages",
         unitIndex: args.unitIndex,
         claim: args.claim,
+        runId: args.runId,
         ...fields,
       });
     const passages = chunkPassages(
@@ -254,6 +267,10 @@ export const embedPassages = internalAction({
         userId,
         articleId: args.articleId,
         reason: "unusable_key",
+        stage: "passages",
+        runId: args.runId,
+        claim: args.claim,
+        unitIndex: args.unitIndex,
       });
       return;
     }
@@ -270,6 +287,7 @@ export const embedPassages = internalAction({
           articleId: args.articleId,
           unitIndex: args.unitIndex,
           claim: args.claim,
+          runId: args.runId,
         });
       const rows = passages.map((passage, passageIndex) => ({
         passageIndex,
@@ -283,6 +301,7 @@ export const embedPassages = internalAction({
           articleId: args.articleId,
           unitIndex: args.unitIndex,
           claim: args.claim,
+          runId: args.runId,
           passages: batch,
         });
         // The claim was replaced: another job owns this unit now
@@ -300,6 +319,10 @@ export const embedPassages = internalAction({
           userId,
           articleId: args.articleId,
           reason: "unusable_key",
+          stage: "passages",
+          runId: args.runId,
+          claim: args.claim,
+          unitIndex: args.unitIndex,
         });
         return;
       }
