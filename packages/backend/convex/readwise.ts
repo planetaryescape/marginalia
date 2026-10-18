@@ -11,6 +11,7 @@ import {
   type QueryCtx,
   query,
 } from "./functions";
+import { findImportArticle } from "./lib/articleIdentity";
 import { ownerDeploymentReadwiseToken } from "./lib/ownerTransition";
 import { encryptProviderKey } from "./lib/providerKeys";
 import {
@@ -248,13 +249,7 @@ export const findArticle = internalQuery({
       .first();
     if (linked || !args.url) return linked;
     // Already in Marginalia from a feed or a pasted URL
-    const url = args.url;
-    return ctx.db
-      .query("articles")
-      .withIndex("by_user_guid", (q) =>
-        q.eq("userId", args.userId).eq("guid", url),
-      )
-      .first();
+    return findImportArticle(ctx, args.userId, args.url);
   },
 });
 

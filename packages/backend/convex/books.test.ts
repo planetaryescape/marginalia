@@ -816,6 +816,8 @@ describe("removing a half-written book", () => {
       "default_user",
       Array.from({ length: 25 }, () => 4),
     );
+    // Unlike a published seedBook, a half-written import is not extracted yet.
+    await f.t.run((ctx) => ctx.db.patch(id, { extractionStatus: "pending" }));
     const importId = await f.t.run(async (ctx) =>
       ctx.db.insert("documentImports", {
         userId: "default_user",

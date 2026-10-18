@@ -17,10 +17,16 @@ import {
   LOOKAHEAD_COUNT,
   needsAnnotationStart,
 } from "./lib/annotationPolicy";
-import { articleUrlVariants } from "./lib/articleUrl";
+import {
+  findImportArticle,
+  rememberImportIdentity,
+} from "./lib/articleIdentity";
 import { EXTRACT_PAGE } from "./lib/constants";
 import { bumpFeedArticleCount } from "./lib/feedArticleCount";
+import { validateArticleSize } from "./lib/importContent";
+import { importLibraryActive } from "./lib/importJobs";
 import { unreadQueue } from "./lib/unreadQueue";
+import { queueLibraryIndex } from "./libraryIndex";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
 import { CLAIM_TTL_MS } from "./reannotateBackfill";
@@ -139,12 +145,7 @@ export const listPendingExtraction = query({
 export const getByGuid = internalQuery({
   args: { userId: v.string(), guid: v.string() },
   handler: async (ctx, args) => {
-    return ctx.db
-      .query("articles")
-      .withIndex("by_user_guid", (q) =>
-        q.eq("userId", args.userId).eq("guid", args.guid),
-      )
-      .first();
+    return findImportArticle(ctx, args.userId, "", args.guid);
   },
 });
 
@@ -161,37 +162,79 @@ export const getForReaderInternal = internalQuery({
   handler: async (ctx, args) => ownedArticle(ctx, args.articleId, args.userId),
 });
 
+const feedInsertArgs = {
+  feedId: v.id("feeds"),
+  userId: v.string(),
+  guid: v.string(),
+  url: v.string(),
+  title: v.string(),
+  author: v.optional(v.string()),
+  publishedAt: v.optional(v.number()),
+  excerpt: v.optional(v.string()),
+  imageUrl: v.optional(v.string()),
+  extractionStatus: v.union(
+    v.literal("pending"),
+    v.literal("extracted"),
+    v.literal("failed"),
+  ),
+  annotationStatus: v.union(
+    v.literal("pending"),
+    v.literal("annotated"),
+    v.literal("failed"),
+    v.literal("skipped"),
+  ),
+  createdAt: v.number(),
+};
+
+async function upsertFeedArticle(
+  ctx: MutationCtx,
+  args: ObjectType<typeof feedInsertArgs>,
+) {
+  const feed = await ctx.db.get("feeds", args.feedId);
+  if (
+    feed?.userId !== args.userId ||
+    !(await importLibraryActive(ctx, args.userId))
+  )
+    throw new Error("Feed not found");
+  const existing = await findImportArticle(
+    ctx,
+    args.userId,
+    args.url,
+    args.guid,
+  );
+  if (existing) {
+    await rememberImportIdentity(ctx, existing, args.guid, args.url);
+    // A manually/API/Reader-imported copy gains its first feed association;
+    // never move an article from a different source or replace its GUID.
+    if (!existing.feedId) {
+      await ctx.db.patch(existing._id, { feedId: args.feedId });
+      await bumpFeedArticleCount(ctx, args.feedId, args.userId, 1);
+    }
+    return { articleId: existing._id, created: false };
+  }
+  validateArticleSize(args);
+  const id = await ctx.db.insert("articles", args);
+  await bumpFeedArticleCount(ctx, args.feedId, args.userId, 1);
+  const article = await ctx.db.get(id);
+  if (article) {
+    await updateQueueStats(ctx, null, article);
+    await rememberImportIdentity(ctx, article, args.guid, args.url);
+  }
+  if (args.extractionStatus === "pending")
+    await ctx.scheduler.runAfter(0, internal.articleExtraction.start, {
+      articleId: id,
+    });
+  return { articleId: id, created: true };
+}
+
 export const insert = internalMutation({
-  args: {
-    feedId: v.id("feeds"),
-    userId: v.string(),
-    guid: v.string(),
-    url: v.string(),
-    title: v.string(),
-    author: v.optional(v.string()),
-    publishedAt: v.optional(v.number()),
-    excerpt: v.optional(v.string()),
-    imageUrl: v.optional(v.string()),
-    extractionStatus: v.union(
-      v.literal("pending"),
-      v.literal("extracted"),
-      v.literal("failed"),
-    ),
-    annotationStatus: v.union(
-      v.literal("pending"),
-      v.literal("annotated"),
-      v.literal("failed"),
-      v.literal("skipped"),
-    ),
-    createdAt: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const id = await ctx.db.insert("articles", args);
-    await bumpFeedArticleCount(ctx, args.feedId, args.userId, 1);
-    const article = await ctx.db.get(id);
-    if (article) await updateQueueStats(ctx, null, article);
-    return id;
-  },
+  args: feedInsertArgs,
+  handler: async (ctx, args) => (await upsertFeedArticle(ctx, args)).articleId,
+});
+
+export const upsertFeed = internalMutation({
+  args: feedInsertArgs,
+  handler: upsertFeedArticle,
 });
 
 export const listPendingExtractionInternal = internalQuery({
@@ -216,6 +259,13 @@ export const updateExtractionStatus = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const article = await ctx.db.get("articles", args.articleId);
+    if (
+      !article ||
+      article.extractionLeaseUntil !== undefined ||
+      article.extractionStatus === "extracted"
+    )
+      return;
     await ctx.db.patch(args.articleId, { extractionStatus: args.status });
   },
 });
@@ -232,23 +282,44 @@ export const updateExtracted = internalMutation({
     title: v.optional(v.string()),
     author: v.optional(v.string()),
     embedding: v.optional(v.array(v.float64())),
+    extractionRun: v.optional(v.number()),
+    userId: v.optional(v.string()),
   },
-  // Whether the caller should schedule annotation: long articles are deferred
-  // here, in the same transaction that records their length. Only the first
+  // Legacy result: whether this was a first extraction eligible for annotation.
+  // Its schedule now commits here with the readable text. Long articles are deferred.
+  // Only the first
   // extraction to finish decides: a second, overlapping one finds the article
   // already extracted and must not touch an annotation status that has moved on
   // (pending here can mean annotation is underway).
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const { articleId, ...updates } = args;
+    const { articleId, extractionRun, userId, ...updates } = args;
     const before = await ctx.db.get(articleId);
+    if (!before || !(await importLibraryActive(ctx, before.userId)))
+      return false;
+    if (
+      extractionRun !== undefined
+        ? before.extractionStatus !== "pending" ||
+          before.userId !== userId ||
+          before.extractionRun !== extractionRun ||
+          (before.extractionLeaseUntil ?? 0) <= Date.now()
+        : before.extractionLeaseUntil !== undefined
+    )
+      return false;
+    validateArticleSize({ ...before, ...updates });
     const firstExtraction = before?.extractionStatus === "pending";
     const annotateNow =
       firstExtraction && annotatesAtImport(args.estimatedReadMinutes);
     await ctx.db.patch(articleId, {
       ...updates,
+      ...(before.content !== updates.content && !updates.embedding
+        ? { embedding: undefined, embeddedAt: undefined }
+        : {}),
       ...(updates.embedding ? { embeddedAt: Date.now() } : {}),
       extractionStatus: "extracted" as const,
+      extractionLeaseUntil: undefined,
+      extractionRetryAt: undefined,
+      extractionFailure: undefined,
     });
     if (
       firstExtraction &&
@@ -258,6 +329,13 @@ export const updateExtracted = internalMutation({
       await ctx.db.patch(articleId, { annotationStatus: "deferred" });
     const after = await ctx.db.get(articleId);
     if (after) await updateQueueStats(ctx, before, after);
+    await queueLibraryIndex(ctx, articleId);
+    if (annotateNow)
+      await ctx.scheduler.runAfter(
+        1000,
+        internal.actions.generateAnnotations.generateForArticle,
+        { articleId },
+      );
     return annotateNow;
   },
 });
@@ -265,12 +343,7 @@ export const updateExtracted = internalMutation({
 export const getByUrl = internalQuery({
   args: { userId: v.string(), url: v.string() },
   handler: async (ctx, args) => {
-    return ctx.db
-      .query("articles")
-      .withIndex("by_user_guid", (q) =>
-        q.eq("userId", args.userId).eq("guid", args.url),
-      )
-      .first();
+    return findImportArticle(ctx, args.userId, args.url);
   },
 });
 
@@ -283,30 +356,7 @@ export const getByUrl = internalQuery({
 export const findByUrl = query({
   args: { url: v.string() },
   handler: async (ctx, args) => {
-    const variants = articleUrlVariants(args.url);
-    const [byUrl, byGuid] = await Promise.all([
-      Promise.all(
-        variants.map((url) =>
-          ctx.db
-            .query("articles")
-            .withIndex("by_user_url", (q) =>
-              q.eq("userId", ctx.readerId).eq("url", url),
-            )
-            .first(),
-        ),
-      ),
-      Promise.all(
-        variants.map((guid) =>
-          ctx.db
-            .query("articles")
-            .withIndex("by_user_guid", (q) =>
-              q.eq("userId", ctx.readerId).eq("guid", guid),
-            )
-            .first(),
-        ),
-      ),
-    ]);
-    const article = [...byUrl, ...byGuid].find((a) => a !== null);
+    const article = await findImportArticle(ctx, ctx.readerId, args.url);
     if (!article) return null;
     const saved = await ctx.db
       .query("savedArticles")
@@ -385,7 +435,13 @@ const insertExtractedArgs = {
 
 export const insertExtracted = internalMutation({
   args: insertExtractedArgs,
-  handler: (ctx, args) => insertExtractedRow(ctx, args),
+  handler: async (ctx, args) => (await upsertExtractedRow(ctx, args)).articleId,
+});
+
+/** Same writer, with a transactionally accurate create/reuse result for the API. */
+export const upsertExtracted = internalMutation({
+  args: insertExtractedArgs,
+  handler: upsertExtractedRow,
 });
 
 /**
@@ -397,7 +453,7 @@ export const insertImported = internalMutation({
   handler: async (ctx, { importId, ...args }) => {
     const row = await liveImport(ctx, importId);
     if (!row || row.userId !== args.userId) return null;
-    const articleId = await insertExtractedRow(ctx, args);
+    const { articleId } = await upsertExtractedRow(ctx, args);
     // Published and ready in one commit
     await markImportReady(ctx, row, {
       articleId,
@@ -408,25 +464,63 @@ export const insertImported = internalMutation({
   },
 });
 
-async function insertExtractedRow(
+async function upsertExtractedRow(
   ctx: MutationCtx,
   args: ObjectType<typeof insertExtractedArgs>,
-): Promise<Id<"articles">> {
-  const existing = await ctx.db
-    .query("articles")
-    .withIndex("by_user_guid", (q) =>
-      q.eq("userId", args.userId).eq("guid", args.guid),
-    )
-    .first();
+): Promise<{ articleId: Id<"articles">; created: boolean }> {
+  if (!(await importLibraryActive(ctx, args.userId)))
+    throw new Error("Library is not active");
+  const existing = await findImportArticle(
+    ctx,
+    args.userId,
+    args.url,
+    args.guid,
+  );
   if (existing) {
+    await rememberImportIdentity(ctx, existing, args.guid, args.url);
     if (args.readerDocumentId && !existing.readerDocumentId) {
       await ctx.db.patch(existing._id, {
         readerDocumentId: args.readerDocumentId,
       });
     }
-    return existing._id;
+    // An RSS placeholder can be completed by an API/Reader/manual import.
+    // This invalidates any outstanding extractor's run without losing source IDs.
+    if (
+      existing.extractionStatus !== "extracted" &&
+      existing.bookUnitCount === undefined
+    ) {
+      const {
+        annotateAfterMs: _delay,
+        userId: _user,
+        guid: _guid,
+        url: _url,
+        ...updates
+      } = args;
+      validateArticleSize({ ...existing, ...updates });
+      const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
+      await ctx.db.patch(existing._id, {
+        ...updates,
+        readerDocumentId: existing.readerDocumentId ?? args.readerDocumentId,
+        extractionStatus: "extracted",
+        extractionLeaseUntil: undefined,
+        extractionRetryAt: undefined,
+        annotationStatus: annotateNow ? "pending" : "deferred",
+        ...(args.embedding ? { embeddedAt: Date.now() } : {}),
+      });
+      const after = await ctx.db.get(existing._id);
+      if (after) await updateQueueStats(ctx, existing, after);
+      if (annotateNow)
+        await ctx.scheduler.runAfter(
+          args.annotateAfterMs ?? 500,
+          internal.actions.generateAnnotations.generateForArticle,
+          { articleId: existing._id },
+        );
+    }
+    await queueLibraryIndex(ctx, existing._id);
+    return { articleId: existing._id, created: false };
   }
   const { annotateAfterMs, ...article } = args;
+  validateArticleSize(article);
   const annotateNow = annotatesAtImport(args.estimatedReadMinutes);
   const id = await ctx.db.insert("articles", {
     ...article,
@@ -436,7 +530,11 @@ async function insertExtractedRow(
     createdAt: Date.now(),
   });
   const inserted = await ctx.db.get(id);
-  if (inserted) await updateQueueStats(ctx, null, inserted);
+  if (inserted) {
+    await updateQueueStats(ctx, null, inserted);
+    await rememberImportIdentity(ctx, inserted, args.guid, args.url);
+  }
+  await queueLibraryIndex(ctx, id);
   if (annotateNow) {
     await ctx.scheduler.runAfter(
       annotateAfterMs ?? 500,
@@ -444,7 +542,7 @@ async function insertExtractedRow(
       { articleId: id },
     );
   }
-  return id;
+  return { articleId: id, created: true };
 }
 
 /**

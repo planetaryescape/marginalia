@@ -14,10 +14,9 @@ export const pollAllFeeds = internalAction({
 
     // The cron polls without pollNow, so the flag is set here too
     await ctx.runMutation(internal.feeds.markChecking, args);
-    let added = 0;
     for (const feed of feeds) {
       try {
-        added += await pollSingleFeed(ctx, feed);
+        await pollSingleFeed(ctx, feed);
       } catch (error) {
         console.error(`Failed to poll feed ${feed.url}:`, error);
         await ctx.runMutation(internal.feeds.updateError, {
@@ -26,15 +25,13 @@ export const pollAllFeeds = internalAction({
         });
       }
     }
-    // One extraction run for the whole poll; one per feed would work the same
-    // pending articles side by side and annotate them twice
-    if (added > 0) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.actions.extractArticle.extractPending,
-        { userId: args.userId },
-      );
-    }
+    // A bounded legacy wake for the whole poll, even with no new posts.
+    // Per-row claims make overlapping poll deliveries safe.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.actions.extractArticle.extractPending,
+      { userId: args.userId },
+    );
   },
 });
 
@@ -95,22 +92,7 @@ async function pollSingleFeed(ctx: any, feed: any): Promise<number> {
     const guid = item.guid || item.link || item.title || "";
     if (!guid) continue;
 
-    // Dedup by guid, and by link for the same post imported from Readwise
-    // Reader or pasted, which use the URL as their guid
-    const existing =
-      (await ctx.runQuery(internal.articles.getByGuid, {
-        userId: feed.userId,
-        guid,
-      })) ??
-      (item.link && item.link !== guid
-        ? await ctx.runQuery(internal.articles.getByGuid, {
-            userId: feed.userId,
-            guid: item.link,
-          })
-        : null);
-    if (existing) continue;
-
-    await ctx.runMutation(internal.articles.insert, {
+    const result = await ctx.runMutation(internal.articles.upsertFeed, {
       feedId: feed._id,
       userId: feed.userId,
       guid,
@@ -124,7 +106,7 @@ async function pollSingleFeed(ctx: any, feed: any): Promise<number> {
       annotationStatus: "pending" as const,
       createdAt: Date.now(),
     });
-    newCount++;
+    if (result.created) newCount++;
   }
 
   await ctx.runMutation(internal.feeds.updateLastFetched, {
