@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("convex/react", () => ({
   useQuery: (ref: string, args?: { articleIds?: string[] } | "skip") => {
+    if (ref === "threadBody") return mocks.listKept?.[0];
     if (ref !== "headers") return (mocks as never)[ref];
     if (args === "skip") return undefined;
     mocks.headerCalls.push(args?.articleIds ?? []);
@@ -31,12 +32,26 @@ vi.mock("convex/react", () => ({
     }));
   },
   useMutation: (ref: string) => (mocks as never)[ref],
-  usePaginatedQuery: () => mocks.marks,
+  usePaginatedQuery: (ref: string) =>
+    ref === "listMine"
+      ? mocks.marks
+      : {
+          results: (mocks as never)[ref] ?? [],
+          status:
+            (mocks as never)[ref] === undefined
+              ? "LoadingFirstPage"
+              : "Exhausted",
+          loadMore: vi.fn(),
+        },
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
-    userNotes: { listAll: "listAll", remove: "removeNote" },
-    companionThreads: { listKept: "listKept", remove: "removeThread" },
+    userNotes: { listPreviews: "listAll", remove: "removeNote" },
+    companionThreads: {
+      listKeptPreviews: "listKept",
+      getBody: "threadBody",
+      remove: "removeThread",
+    },
     articles: { headers: "headers" },
     highlights: { listMine: "listMine" },
   },
@@ -292,7 +307,7 @@ describe("the Notes page", () => {
       (b) => b.textContent === "Show more",
     ) as HTMLElement;
     await act(async () => more.click());
-    expect(mocks.marks.loadMore).toHaveBeenCalledWith(50);
+    expect(mocks.marks.loadMore).toHaveBeenCalledWith(25);
     mocks.marks = {
       results: [mark({})],
       status: "Exhausted",

@@ -1,6 +1,65 @@
 import type { Doc } from "@marginalia/backend/convex/_generated/dataModel";
 import type { CompanionMode } from "./companion";
 import { MODE_LABELS } from "./margin-answers";
+import type { NotePreview, ThreadPreview } from "./reader-previews";
+
+export type KeptPreview =
+  | {
+      kind: "thread";
+      id: string;
+      createdAt: number;
+      mode: CompanionMode;
+      thread: ThreadPreview;
+    }
+  | {
+      kind: "legacy";
+      id: string;
+      createdAt: number;
+      mode: CompanionMode;
+      note: NotePreview;
+    };
+
+/** A legacy copy is only attributed to Marginalia with a matching body hash,
+ * heading, exact passage and unit. No transcript is downloaded to classify it.
+ * A confirming thread on a later page remains conservative until loaded. */
+export function splitPreviewNotes(
+  notes: NotePreview[],
+  threads: ThreadPreview[],
+) {
+  const mine: NotePreview[] = [];
+  const answers: KeptPreview[] = [];
+  for (const note of notes) {
+    const confirmed =
+      note.legacyCopy &&
+      threads.find(
+        (thread) =>
+          thread.articleId === note.articleId &&
+          thread.unitIndex === note.unitIndex &&
+          thread.selection === note.selectedText &&
+          thread.legacyCopies.includes(note.legacyCopy ?? ""),
+      );
+    if (confirmed)
+      answers.push({
+        kind: "legacy",
+        id: note._id,
+        createdAt: note.createdAt,
+        mode: confirmed.mode,
+        note,
+      });
+    else mine.push(note);
+  }
+  for (const thread of threads)
+    if (thread.keptAt !== undefined)
+      answers.push({
+        kind: "thread",
+        id: thread._id,
+        createdAt: thread.keptAt,
+        mode: thread.mode,
+        thread,
+      });
+  answers.sort((a, b) => b.createdAt - a.createdAt);
+  return { mine, answers };
+}
 
 export type KeptAnswer =
   | {

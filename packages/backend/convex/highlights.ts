@@ -6,6 +6,7 @@ import type { MutationCtx } from "./_generated/server";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { colorFitsKind, markColor } from "./lib/markColours";
+import { assertBytes, markPresentation } from "./lib/readerBodies";
 
 export const listByArticle = query({
   args: {
@@ -75,6 +76,34 @@ export const listByArticleInternal = internalQuery({
       .take(500),
 });
 
+export const listPresentationByArticle = query({
+  args: {
+    articleId: v.id("articles"),
+    unitIndex: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId)))
+      return { page: [], isDone: true, continueCursor: "" };
+    const page = await ctx.db
+      .query("highlights")
+      .withIndex("by_article_and_unitIndex", (q) =>
+        q.eq("articleId", args.articleId).eq("unitIndex", args.unitIndex),
+      )
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(50, args.paginationOpts.numItems)),
+        maximumBytesRead: 2_000_000,
+      });
+    return {
+      ...page,
+      page: page.page
+        .filter((row) => row.userId === ctx.readerId)
+        .map(markPresentation),
+    };
+  },
+});
+
 export const create = mutation({
   args: {
     articleId: v.id("articles"),
@@ -87,6 +116,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
+    assertBytes(args.text, 32_000, "Marked passage");
     if (args.color && !colorFitsKind(args.kind, args.color))
       throw new Error("That colour is not for this kind of mark");
     const highlightId = await ctx.db.insert("highlights", {

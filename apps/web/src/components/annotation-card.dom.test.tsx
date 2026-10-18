@@ -2,7 +2,11 @@
 import { act, type PropsWithChildren, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AnnotationCard, type AnnotationCardData } from "./annotation-card";
+import {
+  AnnotationCard,
+  type AnnotationCardData,
+  type Reflection,
+} from "./annotation-card";
 
 const save = vi.hoisted(() => vi.fn());
 const referenced = vi.hoisted(() => ({
@@ -20,6 +24,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     annotations: { referencedArticle: "referencedArticle" },
     savedArticles: { save: "save" },
+    userNotes: { getBody: "noteBody" },
   },
 }));
 vi.mock("framer-motion", () => ({
@@ -38,7 +43,13 @@ vi.mock("framer-motion", () => ({
 
 let root: Root;
 
-function Card({ annotation }: { annotation: AnnotationCardData }) {
+function Card({
+  annotation,
+  reflections = [],
+}: {
+  annotation: AnnotationCardData;
+  reflections?: Reflection[];
+}) {
   const ref = useRef<HTMLElement>(null);
   return (
     <>
@@ -46,7 +57,7 @@ function Card({ annotation }: { annotation: AnnotationCardData }) {
       <AnnotationCard
         inline
         annotation={annotation}
-        reflections={[]}
+        reflections={reflections}
         onReflect={async () => {}}
         onDeleteReflection={() => {}}
         paragraphIndex={2}
@@ -90,6 +101,35 @@ afterEach(async () => {
 });
 
 describe("AnnotationCard kinds", () => {
+  it("hydrates a deferred reflection only inside the opened card", async () => {
+    referenced.value = {
+      contentPlain: "The complete reflection, not its preview.",
+    };
+    await act(async () =>
+      root.render(
+        <Card
+          annotation={{
+            _id: "a1",
+            type: "question",
+            anchorText: "anchor",
+            content: "Question?",
+          }}
+          reflections={[
+            {
+              _id: "note1",
+              contentPlain: "preview",
+              bodyDeferred: true,
+              createdAt: 1,
+            },
+          ]}
+        />,
+      ),
+    );
+    expect(referenced.args).toEqual({ noteId: "note1" });
+    expect(card()?.textContent).toContain(
+      "The complete reflection, not its preview.",
+    );
+  });
   const kinds = [
     ["tension", "Tension", "pushback", "var(--kind-tension)"],
     ["fallacy", "Fallacy", "pushback", "var(--kind-fallacy)"],

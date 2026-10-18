@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, type PropsWithChildren } from "react";
+import { act, type PropsWithChildren, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as sanitizer from "@/lib/sanitize";
@@ -10,21 +10,46 @@ const mocks = vi.hoisted(() => ({
   threads: [] as unknown[],
   removeThread: vi.fn(),
   removeNote: vi.fn(),
+  bodyCalls: [] as string[],
+  bodyVersion: 0,
+  bodyListeners: new Set<() => void>(),
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: (ref: string) => (mocks as never)[ref],
+  useQuery: (ref: string, args: { noteId?: string; threadId?: string }) => {
+    useSyncExternalStore(
+      (listener) => {
+        mocks.bodyListeners.add(listener);
+        return () => mocks.bodyListeners.delete(listener);
+      },
+      () => mocks.bodyVersion,
+    );
+    const id = args.noteId ?? args.threadId;
+    if (id) mocks.bodyCalls.push(id);
+    const rows = ref === "noteBody" ? mocks.notes : mocks.threads;
+    return rows.find((row) => (row as { _id: string })._id === id);
+  },
+  usePaginatedQuery: (ref: string) => ({
+    results: (mocks as never)[ref] ?? [],
+    status: "Exhausted",
+    loadMore: vi.fn(),
+  }),
   useMutation: (ref: string) => (mocks as never)[ref],
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     userNotes: {
-      listByArticle: "notes",
+      listPreviewsByArticle: "notes",
+      getBody: "noteBody",
       create: "createNote",
       update: "updateNote",
       remove: "removeNote",
     },
-    companionThreads: { listByArticle: "threads", remove: "removeThread" },
+    companionThreads: {
+      listPreviewsByArticle: "threads",
+      getBody: "threadBody",
+      remove: "removeThread",
+    },
   },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -60,6 +85,7 @@ const thread = (over: Record<string, unknown>) => ({
   turns: [{ role: "assistant", content: "A small mountain lake." }],
   createdAt: 2000,
   updatedAt: 2000,
+  legacyCopies: [],
   ...over,
 });
 
@@ -76,6 +102,7 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
   mocks.notes = [];
+  mocks.bodyCalls = [];
   mocks.threads = [];
   mocks.removeThread.mockReset();
   mocks.removeNote.mockReset();
@@ -83,7 +110,9 @@ afterEach(async () => {
 });
 
 async function render(onAnswerDeleted?: (id: string) => void) {
-  await act(async () =>
+  await act(async () => {
+    mocks.bodyVersion++;
+    for (const listener of mocks.bodyListeners) listener();
     root.render(
       <NotesPanel
         articleId="a1"
@@ -93,8 +122,8 @@ async function render(onAnswerDeleted?: (id: string) => void) {
         onClearSelection={() => {}}
         onAnswerDeleted={onAnswerDeleted}
       />,
-    ),
-  );
+    );
+  });
 }
 const answerLines = () =>
   Array.from(host.querySelectorAll<HTMLElement>('[data-hand="pencil"] button'));
@@ -115,6 +144,10 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
         "<p>My <strong>unchanged</strong> thought</p><img src=x>",
       );
     await render();
+    const toggle = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.getAttribute("aria-expanded") === "false",
+    );
+    await act(async () => toggle?.click());
     const strong = host.querySelector("strong")!;
     expect(strong).not.toBeNull();
     expect(host.querySelector("img")?.hasAttribute("onerror")).toBe(false);
@@ -145,6 +178,12 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     mocks.notes = [note({})];
     mocks.threads = [thread({ keptAt: 5000 })];
     await render();
+    const toggle = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) =>
+        button.getAttribute("aria-expanded") === "false" &&
+        button.textContent === "My own thought",
+    );
+    await act(async () => toggle?.click());
     const mine = host.querySelector('[data-hand="pen"]') as HTMLElement;
     expect(mine.textContent).toBe("My own thought");
     expect(mine.className).toContain("text-[15px]");
@@ -164,6 +203,7 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     expect(line.textContent).toContain("Marginalia’s answer · Define");
     expect(line.getAttribute("aria-expanded")).toBe("false");
     expect(host.textContent).not.toContain("A small mountain lake.");
+    expect(mocks.bodyCalls).toEqual([]);
     await act(async () => line.click());
     expect(line.getAttribute("aria-expanded")).toBe("true");
     expect(host.textContent).toContain("A small mountain lake.");
@@ -183,9 +223,10 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
         selectedText: "tarn",
         content: "<h3>Define</h3><p>A small mountain lake.</p>",
         contentPlain: "Define\n\nA small mountain lake.",
+        legacyCopy: "confirmed-define",
       }),
     ];
-    mocks.threads = [thread({})];
+    mocks.threads = [thread({ legacyCopies: ["confirmed-define"] })];
     await render();
     expect(host.querySelector('[data-hand="pen"]')).toBeNull();
     expect(answerLines()[0].textContent).toContain("Define");
@@ -204,7 +245,7 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     mocks.threads = [thread({})];
     await render();
     expect(answerLines()).toHaveLength(0);
-    expect(host.querySelector('[data-hand="pen"]')).not.toBeNull();
+    expect(host.textContent).toContain("My own reading of it.");
   });
 
   it("recognises a question heading only when a saved thread asked it", async () => {
@@ -214,12 +255,18 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
         selectedText: "a tarn",
         content: "<h3>What is a tarn?</h3><p>A small mountain lake.</p>",
         contentPlain: "What is a tarn?\n\nA small mountain lake.",
+        legacyCopy: "confirmed-question",
       }),
     ];
     await render();
     expect(answerLines()).toHaveLength(0);
     mocks.threads = [
-      thread({ mode: "ask", question: "What is a tarn?", selection: "a tarn" }),
+      thread({
+        mode: "ask",
+        question: "What is a tarn?",
+        selection: "a tarn",
+        legacyCopies: ["confirmed-question"],
+      }),
     ];
     await render();
     expect(answerLines()[0].textContent).toContain("Ask");
@@ -237,7 +284,7 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     mocks.threads = [thread({})];
     await render();
     expect(answerLines()).toHaveLength(0);
-    expect(host.querySelector('[data-hand="pen"]')).not.toBeNull();
+    expect(host.textContent).toContain("My own gloss");
   });
 
   it("folds a copy made before later follow-ups, and ignores spacing and markup", async () => {
@@ -247,10 +294,12 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
         selectedText: "tarn",
         content: "<h3>Define</h3><p>A small  mountain\nlake.</p>",
         contentPlain: "Define\n\nA small mountain lake.",
+        legacyCopy: "confirmed-prefix",
       }),
     ];
     mocks.threads = [
       thread({
+        legacyCopies: ["confirmed-prefix"],
         turns: [
           { role: "assistant", content: "A small mountain lake." },
           { role: "user", content: "More?" },
@@ -271,7 +320,7 @@ describe("notes pane: your notes and Marginalia's kept answers", () => {
     ];
     await render();
     expect(answerLines()).toHaveLength(0);
-    expect(host.querySelector('[data-hand="pen"]')).not.toBeNull();
+    expect(host.textContent).toContain("Read chapter two.");
   });
 
   it("deletes a kept answer by removing its thread and tells the margin", async () => {

@@ -15,6 +15,17 @@ export interface Reflection {
   _id: string;
   contentPlain: string;
   createdAt: number;
+  bodyDeferred?: boolean;
+}
+
+/** Only an opened annotation card hydrates the reflections attached to it. */
+function DeferredReflection({ id }: { id: string }) {
+  const body = useQuery(api.userNotes.getBody, {
+    // SAFETY: the ID comes from an authenticated note-preview DTO; Convex validates ownership again.
+    noteId: id as Id<"userNotes">,
+  });
+  if (body === undefined) return <span role="status">Loading reflection…</span>;
+  return <>{body?.contentPlain ?? "This reflection is no longer available."}</>;
 }
 
 function formatWhen(timestamp: number) {
@@ -206,7 +217,11 @@ export function AnnotationCard({
               className="group relative pl-3 border-l-2 border-[var(--card-accent)]"
             >
               <p className="font-serif text-[15px] leading-relaxed whitespace-pre-wrap text-[var(--reader-fg)]">
-                {reflection.contentPlain}
+                {reflection.bodyDeferred ? (
+                  <DeferredReflection id={reflection._id} />
+                ) : (
+                  reflection.contentPlain
+                )}
               </p>
               <div className="mt-1 flex items-center gap-2">
                 <span className="text-[11px] text-[var(--reader-muted)]">
