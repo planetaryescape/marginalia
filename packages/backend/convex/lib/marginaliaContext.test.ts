@@ -593,7 +593,7 @@ describe("bounded private marginalia recall", () => {
     expect(result.vaultPaths).toEqual([]);
     expect(
       result.sources.every((key) =>
-        own.slice(0, 10).some((id, i) => key === `note:${id}:${100 + i}`),
+        own.some((id, i) => i >= 4 && key === `note:${id}:${100 + i}`),
       ),
     ).toBe(true);
     expect(
@@ -751,7 +751,7 @@ describe("bounded private marginalia recall", () => {
     expect(own.sources).toEqual([`thread:${ids.thread}:16`]);
   });
 
-  it("filters forged same-article activity rows and bounds every family's ordinary history", async () => {
+  it("filters forged activity and preserves the newest ten notes and other families' established order", async () => {
     const f = await fixture();
     await f.t.run(async (ctx) => {
       for (let i = 0; i < 14; i++) {
@@ -800,7 +800,9 @@ describe("bounded private marginalia recall", () => {
     expect(result.contextText).not.toContain("FOREIGN SECRET");
     expect(result.contextText).toContain("Underlined");
     expect(result.contextText).toContain("Own note 10");
-    expect(result.contextText).not.toContain("Own note 11");
+    expect(result.contextText).toContain("Own note 13");
+    expect(result.contextText).toContain("Own note 4");
+    expect(result.contextText).not.toMatch(/Their note: Own note 3(?:\n|$)/);
     expect(result.contextText).toContain("Own question 8");
     expect(result.contextText).not.toContain("Own question 9");
     await expect(

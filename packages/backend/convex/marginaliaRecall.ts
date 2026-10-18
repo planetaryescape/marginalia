@@ -226,6 +226,7 @@ export const ownNotes = internalQuery({
       await ctx.db
         .query("userNotes")
         .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+        .order("desc")
         .paginate(activityOptions(args.cursor, args.limit)),
       args.userId,
     );
