@@ -506,6 +506,10 @@ export const discardBook = internalMutation({
       const book = await bookRow(ctx, args.userId, args.articleId);
       if (book) await ctx.db.delete("books", book._id);
       await ctx.db.delete("articles", args.articleId);
+      await ctx.scheduler.runAfter(0, internal.articleImportKeys.discard, {
+        userId: args.userId,
+        articleId: args.articleId,
+      });
     }
     if (args.importId) {
       const row = await ctx.db.get("documentImports", args.importId);

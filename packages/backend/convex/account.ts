@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { revokeSessions } from "./access";
+import { purgeForReader as purgeArticleImportKeys } from "./articleImportKeys";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
@@ -321,6 +322,7 @@ const STEPS: Step[] = [
       .withIndex("by_userId_and_issuedAt", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  (ctx, { userId }) => purgeArticleImportKeys(ctx, userId),
   rows((ctx, u) =>
     ctx.db
       .query("articles")

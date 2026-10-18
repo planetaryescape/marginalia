@@ -61,6 +61,11 @@ async function addArticle(
   });
   const article = await ctx.db.get("articles", articleId);
   if (article) await updateQueueStats(ctx, null, article);
+  await ctx.db.insert("articleImportKeys", {
+    userId,
+    articleId,
+    key: String(articleId).padStart(64, "0"),
+  });
   await ctx.db.insert("annotations", {
     articleId,
     userId,
@@ -182,6 +187,17 @@ describe("removing a feed", () => {
     await t.mutation(api.feeds.remove, { feedId, articles: "all" });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await remaining()).toEqual(["highlighted", "noted"]);
+    const aliases = await t.run((ctx) =>
+      ctx.db.query("articleImportKeys").take(10),
+    );
+    expect(aliases).toHaveLength(2);
+    const targets = await t.run(async (ctx) =>
+      Promise.all(aliases.map((row) => ctx.db.get(row.articleId))),
+    );
+    expect(targets.map((article) => article?.title).sort()).toEqual([
+      "highlighted",
+      "noted",
+    ]);
     expect(
       await t.run(
         async (ctx) => (await ctx.db.query("savedArticles").collect()).length,
