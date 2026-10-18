@@ -54,7 +54,7 @@ vi.mock("convex/react", () => ({
         return [];
       case "savedArticles:count":
         return 1;
-      case "articles:headers":
+      case "articleMetadata:headers":
         return [
           {
             articleId: "article1",

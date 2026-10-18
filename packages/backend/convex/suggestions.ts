@@ -1,19 +1,28 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { z } from "zod";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import { ownedArticleCard } from "./access";
 import { query } from "./functions";
 import { needsAnnotationStart } from "./lib/annotationPolicy";
-import { type BookCandidate, bookCandidate, bookReason } from "./lib/bookPicks";
+import {
+  type ArticleCard,
+  articleCard,
+  bookPartCard,
+  cardPagination,
+  reserveLegacyReads,
+  takeCards,
+  windowSource,
+} from "./lib/articleMetadata";
+import { type BookCandidate, bookReason, nextUnitIndex } from "./lib/bookPicks";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 import { TASTE_MAX, type Taste } from "./lib/taste";
-import { unfinishedBooks } from "./lib/unfinishedBooks";
 import { loadTaste, tasteReason } from "./taste";
 
 // Nearest articles on each side of the window. Scoring weighs closeness at two
 // points a minute against at most ten for recency, so anything further out than
-// this rarely wins, and every article read here is a whole document with its body.
+// this rarely wins. Candidates now come from physically small card records.
 const NEIGHBOURS = 12;
 
 // A saved article that fits scores as if it were this much closer to the window.
@@ -28,21 +37,16 @@ const SAVED_BOOST = 4;
 const OFFERED = ["annotated", "deferred", "failed"] as const;
 type Offered = (typeof OFFERED)[number];
 
-// Deferred articles are long and each read is a whole document with its body,
-// so fewer of them are read per side.
+// Keep the established candidate/ranking bounds across the storage migration.
 const DEFERRED_NEIGHBOURS = 4;
-// Failed articles are few and also long-bodied. With 12 annotated, 4 deferred
-// and 2 failed per side, the query reads 36 whole articles, as it did with two
-// statuses, which keeps it under the 16 MiB read limit.
+// 12 annotated, 4 deferred and 2 failed per side: 36 small candidates.
 const FAILED_NEIGHBOURS = 2;
 
 // A book in progress is the reader's own choice, so it earns the same lift as a
 // saved article when its next part fits
 const BOOK_BOOST = SAVED_BOOST;
-// Unfinished books considered per request, newest first. Each is read with its
-// whole outline (one entry per part, up to 3,200 parts of about 90 bytes, so
-// about 0.9 MB), and a query may read 16 MiB: five books are about 4.5 MB, and
-// twenty were 17.7 MB.
+// Unfinished books considered per request, newest first. Only their next
+// part's title and minutes are read, never the whole outline.
 const BOOKS_CONSIDERED = 5;
 
 type Reader = { db: DatabaseReader; readerId: string };
@@ -53,16 +57,37 @@ type Reader = { db: DatabaseReader; readerId: string };
  */
 async function bookPicks(ctx: Reader, minutes: number) {
   const picks: {
-    article: Doc<"articles">;
+    article: ArticleCard;
     candidate: BookCandidate;
     reason: string;
     started: boolean;
   }[] = [];
-  for (const { book, article } of await unfinishedBooks(
-    ctx,
-    BOOKS_CONSIDERED,
-  )) {
-    const candidate = bookCandidate(book, article.bookOutline ?? [], minutes);
+  const books = await ctx.db
+    .query("books")
+    .withIndex("by_userId_and_finished", (q) =>
+      q.eq("userId", ctx.readerId).eq("finished", false),
+    )
+    .order("desc")
+    .take(BOOKS_CONSIDERED);
+  for (const book of books) {
+    const article = await ownedArticleCard(ctx, book.articleId, ctx.readerId);
+    if (!article || article.finishedAt !== undefined) continue;
+    const unitIndex = nextUnitIndex(book);
+    const unit = await bookPartCard(
+      ctx,
+      ctx.readerId,
+      book.articleId,
+      unitIndex,
+    );
+    const candidate =
+      unit && unit.minutes <= minutes && unitIndex < book.unitCount
+        ? {
+            unitIndex,
+            title: unit.title,
+            minutes: unit.minutes,
+            of: book.unitCount,
+          }
+        : null;
     if (candidate)
       picks.push({
         article,
@@ -96,36 +121,31 @@ function toBookSuggestion(pick: Awaited<ReturnType<typeof bookPicks>>[number]) {
   };
 }
 
-function shorterOrEqual(
+async function shorterOrEqual(
   ctx: Reader,
   status: Offered,
   minutes: number,
   limit: number,
 ) {
-  return ctx.db
-    .query("articles")
-    .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-      q
-        .eq("userId", ctx.readerId)
-        .eq("annotationStatus", status)
-        .eq("finishedAt", undefined)
-        .lte("estimatedReadMinutes", minutes),
-    )
-    .order("desc")
-    .take(limit);
+  const source = await windowSource(
+    ctx,
+    ctx.readerId,
+    status,
+    "lte",
+    minutes,
+    "desc",
+  );
+  return takeCards(ctx, ctx.readerId, source, limit);
 }
 
-function longer(ctx: Reader, status: Offered, minutes: number, limit: number) {
-  return ctx.db
-    .query("articles")
-    .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-      q
-        .eq("userId", ctx.readerId)
-        .eq("annotationStatus", status)
-        .eq("finishedAt", undefined)
-        .gt("estimatedReadMinutes", minutes),
-    )
-    .take(limit);
+async function longer(
+  ctx: Reader,
+  status: Offered,
+  minutes: number,
+  limit: number,
+) {
+  const source = await windowSource(ctx, ctx.readerId, status, "gt", minutes);
+  return takeCards(ctx, ctx.readerId, source, limit);
 }
 
 /**
@@ -138,25 +158,22 @@ export const forWindow = query({
   handler: async (ctx, args) => {
     const targetMinutes = args.requestedMinutes;
     assertWindow(targetMinutes);
-    const reads = await Promise.all(
-      OFFERED.flatMap((status) => {
-        const limit =
-          status === "annotated"
-            ? NEIGHBOURS
-            : status === "deferred"
-              ? DEFERRED_NEIGHBOURS
-              : FAILED_NEIGHBOURS;
-        return [
-          shorterOrEqual(ctx, status, targetMinutes, limit),
-          longer(ctx, status, targetMinutes, limit),
-        ];
-      }),
-    );
+    const reads: ArticleCard[][] = [];
+    for (const status of OFFERED) {
+      const limit =
+        status === "annotated"
+          ? NEIGHBOURS
+          : status === "deferred"
+            ? DEFERRED_NEIGHBOURS
+            : FAILED_NEIGHBOURS;
+      reads.push(await shorterOrEqual(ctx, status, targetMinutes, limit));
+      reads.push(await longer(ctx, status, targetMinutes, limit));
+    }
     // Articles without an estimate sort below every number, so the shorter
     // side still reaches them in a library that has nothing else
     // A book's row holds no text and sits outside these indexes' ranges, but
     // one with an old estimate must never come through as an ordinary article
-    const candidates: Doc<"articles">[] = reads
+    const candidates: ArticleCard[] = reads
       .flat()
       .filter((a) => a.bookUnitCount === undefined);
 
@@ -253,22 +270,30 @@ export const moreForWindow = query({
     assertWindow(targetMinutes);
     const { status, inner } = readCursor(args.paginationOpts.cursor);
     const end = readCursor(args.paginationOpts.endCursor);
-    const page = await ctx.db
-      .query("articles")
-      .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-        q
-          .eq("userId", ctx.readerId)
-          .eq("annotationStatus", status)
-          .eq("finishedAt", undefined)
-          .lte("estimatedReadMinutes", targetMinutes),
-      )
-      .order("desc")
-      .paginate({
-        ...args.paginationOpts,
-        cursor: inner,
-        // A page pinned to the hand-over into the next status has no end here
-        endCursor: end.status === status ? end.inner : null,
-      });
+    const paging = await cardPagination(ctx, ctx.readerId, {
+      ...args.paginationOpts,
+      cursor: inner,
+      endCursor: end.status === status ? end.inner : null,
+    });
+    const pageLimit = Math.min(args.paginationOpts.numItems, 8);
+    if (paging.legacy) reserveLegacyReads(ctx, pageLimit);
+    const page = paging.wrap(
+      await (
+        await windowSource(
+          ctx,
+          ctx.readerId,
+          status,
+          "lte",
+          targetMinutes,
+          "desc",
+          paging.legacy,
+        )
+      ).paginate({
+        ...paging.opts,
+        numItems: Math.min(args.paginationOpts.numItems, 8),
+        maximumBytesRead: 8_000_000,
+      }),
+    );
     const following = OFFERED[OFFERED.indexOf(status) + 1];
     const next =
       following && page.isDone
@@ -292,6 +317,7 @@ export const moreForWindow = query({
         : page.splitCursor,
       page: [
         ...page.page
+          .map(articleCard)
           .filter((a) => a.bookUnitCount === undefined)
           .map((a) => ({ article: a, readMin: readMinutesOf(a) }))
           .filter(({ readMin }) => readMin <= targetMinutes)
@@ -320,33 +346,26 @@ const UNESTIMATED_SCAN = 100;
 export const shortestUnread = query({
   args: {},
   handler: async (ctx) => {
-    const reads = await Promise.all(
-      OFFERED.flatMap((status) => [
-        ctx.db
-          .query("articles")
-          .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-            q
-              .eq("userId", ctx.readerId)
-              .eq("annotationStatus", status)
-              .eq("finishedAt", undefined)
-              .lt("estimatedReadMinutes", 0),
-          )
-          .take(UNESTIMATED_SCAN),
-        ctx.db
-          .query("articles")
-          .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-            q
-              .eq("userId", ctx.readerId)
-              .eq("annotationStatus", status)
-              .eq("finishedAt", undefined)
-              .gte("estimatedReadMinutes", 0),
-          )
-          .order("asc")
-          .first()
-          .then((article) => (article ? [article] : [])),
-      ]),
-    );
-    let best: { article: Doc<"articles">; readMin: number } | undefined;
+    const reads: ArticleCard[][] = [];
+    for (const status of OFFERED) {
+      reads.push(
+        await takeCards(
+          ctx,
+          ctx.readerId,
+          await windowSource(ctx, ctx.readerId, status, "lt", 0),
+          UNESTIMATED_SCAN,
+        ),
+      );
+      reads.push(
+        await takeCards(
+          ctx,
+          ctx.readerId,
+          await windowSource(ctx, ctx.readerId, status, "gte", 0),
+          1,
+        ),
+      );
+    }
+    let best: { article: ArticleCard; readMin: number } | undefined;
     for (const article of reads.flat()) {
       const readMin = readMinutesOf(article);
       // A tie keeps the lower id, so storage order never decides it
@@ -369,7 +388,7 @@ export const shortestUnread = query({
 /** The candidates the reader has saved. Each lookup is scoped to the reader, so another reader's saves never count. */
 async function savedAmong(
   ctx: { db: DatabaseReader; readerId: string },
-  candidates: Doc<"articles">[],
+  candidates: ArticleCard[],
 ): Promise<Set<Id<"articles">>> {
   const rows = await Promise.all(
     candidates.map((a) =>
@@ -397,7 +416,7 @@ function assertWindow(targetMinutes: number) {
 }
 
 // Articles without an estimate fall back to their word count, as scoring does
-function readMinutesOf(a: Doc<"articles">): number {
+function readMinutesOf(a: ArticleCard): number {
   return (
     a.estimatedReadMinutes ??
     (Math.ceil((a.wordCount ?? 0) / WORDS_PER_MINUTE) || 1)
@@ -405,7 +424,7 @@ function readMinutesOf(a: Doc<"articles">): number {
 }
 
 function toSuggestion(
-  a: Doc<"articles">,
+  a: ArticleCard,
   readMin: number,
   targetMinutes: number,
   fitsWindow: boolean,

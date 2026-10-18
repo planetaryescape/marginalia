@@ -1,6 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { libraryIsActive, ownedArticle } from "./access";
+import { libraryIsActive, ownedArticle, ownedArticleCard } from "./access";
 import { setAnnotationStatus } from "./articles";
 import { syncUnitMetadata } from "./books";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
@@ -15,7 +15,7 @@ export const listByArticle = query({
     unitIndex: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId))) return [];
     const unitIndex = args.unitIndex;
     if (unitIndex !== undefined)
       return ctx.db
@@ -51,7 +51,7 @@ export const listPresentationByArticle = query({
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
-    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId)))
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId)))
       return { page: [], isDone: true, continueCursor: "" };
     const page = await ctx.db
       .query("annotations")
@@ -118,7 +118,7 @@ export const referencedArticle = query({
     const annotation = await ctx.db.get("annotations", args.annotationId);
     if (annotation?.userId !== ctx.readerId || !annotation.articleRefId)
       return null;
-    const article = await ownedArticle(
+    const article = await ownedArticleCard(
       ctx,
       annotation.articleRefId,
       ctx.readerId,

@@ -4,6 +4,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { metadataLibraryActive } from "./lib/shelfCounts";
+
+export { ownedArticleCard } from "./lib/articleMetadata";
 
 const SIGN_IN = "Sign in to your private reader.";
 
@@ -133,12 +136,7 @@ export async function libraryIsActive(
   ctx: Pick<QueryCtx, "db">,
   libraryId: string,
 ): Promise<boolean> {
-  if (libraryId === DEFAULT_USER_ID) return true;
-  const reader = await ctx.db
-    .query("readers")
-    .withIndex("by_libraryId", (q) => q.eq("libraryId", libraryId))
-    .first();
-  return reader?.status === "active";
+  return metadataLibraryActive(ctx, libraryId);
 }
 
 export const libraryActive = internalQuery({

@@ -52,7 +52,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
       getBody: "threadBody",
       remove: "removeThread",
     },
-    articles: { headers: "headers" },
+    articleMetadata: { headers: "headers" },
     highlights: { listMine: "listMine" },
   },
 }));

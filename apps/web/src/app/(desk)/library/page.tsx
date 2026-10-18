@@ -242,8 +242,7 @@ function Shelves() {
   const topic = params.get("topic")?.trim() ?? "";
   const shelfArgs = matchesFor || topic ? "skip" : {};
   const overview = useQuery(api.home.counts, shelfArgs);
-  const saved = useQuery(api.savedArticles.count, shelfArgs);
-  const loved = useQuery(api.lovedArticles.count, shelfArgs);
+  const counts = useQuery(api.articleMetadata.counts, shelfArgs);
   const finished = useQuery(api.impressions.recentCount, shelfArgs);
   const tabs: {
     id: ShelfId | "up-next";
@@ -261,13 +260,13 @@ function Shelves() {
       id: "saved",
       label: "Saved",
       href: "/library?shelf=saved",
-      count: saved ?? null,
+      count: counts?.saved ?? null,
     },
     {
       id: "loved",
       label: "Loved",
       href: "/library?shelf=loved",
-      count: loved ?? null,
+      count: counts?.loved ?? null,
     },
     {
       id: "finished",

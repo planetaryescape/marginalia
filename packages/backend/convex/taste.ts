@@ -69,7 +69,7 @@ export async function readTasteProfile(
  */
 export async function loadTaste(
   ctx: Reader,
-  articles: Doc<"articles">[],
+  articles: Pick<Doc<"articles">, "_id" | "feedId" | "author">[],
 ): Promise<Map<Id<"articles">, Taste>> {
   const taste = new Map<Id<"articles">, Taste>();
   const profile = await readTasteProfile(ctx, ctx.readerId);

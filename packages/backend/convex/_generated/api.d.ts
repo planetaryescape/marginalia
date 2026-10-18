@@ -34,6 +34,7 @@ import type * as apiTokens from "../apiTokens.js";
 import type * as articleExtraction from "../articleExtraction.js";
 import type * as articleImportKeys from "../articleImportKeys.js";
 import type * as articlePassages from "../articlePassages.js";
+import type * as articleMetadata from "../articleMetadata.js";
 import type * as articles from "../articles.js";
 import type * as auth from "../auth.js";
 import type * as background from "../background.js";
@@ -194,6 +195,7 @@ declare const fullApi: ApiFromModules<{
   articleExtraction: typeof articleExtraction;
   articleImportKeys: typeof articleImportKeys;
   articlePassages: typeof articlePassages;
+  articleMetadata: typeof articleMetadata;
   articles: typeof articles;
   auth: typeof auth;
   background: typeof background;

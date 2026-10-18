@@ -28,10 +28,8 @@ export function UpNextShelf() {
   );
   const archiveArticle = useMutation(api.articles.archive);
   const restoreArticle = useMutation(api.articles.restore);
-  const saved = useQuery(api.savedArticles.savedIds);
   const saveArticle = useMutation(api.savedArticles.save);
   const unsaveArticle = useMutation(api.savedArticles.unsave);
-  const savedIds = new Set(saved);
   // `u` undoes the latest archive, the same as the toast's Undo button
   const lastArchived = useRef<Id<"articles"> | null>(null);
   // A failed archive or save is shown on the shelf, where Retry can run it again
@@ -88,17 +86,19 @@ export function UpNextShelf() {
       action: { label: "Undo", onClick: () => void undo(articleId) },
     });
   };
-  const toggleSaved = async (articleId: Id<"articles">, title: string) => {
+  const toggleSaved = async (
+    articleId: Id<"articles">,
+    title: string,
+    saved: boolean,
+  ) => {
     try {
-      await (savedIds.has(articleId)
-        ? unsaveArticle({ articleId })
-        : saveArticle({ articleId }));
+      await (saved ? unsaveArticle({ articleId }) : saveArticle({ articleId }));
       invalidateTopicSearchCache();
       setFailure(null);
     } catch {
       setFailure({
         message: `Couldn't update saved articles for “${title}”.`,
-        retry: () => toggleSaved(articleId, title),
+        retry: () => toggleSaved(articleId, title, saved),
       });
     }
   };
@@ -167,20 +167,13 @@ export function UpNextShelf() {
                 </span>
               </Link>
               {/* Shown on hover and keyboard focus where there is a pointer, always on touch */}
-              <button
-                type="button"
-                onClick={() => void toggleSaved(article._id, article.title)}
-                data-nav-action="save"
-                aria-pressed={savedIds.has(article._id)}
-                aria-label={`Save ${article.title} for later`}
-                title="Save for later"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--ink)] focus-visible:text-[var(--ink)] [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100 [@media(hover:hover)]:group-focus-within/row:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100"
-              >
-                <Bookmark
-                  size={16}
-                  fill={savedIds.has(article._id) ? "currentColor" : "none"}
-                />
-              </button>
+              <SaveButton
+                articleId={article._id}
+                title={article.title}
+                onToggle={(saved) =>
+                  void toggleSaved(article._id, article.title, saved)
+                }
+              />
               <button
                 type="button"
                 data-nav-action="archive"
@@ -209,5 +202,33 @@ export function UpNextShelf() {
         </div>
       )}
     </section>
+  );
+}
+
+function SaveButton({
+  articleId,
+  title,
+  onToggle,
+}: {
+  articleId: Id<"articles">;
+  title: string;
+  onToggle: (saved: boolean) => void;
+}) {
+  const saved = useQuery(api.savedArticles.isSaved, { articleId });
+  return (
+    <button
+      type="button"
+      disabled={saved === undefined}
+      onClick={() => {
+        if (saved !== undefined) onToggle(saved);
+      }}
+      data-nav-action="save"
+      aria-pressed={saved}
+      aria-label={`Save ${title} for later`}
+      title="Save for later"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--reader-muted)] hover:text-[var(--ink)] focus-visible:text-[var(--ink)] [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100 [@media(hover:hover)]:group-focus-within/row:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100"
+    >
+      <Bookmark size={16} fill={saved ? "currentColor" : "none"} />
+    </button>
   );
 }
