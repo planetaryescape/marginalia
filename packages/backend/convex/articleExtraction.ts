@@ -1,13 +1,49 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, internalQuery } from "./functions";
+import { internalMutation, internalQuery, type MutationCtx } from "./functions";
 import {
   EXTRACTION_LEASE_MS,
   importLibraryActive,
   MAX_IMPORT_ATTEMPTS,
   MAX_IMPORT_CONCURRENCY,
 } from "./lib/importJobs";
+
+async function activeExtractions(ctx: MutationCtx, userId: string) {
+  return ctx.db
+    .query("articles")
+    .withIndex("by_userId_and_extractionStatus_and_extractionLeaseUntil", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("extractionStatus", "pending")
+        .gt("extractionLeaseUntil", Date.now()),
+    )
+    .take(MAX_IMPORT_CONCURRENCY);
+}
+
+/** Indexed due/non-book/unclaimed rows only; at most two bodies (<2 MiB). */
+export async function wakeExtraction(ctx: MutationCtx, userId: string) {
+  if (!(await importLibraryActive(ctx, userId))) return;
+  const slots =
+    MAX_IMPORT_CONCURRENCY - (await activeExtractions(ctx, userId)).length;
+  if (!slots) return;
+  const ready = await ctx.db
+    .query("articles")
+    .withIndex("by_extraction_queue", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("extractionStatus", "pending")
+        .eq("bookUnitCount", undefined)
+        .eq("extractionLeaseUntil", undefined)
+        .lte("extractionRetryAt", Date.now()),
+    )
+    .take(slots);
+  for (const row of ready)
+    await ctx.scheduler.runAfter(0, internal.articleExtraction.start, {
+      articleId: row._id,
+      userId,
+    });
+}
 
 /** The transaction claims the work before the first external fetch. */
 export const claim = internalMutation({
@@ -29,31 +65,21 @@ export const claim = internalMutation({
         extractionStatus: "failed",
         extractionFailure: "exhausted",
         extractionLeaseUntil: undefined,
+        extractionRetryAt: undefined,
       });
+      await wakeExtraction(ctx, article.userId);
       return null;
     }
-    const running = await ctx.db
-      .query("articles")
-      .withIndex(
-        "by_userId_and_extractionStatus_and_extractionLeaseUntil",
-        (q) =>
-          q
-            .eq("userId", article.userId)
-            .eq("extractionStatus", "pending")
-            .gt("extractionLeaseUntil", Date.now()),
-      )
-      .take(MAX_IMPORT_CONCURRENCY);
-    if (running.length === MAX_IMPORT_CONCURRENCY) {
-      await ctx.scheduler.runAfter(
-        Math.max(
-          1,
-          (running[0].extractionLeaseUntil ?? Date.now()) - Date.now() + 1,
-        ),
-        internal.articleExtraction.start,
-        args,
-      );
-      return null;
+    if (article.extractionLeaseUntil !== undefined) {
+      // The expired worker is fenced already; a full pool must leave this row
+      // selectable when a current worker releases its slot.
+      await ctx.db.patch(article._id, { extractionLeaseUntil: undefined });
     }
+    if (
+      (await activeExtractions(ctx, article.userId)).length ===
+      MAX_IMPORT_CONCURRENCY
+    )
+      return null;
     const run = (article.extractionRun ?? 0) + 1;
     await ctx.db.patch(article._id, {
       extractionRun: run,
@@ -64,17 +90,19 @@ export const claim = internalMutation({
     await ctx.scheduler.runAfter(
       EXTRACTION_LEASE_MS,
       internal.articleExtraction.start,
-      args,
+      { ...args, userId: article.userId },
     );
     return { article, run };
   },
 });
 
 export const start = internalMutation({
-  args: { articleId: v.id("articles") },
+  args: { articleId: v.id("articles"), userId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const claim: { article: Doc<"articles">; run: number } | null =
-      await ctx.runMutation(internal.articleExtraction.claim, args);
+      await ctx.runMutation(internal.articleExtraction.claim, {
+        articleId: args.articleId,
+      });
     if (claim)
       await ctx.scheduler.runAfter(
         0,
@@ -85,6 +113,11 @@ export const start = internalMutation({
           run: claim.run,
         },
       );
+    const userId =
+      claim?.article.userId ??
+      args.userId ??
+      (await ctx.db.get("articles", args.articleId))?.userId;
+    if (userId) await wakeExtraction(ctx, userId);
   },
 });
 
@@ -118,8 +151,10 @@ export const fail = internalMutation({
       article.extractionRun !== args.run ||
       (article.extractionLeaseUntil ?? 0) <= Date.now() ||
       !(await importLibraryActive(ctx, args.userId))
-    )
+    ) {
+      await wakeExtraction(ctx, args.userId);
       return false;
+    }
     const retry =
       args.retryable && (article.extractionAttempts ?? 0) < MAX_IMPORT_ATTEMPTS;
     const delay = 5_000 * (article.extractionAttempts ?? 1);
@@ -136,7 +171,9 @@ export const fail = internalMutation({
     if (retry)
       await ctx.scheduler.runAfter(delay, internal.articleExtraction.start, {
         articleId: article._id,
+        userId: args.userId,
       });
+    await wakeExtraction(ctx, args.userId);
     return true;
   },
 });

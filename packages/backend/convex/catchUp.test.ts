@@ -9,6 +9,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { BATCH_DELAY_MS, PAGE } from "./catchUp";
+import { articleContentHash } from "./lib/importJobs";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -180,6 +181,77 @@ function scheduled(t: Fixture["t"]) {
 }
 
 describe("catching up after a key is saved", () => {
+  it("merges legacy articles and unavailable books without revisiting failed or claimed jobs", async () => {
+    const { t, reader, readerLibraryId } = await secondReaderTest(modules);
+    const { ids, failed, claimed } = await t.run(async (ctx) => {
+      const ids: Id<"articles">[] = [];
+      for (let i = 0; i < 12; i++) {
+        const id = await addArticle(ctx, readerLibraryId, `mixed-${i}`);
+        if (i % 2)
+          await ctx.db.patch(id, {
+            content: undefined,
+            bookUnitCount: 1,
+            bookOutline: [{ title: `Part ${i}`, minutes: 1 }],
+            libraryIndex: {
+              revision: 1,
+              hash: "fixture",
+              model: "text-embedding-3-small/1536",
+              status: "unavailable",
+              attempts: 1,
+              run: 1,
+            },
+          });
+        ids.push(id);
+      }
+      const failed = await addArticle(ctx, readerLibraryId, "terminal");
+      await ctx.db.patch(failed, {
+        libraryIndex: {
+          revision: 1,
+          hash: "fixture",
+          model: "text-embedding-3-small/1536",
+          status: "failed",
+          attempts: 3,
+          run: 3,
+        },
+      });
+      const claimed = await addArticle(ctx, readerLibraryId, "claimed");
+      const stored = await ctx.db.get(claimed);
+      if (!stored) throw new Error("Missing fixture article");
+      await ctx.db.patch(claimed, {
+        libraryIndex: {
+          revision: 1,
+          hash: await articleContentHash(stored),
+          model: "text-embedding-3-small/1536",
+          status: "pending",
+          attempts: 3,
+          run: 3,
+        },
+      });
+      return { ids, failed, claimed };
+    });
+    const mock = mockProviders();
+    await reader.action(api.providerCredentials.save, {
+      provider: "openrouter",
+      apiKey: READER_OPENROUTER,
+    });
+    await runScheduled(t);
+    expect(
+      (
+        await t.run(async (ctx) => Promise.all(ids.map((id) => ctx.db.get(id))))
+      ).every((row) => row?.embedding),
+    ).toBe(true);
+    expect(mock.embeds()).toHaveLength(12);
+    expect(await t.run((ctx) => ctx.db.get(failed))).toMatchObject({
+      libraryIndex: { status: "failed", attempts: 3 },
+    });
+    expect(await t.run((ctx) => ctx.db.get(claimed))).toMatchObject({
+      libraryIndex: { status: "failed", attempts: 3 },
+    });
+    await t.mutation(internal.catchUp.start, { userId: readerLibraryId });
+    await runScheduled(t);
+    expect(mock.embeds()).toHaveLength(12);
+    expect(await reader.query(api.catchUp.status, {})).toBeNull();
+  });
   it("embeds the reader's activity, then annotates their no-key articles, and nobody else's", async () => {
     const { t, reader, readerLibraryId } = await secondReaderTest(modules);
     const ids = await t.run(async (ctx) => {
@@ -354,15 +426,25 @@ describe("catching up after a key is saved", () => {
       provider: "openrouter",
       apiKey: READER_OPENROUTER,
     });
-    // Run only the first step
-    vi.advanceTimersByTime(1);
-    await t.finishInProgressScheduledFunctions();
+    // Empty/legacy article pages are byte-bounded transactions of their own.
+    // Stop on the first queued annotation batch, before its actions execute.
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(1);
+      await t.finishInProgressScheduledFunctions();
+      if ((await reader.query(api.catchUp.status, {}))?.articlesQueued === PAGE)
+        break;
+    }
 
     const jobs = await scheduled(t);
     const steps = jobs.filter((job) => job.name.startsWith("catchUp"));
-    expect(steps.map((job) => job.state.kind)).toEqual(["success", "pending"]);
+    expect(steps.filter((job) => job.state.kind === "pending")).toHaveLength(1);
+    const lastCompleted = steps
+      .filter((job) => job.state.kind === "success")
+      .at(-1);
+    const nextBatch = steps.find((job) => job.state.kind === "pending");
+    if (!lastCompleted || !nextBatch) throw new Error("Missing catch-up batch");
     expect(
-      steps[1].scheduledTime - steps[0].scheduledTime,
+      nextBatch.scheduledTime - lastCompleted.scheduledTime,
     ).toBeGreaterThanOrEqual(BATCH_DELAY_MS);
     expect(
       jobs.filter((job) => job.name.includes("generateForArticle")),
@@ -399,8 +481,10 @@ describe("catching up after a key is saved", () => {
       provider: "openrouter",
       apiKey: READER_OPENROUTER,
     });
-    vi.advanceTimersByTime(1);
-    await t.finishInProgressScheduledFunctions();
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(1);
+      await t.finishInProgressScheduledFunctions();
+    }
     const jobs = await scheduled(t);
     expect(
       jobs.filter((job) => job.name.includes("generateForArticle")),

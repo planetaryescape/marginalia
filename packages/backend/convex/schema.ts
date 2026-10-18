@@ -153,6 +153,7 @@ export default defineSchema({
         attempts: v.number(),
         run: v.number(),
         leaseUntil: v.optional(v.number()),
+        retryAt: v.optional(v.number()),
       }),
     ),
     annotationStatus: v.union(
@@ -211,6 +212,25 @@ export default defineSchema({
       "userId",
       "libraryIndex.status",
       "libraryIndex.leaseUntil",
+    ])
+    .index("by_userId_and_libraryIndex_status_and_retryAt", [
+      "userId",
+      "libraryIndex.status",
+      "libraryIndex.retryAt",
+    ])
+    // Only unclaimed non-book rows whose backoff is due may fill a free slot.
+    .index("by_extraction_queue", [
+      "userId",
+      "extractionStatus",
+      "bookUnitCount",
+      "extractionLeaseUntil",
+      "extractionRetryAt",
+    ])
+    .index("by_catch_up_article", [
+      "userId",
+      "extractionStatus",
+      "embeddedAt",
+      "libraryIndex.status",
     ])
     .index("by_userId_and_extractionStatus_and_extractionLeaseUntil", [
       "userId",

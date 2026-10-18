@@ -12,6 +12,40 @@ import {
   MAX_IMPORT_CONCURRENCY,
 } from "./lib/importJobs";
 
+async function activeIndexes(ctx: MutationCtx, userId: string) {
+  return ctx.db
+    .query("articles")
+    .withIndex("by_userId_and_libraryIndex_status_and_leaseUntil", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("libraryIndex.status", "running")
+        .gt("libraryIndex.leaseUntil", Date.now()),
+    )
+    .take(MAX_IMPORT_CONCURRENCY);
+}
+
+/** At most two article rows (each <1 MiB), never a scan over a library's bodies. */
+export async function wakeLibraryIndex(ctx: MutationCtx, userId: string) {
+  if (!(await importLibraryActive(ctx, userId))) return;
+  const slots =
+    MAX_IMPORT_CONCURRENCY - (await activeIndexes(ctx, userId)).length;
+  if (!slots) return;
+  const ready = await ctx.db
+    .query("articles")
+    .withIndex("by_userId_and_libraryIndex_status_and_retryAt", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("libraryIndex.status", "pending")
+        .lte("libraryIndex.retryAt", Date.now()),
+    )
+    .take(slots);
+  for (const row of ready)
+    await ctx.scheduler.runAfter(0, internal.libraryIndex.start, {
+      articleId: row._id,
+      userId,
+    });
+}
+
 /** Called inside the readable publication transaction, never after saving. */
 export async function queueLibraryIndex(
   ctx: MutationCtx,
@@ -37,9 +71,14 @@ export async function queueLibraryIndex(
     if (old.status === "pending") {
       // A disabled library may have consumed its original wake. A subsequent
       // import/backfill can wake it safely; claiming still prevents paid duplicates.
-      await ctx.scheduler.runAfter(0, internal.libraryIndex.start, {
-        articleId,
-      });
+      await ctx.scheduler.runAfter(
+        Math.max(0, (old.retryAt ?? 0) - Date.now()),
+        internal.libraryIndex.start,
+        {
+          articleId,
+          userId: article.userId,
+        },
+      );
       return;
     }
     if (old.status === "running") {
@@ -48,6 +87,7 @@ export async function queueLibraryIndex(
       });
       await ctx.scheduler.runAfter(0, internal.libraryIndex.start, {
         articleId,
+        userId: article.userId,
       });
       return;
     }
@@ -64,6 +104,7 @@ export async function queueLibraryIndex(
   });
   await ctx.scheduler.runAfter(0, internal.libraryIndex.start, {
     articleId,
+    userId: article.userId,
   });
 }
 
@@ -81,14 +122,25 @@ export const claim = internalMutation({
   handler: async (ctx, args) => {
     const article = await ctx.db.get("articles", args.articleId);
     const job = article?.libraryIndex;
+    if (!article || !job || !(await importLibraryActive(ctx, article.userId)))
+      return null;
     if (
-      !article ||
-      !job ||
       article.embedding ||
       article.extractionStatus !== "extracted" ||
-      !(await importLibraryActive(ctx, article.userId))
-    )
+      !libraryIndexText(article)
+    ) {
+      await ctx.db.patch(article._id, {
+        libraryIndex: {
+          ...job,
+          status: article.embedding ? "ready" : "unavailable",
+          leaseUntil: undefined,
+          retryAt: undefined,
+        },
+      });
+      await wakeLibraryIndex(ctx, article.userId);
       return null;
+    }
+    if ((job.retryAt ?? 0) > Date.now()) return null;
     if (
       job.status !== "pending" &&
       !(job.status === "running" && (job.leaseUntil ?? 0) <= Date.now())
@@ -103,44 +155,49 @@ export const claim = internalMutation({
     }
     if (job.attempts >= MAX_IMPORT_ATTEMPTS) {
       await ctx.db.patch(article._id, {
-        libraryIndex: { ...job, status: "failed", leaseUntil: undefined },
+        libraryIndex: {
+          ...job,
+          status: "failed",
+          leaseUntil: undefined,
+          retryAt: undefined,
+        },
       });
+      await wakeLibraryIndex(ctx, article.userId);
       return null;
     }
-    const running = await ctx.db
-      .query("articles")
-      .withIndex("by_userId_and_libraryIndex_status_and_leaseUntil", (q) =>
-        q
-          .eq("userId", article.userId)
-          .eq("libraryIndex.status", "running")
-          .gt("libraryIndex.leaseUntil", Date.now()),
-      )
-      .take(MAX_IMPORT_CONCURRENCY);
-    if (running.length === MAX_IMPORT_CONCURRENCY) {
-      await ctx.scheduler.runAfter(
-        Math.max(
-          1,
-          (running[0].libraryIndex?.leaseUntil ?? Date.now()) - Date.now() + 1,
-        ),
-        internal.libraryIndex.start,
-        args,
-      );
-      return null;
+    if (job.status === "running") {
+      // Recovery may find both slots taken by newer work. Keep this expired
+      // claim visible to a later release, rather than losing its only timer.
+      await ctx.db.patch(article._id, {
+        libraryIndex: {
+          ...job,
+          status: "pending",
+          leaseUntil: undefined,
+          retryAt: undefined,
+        },
+      });
     }
+    // Completion/failure wakes the next eligible rows; these leases are only
+    // crash recovery. A full pool never starts a zero-delay reschedule loop.
+    if (
+      (await activeIndexes(ctx, article.userId)).length ===
+      MAX_IMPORT_CONCURRENCY
+    )
+      return null;
     const claimed = {
       ...job,
       status: "running" as const,
       run: job.run + 1,
       attempts: job.attempts + 1,
       leaseUntil: Date.now() + INDEX_LEASE_MS,
+      retryAt: undefined,
     };
     await ctx.db.patch(article._id, { libraryIndex: claimed });
     // A process crash after claiming cannot strand work; at most three provider attempts.
-    await ctx.scheduler.runAfter(
-      INDEX_LEASE_MS,
-      internal.libraryIndex.start,
-      args,
-    );
+    await ctx.scheduler.runAfter(INDEX_LEASE_MS, internal.libraryIndex.start, {
+      ...args,
+      userId: article.userId,
+    });
     return {
       userId: article.userId,
       text: libraryIndexText(article),
@@ -152,28 +209,36 @@ export const claim = internalMutation({
 /** Scheduled mutations retry atomically: a killed action cannot lose the
  * interval between dispatch and claiming its durable recovery wake. */
 export const start = internalMutation({
-  args: { articleId: v.id("articles") },
+  args: { articleId: v.id("articles"), userId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const claim:
       | (NonNullable<Doc<"articles">["libraryIndex"]> & {
           userId: string;
           text: string;
         })
-      | null = await ctx.runMutation(internal.libraryIndex.claim, args);
-    if (!claim) return;
-    await ctx.scheduler.runAfter(
-      0,
-      internal.actions.indexLibraryArticle.runClaimed,
-      {
-        articleId: args.articleId,
-        userId: claim.userId,
-        text: claim.text,
-        revision: claim.revision,
-        run: claim.run,
-        hash: claim.hash,
-        model: claim.model,
-      },
-    );
+      | null = await ctx.runMutation(internal.libraryIndex.claim, {
+      articleId: args.articleId,
+    });
+    if (claim)
+      await ctx.scheduler.runAfter(
+        0,
+        internal.actions.indexLibraryArticle.runClaimed,
+        {
+          articleId: args.articleId,
+          userId: claim.userId,
+          text: claim.text,
+          revision: claim.revision,
+          run: claim.run,
+          hash: claim.hash,
+          model: claim.model,
+        },
+      );
+    // The user ID on recovery also covers an article removed after dispatch.
+    const userId =
+      claim?.userId ??
+      args.userId ??
+      (await ctx.db.get("articles", args.articleId))?.userId;
+    if (userId) await wakeLibraryIndex(ctx, userId);
   },
 });
 
@@ -202,8 +267,6 @@ async function currentClaim(
   if (
     !row ||
     row.userId !== args.userId ||
-    row.embedding ||
-    row.extractionStatus !== "extracted" ||
     !job ||
     job.status !== "running" ||
     job.revision !== args.revision ||
@@ -215,6 +278,21 @@ async function currentClaim(
     !(await importLibraryActive(ctx, args.userId))
   )
     return null;
+  if (
+    row.embedding ||
+    row.extractionStatus !== "extracted" ||
+    !libraryIndexText(row)
+  ) {
+    await ctx.db.patch(row._id, {
+      libraryIndex: {
+        ...job,
+        status: row.embedding ? "ready" : "unavailable",
+        leaseUntil: undefined,
+        retryAt: undefined,
+      },
+    });
+    return null;
+  }
   if ((await articleContentHash(row)) !== args.hash) {
     // Content changed outside ingestion: invalidate the old result and schedule this revision.
     await ctx.db.patch(row._id, { libraryIndex: { ...job, status: "failed" } });
@@ -233,7 +311,10 @@ export const complete = internalMutation({
   args: { ...fence, embedding: v.optional(v.array(v.float64())) },
   handler: async (ctx, args) => {
     const row = await currentClaim(ctx, args);
-    if (!row?.libraryIndex) return false;
+    if (!row?.libraryIndex) {
+      await wakeLibraryIndex(ctx, args.userId);
+      return false;
+    }
     if (
       args.embedding &&
       (args.embedding.length !== 1536 ||
@@ -248,8 +329,10 @@ export const complete = internalMutation({
         ...row.libraryIndex,
         status: args.embedding ? "ready" : "unavailable",
         leaseUntil: undefined,
+        retryAt: undefined,
       },
     });
+    await wakeLibraryIndex(ctx, args.userId);
     return true;
   },
 });
@@ -262,21 +345,28 @@ export const fail = internalMutation({
   },
   handler: async (ctx, args) => {
     const row = await currentClaim(ctx, args);
-    if (!row?.libraryIndex) return;
+    if (!row?.libraryIndex) {
+      await wakeLibraryIndex(ctx, args.userId);
+      return;
+    }
     const retry =
-      args.retryable && row.libraryIndex.attempts < MAX_IMPORT_ATTEMPTS;
+      !args.unavailable &&
+      args.retryable &&
+      row.libraryIndex.attempts < MAX_IMPORT_ATTEMPTS;
+    const delay = 5_000 * row.libraryIndex.attempts;
     await ctx.db.patch(row._id, {
       libraryIndex: {
         ...row.libraryIndex,
         status: args.unavailable ? "unavailable" : retry ? "pending" : "failed",
         leaseUntil: undefined,
+        retryAt: retry ? Date.now() + delay : undefined,
       },
     });
-    if (retry && !args.unavailable)
-      await ctx.scheduler.runAfter(
-        5_000 * row.libraryIndex.attempts,
-        internal.libraryIndex.start,
-        { articleId: row._id },
-      );
+    if (retry)
+      await ctx.scheduler.runAfter(delay, internal.libraryIndex.start, {
+        articleId: row._id,
+        userId: args.userId,
+      });
+    await wakeLibraryIndex(ctx, args.userId);
   },
 });
