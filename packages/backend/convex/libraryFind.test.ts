@@ -76,9 +76,7 @@ describe("search-only library path", () => {
         body: JSON.stringify({ question: "paired" }),
       });
     expect((await send("find")).status).toBe(200);
-    await t.finishAllScheduledFunctions(
-      () => new Promise((resolve) => setTimeout(resolve, 0)),
-    );
+    // No scheduler drain: the normal immediate explanation must reuse find.
     const explanation = await send("search");
     expect(explanation.status).toBe(200);
     expect(await explanation.json()).toMatchObject({

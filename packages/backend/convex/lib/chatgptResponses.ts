@@ -3,6 +3,7 @@
 // in `input` every time, the system prompt as `instructions`, and none of the
 // sampling, output-cap or conversation-state parameters.
 import {
+  CHATGPT_CONFIG_ERROR,
   CHATGPT_RECONNECT,
   CHATGPT_RESPONSES_URL,
   CHATGPT_USAGE_URL,
@@ -20,6 +21,7 @@ export type ChatGPTFailureKind =
   | "usage_limit"
   | "not_eligible"
   | "reconnect"
+  | "configuration"
   | "temporary"
   | "other";
 
@@ -49,7 +51,8 @@ export class ChatGPTRequestError extends Error {
     return (
       this.kind === "usage_limit" ||
       this.kind === "not_eligible" ||
-      this.kind === "reconnect"
+      this.kind === "reconnect" ||
+      this.kind === "configuration"
     );
   }
 
@@ -62,6 +65,8 @@ export class ChatGPTRequestError extends Error {
         return CHATGPT_NOT_ELIGIBLE;
       case "reconnect":
         return CHATGPT_RECONNECT;
+      case "configuration":
+        return CHATGPT_CONFIG_ERROR;
       case "temporary":
         return CHATGPT_TEMPORARY;
       default:
@@ -74,6 +79,7 @@ export class ChatGPTRequestError extends Error {
     if (this.kind === "usage_limit") return 429;
     if (this.kind === "not_eligible") return 403;
     if (this.kind === "reconnect") return 401;
+    if (this.kind === "configuration") return 409;
     return 502;
   }
 }
@@ -82,6 +88,7 @@ function failureKind(
   status: number,
   code: string | undefined,
 ): ChatGPTFailureKind {
+  if (code === "invalid_client") return "configuration";
   if (code === "subscription_sharing_usage_limit_exceeded")
     return "usage_limit";
   if (code === "subscription_sharing_user_not_eligible") return "not_eligible";

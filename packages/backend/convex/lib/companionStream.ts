@@ -9,6 +9,7 @@ import {
   type Provider,
   providerFailure,
 } from "./providers";
+import { resolveTarget, type TargetCredential } from "./providerTarget";
 import { interruptible, requestAttempt } from "./requestControl";
 import { dataLines, parseJson as parse, type ResponseBody } from "./sse";
 
@@ -31,10 +32,9 @@ export interface ChatMessage {
 }
 
 /** Which provider and model to call, with the reader's own key. */
-export interface ChatTarget {
+export interface ChatTarget extends TargetCredential {
   provider: ModelProvider;
   model: string;
-  apiKey: string;
 }
 
 export type StreamEvent =
@@ -192,6 +192,9 @@ export async function* streamChat({
   maxTokens: number;
   signal?: AbortSignal;
 }): AsyncGenerator<StreamEvent> {
+  signal?.throwIfAborted();
+  target = await resolveTarget(target);
+  signal?.throwIfAborted();
   // A ChatGPT plan answers through the Responses API, without hosted tools
   // or an output cap
   if (target.provider === "chatgpt") {
@@ -235,6 +238,9 @@ export async function* streamChat({
 export async function completeJson(
   options: Parameters<typeof completeJsonRequest>[0],
 ) {
+  options.signal?.throwIfAborted();
+  const target = await resolveTarget(options.target);
+  options = { ...options, target };
   const attempt = requestAttempt(options.signal, 60_000);
   try {
     return await interruptible(
@@ -260,6 +266,7 @@ async function completeJsonRequest({
   jsonSchema: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<{ content: string; truncated: boolean }> {
+  signal?.throwIfAborted();
   if (target.provider === "chatgpt")
     return {
       content: await completeResponses({

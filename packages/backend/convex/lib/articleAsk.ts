@@ -11,7 +11,10 @@ import {
   embedText,
   embedTexts,
 } from "./embeddings";
+import { requestAttempt } from "./requestControl";
 import { sha256Hex } from "./tokens";
+
+type PassageRunner = Pick<ActionCtx, "runQuery" | "runMutation">;
 
 /** The most article text a retrieved question carries. */
 export const ASK_BUDGET_CHARS = 16_000;
@@ -320,74 +323,13 @@ export interface ArticleAskContext {
   selection: BudgetedSelection | null;
 }
 
-/** What it takes to hold the article's passages: sent text, hash, vectors. */
-async function passageVectors(
-  ctx: ActionCtx,
-  input: {
-    userId: string;
-    articleId: string;
-    paragraphs: readonly string[];
-    embedder: EmbeddingTarget;
-  },
-  spans: readonly PassageSpan[],
-): Promise<number[][] | null> {
-  const model = embeddingModel(input.embedder.provider);
-  const contentHash = await sha256Hex(input.paragraphs.join("\u0000"));
-  const cache = await ctx.runQuery(internal.articlePassages.cached, {
-    userId: input.userId,
-    articleId: input.articleId,
-    contentHash,
-    model,
-  });
-  // Not this reader's article: nothing is embedded or stored for it
-  if (!cache) return null;
-  const same =
-    cache.passages.length === spans.length &&
-    cache.passages.every(
-      (row, i) =>
-        row.startParagraph === spans[i].start &&
-        row.endParagraph === spans[i].end &&
-        row.fromOffset === spans[i].from &&
-        row.toOffset === spans[i].to,
-    );
-  if (same) return cache.passages.map((row) => row.embedding);
-
-  const texts = spans.map((span) =>
-    passageText(input.paragraphs, span).slice(0, EMBED_INPUT_CHARS),
-  );
-  const vectors: number[][] = [];
-  for (let i = 0; i < texts.length; i += EMBED_BATCH)
-    vectors.push(
-      ...(await embedTexts(input.embedder, texts.slice(i, i + EMBED_BATCH))),
-    );
-  try {
-    await ctx.runMutation(internal.articlePassages.replace, {
-      userId: input.userId,
-      articleId: cache.articleId,
-      contentHash,
-      model,
-      passages: spans.map((span, i) => ({
-        startParagraph: span.start,
-        endParagraph: span.end,
-        fromOffset: span.from,
-        toOffset: span.to,
-        embedding: vectors[i],
-      })),
-    });
-  } catch (error) {
-    // The question is still answered from these vectors; the next one re-embeds
-    console.error("Caching the article's passages failed:", error);
-  }
-  return vectors;
-}
-
 /**
  * The article's passages, best match for the question first, or null when the
  * search can't run (no embedding key, a failing provider, an article that isn't
  * this reader's). The passages' vectors are cached, so a repeat costs one embed.
  */
 async function rankForQuestion(
-  ctx: ActionCtx,
+  ctx: PassageRunner,
   input: {
     userId: string;
     articleId: string | undefined;
@@ -399,21 +341,114 @@ async function rankForQuestion(
 ): Promise<RankedPassage[] | null> {
   try {
     if (input.embedder && input.articleId) {
+      input.embedder.signal?.throwIfAborted();
       const spans = chunkParagraphs(input.paragraphs);
-      const vectors = await passageVectors(
-        ctx,
-        { ...input, articleId: input.articleId, embedder: input.embedder },
-        spans,
-      );
-      if (vectors) {
-        const query = await embedText(
-          input.embedder,
+      const cache = await ctx.runMutation(internal.articlePassages.prepare, {
+        userId: input.userId,
+        articleId: input.articleId,
+        contentHash: await sha256Hex(input.paragraphs.join("\u0000")),
+        model: embeddingModel(input.embedder.provider),
+        total: spans.length,
+      });
+      input.embedder.signal?.throwIfAborted();
+      // Ownership is checked before *any* provider work, including the question.
+      if (!cache) return null;
+      const work = requestAttempt(input.embedder.signal, 120_000);
+      const embedder = { ...input.embedder, signal: work.signal };
+      try {
+        const question = embedText(
+          embedder,
           retrievalQuery(input.question, input.history),
         );
-        return rankPassages(spans, vectors, query);
+        if (cache.ready) {
+          const query = await question;
+          const ranked: RankedPassage[] = [];
+          let cursor: string | null = null;
+          do {
+            work.signal.throwIfAborted();
+            const page: {
+              ranked: RankedPassage[];
+              cursor: string | null;
+            } | null = await ctx.runQuery(internal.articlePassages.rankPage, {
+              userId: input.userId,
+              articleId: cache.articleId,
+              generation: cache.generation,
+              query,
+              cursor,
+            });
+            if (!page) return null;
+            ranked.push(...page.ranked);
+            cursor = page.cursor;
+          } while (cursor !== null);
+          return ranked.sort(
+            (a, b) => b.score - a.score || a.start - b.start || a.from - b.from,
+          );
+        }
+        const texts = spans.map((span) =>
+          passageText(input.paragraphs, span).slice(0, EMBED_INPUT_CHARS),
+        );
+        const vectors: number[][] = new Array(spans.length);
+        let next = 0;
+        // Two passage requests plus the question: at most three provider calls.
+        const worker = async () => {
+          for (;;) {
+            work.signal.throwIfAborted();
+            const from = next;
+            next += EMBED_BATCH;
+            if (from >= texts.length) return;
+            const batch = await embedTexts(
+              embedder,
+              texts.slice(from, from + EMBED_BATCH),
+            );
+            batch.forEach((vector, i) => {
+              vectors[from + i] = vector;
+            });
+          }
+        };
+        const jobs = [question, worker(), worker()] as const;
+        let query: number[];
+        try {
+          [query] = await Promise.all(jobs);
+        } catch (error) {
+          work.abort(error);
+          await Promise.allSettled(jobs);
+          throw error;
+        }
+        work.signal.throwIfAborted();
+        const ranked = rankPassages(spans, vectors, query);
+        try {
+          for (let offset = 0; offset < spans.length; offset += 32) {
+            work.signal.throwIfAborted();
+            const accepted = await ctx.runMutation(
+              internal.articlePassages.append,
+              {
+                userId: input.userId,
+                articleId: cache.articleId,
+                generation: cache.generation,
+                offset,
+                passages: spans.slice(offset, offset + 32).map((span, i) => ({
+                  startParagraph: span.start,
+                  endParagraph: span.end,
+                  fromOffset: span.from,
+                  toOffset: span.to,
+                  embedding: vectors[offset + i],
+                })),
+              },
+            );
+            if (!accepted) break;
+          }
+        } catch (error) {
+          work.signal.throwIfAborted();
+          console.error("Caching the article's passages failed:", error);
+        }
+        return ranked;
+      } finally {
+        work.abort();
+        work.dispose();
       }
     }
   } catch (error) {
+    input.embedder?.signal?.throwIfAborted();
     console.error(
       "Searching the article failed, answering from its summary and opening:",
       error,
@@ -430,7 +465,7 @@ async function rankForQuestion(
  * the top of the article, without any error for the reader.
  */
 export async function retrieveArticleContext(
-  ctx: ActionCtx,
+  ctx: PassageRunner,
   input: {
     userId: string;
     articleId: string | undefined;
@@ -509,7 +544,7 @@ export interface PassageAskContext {
  * paragraphs then win what remains, ahead of retrieved passages.
  */
 export async function retrievePassageContext(
-  ctx: ActionCtx,
+  ctx: PassageRunner,
   input: {
     userId: string;
     articleId: string | undefined;

@@ -4,6 +4,8 @@ import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { abortable } from "./abortable";
+import { answerBuffer } from "./answer-buffer";
+import { companionContext } from "./companion-context";
 import {
   clearAnswers,
   leaveArticle,
@@ -13,12 +15,7 @@ import {
   writeAnswers,
 } from "./companion-session";
 import { occurrencesBefore, senseOf, sentenceAround } from "./lookups";
-import {
-  getArticleBody,
-  getParagraphs,
-  paragraphIndexOf,
-  paragraphText,
-} from "./paragraphs";
+import { paragraphIndexOf } from "./paragraphs";
 import { type ReaderSettings, webSearchEnabled } from "./reader-settings";
 import { postReaderRequest } from "./reader-transport";
 import { rangeText } from "./text-range";
@@ -219,6 +216,7 @@ export function useCompanion({
     setOpenState(next);
   }, []);
   const controllers = useRef(new Map<string, AbortController>());
+  const flushers = useRef(new Map<string, () => void>());
   // What this visit's answers are filed under in session storage
   const scope = unitIndex === null ? articleId : `${articleId}:${unitIndex}`;
   // The article whose answers may be written to session storage; null once left.
@@ -277,6 +275,8 @@ export function useCompanion({
     const running = controllers.current;
     return () => {
       live.current = null;
+      for (const flush of flushers.current.values()) flush();
+      flushers.current.clear();
       leaveArticle(scope);
       for (const controller of running.values()) controller.abort();
       running.clear();
@@ -319,9 +319,8 @@ export function useCompanion({
       setOpenId(base.id);
 
       const { title, settings } = latest.current;
-      const paragraphs = getParagraphs(
-        getArticleBody(containerRef.current),
-      ).map(paragraphText);
+      const context = companionContext(containerRef.current, base);
+      const { paragraphs } = context;
 
       // Define is told which usage of the words was selected, not just the words.
       const sentence =
@@ -329,7 +328,10 @@ export function useCompanion({
           ? sentenceAround(
               base.paragraphIndex === null
                 ? ""
-                : (paragraphs[base.paragraphIndex] ?? ""),
+                : (paragraphs[
+                    context.paragraphIndices?.indexOf(base.paragraphIndex) ??
+                      base.paragraphIndex
+                  ] ?? ""),
               base.selection,
               base.occurrence,
             )
@@ -337,6 +339,18 @@ export function useCompanion({
 
       let answer = "";
       let model: string | null = base.model ?? null;
+      const current = () =>
+        controllers.current.get(base.id) === controller &&
+        live.current === scope;
+      const buffer = answerBuffer(() => {
+        if (!current()) return;
+        patch(base.id, (t) => {
+          const turns = t.turns.slice();
+          turns[turns.length - 1] = { role: "assistant", content: answer };
+          return { ...t, turns };
+        });
+      });
+      flushers.current.set(base.id, buffer.flush);
       try {
         await streamFromConvex(
           "/api/companion",
@@ -347,7 +361,7 @@ export function useCompanion({
             unitIndex:
               base.mode === "article" ? (unitIndex ?? undefined) : undefined,
             title,
-            paragraphs,
+            ...context,
             selection: base.selection,
             paragraphIndex: base.paragraphIndex,
             paragraphEnd: base.paragraphEnd,
@@ -367,25 +381,20 @@ export function useCompanion({
           {
             signal: controller.signal,
             onModel: (m) => {
+              if (!current()) return;
               model = m;
               patch(base.id, (t) => ({ ...t, model: m }));
             },
             onText: (chunk) => {
+              if (!current() || controller.signal.aborted) return;
               answer += chunk;
-              patch(base.id, (t) => {
-                const turns = t.turns.slice();
-                turns[turns.length - 1] = {
-                  role: "assistant",
-                  content: answer,
-                };
-                return { ...t, turns };
-              });
+              buffer.schedule();
             },
           },
         );
         if (!answer.trim()) throw new Error("No answer came back. Try again.");
       } catch (error) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !current()) return;
         patch(base.id, (t) => ({
           ...t,
           status: "error",
@@ -395,7 +404,12 @@ export function useCompanion({
               : "Something went wrong.",
         }));
         return;
+      } finally {
+        buffer.flush();
+        if (current()) flushers.current.delete(base.id);
       }
+
+      if (!current() || controller.signal.aborted) return;
 
       const turns = [
         ...history,
@@ -432,6 +446,7 @@ export function useCompanion({
       setOpenId,
       syncKept,
       unitIndex,
+      scope,
     ],
   );
 
@@ -581,6 +596,20 @@ export function useCompanion({
   /** Folds the open answer back into the margin; it stays for the visit. */
   const collapse = useCallback(() => setOpenId(null), [setOpenId]);
 
+  const stop = useCallback(
+    (id: string) => {
+      if (
+        answersRef.current.find((answer) => answer.id === id)?.status !==
+        "streaming"
+      )
+        return;
+      flushers.current.get(id)?.();
+      controllers.current.get(id)?.abort();
+      patch(id, (t) => ({ ...t, status: "error", error: "Stopped." }));
+    },
+    [patch],
+  );
+
   const remove = useCallback(
     async (id: string) => {
       const current = answersRef.current.find((a) => a.id === id);
@@ -630,6 +659,7 @@ export function useCompanion({
     open,
     openAnswer,
     collapse,
+    stop,
     followUp,
     regenerate,
     keep,

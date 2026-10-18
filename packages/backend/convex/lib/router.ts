@@ -2,6 +2,8 @@
 // come only from that library's own saved credentials (plus the owner's
 // transition key); a request never falls back to another reader's key. A
 // ChatGPT plan, when the server offers it, is the reader's own connection too.
+
+import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import { ChatGPTRequestError } from "./chatgptResponses";
@@ -15,9 +17,10 @@ import {
   type ModelRole,
   modelChain,
 } from "./providers";
+import type { TargetCredential } from "./providerTarget";
 
 /** For a ChatGPT model, `apiKey` is the reader's fresh plan access token. */
-export type ProviderTarget = CatalogModel & { apiKey: string };
+export type ProviderTarget = CatalogModel & TargetCredential;
 
 export interface ReaderAI {
   providers: ModelProvider[];
@@ -36,7 +39,6 @@ export async function loadReaderAI(
   userId: string,
   {
     text = true,
-    roles = ["annotations", "quick", "deep"],
     signal,
   }: {
     text?: boolean;
@@ -64,35 +66,37 @@ export async function loadReaderAI(
     ...keys.keys(),
     ...(routing.chatgptModels ? ["chatgpt" as const] : []),
   ];
-  const needsPlan =
-    text &&
-    roles.some((role) =>
-      modelChain(
-        routing.models[role],
-        role,
-        availableProviders,
-        chatgptModels,
-      ).some((model) => model.provider === "chatgpt"),
-    );
-  if (needsPlan) {
-    try {
-      const token = await chatgptAccessToken(ctx, userId);
-      if (token) keys.set("chatgpt", token);
-    } catch {
-      console.error("ChatGPT is unavailable for this request");
-    }
-  }
-  const providers = [...keys.keys()];
+  // Deliberately not tied to caller cancellation: rotating refresh tokens must
+  // finish publishing under their lease even when the caller presses Stop.
+  let planToken: Promise<string> | undefined;
+  const resolvePlan = () => {
+    planToken ??= chatgptAccessToken(ctx, userId)
+      .catch((error) => {
+        if (error instanceof ConvexError)
+          throw new ChatGPTRequestError(401, "invalid_client");
+        throw error;
+      })
+      .then((token) => {
+        if (!token) throw new ChatGPTRequestError(401, "invalid_user");
+        return token;
+      });
+    return planToken;
+  };
+  const providers = text ? availableProviders : [...keys.keys()];
   signal?.throwIfAborted();
 
   return {
     providers,
     chain: (role) =>
       modelChain(routing.models[role], role, providers, chatgptModels).map(
-        (model) => ({
-          ...model,
-          apiKey: keys.get(model.provider) ?? "",
-        }),
+        (model) => {
+          const target: ProviderTarget = {
+            ...model,
+            apiKey: keys.get(model.provider) ?? "",
+          };
+          if (model.provider === "chatgpt") target.resolveApiKey = resolvePlan;
+          return target;
+        },
       ),
     embedder: () => {
       const provider = embeddingProvider(providers);

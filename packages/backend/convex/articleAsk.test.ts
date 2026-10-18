@@ -360,8 +360,10 @@ describe("Ask about a long article", () => {
     const embedded = mock.embedInputs.flat().length;
 
     // The second reader names the owner's article: nothing is read or written for it
+    const generated = mock.prompts.length;
     const response = await ask(f.reader, { articleId: mine, paragraphs });
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(404);
+    expect(mock.prompts).toHaveLength(generated);
     expect(await rows(f.readerLibraryId)).toEqual([]);
     expect((await rows(OWNER)).length).toBe(ownerRows);
     expect(mock.embedInputs.flat().length).toBe(embedded);
@@ -539,8 +541,9 @@ describe("Ask about a passage reaching into the article", () => {
       paragraphs,
       question: "How does this connect to the zebra stripes?",
     });
-    expect(response.status).toBe(200);
-    expect(mock.prompts.at(-1)).not.toContain("<elsewhere_in_the_article>");
+    expect(response.status).toBe(404);
+    expect(mock.prompts).toHaveLength(0);
+    expect(mock.embedInputs).toHaveLength(0);
     expect(await rows()).toEqual([]);
   });
 });

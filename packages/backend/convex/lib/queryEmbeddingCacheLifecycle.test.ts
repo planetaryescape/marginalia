@@ -3,13 +3,13 @@ import { internal } from "../_generated/api";
 import { cachedQueryEmbedding } from "./queryEmbeddingCache";
 
 afterEach(() => vi.unstubAllGlobals());
-it("awaits durable enqueue, not cache storage or eviction on the result path", async () => {
+it("lets search overlap minimal publication, which callers join before returning", async () => {
   const vector = Array.from({ length: 1536 }, () => 1);
   vi.stubGlobal("fetch", async () =>
     Response.json({ data: [{ index: 0, embedding: vector }] }),
   );
   let enqueue!: () => void;
-  const runAfter = vi.fn().mockImplementation(
+  const runMutation = vi.fn().mockImplementation(
     () =>
       new Promise<void>((resolve) => {
         enqueue = resolve;
@@ -17,18 +17,18 @@ it("awaits durable enqueue, not cache storage or eviction on the result path", a
   );
   const ctx = {
     runQuery: vi.fn().mockResolvedValue(null),
-    scheduler: { runAfter },
+    runMutation,
   };
   const result = cachedQueryEmbedding(ctx, "reader", "  RUST ", {
     provider: "openai",
     apiKey: "fixture",
   });
-  await vi.waitFor(() => expect(runAfter).toHaveBeenCalledTimes(1));
-  expect(runAfter.mock.calls[0]).toMatchObject([
-    0,
-    internal.queryEmbeddings.store,
+  const ready = await result;
+  expect(runMutation.mock.calls[0]).toMatchObject([
+    internal.queryEmbeddings.publish,
     { userId: "reader", key: "rust", embedding: vector },
   ]);
   enqueue();
-  expect(await result).toEqual({ vector, cached: false });
+  await ready.publication;
+  expect(ready).toMatchObject({ vector, cached: false });
 });

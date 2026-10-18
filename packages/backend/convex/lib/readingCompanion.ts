@@ -21,7 +21,12 @@ export const companionRequestSchema = z
     // For a book, the part on screen; the paragraphs sent are that part's
     unitIndex: z.number().int().min(0).max(100_000).optional(),
     title: z.string().max(500),
-    paragraphs: z.array(z.string().max(20_000)).max(4000),
+    paragraphs: z.array(z.string().max(300_000)).max(4000),
+    // Additive contract: only local tools may send sparse, original indices.
+    paragraphIndices: z
+      .array(z.number().int().min(0).max(3999))
+      .max(4000)
+      .optional(),
     selection: z.string().trim().max(4000).default(""),
     paragraphIndex: z.number().int().min(0).nullable(),
     // The last paragraph the selection crosses, from the reader's own range.
@@ -56,6 +61,32 @@ export const companionRequestSchema = z
   .refine((r) => r.mode === "article" || Boolean(r.selection), {
     message: "Explain, Simplify, Define and Ask need a highlighted passage",
     path: ["selection"],
+  })
+  .refine(
+    (r) =>
+      !r.paragraphIndices ||
+      (r.mode !== "ask" &&
+        r.mode !== "article" &&
+        r.paragraphIndices.length === r.paragraphs.length &&
+        r.paragraphIndices.every((n, i, all) => i === 0 || n > all[i - 1]) &&
+        r.paragraphIndex !== null &&
+        r.paragraphIndices.includes(r.paragraphIndex) &&
+        (r.mode === "define" ||
+          r.paragraphEnd === undefined ||
+          r.paragraphIndices.includes(
+            Math.min(r.paragraphEnd, r.paragraphIndex + 20),
+          ))),
+    { message: "Invalid local paragraph context" },
+  )
+  .transform((r) => {
+    if (!r.paragraphIndices) return r;
+    const paragraphs = new Array<string>(
+      (r.paragraphIndices.at(-1) ?? -1) + 1,
+    ).fill("");
+    r.paragraphIndices.forEach((index, i) => {
+      paragraphs[index] = r.paragraphs[i];
+    });
+    return { ...r, paragraphs };
   });
 
 export type CompanionRequest = z.infer<typeof companionRequestSchema>;

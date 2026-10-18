@@ -56,7 +56,7 @@ function fakeCtx() {
         }));
       return { impressions: [], interactions: [] };
     },
-    scheduler: { runAfter: async () => null },
+    runMutation: async () => null,
   } as unknown as ActionCtx;
 }
 
