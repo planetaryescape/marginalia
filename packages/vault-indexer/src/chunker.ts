@@ -4,15 +4,14 @@ export interface Chunk {
   heading?: string;
 }
 
-// Rough token estimate: 1 token ~ 4 chars
-const MAX_CHUNK_CHARS = 3200; // ~800 tokens
-const MIN_CHUNK_CHARS = 200; // ~50 tokens
+// A byte bound is conservative for multilingual text as well as ASCII.
+export const MAX_CHUNK_BYTES = 3200;
 
 /**
  * Split a note into chunks:
  * 1. Primary split on ## headings
- * 2. If a section exceeds MAX_CHUNK_CHARS, split on paragraph boundaries
- * 3. Prefix each chunk with "fileName > heading:" for retrieval context
+ * 2. Prefer paragraph/sentence/word boundaries, then split long Unicode tokens
+ * 3. Include "fileName > heading:" within the MAX_CHUNK_BYTES budget
  */
 export function chunkNote(fileName: string, content: string): Chunk[] {
   if (!content.trim()) return [];
@@ -25,54 +24,41 @@ export function chunkNote(fileName: string, content: string): Chunk[] {
   for (const section of sections) {
     const heading = section.heading || "Introduction";
     const prefix = `${fileName} > ${heading}:\n`;
-    const text = section.text.trim();
-
-    if (!text || text.length < MIN_CHUNK_CHARS) {
-      // Too small — skip unless it's the only section
-      if (sections.length === 1 && text) {
-        chunks.push({
-          content: prefix + text,
-          chunkIndex: chunkIndex++,
-          heading,
-        });
+    let text = section.text.trim() || section.heading || "";
+    const budget = MAX_CHUNK_BYTES - Buffer.byteLength(prefix, "utf8");
+    if (budget < 4)
+      throw new Error("File name/heading exceeds chunk context budget");
+    while (text) {
+      let end = 0;
+      let bytes = 0;
+      for (const character of text) {
+        const size = Buffer.byteLength(character, "utf8");
+        if (bytes + size > budget) break;
+        bytes += size;
+        end += character.length;
       }
-      continue;
-    }
-
-    if (text.length <= MAX_CHUNK_CHARS) {
+      if (end < text.length) {
+        const candidate = text.slice(0, end);
+        // Prefer paragraphs, sentences, then words; hard split a long token.
+        const paragraph = candidate.lastIndexOf("\n\n");
+        const sentence = [...candidate.matchAll(/[.!?。！？]\s*/gu)].at(-1);
+        const word = [...candidate.matchAll(/\s+/gu)].at(-1);
+        const boundary =
+          paragraph > 0
+            ? paragraph + 2
+            : sentence
+              ? sentence.index + sentence[0].length
+              : word
+                ? word.index + word[0].length
+                : end;
+        if (boundary > 0) end = boundary;
+      }
       chunks.push({
-        content: prefix + text,
+        content: prefix + text.slice(0, end),
         chunkIndex: chunkIndex++,
         heading,
       });
-    } else {
-      // Split long sections on paragraph boundaries
-      const paragraphs = text.split(/\n\n+/);
-      let buffer = prefix;
-
-      for (const para of paragraphs) {
-        if (
-          buffer.length + para.length > MAX_CHUNK_CHARS &&
-          buffer.length > prefix.length
-        ) {
-          chunks.push({
-            content: buffer.trim(),
-            chunkIndex: chunkIndex++,
-            heading,
-          });
-          buffer = prefix;
-        }
-        buffer += `${para}\n\n`;
-      }
-
-      // Flush remaining
-      if (buffer.trim().length > prefix.length) {
-        chunks.push({
-          content: buffer.trim(),
-          chunkIndex: chunkIndex++,
-          heading,
-        });
-      }
+      text = text.slice(end);
     }
   }
 
@@ -94,7 +80,7 @@ function splitOnHeadings(content: string): Section[] {
     const headingMatch = line.match(/^##\s+(.+)/);
     if (headingMatch) {
       // Flush previous section
-      if (currentLines.length > 0) {
+      if (currentLines.length > 0 || currentHeading !== undefined) {
         sections.push({
           heading: currentHeading,
           text: currentLines.join("\n"),
@@ -108,7 +94,7 @@ function splitOnHeadings(content: string): Section[] {
   }
 
   // Flush last section
-  if (currentLines.length > 0) {
+  if (currentLines.length > 0 || currentHeading !== undefined) {
     sections.push({
       heading: currentHeading,
       text: currentLines.join("\n"),
