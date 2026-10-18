@@ -35,6 +35,7 @@ import type * as articleExtraction from "../articleExtraction.js";
 import type * as articleImportKeys from "../articleImportKeys.js";
 import type * as articleMetadata from "../articleMetadata.js";
 import type * as articlePassages from "../articlePassages.js";
+import type * as preparedArticles from "../preparedArticles.js";
 import type * as articles from "../articles.js";
 import type * as auth from "../auth.js";
 import type * as background from "../background.js";
@@ -199,6 +200,7 @@ declare const fullApi: ApiFromModules<{
   articleImportKeys: typeof articleImportKeys;
   articleMetadata: typeof articleMetadata;
   articlePassages: typeof articlePassages;
+  preparedArticles: typeof preparedArticles;
   articles: typeof articles;
   auth: typeof auth;
   background: typeof background;

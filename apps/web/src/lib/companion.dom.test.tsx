@@ -41,17 +41,21 @@ const container: RefObject<HTMLElement | null> = { current: null };
 function Harness({
   articleId = "a1",
   unitIndex,
+  source,
 }: {
   articleId?: string;
   unitIndex?: number;
+  source?: { content?: string; contentHtml?: string };
 }) {
   container.current = article;
+  // SAFETY: synthetic IDs are never sent to Convex in this provider-mocked fixture.
   latest = useCompanion({
     articleId: articleId as never,
     unitIndex,
     containerRef: container,
     title: "Hill walking",
     settings: DEFAULT_SETTINGS,
+    source,
   });
   return null;
 }
@@ -141,6 +145,127 @@ it("records a completed Define in the displayed book part", async () => {
   expect(mocks.recordLookup).toHaveBeenCalledWith(
     expect.objectContaining({ articleId: "a1", unitIndex: 4 }),
   );
+});
+
+it("reuses exact preparation across Ask turns and annotation renders; recovers one pre-provider miss only", async () => {
+  const reference = {
+    format: "safe-paragraphs-v1",
+    sourceHash: "a".repeat(64),
+    representationHash: "b".repeat(64),
+  };
+  const { sourceHash } = await import(
+    "@marginalia/backend/prepared-representation"
+  );
+  reference.sourceHash = await sourceHash("original");
+  const calls: { path: string; body: Record<string, unknown> }[] = [];
+  let miss = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      calls.push({ path, body });
+      if (path.endsWith("companion/prepare"))
+        return Response.json({ prepared: reference });
+      if (miss) {
+        miss = false;
+        return Response.json(
+          { code: "prepared_reference_miss", error: "Prepare again" },
+          { status: 409 },
+        );
+      }
+      return new Response("Answer ¶1.");
+    }),
+  );
+  await act(async () =>
+    root.render(<Harness source={{ content: "original" }} unitIndex={0} />),
+  );
+  await act(async () => latest.startArticle("Question?"));
+  await vi.waitFor(() => expect(latest.thread?.status).toBe("done"));
+  await act(async () =>
+    root.render(<Harness source={{ content: "original" }} unitIndex={0} />),
+  );
+  miss = true;
+  await act(async () => latest.followUp("And ¶1?"));
+  await vi.waitFor(() => expect(latest.thread?.status).toBe("done"));
+  expect(
+    calls.filter((c) => c.path.endsWith("companion/prepare")),
+  ).toHaveLength(2);
+  const asks = calls.filter((c) => !c.path.endsWith("prepare"));
+  expect(asks).toHaveLength(3);
+  for (const call of asks)
+    expect(call.body).toMatchObject({
+      unitIndex: 0,
+      paragraphs: [],
+      prepared: reference,
+    });
+  expect(asks[1].body).toEqual(asks[2].body);
+});
+
+it("invalidates preparation on prose changes and refuses an ambiguous generation replay", async () => {
+  const { sourceHash } = await import(
+    "@marginalia/backend/prepared-representation"
+  );
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, init: RequestInit) => {
+      calls.push(path);
+      if (path.endsWith("prepare")) {
+        const body = JSON.parse(String(init.body));
+        return Response.json({
+          prepared: {
+            format: "safe-paragraphs-v1",
+            sourceHash: body.sourceHash,
+            representationHash: "b".repeat(64),
+          },
+        });
+      }
+      if (calls.length > 2) throw new Error("Ambiguous network failure");
+      return new Response("First answer ¶1.");
+    }),
+  );
+  await act(async () =>
+    root.render(<Harness source={{ content: "original" }} />),
+  );
+  await act(async () => latest.startArticle("Question?"));
+  await vi.waitFor(() => expect(latest.thread?.status).toBe("done"));
+  await act(async () =>
+    root.render(<Harness source={{ content: "new prose" }} />),
+  );
+  await act(async () => latest.followUp("And now?"));
+  await vi.waitFor(() => expect(latest.thread?.status).toBe("error"));
+  expect(calls.filter((path) => path.endsWith("prepare"))).toHaveLength(2);
+  expect(calls.filter((path) => !path.endsWith("prepare"))).toHaveLength(2);
+  expect(await sourceHash("original")).not.toBe(await sourceHash("new prose"));
+});
+
+it.each([
+  "stop",
+  "unmount",
+])("%s while an exact representation is uploading never starts generation", async (action) => {
+  let uploadSignal: AbortSignal | undefined;
+  const fetcher = vi.fn(async (_path: string, init: RequestInit) => {
+    uploadSignal = init.signal ?? undefined;
+    return new Promise<Response>((_resolve, reject) =>
+      uploadSignal?.addEventListener(
+        "abort",
+        () => reject(new DOMException("Aborted", "AbortError")),
+        { once: true },
+      ),
+    );
+  });
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () =>
+    root.render(<Harness source={{ content: "original" }} />),
+  );
+  await act(async () => latest.startArticle("Question?"));
+  await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  if (action === "stop") await act(async () => latest.stop(latest.thread!.id));
+  else await unmount();
+  await settle();
+  expect(uploadSignal?.aborted).toBe(true);
+  if (action === "stop") expect(latest.thread?.error).toBe("Stopped.");
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
 beforeEach(() => {

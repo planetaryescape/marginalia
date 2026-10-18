@@ -19,7 +19,11 @@ export function companionContext(
 ) {
   const body = getArticleBody(container);
   if (input.mode === "ask" || input.mode === "article")
-    return { paragraphs: getParagraphs(body).map(paragraphText) };
+    return {
+      paragraphs: getParagraphs(body)
+        .filter((el) => !el.closest("[data-marginalia-ui]"))
+        .map(paragraphText),
+    };
   if (!body) return { paragraphs: [] };
   const texts = new Map<number, string>();
   const textAt = (index: number) => {

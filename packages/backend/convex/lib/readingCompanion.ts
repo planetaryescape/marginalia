@@ -11,6 +11,7 @@ import {
   MAX_CONTEXT_CHARS,
   occurrenceAt,
 } from "./localContext";
+import { preparedReferenceSchema } from "./preparedRepresentation";
 
 // Gemini Flash takes far more than this, but a long article plus every
 // follow-up adds up quickly; beyond this budget only the paragraphs nearest
@@ -27,7 +28,8 @@ export const companionRequestSchema = z
     // For a book, the part on screen; the paragraphs sent are that part's
     unitIndex: z.number().int().min(0).max(100_000).optional(),
     title: z.string().max(500),
-    paragraphs: z.array(z.string().max(300_000)).max(4000),
+    paragraphs: z.array(z.string().max(300_000)).max(4000).default([]),
+    prepared: preparedReferenceSchema.optional(),
     // Additive contract: only local tools may send sparse, original indices.
     paragraphIndices: z
       .array(z.number().int().min(0).max(3999))
@@ -59,6 +61,15 @@ export const companionRequestSchema = z
       .max(30)
       .default([]),
   })
+  .refine(
+    (r) =>
+      !r.prepared ||
+      (Boolean(r.articleId) &&
+        (r.mode === "ask" || r.mode === "article") &&
+        !r.paragraphs.length &&
+        !r.paragraphIndices),
+    { message: "Invalid prepared context" },
+  )
   .refine(
     (r) => (r.mode !== "ask" && r.mode !== "article") || Boolean(r.question),
     {

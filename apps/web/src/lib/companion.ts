@@ -1,6 +1,7 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
+import type { PreparedReference } from "@marginalia/backend/prepared-representation";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { abortable } from "./abortable";
@@ -16,6 +17,7 @@ import {
 } from "./companion-session";
 import { occurrencesBefore, senseOf, sentenceAround } from "./lookups";
 import { paragraphIndexOf } from "./paragraphs";
+import { preparedAsk } from "./prepared-ask";
 import { type ReaderSettings, webSearchEnabled } from "./reader-settings";
 import { postReaderRequest } from "./reader-transport";
 import { rangeText } from "./text-range";
@@ -209,6 +211,7 @@ export function useCompanion({
   title,
   settings,
   unitIndex = null,
+  source,
 }: {
   articleId: Id<"articles">;
   /** The part of a book on screen. Answers belong to it: their paragraph numbers are its own. */
@@ -216,6 +219,8 @@ export function useCompanion({
   containerRef: React.RefObject<HTMLElement | null>;
   title: string;
   settings: ReaderSettings;
+  /** Bootstrap prose only; annotations/layout must not invalidate preparation. */
+  source?: { content?: string; contentHtml?: string };
 }) {
   // The ref is the truth; the state mirrors it for rendering. Handlers read
   // the ref, so a quick second action never acts on a stale render.
@@ -229,6 +234,16 @@ export function useCompanion({
   }, []);
   const controllers = useRef(new Map<string, AbortController>());
   const flushers = useRef(new Map<string, () => void>());
+  const preparedRef = useRef<{
+    scope: string;
+    content?: string;
+    contentHtml?: string;
+    container: HTMLElement | null;
+    value: ReturnType<typeof preparedAsk>;
+  } | null>(null);
+  const sourceReady = source !== undefined;
+  const sourceContent = source?.content;
+  const sourceHtml = source?.contentHtml;
   // What this visit's answers are filed under in session storage
   const scope = unitIndex === null ? articleId : `${articleId}:${unitIndex}`;
   // The article whose answers may be written to session storage; null once left.
@@ -287,6 +302,7 @@ export function useCompanion({
     const running = controllers.current;
     return () => {
       live.current = null;
+      preparedRef.current = null;
       for (const flush of flushers.current.values()) flush();
       flushers.current.clear();
       leaveArticle(scope);
@@ -294,6 +310,41 @@ export function useCompanion({
       running.clear();
     };
   }, [scope, set, setOpenId]);
+
+  useEffect(() => {
+    // Prose replacement invalidates in-flight answers, not annotation renders.
+    if (
+      answersRef.current.some(
+        (a) =>
+          a.status === "streaming" &&
+          controllers.current.get(a.id)?.signal.aborted,
+      )
+    )
+      set(
+        answersRef.current.map((a) =>
+          a.status === "streaming" &&
+          controllers.current.get(a.id)?.signal.aborted
+            ? {
+                ...a,
+                status: "error",
+                error: "The displayed text changed. Ask again.",
+              }
+            : a,
+        ),
+      );
+    return () => {
+      const cached = preparedRef.current;
+      if (
+        cached?.scope === scope &&
+        cached.content === sourceContent &&
+        cached.contentHtml === sourceHtml
+      )
+        preparedRef.current = null;
+      if (sourceReady)
+        for (const controller of controllers.current.values())
+          controller.abort();
+    };
+  }, [scope, sourceReady, sourceContent, sourceHtml, set]);
 
   // Coming back from the back/forward cache restores the page as it was, but
   // the reader left the article: its unkept answers are gone, as after any leave.
@@ -331,7 +382,11 @@ export function useCompanion({
       setOpenId(base.id);
 
       const { title, settings } = latest.current;
-      const context = companionContext(containerRef.current, base);
+      const retrieval =
+        sourceReady && (base.mode === "ask" || base.mode === "article");
+      const context = retrieval
+        ? { paragraphs: [] }
+        : companionContext(containerRef.current, base);
       const { paragraphs } = context;
 
       // Define is told which usage of the words was selected, not just the words.
@@ -365,46 +420,93 @@ export function useCompanion({
       });
       flushers.current.set(base.id, buffer.flush);
       try {
-        await streamFromConvex(
-          "/api/companion",
-          {
-            mode: base.mode,
-            articleId,
-            // A book is answered from its outline and matching passages, with this part on screen
-            unitIndex:
-              base.mode === "article" ? (unitIndex ?? undefined) : undefined,
-            title,
-            ...context,
-            selection: base.selection,
-            paragraphIndex: context.paragraphIndex ?? base.paragraphIndex,
-            paragraphEnd: context.paragraphEnd ?? base.paragraphEnd,
-            sentence,
-            // Define names the usage; a passage Ask's long paragraph is cut around it
-            occurrence:
-              sentence || base.mode === "ask"
-                ? (base.occurrence ?? 0)
-                : undefined,
-            question: base.question,
-            history,
-            length: settings.answerLength,
-            level: settings.answerLevel,
-            depth: settings.answerDepth,
-            web: webSearchEnabled(settings),
-          },
-          {
-            signal: controller.signal,
-            onModel: (m) => {
-              if (!current()) return;
-              model = m;
-              patch(base.id, (t) => ({ ...t, model: m }));
+        let prepared: PreparedReference | undefined;
+        let preparation: ReturnType<typeof preparedAsk> | undefined;
+        if (retrieval) {
+          let cached = preparedRef.current;
+          if (
+            !cached ||
+            cached.scope !== scope ||
+            cached.content !== sourceContent ||
+            cached.contentHtml !== sourceHtml ||
+            cached.container !== containerRef.current
+          ) {
+            cached = {
+              scope,
+              content: sourceContent,
+              contentHtml: sourceHtml,
+              container: containerRef.current,
+              value: preparedAsk({
+                articleId,
+                unitIndex,
+                content: sourceContent,
+                contentHtml: sourceHtml,
+                container: containerRef.current,
+              }),
+            };
+            preparedRef.current = cached;
+          }
+          preparation = cached.value;
+          prepared = await preparation.get(controller.signal);
+        }
+        const send = () =>
+          streamFromConvex(
+            "/api/companion",
+            {
+              mode: base.mode,
+              articleId,
+              // A book is answered from its outline and matching passages, with this part on screen
+              unitIndex:
+                base.mode === "article" || prepared
+                  ? (unitIndex ?? undefined)
+                  : undefined,
+              title,
+              ...context,
+              prepared,
+              selection: base.selection,
+              paragraphIndex: context.paragraphIndex ?? base.paragraphIndex,
+              paragraphEnd: context.paragraphEnd ?? base.paragraphEnd,
+              sentence,
+              // Define names the usage; a passage Ask's long paragraph is cut around it
+              occurrence:
+                sentence || base.mode === "ask"
+                  ? (base.occurrence ?? 0)
+                  : undefined,
+              question: base.question,
+              history,
+              length: settings.answerLength,
+              level: settings.answerLevel,
+              depth: settings.answerDepth,
+              web: webSearchEnabled(settings),
             },
-            onText: (chunk) => {
-              if (!current() || controller.signal.aborted) return;
-              answer += chunk;
-              buffer.schedule();
+            {
+              signal: controller.signal,
+              onModel: (m) => {
+                if (!current()) return;
+                model = m;
+                patch(base.id, (t) => ({ ...t, model: m }));
+              },
+              onText: (chunk) => {
+                if (!current() || controller.signal.aborted) return;
+                answer += chunk;
+                buffer.schedule();
+              },
             },
-          },
-        );
+          );
+        try {
+          await send();
+        } catch (error) {
+          // Exactly one retry, only an explicit miss before any provider/output.
+          if (
+            !preparation ||
+            answer ||
+            !(error instanceof ReaderRequestError) ||
+            error.code !== "prepared_reference_miss"
+          )
+            throw error;
+          prepared = await preparation.get(controller.signal, true);
+          await send();
+        }
         if (!answer.trim()) throw new Error("No answer came back. Try again.");
       } catch (error) {
         if (controller.signal.aborted || !current()) return;
@@ -461,6 +563,9 @@ export function useCompanion({
       syncKept,
       unitIndex,
       scope,
+      sourceReady,
+      sourceContent,
+      sourceHtml,
     ],
   );
 

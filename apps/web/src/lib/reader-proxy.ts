@@ -10,7 +10,14 @@ export async function proxyReaderRequest(request: Request, path: string) {
   if (!token) return new Response("Sign in to your reader", { status: 401 });
   request.signal.throwIfAborted();
   const body = await request.text();
-  if (body.length > (path === "engagement" ? 32_000 : 300_000))
+  if (
+    body.length >
+    (path === "engagement"
+      ? 32_000
+      : path === "companion/prepare"
+        ? 1_000_000
+        : 300_000)
+  )
     return new Response("Request too large", { status: 413 });
   const site =
     process.env.NEXT_PUBLIC_CONVEX_SITE_URL ??

@@ -2,6 +2,7 @@ import { proxyReaderRequest } from "@/lib/reader-proxy";
 
 const allowed = new Set([
   "companion",
+  "companion/prepare",
   "library",
   "library/search",
   "library/find",
