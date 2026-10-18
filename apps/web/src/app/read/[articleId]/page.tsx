@@ -68,6 +68,7 @@ import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { findTextRange, rangeText } from "@/lib/text-range";
 import { markFinished, rememberedTitle } from "@/lib/title-handoff";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
@@ -389,6 +390,7 @@ export default function ReadPage() {
     async (message: string, run: () => Promise<void>): Promise<void> => {
       try {
         await run();
+        invalidateTopicSearchCache();
         setToolbarFailure(null);
       } catch {
         setToolbarFailure({
@@ -799,6 +801,7 @@ export default function ReadPage() {
         content: `<blockquote><p>${escapeHtml(openAnnotation.content)}</p></blockquote>${paragraphs}`,
         contentPlain: text,
       });
+      invalidateTopicSearchCache();
     },
     [openAnnotation, createNote, articleId, unit],
   );
@@ -1174,7 +1177,11 @@ export default function ReadPage() {
                 .filter((note) => note.annotationId === openAnnotation._id)
                 .sort((a, b) => a.createdAt - b.createdAt)}
               onReflect={handleReflect}
-              onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+              onDeleteReflection={(id) =>
+                removeNote({ noteId: id as any }).then(
+                  invalidateTopicSearchCache,
+                )
+              }
               containerRef={articleRef}
               layoutVersion={paragraphs.version}
               onClose={closeAnnotation}
@@ -1239,7 +1246,9 @@ export default function ReadPage() {
               .filter((note) => note.annotationId === openAnnotation._id)
               .sort((a, b) => a.createdAt - b.createdAt)}
             onReflect={handleReflect}
-            onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+            onDeleteReflection={(id) =>
+              removeNote({ noteId: id as any }).then(invalidateTopicSearchCache)
+            }
             containerRef={articleRef}
             layoutVersion={paragraphs.version}
             onClose={closeAnnotation}

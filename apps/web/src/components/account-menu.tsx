@@ -106,29 +106,18 @@ function ThemeRow() {
  */
 export function sourceStatus(
   readwise: ReadwiseStatus | null | undefined,
-  feeds:
-    | FeedStatus[]
-    | { count: number; failingCount: number; failedTitle: string | null }
-    | undefined,
+  feeds: FeedStatus[] | undefined,
 ): { line: string; failed: boolean } {
-  const failing = Array.isArray(feeds)
-    ? feeds.filter((feed) => feed.lastError)
-    : [];
-  const failingCount = Array.isArray(feeds)
-    ? failing.length
-    : (feeds?.failingCount ?? 0);
-  const failedTitle = Array.isArray(feeds)
-    ? failing[0]?.title
-    : feeds?.failedTitle;
+  const failing = feeds?.filter((feed) => feed.lastError) ?? [];
   if (readwise?.error) return { line: "Readwise sync failed.", failed: true };
-  if (failingCount === 1)
+  if (failing.length === 1)
     return {
-      line: `“${failedTitle}” couldn’t be fetched.`,
+      line: `“${failing[0].title}” couldn’t be fetched.`,
       failed: true,
     };
-  if (failingCount > 1)
+  if (failing.length > 1)
     return {
-      line: `${failingCount} sources couldn’t be fetched.`,
+      line: `${failing.length} sources couldn’t be fetched.`,
       failed: true,
     };
 
@@ -140,11 +129,10 @@ export function sourceStatus(
     else parts.push("Readwise first sync pending");
   }
   if (feeds) {
-    const count = Array.isArray(feeds) ? feeds.length : feeds.count;
     parts.push(
-      count === 0
+      feeds.length === 0
         ? "No sources yet"
-        : `${count} ${count === 1 ? "source" : "sources"}`,
+        : `${feeds.length} ${feeds.length === 1 ? "source" : "sources"}`,
     );
   }
   return { line: parts.join(" · "), failed: false };
@@ -158,7 +146,9 @@ export function sourceStatus(
 export function AccountMenu() {
   const reader = useQuery(api.auth.currentReader, {});
   const readwise = useQuery(api.readwise.status, {});
-  const feeds = useQuery(api.feeds.statusSummary, {});
+  // Exact source/error summary needs maintained counters; don't add another
+  // all-row counting query while that migration is still pending.
+  const feeds = useQuery(api.feeds.list, {});
   const isOwner = reader?.isOwner === true;
   const waiting =
     useQuery(api.waitlist.pendingCount, isOwner ? {} : "skip") ?? 0;

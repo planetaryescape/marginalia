@@ -57,6 +57,8 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   const { data: session } = authClient.useSession();
   const sessionId = session?.session.id ?? null;
   const [neighbours] = useState(
+    // Centre-view revision + local compose + TTL only. A global library/vault
+    // revision is still needed for surrounding edits and cross-tab coherence.
     () => new SessionCache<{ key: string; via?: string }[]>(20, 60_000),
   );
   neighbours.forScope(sessionId);

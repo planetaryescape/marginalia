@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LeavingLink } from "@/lib/reader-links";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 
 const MARGIN = 16;
 const GAP = 8;
@@ -127,7 +128,9 @@ export function ReaderLinkMenu({
       const articleId = found
         ? found._id
         : (await addByUrl({ url: link.href })).articleId;
+      if (!found) invalidateTopicSearchCache();
       await saveArticle({ articleId });
+      invalidateTopicSearchCache();
       if (mounted.current) setState("saved");
     } catch (err) {
       if (!mounted.current) return;

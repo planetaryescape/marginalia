@@ -146,7 +146,8 @@ export function SavedShelf() {
   const remove = async (id: Id<"articles">, title: string) => {
     // Focus moves to the neighbour first so it never falls to <body>
     const items = navItems();
-    const at = items.findIndex((el) => rowFor(id)?.contains(el));
+    const row = rowFor(id);
+    const at = items.findIndex((el) => row?.contains(el));
     (items[at + 1] ?? items[at - 1])?.focus({ preventScroll: true });
     try {
       await unsave({ articleId: id });

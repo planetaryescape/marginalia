@@ -68,6 +68,22 @@ const tick = (ms = 250) =>
   });
 
 describe("topic search cache phases", () => {
+  it("never requests explanations for a disabled or invalidated list-only search", async () => {
+    mocks.post.mockResolvedValue({ matches: [match], more: false });
+    await render({ mode: "list", enabled: false });
+    await tick(500);
+    expect(mocks.post).not.toHaveBeenCalled();
+    await render({ mode: "list" });
+    await tick(0);
+    await render({ mode: "list", enabled: false });
+    invalidateTopicSearchCache();
+    await render({ mode: "list" });
+    await tick(0);
+    expect(mocks.post.mock.calls.map(([path]) => path)).toEqual([
+      "find",
+      "find",
+    ]);
+  });
   it("does not extend old card freshness when only explanations are retried", async () => {
     mocks.post.mockImplementation((path) =>
       path === "find"

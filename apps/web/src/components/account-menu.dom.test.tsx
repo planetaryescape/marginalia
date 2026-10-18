@@ -40,12 +40,8 @@ vi.mock("convex/react", () => ({
         return data.reader;
       case "readwise:status":
         return data.readwise;
-      case "feeds:statusSummary":
-        return {
-          count: data.feeds.length,
-          failingCount: data.feeds.filter((feed) => feed.lastError).length,
-          failedTitle: data.feeds.find((feed) => feed.lastError)?.title ?? null,
-        };
+      case "feeds:list":
+        return data.feeds;
       case "waitlist:pendingCount":
         return data.reader?.isOwner ? data.waiting : undefined;
       default:

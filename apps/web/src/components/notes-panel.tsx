@@ -14,6 +14,7 @@ import { InlineError } from "@/components/in-place";
 import { type KeptAnswer, splitNotes } from "@/lib/kept-answers";
 import { MODE_LABELS } from "@/lib/margin-answers";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { KeptTranscript } from "./kept-transcript";
 import { NoteEditor } from "./note-editor";
 
@@ -176,13 +177,17 @@ export function NotesPanel({
       try {
         if (!plainText.trim()) {
           // Emptied the editor: drop the draft rather than keep a blank note
-          if (id) await removeNote({ noteId: id });
+          if (id) {
+            await removeNote({ noteId: id });
+            invalidateTopicSearchCache();
+          }
           setDraftId(null);
           setStatus("idle");
           return { id: null, ok: true };
         }
         if (id) {
           await updateNote({ noteId: id, content, contentPlain: plainText });
+          invalidateTopicSearchCache();
           setStatus("saved");
           return { id, ok: true };
         }
@@ -196,6 +201,7 @@ export function NotesPanel({
           content,
           contentPlain: plainText,
         });
+        invalidateTopicSearchCache();
         setDraftId(created);
         setStatus("saved");
         return { id: created, ok: true };
@@ -230,6 +236,7 @@ export function NotesPanel({
   const attemptDelete = async (message: string, run: () => Promise<void>) => {
     try {
       await run();
+      invalidateTopicSearchCache();
       setDeleteFailure(null);
     } catch {
       setDeleteFailure({ message, retry: () => attemptDelete(message, run) });

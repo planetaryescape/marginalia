@@ -24,23 +24,6 @@ export const list = query({
   },
 });
 
-/** Compact avatar/onboarding data; preserves every source failure indicator. */
-export const statusSummary = query({
-  args: {},
-  handler: async (ctx) => {
-    const feeds = await ctx.db
-      .query("feeds")
-      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
-      .collect();
-    const failing = feeds.filter((feed) => feed.lastError);
-    return {
-      count: feeds.length,
-      failingCount: failing.length,
-      failedTitle: failing[0]?.title ?? null,
-    };
-  },
-});
-
 export const add = mutation({
   args: {
     url: v.string(),

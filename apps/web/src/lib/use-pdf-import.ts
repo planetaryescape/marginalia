@@ -4,6 +4,7 @@ import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useRef, useState } from "react";
 import { problemWithFile, uploadWithProgress } from "./pdf-import";
+import { invalidateTopicSearchCache } from "./topic-search-cache";
 
 export interface UploadState {
   fileName: string;
@@ -43,6 +44,7 @@ export function usePdfImport() {
           fileName: file.name,
         });
         if (!result.ok) setProblem(result.error);
+        else invalidateTopicSearchCache();
       } catch (error) {
         setProblem(
           error instanceof Error && error.message

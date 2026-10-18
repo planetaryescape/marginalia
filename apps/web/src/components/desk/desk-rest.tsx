@@ -53,7 +53,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
     inProgress === null &&
     dueForReview?.length === 0 &&
     overview?.annotatedTotal === 0;
-  const feeds = useQuery(api.feeds.statusSummary, onboarding ? {} : "skip");
+  const feeds = useQuery(api.feeds.list, onboarding ? {} : "skip");
   const readwise = useQuery(api.readwise.status, onboarding ? {} : "skip");
   const advanceReview = useMutation(api.lovedArticles.advanceReview);
   const snoozeReview = useMutation(api.lovedArticles.snooze);
@@ -151,7 +151,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
     );
   } else if (overview?.annotatedTotal === 0) {
     if (feeds === undefined || readwise === undefined) return null;
-    const hasSources = feeds.count > 0 || Boolean(readwise.connected);
+    const hasSources = feeds.length > 0 || Boolean(readwise.connected);
     content = hasSources ? (
       <p className="max-w-[620px] text-[15px] text-[var(--ink-soft)]">
         Your first articles are on their way. Each one is annotated before it

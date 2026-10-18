@@ -28,6 +28,7 @@ import {
   type TopicMatch,
   topicCard,
 } from "@/lib/topic-card";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import { usePresented } from "@/lib/use-presented";
 import { useTopicSearch } from "@/lib/use-topic-search";
@@ -181,6 +182,7 @@ export function ArticleFinder({
   const save = async (articleId: string) => {
     try {
       await saveArticle({ articleId: articleId as Id<"articles"> });
+      invalidateTopicSearchCache();
       setSaved((ids) => new Set(ids).add(articleId));
       setSaveFailed(null);
     } catch (error) {
@@ -197,6 +199,7 @@ export function ArticleFinder({
     const url = text.startsWith("www.") ? `https://${text}` : text;
     try {
       const { articleId, alreadyExists } = await addByUrl({ url });
+      invalidateTopicSearchCache();
       if (andRead) {
         toast.success(
           alreadyExists
