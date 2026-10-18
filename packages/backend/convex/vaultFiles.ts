@@ -2,13 +2,26 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { internal } from "./_generated/api";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, internalQuery } from "./functions";
+import { internalAction, internalMutation, internalQuery } from "./functions";
+import { DEFAULT_USER_ID } from "./lib/constants";
 
 type Source = "manifest" | "legacy";
 export interface FilePage {
   files: { filePath: string; fileHash: string }[];
   cursor: string | null;
 }
+
+interface BackfillProgress {
+  complete: boolean;
+  afterPath: string | null;
+}
+interface BackfillRun extends BackfillProgress {
+  scheduled: boolean;
+  transactions: number;
+}
+
+const FILES_PER_BACKFILL_RUN = 25;
+const MAX_BACKFILL_RUNS = 1000;
 
 /** Tombstones prevent a racing/resumed backfill from reviving removed files. */
 export async function writeManifest(
@@ -54,10 +67,25 @@ async function migrationState(ctx: QueryCtx, userId: string) {
 
 /** One indexed file seek per transaction; never scan every vector in a file. */
 export const backfill = internalMutation({
-  args: { userId: v.string() },
-  handler: async (ctx, { userId }) => {
+  args: { userId: v.string(), requireActiveReader: v.optional(v.boolean()) },
+  handler: async (ctx, { userId, requireActiveReader }) => {
+    // Scheduled work must not recreate metadata after an account purge. Manual
+    // single-step fixtures/admin calls retain the existing internal contract.
+    if (requireActiveReader && userId !== DEFAULT_USER_ID) {
+      const reader = await ctx.db
+        .query("readers")
+        .withIndex("by_libraryId", (q) => q.eq("libraryId", userId))
+        .unique();
+      if (
+        !reader ||
+        reader.status !== "active" ||
+        reader.deletingAt !== undefined
+      )
+        throw new Error("Vault backfill requires an active library");
+    }
     const state = await migrationState(ctx, userId);
-    if (state?.complete) return { complete: true, afterPath: state.afterPath };
+    if (state?.complete)
+      return { complete: true, afterPath: state.afterPath ?? null };
     const next = await ctx.db
       .query("noteChunks")
       .withIndex("by_user_file", (q) =>
@@ -97,7 +125,50 @@ export const backfill = internalMutation({
     };
     if (state) await ctx.db.replace(state._id, value);
     else await ctx.db.insert("vaultManifestBackfills", value);
-    return { complete: value.complete, afterPath: value.afterPath };
+    return { complete: value.complete, afterPath: value.afterPath ?? null };
+  },
+});
+
+export const backfillStatus = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const state = await migrationState(ctx, userId);
+    return {
+      complete: state?.complete ?? false,
+      afterPath: state?.afterPath ?? null,
+    };
+  },
+});
+
+/** Explicit admin invocation only: no cron, deploy hook, or HTTP side effect. */
+export const runBackfill = internalAction({
+  args: { userId: v.string(), remainingRuns: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    { userId, remainingRuns = MAX_BACKFILL_RUNS },
+  ): Promise<BackfillRun> => {
+    if (
+      !Number.isSafeInteger(remainingRuns) ||
+      remainingRuns < 1 ||
+      remainingRuns > MAX_BACKFILL_RUNS
+    )
+      throw new Error(`Expected 1–${MAX_BACKFILL_RUNS} backfill runs`);
+    let progress: BackfillProgress = { complete: false, afterPath: null };
+    for (let i = 0; i < FILES_PER_BACKFILL_RUN; i++) {
+      progress = await ctx.runMutation(internal.vaultFiles.backfill, {
+        userId,
+        requireActiveReader: true,
+      });
+      if (progress.complete)
+        return { ...progress, scheduled: false, transactions: i + 1 };
+    }
+    const scheduled = remainingRuns > 1;
+    if (scheduled)
+      await ctx.scheduler.runAfter(100, internal.vaultFiles.runBackfill, {
+        userId,
+        remainingRuns: remainingRuns - 1,
+      });
+    return { ...progress, scheduled, transactions: FILES_PER_BACKFILL_RUN };
   },
 });
 

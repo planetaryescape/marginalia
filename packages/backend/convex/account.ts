@@ -4,6 +4,7 @@ import type { Id, TableNames } from "./_generated/dataModel";
 import { revokeSessions } from "./access";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { purgeMetadata } from "./vaultFiles";
 
 export const DELETE_CONFIRMATION = "DELETE";
 
@@ -238,6 +239,7 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  (ctx, { userId }) => purgeMetadata(ctx, userId),
   rows((ctx, u) =>
     ctx.db
       .query("marginaliaPasses")

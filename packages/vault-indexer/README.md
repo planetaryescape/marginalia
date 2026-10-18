@@ -19,26 +19,41 @@ Completed files commit immediately. If a file fails or you interrupt the run, ru
 - Include heading/file-name context within each 3,200-byte embedding input. Split oversized paragraphs at paragraph/sentence/word boundaries, then Unicode code points if needed. Retain short sections. Context that cannot fit fails the file explicitly rather than truncating it.
 - Replace at most 128 chunks and upload at most 8 MB per file. Files beyond these bounds retain their old index. Existing remote files larger than 128 chunks or a 4 MB bounded read page also fail replacement/deletion without partial mutation; they require a separately planned migration, not a destructive retry.
 - Apply a 30-second deadline per network attempt, including body consumption, and an 8 MB response limit. Retry network failures, timeouts, HTTP 429, and HTTP 5xx at most three attempts; bound `Retry-After` to 10 seconds. Do not retry permanent HTTP/input/response-shape failures. Stop further embedding batches for a failed file. Responses and credentials are not included in errors.
+- The old fixed 300 ms embedding buffer was intentionally removed. Requests remain sequential; provider 429 responses and bounded `Retry-After` now determine additional waiting instead of imposing a pause when the provider has capacity. This can increase request frequency, especially for short files; it is not a fixed-rate limiter.
 
 ## Backend-first rollout (integration owner)
 
-Do not deploy this candidate without the HTTP integration below. No live deployment or migration was run while implementing it.
+HTTP hash handling and account cleanup are integrated in this candidate. No live deployment or migration was run while implementing it.
 
-1. Keep the existing API-key check in `convex/http.ts`. Add `import { hashesResponse } from "./vaultFiles";`. In **only** the `/api/vault/hashes` handler, replace its final `runQuery(internal.noteChunks.allFilePaths, ...)` and JSON-response block with:
+1. Deploy the additive schema, metadata-aware chunk writers, new module, generated module declaration, HTTP handler, and account purge step together. The HTTP handler retains its API-key check and owner-only library identity. Account cleanup removes both metadata tables before reader/auth deletion. `vaultFiles` holds per-user/file hashes plus deletion tombstones; `vaultManifestBackfills` holds the per-user cursor/completion marker. There are no vector/content rewrites in the metadata backfill.
 
-   ```ts
-   return hashesResponse(ctx, request, DEFAULT_USER_ID);
+2. From `packages/backend`, explicitly start the internal migration driver on the verified deployment:
+
+   ```sh
+   bunx convex run --deployment stoic-hare-718 --codegen disable vaultFiles:runBackfill '{"userId":"default_user"}'
    ```
 
-2. Account cleanup must include the two additive metadata tables. In `convex/account.ts`, import `purgeMetadata` from `./vaultFiles` and append `(ctx, { userId }) => purgeMetadata(ctx, userId)` to the library purge steps **before reader/auth deletion**. The helper removes one bounded batch per invocation and returns zero when finished. The current public vault endpoint remains owner-only; this also covers future per-reader indexing.
+   Programmatic references use `internal.vaultFiles.runBackfill`; Convex CLI function names use `vaultFiles:runBackfill`, with no `internal:` prefix. The command does not push/deploy code. Verify the target deployment before running it.
 
-3. Deploy the additive schema, metadata-aware chunk writers, new module, generated module declaration, and handler changes together. `vaultFiles` holds per-user/file hashes plus deletion tombstones; `vaultManifestBackfills` holds the per-user cursor/completion marker. There are no vector/content rewrites in the metadata backfill.
+   Each action awaits at most 25 separate single-file mutation transactions and schedules at most one continuation, 100 ms later. A kickoff permits at most 1,000 action runs (25,000 file/checkpoint transactions); rerun the command if that cap is reached before completion. No cron, deploy hook, HTTP request, or dry-run starts this driver. Completed checkpoints survive interruption/failure. Automated work refuses missing, disabled, or deleting non-owner libraries in the same transaction as each checkpoint.
 
-4. Invoke `internal.vaultFiles.backfill` with `{ userId: "default_user" }` repeatedly through the authorized deployment tooling until it returns `complete: true`. Each invocation advances one indexed file using at most two chunk-document seeks, then saves its cursor atomically. Stop/restart freely. Replacement/deletion and old append uploads update manifests in the same transaction, so a resumed/racing backfill cannot overwrite them. Leave tombstones intact.
+3. Check completion with a lightweight internal query:
 
-5. Verify fixture old/new clients, then the deployment's manifest completion marker. Only after completion does a no-change run read exclusively the lightweight manifest. Before completion, bounded legacy pages read representative chunk documents; they never report a partial manifest as a complete empty index or discard removal paths.
+   ```sh
+   bunx convex run --deployment stoic-hare-718 --codegen disable vaultFiles:backfillStatus '{"userId":"default_user"}'
+   ```
 
-6. Roll out the CLI. Old clients still receive the original hash map and use the same upload actions. New clients request `/api/vault/hashes?protocol=2`, receive `{ version: 2, hashes, cursor }`, and continue until `cursor: null`. Old servers ignore the query parameter and return the original map, which the new client accepts. A malformed/mixed/repeating paginated response aborts reconciliation.
+   Wait for `complete: true`; `afterPath` is a string or `null`, including an empty vault. For manual single-step recovery, the exact command is:
+
+   ```sh
+   bunx convex run --deployment stoic-hare-718 --codegen disable vaultFiles:backfill '{"userId":"default_user"}'
+   ```
+
+   Its programmatic reference is `internal.vaultFiles.backfill`. Each invocation advances one indexed file using at most two chunk-document seeks, then saves its cursor atomically. Stop/restart freely. Replacement/deletion and old append uploads update manifests in the same transaction, so a resumed/racing backfill cannot overwrite them. Leave tombstones intact.
+
+4. Verify fixture old/new clients, then the deployment's completion marker. Only after completion does a no-change run read exclusively the lightweight manifest. Before completion, bounded legacy pages read representative chunk documents; they never report a partial manifest as a complete empty index or discard removal paths.
+
+5. Roll out the CLI. Old clients still receive the original hash map and use the same upload actions. New clients request `/api/vault/hashes?protocol=2`, receive `{ version: 2, hashes, cursor }`, and continue until `cursor: null`. Old servers ignore the query parameter and return the original map, which the new client accepts. A malformed/mixed/repeating paginated response aborts reconciliation.
 
 The internal `noteChunks.allFilePaths` query is now bounded and refuses an incomplete page. It is not a replacement for the HTTP action helper on large or unmigrated vaults. The action helper runs each page in a separate transaction; looping queries within one transaction would not bound cumulative read bytes.
 

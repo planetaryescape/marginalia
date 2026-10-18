@@ -1,11 +1,12 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
 import { hashesResponse, purgeMetadata } from "./vaultFiles";
 
 const modules = import.meta.glob("./**/*.ts");
+afterEach(() => vi.useRealTimers());
 const chunk = (filePath: string, fileHash = "old") => ({
   userId: "fixture",
   filePath,
@@ -18,6 +19,45 @@ const chunk = (filePath: string, fileHash = "old") => ({
 });
 
 describe("vault metadata migration and compatibility", () => {
+  it("serializes empty and already-complete backfill results with a null cursor", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    expect(
+      await t.mutation(internal.vaultFiles.backfill, { userId: "fixture" }),
+    ).toEqual({ complete: true, afterPath: null });
+    expect(
+      await t.mutation(internal.vaultFiles.backfill, { userId: "fixture" }),
+    ).toEqual({ complete: true, afterPath: null });
+    expect(
+      await t.query(internal.vaultFiles.backfillStatus, { userId: "fixture" }),
+    ).toEqual({ complete: true, afterPath: null });
+    expect(
+      await t.query(internal.vaultFiles.page, {
+        userId: "fixture",
+        cursor: null,
+      }),
+    ).toEqual({ files: [], cursor: null });
+    const emptyRun = {
+      complete: true,
+      afterPath: null,
+      scheduled: false,
+      transactions: 1,
+    };
+    expect(
+      await t.action(internal.vaultFiles.runBackfill, {
+        userId: "default_user",
+      }),
+    ).toEqual(emptyRun);
+    expect(
+      await t.action(internal.vaultFiles.runBackfill, {
+        userId: "default_user",
+      }),
+    ).toEqual(emptyRun);
+    expect(
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      ),
+    ).toEqual([]);
+  });
   it("never advertises an empty complete manifest before legacy files are migrated", async () => {
     const t = convexTest({ schema, modules, transactionLimits: true });
     await t.run(async (ctx) => {
@@ -349,5 +389,165 @@ describe("vault metadata migration and compatibility", () => {
         cursor: JSON.stringify({ source: "manifest", afterPath: "" }),
       }),
     ).rejects.toThrow("not complete");
+  });
+  it("drives separate bounded transactions and schedules only one sequential continuation", async () => {
+    vi.useFakeTimers();
+    const t = convexTest({
+      schema,
+      modules,
+      transactionLimits: { bytesRead: 500_000 },
+    });
+    const userId = "default_user";
+    for (let i = 0; i < 32; i++)
+      await t.run((ctx) =>
+        ctx.db.insert("noteChunks", {
+          ...chunk(`${String(i).padStart(3, "0")}.md`),
+          userId,
+          content: "x".repeat(200_000),
+        }),
+      );
+    expect(
+      await t.query(internal.vaultFiles.backfillStatus, { userId }),
+    ).toEqual({ complete: false, afterPath: null });
+    expect(
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      ),
+    ).toEqual([]);
+    const result = await t.action(internal.vaultFiles.runBackfill, { userId });
+    expect(result).toEqual({
+      complete: false,
+      afterPath: "024.md",
+      scheduled: true,
+      transactions: 25,
+    });
+    expect(
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      ),
+    ).toHaveLength(1);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(
+      await t.query(internal.vaultFiles.backfillStatus, { userId }),
+    ).toEqual({ complete: true, afterPath: "031.md" });
+    expect(
+      await t.run((ctx) => ctx.db.query("vaultFiles").collect()),
+    ).toHaveLength(32);
+    expect(await t.action(internal.vaultFiles.runBackfill, { userId })).toEqual(
+      {
+        complete: true,
+        afterPath: "031.md",
+        scheduled: false,
+        transactions: 1,
+      },
+    );
+  });
+  it("caps scheduled runs and resumes explicitly from the saved checkpoint", async () => {
+    const t = convexTest({ schema, modules });
+    const userId = "default_user";
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 26; i++)
+        await ctx.db.insert("noteChunks", {
+          ...chunk(`${String(i).padStart(3, "0")}.md`),
+          userId,
+        });
+    });
+    expect(
+      await t.action(internal.vaultFiles.runBackfill, {
+        userId,
+        remainingRuns: 1,
+      }),
+    ).toEqual({
+      complete: false,
+      afterPath: "024.md",
+      scheduled: false,
+      transactions: 25,
+    });
+    expect(
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      ),
+    ).toEqual([]);
+    expect(
+      await t.action(internal.vaultFiles.runBackfill, {
+        userId,
+        remainingRuns: 1,
+      }),
+    ).toEqual({
+      complete: true,
+      afterPath: "025.md",
+      scheduled: false,
+      transactions: 2,
+    });
+  });
+  it.each([
+    0, 1001, 1.5,
+  ])("rejects invalid continuation budgets (%s) before scheduling or writing", async (remainingRuns) => {
+    const t = convexTest({ schema, modules });
+    await expect(
+      t.action(internal.vaultFiles.runBackfill, {
+        userId: "default_user",
+        remainingRuns,
+      }),
+    ).rejects.toThrow("1–1000");
+    expect(
+      await t.run((ctx) => ctx.db.query("vaultManifestBackfills").collect()),
+    ).toEqual([]);
+    expect(
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      ),
+    ).toEqual([]);
+  });
+  it("does not recreate metadata for deleted or deleting non-owner libraries", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("readers", {
+        authId: "disabled-auth",
+        libraryId: "disabled",
+        status: "disabled",
+        createdAt: 1,
+      });
+      await ctx.db.insert("readers", {
+        authId: "deleting-auth",
+        libraryId: "deleting",
+        status: "active",
+        deletingAt: 1,
+        createdAt: 1,
+      });
+    });
+    for (const userId of ["gone", "disabled", "deleting"]) {
+      await expect(
+        t.action(internal.vaultFiles.runBackfill, { userId }),
+      ).rejects.toThrow("active library");
+    }
+    expect(
+      await t.run((ctx) => ctx.db.query("vaultManifestBackfills").collect()),
+    ).toEqual([]);
+    expect(
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      ),
+    ).toEqual([]);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("readers", {
+        authId: "active-auth",
+        libraryId: "active",
+        status: "active",
+        createdAt: 1,
+      });
+      await ctx.db.insert("noteChunks", {
+        ...chunk("Active.md"),
+        userId: "active",
+      });
+    });
+    expect(
+      await t.action(internal.vaultFiles.runBackfill, { userId: "active" }),
+    ).toEqual({
+      complete: true,
+      afterPath: "Active.md",
+      scheduled: false,
+      transactions: 2,
+    });
   });
 });
