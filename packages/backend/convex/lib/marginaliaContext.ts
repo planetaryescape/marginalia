@@ -2,37 +2,33 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import type { RecallItem } from "../marginaliaRecall";
 import { type EmbeddingTarget, embedTexts } from "./embeddings";
+import {
+  clipRecallText,
+  RECALL_BATCH_ROWS,
+  RECALL_CONTEXT_BYTES,
+  recallPool,
+  textBytes,
+} from "./marginaliaRecallBudget";
 import { MAX_ARTICLE_CHARS, splitIntoSections } from "./readingSections";
 
 export { MAX_ARTICLE_CHARS, splitIntoSections };
 
-// Cosine similarity floors for text-embedding-3-small, calibrated on the
-// vault: genuine matches score ~0.55–0.65, loose topical overlap ~0.5.
-// Notes, highlights and questions are short, so they score a little lower.
-const MIN_VAULT_SIMILARITY = 0.5;
-const MIN_ACTIVITY_SIMILARITY = 0.45;
-
-// Other articles in the library, by embedding. Uncalibrated: set from the vault
-// floor, and worth revisiting once connections have been read in use.
-const MIN_LIBRARY_SIMILARITY = 0.45;
-const MAX_LIBRARY_CANDIDATES = 6;
-
-const MAX_VAULT_CHUNKS = 12;
-const MAX_CHUNKS_PER_NOTE = 2;
-const MAX_ACTIVITY_ITEMS = 5;
-
-type Searchable =
-  | "articles"
-  | "noteChunks"
-  | "userNotes"
-  | "highlights"
-  | "companionThreads";
-
-interface Match<T extends Searchable> {
-  id: Id<T>;
+// Existing calibrated floors and per-family retrieval/selection budgets.
+const families = [
+  { table: "noteChunks", kind: "chunk", floor: 0.5, limit: 8, cap: 12 },
+  { table: "articles", kind: "article", floor: 0.45, limit: 5, cap: 6 },
+  { table: "userNotes", kind: "note", floor: 0.45, limit: 5, cap: 5 },
+  { table: "highlights", kind: "highlight", floor: 0.45, limit: 5, cap: 5 },
+  { table: "companionThreads", kind: "thread", floor: 0.45, limit: 5, cap: 5 },
+] as const;
+type Family = (typeof families)[number];
+type Kind = Family["kind"] | "own";
+type RecallCtx = Pick<ActionCtx, "runQuery" | "vectorSearch">;
+interface Match {
+  id: string;
   score: number;
-  /** Opening words of the article sections this matched. */
   sections: Set<string>;
 }
 
@@ -45,47 +41,66 @@ export interface LibraryCandidate {
 }
 
 function sectionLabel(section: string) {
-  return `“${section.split(/\s+/).slice(0, 8).join(" ")}…”`;
+  return clipRecallText(
+    `“${section.split(/\s+/).slice(0, 8).join(" ")}…”`,
+    512,
+  );
 }
 
-async function searchBySection<T extends Searchable>(
-  ctx: ActionCtx,
+async function searchAll(
+  ctx: RecallCtx,
   userId: string,
-  table: T,
   vectors: number[][],
   labels: string[],
-  limit: number,
-  minScore: number,
-): Promise<Match<T>[]> {
-  const matches = new Map<string, Match<T>>();
-  for (const [i, vector] of vectors.entries()) {
-    // All four tables index `embedding` with a `userId` filter field; the cast
-    // only helps TypeScript, which can't check the filter over a table union
-    const results = await ctx.vectorSearch(
-      table as "noteChunks",
+) {
+  const jobs = families.flatMap((family, familyIndex) =>
+    vectors.map((vector, sectionIndex) => ({
+      family,
+      familyIndex,
+      vector,
+      sectionIndex,
+    })),
+  );
+  // This is the ONLY search pool: all five families share its four slots.
+  const results = await recallPool(jobs, (job) =>
+    ctx.vectorSearch(
+      // SAFETY: The tables share the embedding index and userId filter. Convex's
+      // union signature cannot express that shared index/filter relationship.
+      job.family.table as "noteChunks",
       "by_embedding",
       {
-        vector,
-        limit,
+        vector: job.vector,
+        limit: job.family.limit,
         filter: (q) => q.eq("userId", userId),
       },
-    );
-    for (const result of results) {
-      if (result._score < minScore) continue;
-      const existing = matches.get(result._id);
+    ),
+  );
+  const matches = families.map(() => new Map<string, Match>());
+  // Input/rank order, NOT completion order, defines tie order and section labels.
+  for (const [index, rows] of results.entries()) {
+    const job = jobs[index];
+    const target = matches[job.familyIndex];
+    for (const row of rows) {
+      if (row._score < job.family.floor) continue;
+      const existing = target.get(row._id);
       if (existing) {
-        existing.score = Math.max(existing.score, result._score);
-        existing.sections.add(labels[i]);
-      } else {
-        matches.set(result._id, {
-          id: result._id as Id<T>,
-          score: result._score,
-          sections: new Set([labels[i]]),
+        existing.score = Math.max(existing.score, row._score);
+        existing.sections.add(labels[job.sectionIndex]);
+      } else
+        target.set(row._id, {
+          id: row._id,
+          score: row._score,
+          sections: new Set([labels[job.sectionIndex]]),
         });
-      }
     }
   }
-  return [...matches.values()].sort((a, b) => b.score - a.score);
+  return matches.map((matches) =>
+    [...matches.values()].sort((a, b) => b.score - a.score),
+  );
+}
+
+function matchedNear(match: Match) {
+  return `similarity ${match.score.toFixed(2)}; matches the article near ${[...match.sections].slice(0, 2).join(" and ")}`;
 }
 
 function formatDate(timestamp: number) {
@@ -97,39 +112,66 @@ function formatDate(timestamp: number) {
   });
 }
 
-function matchedNear(match: Match<Searchable>) {
-  return `similarity ${match.score.toFixed(2)}; matches the article near ${[...match.sections].slice(0, 2).join(" and ")}`;
+interface Block {
+  kind: Kind;
+  score: number;
+  source: string;
+  text: string;
+  clipped: boolean;
+  path?: string;
+  candidate?: LibraryCandidate;
 }
 
-async function articleTitle(
-  ctx: ActionCtx,
-  userId: string,
-  articleId: Id<"articles">,
-  cache: Map<string, string>,
+const headings = {
+  chunk: "## The reader's vault notes",
+  article:
+    "## Other articles in the reader's library\n\nA connection may cite one of these by its id, only when the link is specific.",
+  note: "## The reader's own notes and reflections",
+  highlight: "## Passages the reader marked in other articles",
+  thread: "## What the reader asked about while reading other articles",
+  own: "## What the reader has already done with this article",
+} satisfies Record<Kind, string>;
+
+/** Relevance decides inclusion across families; formatting keeps legacy order. */
+function budgetContext(
+  blocks: Block[],
+  dates: string,
+  activityOmitted: boolean,
 ) {
-  const cached = cache.get(articleId);
-  if (cached) return cached;
-  const article: Doc<"articles"> | null = await ctx.runQuery(
-    internal.articles.getForReaderInternal,
-    { articleId, userId },
-  );
-  const title = article?.title ?? "another article";
-  cache.set(articleId, title);
-  return title;
-}
-
-/** FNV-1a: enough to tell two versions of a short text apart in a source key. */
-function shortHash(text: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+  // Reserve all headings/date/limit accounting, rather than clipping away
+  // provenance or letting the first retrieval family spend the entire budget.
+  let remaining = RECALL_CONTEXT_BYTES - 4096;
+  const kept = new Set<Block>();
+  for (const block of [...blocks].sort((a, b) => b.score - a.score)) {
+    const bytes = textBytes(block.text) + 2;
+    if (bytes > remaining) continue;
+    kept.add(block);
+    remaining -= bytes;
   }
-  return (hash >>> 0).toString(16);
+  const selected = blocks.filter((block) => kept.has(block));
+  const parts = [dates];
+  for (const kind of [...families.map((f) => f.kind), "own"] as const) {
+    const group = selected.filter((block) => block.kind === kind);
+    if (group.length)
+      parts.push(
+        `${headings[kind]}\n\n${group.map((block) => block.text).join(kind === "own" ? "\n" : "\n\n")}`,
+      );
+    else if (kind === "chunk")
+      parts.push(
+        `${headings.chunk}\n\n${blocks.some((block) => block.kind === "chunk") ? "Related vault context omitted by the recalled-context budget." : "None are closely related."}`,
+      );
+  }
+  const clipped = selected.filter((block) => block.clipped).length;
+  const omitted = blocks.length - selected.length;
+  if (clipped || omitted || activityOmitted)
+    parts.push(
+      `## Recall limits\n\nRecalled context budget: ${RECALL_CONTEXT_BYTES} UTF-8 bytes. ${clipped} included sources clipped; ${omitted} candidate sources omitted by relevance/size.${activityOmitted ? " Additional activity or oversized citation metadata omitted by bounded retrieval." : ""} Omitted text is not evidence of absence.`,
+    );
+  return { selected, contextText: parts.join("\n\n") };
 }
 
 export async function buildMarginaliaContext(
-  ctx: ActionCtx,
+  ctx: RecallCtx,
   article: Doc<"articles"> & { content: string },
   /** Without one, the marginalia are written from the article alone. */
   embedder: EmbeddingTarget | null,
@@ -138,299 +180,220 @@ export async function buildMarginaliaContext(
   contextText: string;
   vaultPaths: string[];
   libraryCandidates: LibraryCandidate[];
-  /**
-   * Every stored item the context drew on, as `kind:id:version`. A pass
-   * compares these between runs to see whether this section's retrieval
-   * changed (the precise gate).
-   */
+  /** Stored source keys, unchanged kind:id:version contract. */
   sources: string[];
 }> {
-  // Everything recalled here comes from the article's own library
   const userId = article.userId;
+  const authorize = () =>
+    ctx.runQuery(internal.marginaliaRecall.authorize, {
+      userId,
+      articleId: article._id,
+    });
+  // Never spend provider work on a stale, foreign, disabled or deleting owner.
+  if (!(await authorize()))
+    throw new Error("Recall library or article is no longer available");
   const articleText = article.content.slice(0, MAX_ARTICLE_CHARS);
   const sections = splitIntoSections(articleText);
   const labels = sections.map(sectionLabel);
+  const inputs = sections.map((section) => section.slice(0, 8000));
+  const uniqueInputs = [...new Set(inputs)];
+  // One existing provider batch, with exact-input deduplication only.
+  const uniqueVectors = embedder
+    ? await embedTexts(embedder, uniqueInputs)
+    : [];
   const vectors = embedder
-    ? await embedTexts(
-        embedder,
-        sections.map((s) => s.slice(0, 8_000)),
-      )
+    ? inputs.map((input) => uniqueVectors[uniqueInputs.indexOf(input)])
     : [];
-  const titles = new Map<string, string>([[article._id, article.title]]);
-  const parts: string[] = [];
-  const sources: string[] = [];
+  const matches = await searchAll(ctx, userId, vectors, labels);
+  const blocks: Block[] = [];
+  let activityOmitted = false;
 
-  // Dates: lets context notes flag what may have changed since publication
-  const source = (() => {
-    try {
-      return new URL(article.url).hostname.replace(/^www\./, "");
-    } catch {
-      return undefined;
+  // Request-local compact title memoization; each miss reads one article in
+  // its OWN transaction. No title/body amplification hidden in entity batches.
+  type ArticleRecall = Awaited<ReturnType<typeof getArticle>>;
+  function getArticle(articleId: Id<"articles">) {
+    return ctx.runQuery(internal.marginaliaRecall.article, {
+      userId,
+      articleId,
+    });
+  }
+  const titles = new Map<string, ArticleRecall>();
+  async function titleFor(articleId: Id<"articles">) {
+    if (titles.has(articleId)) return titles.get(articleId) ?? null;
+    const result = await getArticle(articleId);
+    titles.set(articleId, result);
+    return result;
+  }
+
+  for (const [familyIndex, family] of families.entries()) {
+    const ranked = matches[familyIndex].filter(
+      (match) => match.id !== article._id,
+    );
+    if (family.kind === "article") {
+      // Preserve the existing six nearest candidates, including the order.
+      for (const match of ranked.slice(0, family.cap)) {
+        // SAFETY: IDs originate from the articles vector index, not caller text.
+        const found = await titleFor(match.id as Id<"articles">);
+        if (!found?.searchable) continue;
+        const candidate: LibraryCandidate = {
+          id: found.id,
+          title: found.title,
+          minutes: found.minutes,
+          excerpt: found.excerpt,
+        };
+        blocks.push({
+          kind: "article",
+          score: match.score,
+          source: `article:${found.id}:${found.version}`,
+          candidate,
+          clipped: found.title.includes("[Context clipped]"),
+          text: `--- Library article, id ${found.id}${found.minutes ? `, ${found.minutes} min` : ""} ---\n${found.title}\n${found.excerpt}`,
+        });
+      }
+      continue;
     }
-  })();
-  parts.push(
-    [
-      "## When and where",
-      `Today: ${formatDate(Date.now())}`,
-      `Published: ${article.publishedAt ? formatDate(article.publishedAt) : "unknown"}`,
-      source ? `Source: ${source}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-
-  // Vault notes, searched per section, weak matches dropped
-  const chunkMatches = await searchBySection(
-    ctx,
-    userId,
-    "noteChunks",
-    vectors,
-    labels,
-    8,
-    MIN_VAULT_SIMILARITY,
-  );
-  const perNote = new Map<string, number>();
-  const vaultBlocks: string[] = [];
-  const vaultPaths: string[] = [];
-  for (const match of chunkMatches) {
-    if (vaultBlocks.length >= MAX_VAULT_CHUNKS) break;
-    const chunk: Doc<"noteChunks"> | null = await ctx.runQuery(
-      internal.noteChunks.getByIdInternal,
-      { chunkId: match.id },
-    );
-    if (chunk?.userId !== userId) continue;
-    const count = perNote.get(chunk.filePath) ?? 0;
-    if (count >= MAX_CHUNKS_PER_NOTE) continue;
-    perNote.set(chunk.filePath, count + 1);
-    vaultPaths.push(chunk.filePath);
-    sources.push(`chunk:${chunk._id}:${chunk.indexedAt}`);
-    vaultBlocks.push(
-      `--- Vault note: ${chunk.filePath} (${matchedNear(match)}) ---\n${chunk.content}`,
-    );
+    const perNote = new Map<string, number>();
+    let count = 0;
+    for (let offset = 0; offset < ranked.length && count < family.cap; ) {
+      const batch = ranked.slice(
+        offset,
+        offset + Math.min(RECALL_BATCH_ROWS, family.cap - count),
+      );
+      offset += batch.length;
+      // Each ID comes from the corresponding table's vector index.
+      const refs = batch.map((match) => {
+        switch (family.kind) {
+          case "chunk":
+            // SAFETY: This ID came from the noteChunks vector index; the query validates its table.
+            return { kind: family.kind, id: match.id as Id<"noteChunks"> };
+          case "note":
+            // SAFETY: This ID came from the userNotes vector index; the query validates its table.
+            return { kind: family.kind, id: match.id as Id<"userNotes"> };
+          case "highlight":
+            // SAFETY: This ID came from the highlights vector index; the query validates its table.
+            return { kind: family.kind, id: match.id as Id<"highlights"> };
+          case "thread":
+            // SAFETY: This ID came from the companionThreads vector index; the query validates its table.
+            return {
+              kind: family.kind,
+              id: match.id as Id<"companionThreads">,
+            };
+        }
+        throw new Error("Unexpected recall source family");
+      });
+      const items: RecallItem[] = await ctx.runQuery(
+        internal.marginaliaRecall.hydrate,
+        { userId, refs },
+      );
+      for (const match of batch) {
+        const item = items.find((item) => item.id === match.id);
+        if (!item) {
+          activityOmitted = true;
+          continue;
+        }
+        let header: string;
+        if (item.filePath !== null) {
+          const prior = perNote.get(item.filePath) ?? 0;
+          if (prior >= 2) continue;
+          perNote.set(item.filePath, prior + 1);
+          header = `--- Vault note: ${item.filePath} (${matchedNear(match)}) ---`;
+        } else {
+          if (!item.articleId || item.articleId === article._id) continue;
+          const parent = await titleFor(item.articleId);
+          if (!parent) {
+            activityOmitted = true;
+            continue;
+          }
+          header =
+            family.kind === "thread"
+              ? `--- In "${parent.title}" (${matchedNear(match)}) ---`
+              : `--- ${item.verb}${family.kind === "highlight" ? " in" : ""} "${parent.title}" (${matchedNear(match)}) ---`;
+        }
+        blocks.push({
+          kind: family.kind,
+          score: match.score,
+          source: item.source,
+          text: `${header}\n${item.body}`,
+          clipped: item.clipped,
+          path: item.filePath ?? undefined,
+        });
+        count++;
+      }
+    }
   }
-  parts.push(
-    `## The reader's vault notes\n\n${vaultBlocks.length ? vaultBlocks.join("\n\n") : "None are closely related."}`,
-  );
 
-  // Other articles in the library, read or unread, as discovery (D-DES-040)
-  const articleMatches = await searchBySection(
-    ctx,
-    userId,
-    "articles",
-    vectors,
-    labels,
-    5,
-    MIN_LIBRARY_SIMILARITY,
-  );
-  const nearest = articleMatches
-    .filter((match) => match.id !== article._id)
-    .slice(0, MAX_LIBRARY_CANDIDATES);
-  const found: LibraryCandidate[] = nearest.length
-    ? await ctx.runQuery(internal.annotations.libraryCandidates, {
+  // Separate transactions per family/page: Convex permits one paginate call
+  // per function, including empty results. No collect-then-slice history reads.
+  for (const [query, limit] of [
+    [internal.marginaliaRecall.ownHighlights, 10],
+    [internal.marginaliaRecall.ownNotes, 10],
+    [internal.marginaliaRecall.ownThreads, 8],
+  ] as const) {
+    let cursor: string | null = null;
+    let count = 0;
+    let isDone = false;
+    for (let page = 0; page < limit && count < limit; page++) {
+      const result: {
+        items: RecallItem[];
+        isDone: boolean;
+        continueCursor: string;
+      } = await ctx.runQuery(query, {
         userId,
-        articleIds: nearest.map((match) => match.id),
-      })
-    : [];
-  // The query drops anything outside this library; keep the similarity order
-  const rank = new Map<string, number>(
-    nearest.map((match, i) => [match.id, i]),
-  );
-  const libraryCandidates = found
-    .filter((candidate) => candidate.id !== article._id)
-    .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
-  // The candidate's title and excerpt are its version
-  for (const candidate of libraryCandidates)
-    sources.push(
-      `article:${candidate.id}:${shortHash(`${candidate.title}|${candidate.excerpt}`)}`,
-    );
-  if (libraryCandidates.length)
-    parts.push(
-      `## Other articles in the reader's library\n\nA connection may cite one of these by its id, only when the link is specific.\n\n${libraryCandidates
-        .map(
-          (c) =>
-            `--- Library article, id ${c.id}${c.minutes ? `, ${c.minutes} min` : ""} ---\n${c.title}\n${c.excerpt}`,
-        )
-        .join("\n\n")}`,
-    );
-
-  // Reader activity on other articles: notes and reflections, highlights, questions
-  const isElsewhere = (row: { userId: string; articleId: Id<"articles"> }) =>
-    row.userId === userId && row.articleId !== article._id;
-
-  const noteMatches = await searchBySection(
-    ctx,
-    userId,
-    "userNotes",
-    vectors,
-    labels,
-    5,
-    MIN_ACTIVITY_SIMILARITY,
-  );
-  const noteBlocks: string[] = [];
-  for (const match of noteMatches) {
-    if (noteBlocks.length >= MAX_ACTIVITY_ITEMS) break;
-    const note: Doc<"userNotes"> | null = await ctx.runQuery(
-      internal.userNotes.getByIdInternal,
-      {
-        noteId: match.id,
-      },
-    );
-    if (!note || !isElsewhere(note)) continue;
-    sources.push(`note:${note._id}:${note.updatedAt}`);
-    const title = await articleTitle(ctx, userId, note.articleId, titles);
-    noteBlocks.push(
-      [
-        `--- From "${title}" (${matchedNear(match)}) ---`,
-        note.selectedText ? `Highlighted: "${note.selectedText}"` : "",
-        note.prompt ? `Responding to: ${note.prompt}` : "",
-        `Their note: ${note.contentPlain}`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
+        articleId: article._id,
+        cursor,
+        limit: limit - count,
+      });
+      for (const item of result.items) {
+        // Same-article activity has direct relevance (1), not an invented
+        // vector similarity. Preserve source-version keys even when clipped.
+        blocks.push({
+          kind: "own",
+          score: 1,
+          source: item.source,
+          text: `${item.source.startsWith("thread:") ? `--- In "${clipRecallText(article.title, 2048)}" ---\n` : item.source.startsWith("highlight:") ? `- ${item.verb}: ` : "- "}${item.body}`,
+          clipped: item.clipped,
+        });
+        count++;
+      }
+      isDone = result.isDone;
+      if (isDone) break;
+      cursor = result.continueCursor;
+    }
+    if (!isDone) activityOmitted = true;
   }
-  if (noteBlocks.length)
-    parts.push(
-      `## The reader's own notes and reflections\n\n${noteBlocks.join("\n\n")}`,
-    );
-
-  const highlightMatches = await searchBySection(
-    ctx,
-    userId,
-    "highlights",
-    vectors,
-    labels,
-    5,
-    MIN_ACTIVITY_SIMILARITY,
-  );
-  const highlightBlocks: string[] = [];
-  for (const match of highlightMatches) {
-    if (highlightBlocks.length >= MAX_ACTIVITY_ITEMS) break;
-    const row: Doc<"highlights"> | null = await ctx.runQuery(
-      internal.highlights.getByIdInternal,
-      {
-        highlightId: match.id,
-      },
-    );
-    if (!row || !isElsewhere(row)) continue;
-    sources.push(`highlight:${row._id}:${row.createdAt}`);
-    const title = await articleTitle(ctx, row.userId, row.articleId, titles);
-    const verb = row.kind === "underline" ? "Underlined" : "Highlighted";
-    highlightBlocks.push(
-      `--- ${verb} in "${title}" (${matchedNear(match)}) ---\n"${row.text}"`,
-    );
+  // Revocation during retrieval must not leave a usable private prompt.
+  if (!(await authorize()))
+    throw new Error("Recall library or article is no longer available");
+  let host = "";
+  try {
+    host = new URL(article.url).hostname.replace(/^www\./, "");
+  } catch {
+    /* Missing source. */
   }
-  if (highlightBlocks.length) {
-    parts.push(
-      `## Passages the reader marked in other articles\n\n${highlightBlocks.join("\n\n")}`,
-    );
-  }
-
-  const threadMatches = await searchBySection(
-    ctx,
-    userId,
-    "companionThreads",
-    vectors,
-    labels,
-    5,
-    MIN_ACTIVITY_SIMILARITY,
-  );
-  const threadBlocks: string[] = [];
-  for (const match of threadMatches) {
-    if (threadBlocks.length >= MAX_ACTIVITY_ITEMS) break;
-    const row: Doc<"companionThreads"> | null = await ctx.runQuery(
-      internal.companionThreads.getByIdInternal,
-      { threadId: match.id },
-    );
-    if (!row || !isElsewhere(row)) continue;
-    sources.push(`thread:${row._id}:${row.updatedAt}`);
-    threadBlocks.push(await formatThread(ctx, row, titles, matchedNear(match)));
-  }
-  if (threadBlocks.length) {
-    parts.push(
-      `## What the reader asked about while reading other articles\n\n${threadBlocks.join("\n\n")}`,
-    );
-  }
-
-  // Re-annotating: what the reader has already done with this very article
-  const [ownHighlights, ownThreads, ownNotes]: [
-    Doc<"highlights">[],
-    Doc<"companionThreads">[],
-    Doc<"userNotes">[],
-  ] = await Promise.all([
-    ctx.runQuery(internal.highlights.listByArticleInternal, {
-      articleId: article._id,
-    }),
-    ctx.runQuery(internal.companionThreads.listByArticleInternal, {
-      articleId: article._id,
-    }),
-    ctx.runQuery(internal.userNotes.listByArticleInternal, {
-      articleId: article._id,
-    }),
-  ]);
-  for (const h of ownHighlights.slice(0, 10))
-    sources.push(`highlight:${h._id}:${h.createdAt}`);
-  for (const n of ownNotes.slice(0, 10))
-    sources.push(`note:${n._id}:${n.updatedAt}`);
-  for (const thread of ownThreads.slice(0, 8))
-    sources.push(`thread:${thread._id}:${thread.updatedAt}`);
-  const own: string[] = [
-    ...ownHighlights
-      .slice(0, 10)
-      .map(
-        (h) =>
-          `- ${h.kind === "underline" ? "Underlined" : "Highlighted"}: "${h.text}"`,
-      ),
-    ...ownNotes
-      .slice(0, 10)
-      .map(
-        (n) =>
-          `- Note${n.selectedText ? ` on "${n.selectedText}"` : ""}${n.prompt ? ` (responding to: ${n.prompt})` : ""}: ${n.contentPlain}`,
-      ),
-  ];
-  for (const thread of ownThreads.slice(0, 8)) {
-    own.push(await formatThread(ctx, thread, titles));
-  }
-  if (own.length) {
-    parts.push(
-      `## What the reader has already done with this article\n\n${own.join("\n")}`,
-    );
-  }
-
-  return {
-    articleText,
-    contextText: parts.join("\n\n"),
-    vaultPaths,
-    libraryCandidates,
-    sources,
-  };
-}
-
-async function formatThread(
-  ctx: ActionCtx,
-  row: Doc<"companionThreads">,
-  titles: Map<string, string>,
-  note?: string,
-) {
-  const title = await articleTitle(ctx, row.userId, row.articleId, titles);
-  const verb = {
-    ask: "Asked about",
-    explain: "Asked to explain",
-    simplify: "Asked to simplify",
-    define: "Asked to define in context",
-    article: "Asked about the article",
-  }[row.mode];
-  const answer = row.turns.find((t) => t.role === "assistant")?.content ?? "";
-  const followUps = row.turns
-    .filter((t) => t.role === "user")
-    .map((t) => t.content);
-  return [
-    `--- In "${title}"${note ? ` (${note})` : ""} ---`,
-    row.selection ? `${verb}: "${row.selection}"` : verb,
-    row.question ? `Question: ${row.question}` : "",
-    followUps.length ? `Follow-ups: ${followUps.join(" / ")}` : "",
-    answer ? `Answer began: ${answer.split(/\n{2,}/)[0].slice(0, 300)}` : "",
+  const dates = [
+    "## When and where",
+    `Today: ${formatDate(Date.now())}`,
+    `Published: ${article.publishedAt ? formatDate(article.publishedAt) : "unknown"}`,
+    host ? `Source: ${clipRecallText(host, 512)}` : "",
   ]
     .filter(Boolean)
     .join("\n");
+  const { selected, contextText } = budgetContext(
+    blocks,
+    dates,
+    activityOmitted,
+  );
+  if (textBytes(contextText) > RECALL_CONTEXT_BYTES)
+    throw new Error("Recall context budget exceeded");
+  return {
+    articleText,
+    contextText,
+    vaultPaths: selected.flatMap((block) =>
+      block.path !== undefined ? [block.path] : [],
+    ),
+    libraryCandidates: selected.flatMap((block) =>
+      block.candidate ? [block.candidate] : [],
+    ),
+    sources: selected.map((block) => block.source),
+  };
 }
