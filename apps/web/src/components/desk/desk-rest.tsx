@@ -24,14 +24,28 @@ function lovedAgo(days: number) {
   return `${years} ${years === 1 ? "year" : "years"} ago`;
 }
 
+function continueHref(item: {
+  article: { _id: string };
+  unitIndex?: number;
+  paragraphIndex?: number;
+}) {
+  const params = new URLSearchParams();
+  if (item.unitIndex !== undefined) params.set("unit", String(item.unitIndex));
+  if (item.paragraphIndex !== undefined)
+    params.set("p", String(item.paragraphIndex));
+  const query = params.toString();
+  return `/read/${item.article._id}${query ? `?${query}` : ""}`;
+}
+
 /** `c` opens the article in progress, even while a chosen time covers its card. */
 export function ContinueShortcut() {
   const router = useRouter();
-  const inProgress = useQuery(api.sessions.getInProgress);
+  const resume = useQuery(api.sessions.getContinue);
+  const inProgress = resume?.ready ? resume.item : undefined;
   useShortcuts(
     {
       c: () => {
-        if (inProgress) router.push(`/read/${inProgress.article._id}`);
+        if (inProgress) router.push(continueHref(inProgress));
       },
     },
     Boolean(inProgress),
@@ -43,7 +57,8 @@ export function ContinueShortcut() {
 /** What the slot holds when no time is chosen. Never a count of the pile. */
 export function DeskRest({ showKeys }: { showKeys: boolean }) {
   const reduced = useReducedMotion();
-  const inProgress = useQuery(api.sessions.getInProgress);
+  const resume = useQuery(api.sessions.getContinue);
+  const inProgress = resume?.ready ? resume.item : undefined;
   const overview = useQuery(api.home.counts, inProgress === null ? {} : "skip");
   const dueForReview = useQuery(
     api.lovedArticles.getDueForReview,
@@ -58,6 +73,12 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
   const advanceReview = useMutation(api.lovedArticles.advanceReview);
   const snoozeReview = useMutation(api.lovedArticles.snooze);
 
+  if (resume && !resume.ready)
+    return (
+      <p className="text-[15px] text-[var(--ink-soft)]">
+        Preparing your saved reading place…
+      </p>
+    );
   if (inProgress === undefined) return null;
   if (!inProgress && dueForReview === undefined) return null;
   const revisit = dueForReview?.find((entry) => entry !== null) ?? null;
@@ -67,7 +88,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
     const left = inProgress.remainingMinutes;
     content = (
       <Link
-        href={`/read/${inProgress.article._id}`}
+        href={continueHref(inProgress)}
         aria-keyshortcuts="c"
         className="list-row-surface -mx-2 block max-w-[620px] px-2"
       >

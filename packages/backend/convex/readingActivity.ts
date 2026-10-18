@@ -20,6 +20,7 @@ import {
   type ReadingCheckpoint,
   readingCheckpointSchema,
 } from "./lib/readingActivity";
+import { initializeEmptyResume, mergeResume } from "./lib/readingResume";
 import { ensureReadingSession } from "./lib/readingSession";
 import { updateQueueStats } from "./readingQueue";
 import { queueTasteRefresh } from "./taste";
@@ -90,6 +91,7 @@ async function saveCheckpoint(
     throw new Error("This reading visit belongs to another article or day.");
   if (old && old.sessionId !== (sessionId ?? undefined))
     throw new Error("Reading session changed");
+  await initializeEmptyResume(ctx, userId);
   if (!old) {
     const previousDay = await ctx.db
       .query("readingActivity")
@@ -128,9 +130,25 @@ async function saveCheckpoint(
     old?.maxScrollPercent ?? 0,
     s.maxScrollPercent,
   );
+  // A delayed equal-progress delivery must not replace a newer paragraph;
+  // exact timestamp ties converge independently of replay order.
+  let incomingParagraph = s.paragraphIndex;
+  if (
+    old &&
+    old.maxScrollPercent === s.maxScrollPercent &&
+    s.updatedAt <= old.updatedAt
+  ) {
+    incomingParagraph = old.paragraphIndex ?? s.paragraphIndex;
+    if (
+      s.updatedAt === old.updatedAt &&
+      old.paragraphIndex !== undefined &&
+      s.paragraphIndex !== undefined
+    )
+      incomingParagraph = Math.max(old.paragraphIndex, s.paragraphIndex);
+  }
   const paragraphIndex = furthestParagraph(old, {
     maxScrollPercent: s.maxScrollPercent,
-    paragraphIndex: s.paragraphIndex,
+    paragraphIndex: incomingParagraph,
   });
   // A book is finished by reading its last unit (books.recordProgress), not by
   // the time spent on any one visit
@@ -161,6 +179,7 @@ async function saveCheckpoint(
   };
   if (old) await ctx.db.patch(old._id, data);
   else await ctx.db.insert("readingActivity", data);
+  await mergeResume(ctx, article, data, true);
   await saveDwell(ctx, data, s.dwell);
   if (session)
     await ctx.db.patch(session._id, {

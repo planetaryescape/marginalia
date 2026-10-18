@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   pauseMotion: false,
   animations: [] as (() => void)[],
   inProgress: null as unknown,
+  resumeReady: true,
   due: [] as unknown[],
   feeds: [] as unknown[],
   readwise: { connected: false } as unknown,
@@ -55,8 +56,10 @@ vi.mock("convex/react", async () => {
         case "home:counts":
           if (state.failOverview) throw new Error("boom");
           return state.overview;
-        case "sessions:getInProgress":
-          return state.inProgress;
+        case "sessions:getContinue":
+          return state.inProgress === undefined
+            ? undefined
+            : { ready: state.resumeReady, item: state.inProgress };
         case "lovedArticles:getDueForReview":
           return state.due;
         case "feeds:list":
@@ -170,6 +173,7 @@ beforeEach(() => {
   state.pauseMotion = false;
   state.animations = [];
   state.inProgress = null;
+  state.resumeReady = true;
   state.due = [];
   state.feeds = [];
   state.readwise = { connected: false };
@@ -330,6 +334,58 @@ describe("desk at rest", () => {
     };
     await render();
     expect(text()).not.toContain("Worth revisiting");
+  });
+
+  it("carries compact checkpoint progress/paragraph zero to the rendered link and shortcut", async () => {
+    state.inProgress = {
+      article: { _id: "checkpoint", title: "Persisted place" },
+      scrollPercent: 45,
+      paragraphIndex: 0,
+      remainingMinutes: 11,
+    };
+    await render();
+    expect(
+      document.querySelector('a[href="/read/checkpoint?p=0"]')?.textContent,
+    ).toContain("Persisted place");
+    expect(
+      document
+        .querySelector('[role="progressbar"]')
+        ?.getAttribute("aria-valuenow"),
+    ).toBe("45");
+    await press("c");
+    expect(state.push).toHaveBeenLastCalledWith("/read/checkpoint?p=0");
+  });
+
+  it("preserves unit zero and next-part links for both Continue entry points", async () => {
+    for (const unitIndex of [0, 1]) {
+      state.inProgress = {
+        article: { _id: "book", title: "A book" },
+        unitIndex,
+        scrollPercent: 0,
+        remainingMinutes: 10,
+        part: { number: unitIndex + 1, count: 2, title: "Next chapter" },
+      };
+      await render();
+      expect(
+        document.querySelector(`a[href="/read/book?unit=${unitIndex}"]`)
+          ?.textContent,
+      ).toContain("Next chapter");
+      await press("c");
+      expect(state.push).toHaveBeenLastCalledWith(
+        `/read/book?unit=${unitIndex}`,
+      );
+    }
+  });
+
+  it("does not mistake a partial resume migration for an empty or finished library", async () => {
+    state.resumeReady = false;
+    state.overview = overview({ waiting: 0, annotatedTotal: 0 });
+    await render();
+    expect(text()).toContain("Preparing your saved reading place");
+    expect(text()).not.toContain("You've read everything");
+    expect(text()).not.toContain("Nothing to read yet");
+    await press("c");
+    expect(state.push).not.toHaveBeenCalled();
   });
 
   it("an empty library asks for one thing", async () => {

@@ -1,11 +1,19 @@
 import { Triggers } from "convex-helpers/server/triggers";
 import type { DataModel } from "../_generated/dataModel";
 import { syncArticleMetadata, syncBookPartCard } from "./articleMetadata";
+import { syncResumeEligibility } from "./readingResume";
 import { membershipChanged } from "./shelfCounts";
 
 export const metadataTriggers = new Triggers<DataModel>();
 metadataTriggers.register("articles", (ctx, change) =>
   syncArticleMetadata(
+    { ...ctx, db: ctx.innerDb },
+    change.oldDoc,
+    change.newDoc,
+  ),
+);
+metadataTriggers.register("articles", (ctx, change) =>
+  syncResumeEligibility(
     { ...ctx, db: ctx.innerDb },
     change.oldDoc,
     change.newDoc,
