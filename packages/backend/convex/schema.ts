@@ -12,6 +12,21 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  // Exact displayed Ask paragraphs: one replaceable, <=950KB version per scope.
+  preparedArticles: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    unitIndex: v.optional(v.number()),
+    format: v.literal("safe-paragraphs-v1"),
+    sourceHash: v.string(),
+    representationHash: v.string(),
+    paragraphs: v.array(v.string()),
+    bytes: v.number(),
+  }).index("by_userId_and_articleId_and_unitIndex", [
+    "userId",
+    "articleId",
+    "unitIndex",
+  ]),
   // Fixed-window budgets for unauthenticated endpoints: "password" (global),
   // "password:<email>" and "waitlist". Stale rows are swept hourly.
   authAttempts: defineTable({

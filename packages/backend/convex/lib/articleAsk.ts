@@ -11,8 +11,8 @@ import {
   embedText,
   embedTexts,
 } from "./embeddings";
+import { representationHash } from "./preparedRepresentation";
 import { requestAttempt } from "./requestControl";
-import { sha256Hex } from "./tokens";
 
 type PassageRunner = Pick<ActionCtx, "runQuery" | "runMutation">;
 
@@ -346,7 +346,7 @@ async function rankForQuestion(
       const cache = await ctx.runMutation(internal.articlePassages.prepare, {
         userId: input.userId,
         articleId: input.articleId,
-        contentHash: await sha256Hex(input.paragraphs.join("\u0000")),
+        contentHash: await representationHash(input.paragraphs),
         model: embeddingModel(input.embedder.provider),
         total: spans.length,
       });
