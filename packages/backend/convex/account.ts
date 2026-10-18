@@ -285,6 +285,18 @@ const STEPS: Step[] = [
       .withIndex("by_userId", (q) => q.eq("userId", u))
       .take(PASSAGE_BATCH),
   ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("articlePassageState")
+      .withIndex("by_userId", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
+      .query("bookUnitStatus")
+      .withIndex("by_userId_and_articleId_and_index", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
   // An import still reading owns an uploaded file, which goes with it
   async (ctx, { userId }) => {
     const imports = await ctx.db

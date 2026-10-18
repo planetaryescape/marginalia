@@ -131,7 +131,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
         furthestScroll: 0,
         createdAt: now,
       });
-      await ctx.db.insert("bookUnits", {
+      const unitId = await ctx.db.insert("bookUnits", {
         userId,
         articleId,
         index: 0,
@@ -140,6 +140,13 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
         contentHtml: "<p>Text</p>",
         wordCount: 1,
         estimatedReadMinutes: 1,
+        annotationStatus: "deferred",
+      });
+      await ctx.db.insert("bookUnitStatus", {
+        userId,
+        articleId,
+        index: 0,
+        unitId,
         annotationStatus: "deferred",
       });
       await ctx.db.insert("bookIndexState", {
@@ -184,6 +191,15 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       fromOffset: 0,
       toOffset: 0,
       embedding,
+    });
+    await ctx.db.insert("articlePassageState", {
+      userId,
+      articleId,
+      contentHash: "fixture",
+      model: "fixture",
+      generation: 1,
+      count: 1,
+      total: 1,
     });
     await ctx.db.insert("noteChunks", {
       userId,

@@ -41,7 +41,6 @@ import { readerMeta } from "@/lib/article-meta";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
-import { answerNotes, articleHistory } from "@/lib/margin-answers";
 import { defaultColor, type MarkColor, markColor } from "@/lib/mark-colours";
 import { paragraphGeometry } from "@/lib/paragraph-geometry";
 import {
@@ -54,6 +53,10 @@ import { paragraphAtViewTop, shouldRestorePlace } from "@/lib/place-restore";
 import { escapeGoesBack } from "@/lib/reader-escape";
 import { revealImpression } from "@/lib/reader-impression";
 import { attachLeavingLinks, type LeavingLink } from "@/lib/reader-links";
+import {
+  answerNotesFromPreviews,
+  articleHistoryFromPreviews,
+} from "@/lib/reader-previews";
 import { backTarget, doneDestination, originRoom } from "@/lib/reader-return";
 import {
   DROP_CAP_FAMILIES,
@@ -83,7 +86,9 @@ import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { usePlaceRestore } from "@/lib/use-place-restore";
 import { openAfterLanding, useQuoteLanding } from "@/lib/use-quote-landing";
 import { useReadAlongside } from "@/lib/use-read-alongside";
+import { useReaderPreviews } from "@/lib/use-reader-previews";
 import { useReaderTheme } from "@/lib/use-reader-theme";
+import { useSavedAnswerBody } from "@/lib/use-saved-answer-body";
 import {
   marginNotesPending,
   useStartAnnotation,
@@ -123,12 +128,13 @@ export default function ReadPage() {
     articleId as Id<"articles">,
     isBook ? undefined : article?.annotationStatus,
   );
-  const annotations = useQuery(
-    api.annotations.listByArticle,
-    !scopeReady
-      ? "skip"
-      : { articleId: articleKey, unitIndex: unitIndex ?? undefined },
-  );
+  const readerData = useReaderPreviews(articleKey, unit, scopeReady);
+  const {
+    annotations,
+    notes: articleNotes,
+    threads: savedThreads,
+    marks: highlightDocs,
+  } = readerData;
   const reflection = useQuery(api.reflections.getByArticle, {
     articleId: articleId as any,
   });
@@ -141,15 +147,6 @@ export default function ReadPage() {
   const loveArticle = useMutation(api.lovedArticles.love);
   const unloveArticle = useMutation(api.lovedArticles.unlove);
   const reannotate = useAction(api.articles.requestReannotate);
-  const articleNotes = useQuery(
-    api.userNotes.listByArticle,
-    !scopeReady
-      ? "skip"
-      : {
-          articleId: articleKey,
-          unitIndex: unit,
-        },
-  );
 
   const [finishing, setFinishing] = useState(false);
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
@@ -231,22 +228,21 @@ export default function ReadPage() {
   const summary = useQuery(api.summaries.getByArticle, {
     articleId: articleId as any,
   });
-  const savedThreads = useQuery(
-    api.companionThreads.listByArticle,
-    !scopeReady
-      ? "skip"
-      : {
-          articleId: articleKey,
-          unitIndex: unit,
-        },
-  );
   const companion = useCompanion({
-    articleId: articleId as any,
+    articleId: articleKey,
     unitIndex: unitIndex,
     containerRef: articleRef,
     title: article?.title ?? "",
     settings,
   });
+  const savedAnswer = useSavedAnswerBody(
+    { articleId: articleKey, unitIndex: unit },
+    companion.open,
+  );
+  const collapseAnswer = useCallback(() => {
+    savedAnswer.cancel();
+    companion.collapse();
+  }, [savedAnswer.cancel, companion.collapse]);
   const listen = useListen(
     articleRef,
     articleId,
@@ -385,21 +381,12 @@ export default function ReadPage() {
         companion.thread?.id === doc._id ||
         companion.thread?.savedId === doc._id
       )
-        companion.collapse();
+        collapseAnswer();
       else openAnswer(doc._id);
     },
   });
 
   // Highlighter and pen marks (registered after saved passages so those win on click)
-  const highlightDocs = useQuery(
-    api.highlights.listByArticle,
-    !scopeReady
-      ? "skip"
-      : {
-          articleId: articleKey,
-          unitIndex: unit,
-        },
-  );
   const createHighlight = useMutation(api.highlights.create);
   const removeHighlight = useMutation(api.highlights.remove);
   const recolourHighlight = useMutation(api.highlights.setColor);
@@ -502,10 +489,11 @@ export default function ReadPage() {
 
   const startCompanion = useCallback(
     (args: Parameters<typeof companion.start>[0]) => {
+      savedAnswer.cancel();
       setActiveAnnotation(null);
       companion.start(args);
     },
-    [companion.start],
+    [companion.start, savedAnswer.cancel],
   );
 
   useReaderTheme(settings);
@@ -521,9 +509,14 @@ export default function ReadPage() {
 
   // A click on the page folds whichever note is open.
   const closeNote = useCallback(() => {
-    if (companion.thread) companion.collapse();
+    if (companion.thread || savedAnswer.pendingId) collapseAnswer();
     else closeAnnotation();
-  }, [companion.thread, companion.collapse, closeAnnotation]);
+  }, [
+    companion.thread,
+    savedAnswer.pendingId,
+    collapseAnswer,
+    closeAnnotation,
+  ]);
 
   // Focus mode keeps the passage under discussion lit
   const companionParagraph =
@@ -582,15 +575,28 @@ export default function ReadPage() {
   const openAnswer = useCallback(
     (id: string) => {
       setActiveAnnotation(null);
-      const doc = savedThreads?.find((t) => t._id === id);
-      if (doc && !companion.answers.some((a) => a.id === id))
-        companion.open(doc);
-      else companion.openAnswer(id);
+      const live = companion.answers.find(
+        (a) => a.id === id || a.savedId === id,
+      );
+      if (live) {
+        savedAnswer.cancel();
+        companion.openAnswer(live.id);
+      } else {
+        companion.collapse();
+        // SAFETY: IDs originate in previews or the URL; getBody validates the ID and ownership again.
+        void savedAnswer.open(id as Id<"companionThreads">);
+      }
     },
-    [savedThreads, companion.answers, companion.open, companion.openAnswer],
+    [
+      companion.answers,
+      companion.openAnswer,
+      companion.collapse,
+      savedAnswer.cancel,
+      savedAnswer.open,
+    ],
   );
   const answers = useMemo(
-    () => answerNotes(companion.answers, savedThreads),
+    () => answerNotesFromPreviews(companion.answers, savedThreads),
     [companion.answers, savedThreads],
   );
 
@@ -599,19 +605,32 @@ export default function ReadPage() {
   const linkedAnswer = searchParams.get("answer");
   const openedLink = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${articleId}:${linkedNote ?? ""}:${linkedAnswer ?? ""}`;
+    const key = `${articleId}:${unit ?? ""}:${linkedNote ?? ""}:${linkedAnswer ?? ""}`;
     if (openedLink.current === key) return;
+    if (!scopeReady) return;
     const action = openAfterLanding({
       landed,
       note: linkedNote,
       answer: linkedAnswer,
-      loadedAnswerIds: savedThreads?.map((t) => t._id),
+      // Deep links may name an answer beyond the first preview page.
+      loadedAnswerIds: linkedAnswer
+        ? [linkedAnswer]
+        : savedThreads?.map((t) => t._id),
     });
     if (!action) return;
     openedLink.current = key;
     if (action.open === "notes") setNotesPanelOpen(true);
     else openAnswer(action.id);
-  }, [landed, linkedNote, linkedAnswer, savedThreads, articleId, openAnswer]);
+  }, [
+    landed,
+    linkedNote,
+    linkedAnswer,
+    savedThreads,
+    articleId,
+    unit,
+    scopeReady,
+    openAnswer,
+  ]);
 
   // Said under the toolbar, where Listen lives, and gone again on its own.
   const [listenUnavailable, setListenUnavailable] = useState(false);
@@ -683,10 +702,17 @@ export default function ReadPage() {
       o: () => {
         const paragraph = currentParagraph();
         if (!paragraph) return;
+        // A quote crossing inline/UI boundaries can have multiple DOM marks.
+        // Keyboard navigation visits the annotation, not each decoration part.
+        const annotationHandles = new Map<string, HTMLElement>();
+        for (const mark of paragraph.querySelectorAll<HTMLElement>(
+          ".annotation-mark",
+        )) {
+          const id = mark.dataset.annotationId;
+          if (id && !annotationHandles.has(id)) annotationHandles.set(id, mark);
+        }
         const openers = [
-          ...Array.from(
-            paragraph.querySelectorAll<HTMLElement>(".annotation-mark"),
-          ).map((annotation) => () => {
+          ...Array.from(annotationHandles.values()).map((annotation) => () => {
             annotation.focus({ preventScroll: true });
             annotation.click();
           }),
@@ -739,6 +765,7 @@ export default function ReadPage() {
   const readerPanelOpen = Boolean(
     activeAnnotation ||
       companion.thread ||
+      savedAnswer.pendingId ||
       notesPanelOpen ||
       articleAskOpen ||
       phoneSheet,
@@ -817,7 +844,7 @@ export default function ReadPage() {
         setActiveAnnotation(null);
         return;
       }
-      companion.collapse();
+      collapseAnswer();
       const mark = articleRef.current?.querySelector(
         `[data-annotation-id="${CSS.escape(annotationId)}"]`,
       );
@@ -827,7 +854,7 @@ export default function ReadPage() {
       });
       trackAnnotationOpen(annotationId);
     },
-    [trackAnnotationOpen, companion.collapse],
+    [trackAnnotationOpen, collapseAnswer],
   );
 
   const openAnnotation = annotations?.find(
@@ -924,10 +951,11 @@ export default function ReadPage() {
         range={openRange}
         containerRef={articleRef}
         layoutVersion={paragraphs.layoutVersion}
-        onClose={companion.collapse}
+        onClose={collapseAnswer}
         onDelete={() => deleteAnswer(answerThread.id)}
         onFollowUp={companion.followUp}
         onRegenerate={companion.regenerate}
+        onStop={() => companion.stop(answerThread.id)}
         onJump={jumpToParagraph}
         onKeep={() => keepAnswer(answerThread.id)}
         onResync={() => companion.resync(answerThread.id)}
@@ -949,6 +977,7 @@ export default function ReadPage() {
         backLabel={back.label}
         maxWidth={`max(${MAX_WIDTHS[settings.width]}, 42rem)`}
         noteCount={noteCount}
+        noteCountHasMore={readerData.hasMore}
         notesOpen={notesPanelOpen}
         onToggleNotes={() => setNotesPanelOpen((o) => !o)}
         rating={impression?.rating ?? undefined}
@@ -1012,7 +1041,7 @@ export default function ReadPage() {
           onClick={() => {
             setNotesPanelOpen(false);
             setActiveAnnotation(null);
-            companion.collapse();
+            collapseAnswer();
             setArticleAskOpen((open) => !open);
           }}
         >
@@ -1021,7 +1050,10 @@ export default function ReadPage() {
         </button>
         <button onClick={() => setNotesPanelOpen(true)}>
           <NotebookPen size={19} />
-          Notes{noteCount ? ` · ${noteCount}` : ""}
+          Notes
+          {noteCount || readerData.hasMore
+            ? ` · ${noteCount}${readerData.hasMore ? "+" : ""}`
+            : ""}
         </button>
         <button onClick={toggleListen} aria-pressed={listen.active}>
           <Headphones size={19} />
@@ -1060,6 +1092,21 @@ export default function ReadPage() {
       )}
 
       {/* Selection toolbar — Ask / Explain / Simplify, note and copy */}
+      {(savedAnswer.pendingId || savedAnswer.error) && (
+        <div
+          role="status"
+          className="fixed z-40 left-3 right-3 top-[calc(3.5rem+env(safe-area-inset-top))] rounded-md bg-[var(--reader-surface)] p-3 font-sans text-sm text-[var(--ink)] ring-1 ring-[var(--reader-border)] sm:left-auto sm:right-[calc(var(--notes-inset)+1.5rem)] sm:max-w-sm"
+        >
+          {savedAnswer.error ?? "Loading saved answer…"}{" "}
+          <button
+            type="button"
+            className="underline min-h-11"
+            onClick={savedAnswer.cancel}
+          >
+            {savedAnswer.pendingId ? "Cancel" : "Dismiss"}
+          </button>
+        </div>
+      )}
       <SelectionToolbar
         containerRef={articleRef}
         getCurrentParagraphRange={getCurrentParagraphRange}
@@ -1202,6 +1249,18 @@ export default function ReadPage() {
               />
             )}
           </div>
+          {readerData.hasMore && (
+            <button
+              type="button"
+              className="mt-6 min-h-11 font-sans text-sm underline"
+              disabled={readerData.loadingMore}
+              onClick={readerData.loadMore}
+            >
+              {readerData.loadingMore
+                ? "Loading more…"
+                : "Load more margin notes and marks"}
+            </button>
+          )}
         </article>
       </div>
 
@@ -1328,6 +1387,7 @@ export default function ReadPage() {
             saveError,
         )}
         onAsk={(question) => {
+          savedAnswer.cancel();
           setActiveAnnotation(null);
           companion.startArticle(question);
         }}
@@ -1337,7 +1397,7 @@ export default function ReadPage() {
         onWebChange={(on) =>
           updateSettings({ webSearch: on ? "always" : "off" })
         }
-        history={articleHistory(companion.answers, savedThreads)}
+        history={articleHistoryFromPreviews(companion.answers, savedThreads)}
         onOpen={openAnswer}
       />
 
@@ -1366,6 +1426,7 @@ export default function ReadPage() {
         articleId={articleId}
         unitIndex={unit}
         isOpen={notesPanelOpen}
+        initialNoteId={linkedNote}
         onClose={() => setNotesPanelOpen(false)}
         pendingSelection={pendingSelection}
         onClearSelection={() => setPendingSelection(null)}

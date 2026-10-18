@@ -15,10 +15,23 @@ const state = vi.hoisted(() => ({
   reflectionSaved: true,
   finish: vi.fn(async () => {}),
   push: vi.fn(),
+  query: vi.fn(),
+  open: vi.fn(),
+  stop: vi.fn(),
+  loadMore: vi.fn(),
+  pages: [] as { name: string; args: unknown }[],
+  params: "",
+  scopeReady: true,
+  more: false,
+  landed: false,
+  marginMode: "sidenotes",
+  fragmented: false,
+  clicked: [] as string[],
+  thread: null as import("@/lib/companion").CompanionThread | null,
 }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ articleId: "article-1" }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(state.params),
   useRouter: () => ({ push: state.push, replace: state.noop }),
 }));
 vi.mock("convex/react", () => ({
@@ -37,6 +50,29 @@ vi.mock("convex/react", () => ({
   },
   useMutation: () => state.asyncNoop,
   useAction: () => state.asyncNoop,
+  useConvex: () => ({ query: state.query }),
+  usePaginatedQuery: (
+    ref: Parameters<typeof getFunctionName>[0],
+    args: unknown,
+  ) => {
+    const name = getFunctionName(ref);
+    state.pages.push({ name, args });
+    return {
+      results:
+        args === "skip"
+          ? state.empty
+          : name === "annotations:listPresentationByArticle"
+            ? annotations
+            : state.empty,
+      status:
+        args === "skip"
+          ? "LoadingFirstPage"
+          : state.more
+            ? "CanLoadMore"
+            : "Exhausted",
+      loadMore: state.loadMore,
+    };
+  },
 }));
 const annotations = [{ _id: "a1", type: "context", content: "A margin note." }];
 const article = {
@@ -53,7 +89,7 @@ vi.mock("@/lib/use-book-reading", () => ({
     article,
     isBook: false,
     unitIndex: null,
-    scopeReady: true,
+    scopeReady: state.scopeReady,
   }),
   useBookProgress: () => {},
 }));
@@ -72,11 +108,12 @@ vi.mock("@/lib/companion", () => ({
   usePassageHighlight: () => {},
   useCompanion: () => ({
     answers: state.empty,
-    thread: null,
+    thread: state.thread,
     openId: null,
     start: state.noop,
     collapse: state.noop,
-    open: state.noop,
+    open: state.open,
+    stop: state.stop,
     openAnswer: state.noop,
     startArticle: state.noop,
     keep: state.asyncNoop,
@@ -97,7 +134,7 @@ vi.mock("@/lib/reading-modes", () => ({
   useListen: () => ({ active: false, stop: state.noop }),
 }));
 vi.mock("@/lib/use-margin-mode", () => ({
-  useMarginMode: () => "sidenotes",
+  useMarginMode: () => state.marginMode,
   usePrefersReducedMotion: () => true,
 }));
 vi.mock("@/lib/highlights", () => ({
@@ -115,9 +152,9 @@ vi.mock("@/lib/use-mark-default", () => ({
 vi.mock("@/lib/use-read-alongside", () => ({ useReadAlongside: () => null }));
 vi.mock("@/lib/use-reader-theme", () => ({ useReaderTheme: () => {} }));
 vi.mock("@/lib/use-place-restore", () => ({ usePlaceRestore: () => {} }));
-vi.mock("@/lib/use-quote-landing", () => ({
-  useQuoteLanding: () => false,
-  openAfterLanding: () => null,
+vi.mock("@/lib/use-quote-landing", async (original) => ({
+  ...(await original<typeof import("@/lib/use-quote-landing")>()),
+  useQuoteLanding: () => state.landed,
 }));
 vi.mock("@/lib/use-is-intersecting", () => ({
   useIsIntersecting: () => false,
@@ -130,13 +167,44 @@ vi.mock("@/components/article-renderer", () => ({
   ArticleRenderer: () => (
     <div data-article-body>
       <p>
-        <mark data-annotation-id="a1">Invented prose.</mark>
+        <mark
+          className="annotation-mark"
+          data-annotation-id="a1"
+          onClick={() => state.clicked.push("a1")}
+        >
+          Invented prose.
+        </mark>
+        {state.fragmented && (
+          <>
+            <mark
+              className="annotation-mark"
+              data-annotation-id="a1"
+              onClick={() => state.clicked.push("a1")}
+            >
+              Second fragment.
+            </mark>
+            <mark
+              className="annotation-mark"
+              data-annotation-id="a2"
+              onClick={() => state.clicked.push("a2")}
+            >
+              Another annotation.
+            </mark>
+          </>
+        )}
       </p>
     </div>
   ),
 }));
 vi.mock("@/components/article-tags", () => ({ ArticleTags: () => null }));
 vi.mock("@/components/article-ask", () => ({ ArticleAsk: () => null }));
+vi.mock("@/components/companion-card", () => ({
+  CompanionCard: ({ onStop }: { onStop: () => void }) => (
+    <button id="fixture-stop" onClick={onStop}>
+      Stop answer fixture
+    </button>
+  ),
+}));
 vi.mock("@/components/article-back-matter", () => ({
   ArticleBackMatter: ({
     reflectionFlush,
@@ -174,6 +242,19 @@ beforeEach(() => {
   state.reflectionSaved = true;
   state.finish.mockClear();
   state.push.mockClear();
+  state.query.mockReset();
+  state.open.mockClear();
+  state.stop.mockClear();
+  state.loadMore.mockClear();
+  state.pages = [];
+  state.params = "";
+  state.scopeReady = true;
+  state.more = false;
+  state.landed = false;
+  state.marginMode = "sidenotes";
+  state.fragmented = false;
+  state.clicked = [];
+  state.thread = null;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -210,6 +291,98 @@ it("does not finish or navigate away from a reflection whose save failed", async
   expect(state.finish).not.toHaveBeenCalled();
   expect(state.push).not.toHaveBeenCalled();
   expect(document.body.textContent).toContain("Couldn't save");
+});
+it("skips every preview collection until the readable unit scope resolves", async () => {
+  state.scopeReady = false;
+  await act(async () => root.render(<ReadPage />));
+  expect(new Set(state.pages.map((page) => page.name))).toEqual(
+    new Set([
+      "annotations:listPresentationByArticle",
+      "userNotes:listPreviewsByArticle",
+      "companionThreads:listPreviewsByArticle",
+      "highlights:listPresentationByArticle",
+    ]),
+  );
+  expect(state.pages.every((page) => page.args === "skip")).toBe(true);
+});
+it("hydrates a linked saved answer outside the preview page, without a model call", async () => {
+  state.params = "answer=saved-answer&quote=Invented";
+  state.landed = true;
+  const body = {
+    _id: "saved-answer",
+    articleId: "article-1",
+    mode: "ask",
+    turns: [{ role: "assistant", content: "Saved body" }],
+  };
+  state.query.mockResolvedValue(body);
+  await act(async () => root.render(<ReadPage />));
+  expect(state.query).toHaveBeenCalledTimes(1);
+  expect(getFunctionName(state.query.mock.calls[0][0])).toBe(
+    "companionThreads:getBody",
+  );
+  expect(state.query.mock.calls[0][1]).toEqual({ threadId: "saved-answer" });
+  expect(state.open).toHaveBeenCalledWith(body);
+});
+it("does not reopen a pending linked answer after Cancel", async () => {
+  state.params = "answer=late-answer&quote=Invented";
+  state.landed = true;
+  let resolve!: (body: unknown) => void;
+  state.query.mockReturnValue(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  await act(async () => root.render(<ReadPage />));
+  const cancel = [...document.querySelectorAll("button")].find(
+    (button) => button.textContent === "Cancel",
+  );
+  expect(cancel).toBeDefined();
+  await act(async () => cancel!.click());
+  await act(async () =>
+    resolve({ _id: "late-answer", articleId: "article-1", turns: [] }),
+  );
+  expect(state.open).not.toHaveBeenCalled();
+});
+it("offers explicit continuation for additional margin data", async () => {
+  state.more = true;
+  await act(async () => root.render(<ReadPage />));
+  const button = [...document.querySelectorAll("button")].find(
+    (node) => node.textContent === "Load more margin notes and marks",
+  );
+  expect(button).toBeDefined();
+  await act(async () => button!.click());
+  expect(state.loadMore).toHaveBeenCalledTimes(4);
+});
+it("connects Stop to the currently open answer rather than cancelling another stream", async () => {
+  state.marginMode = "sheet";
+  state.thread = {
+    id: "active-answer",
+    mode: "article",
+    selection: "",
+    question: "Why?",
+    paragraphIndex: null,
+    turns: [],
+    doneTurns: [],
+    status: "streaming",
+    model: null,
+  };
+  await act(async () => root.render(<ReadPage />));
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>("#fixture-stop")?.click(),
+  );
+  expect(state.stop).toHaveBeenCalledWith("active-answer");
+});
+it("cycles split annotations once per identity with the paragraph shortcut", async () => {
+  state.fragmented = true;
+  await act(async () => root.render(<ReadPage />));
+  for (let i = 0; i < 3; i++) {
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "o", bubbles: true }),
+      ),
+    );
+  }
+  expect(state.clicked).toEqual(["a1", "a2", "a1"]);
 });
 afterEach(async () => {
   await act(async () => root.unmount());

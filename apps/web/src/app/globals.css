@@ -183,6 +183,10 @@ article[data-margin="phone"] .annotation-mark::after {
   user-select: none;
 }
 
+article[data-margin="phone"] .annotation-mark[data-annotation-part]:not([data-annotation-last])::after {
+  content: none;
+}
+
 .sidenote-layer {
   position: absolute;
   top: 0;

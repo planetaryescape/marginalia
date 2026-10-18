@@ -37,10 +37,17 @@ let article: HTMLElement;
 let range: Range;
 const container: RefObject<HTMLElement | null> = { current: null };
 
-function Harness({ articleId = "a1" }: { articleId?: string }) {
+function Harness({
+  articleId = "a1",
+  unitIndex,
+}: {
+  articleId?: string;
+  unitIndex?: number;
+}) {
   container.current = article;
   latest = useCompanion({
     articleId: articleId as never,
+    unitIndex,
     containerRef: container,
     title: "Hill walking",
     settings: DEFAULT_SETTINGS,
@@ -124,6 +131,16 @@ const finish = async (text: string, index = streams.length - 1) => {
 };
 const stored = (id = "a1") =>
   JSON.parse(sessionStorage.getItem(`marginalia:answers:${id}`) ?? "[]");
+
+it("records a completed Define in the displayed book part", async () => {
+  await act(async () => root.render(<Harness unitIndex={4} />));
+  await ask("define");
+  await finish("A concise definition.");
+  expect(mocks.recordLookup).toHaveBeenCalledTimes(1);
+  expect(mocks.recordLookup).toHaveBeenCalledWith(
+    expect.objectContaining({ articleId: "a1", unitIndex: 4 }),
+  );
+});
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

@@ -169,7 +169,19 @@ const fromStored = (a: StoredAnswer): CompanionThread => ({
   status: "done",
 });
 
-const fromDoc = (doc: Doc<"companionThreads">): CompanionThread => ({
+type ReopenThread = Pick<
+  Doc<"companionThreads">,
+  | "_id"
+  | "mode"
+  | "selection"
+  | "question"
+  | "paragraphIndex"
+  | "turns"
+  | "model"
+  | "keptAt"
+>;
+
+const fromDoc = (doc: ReopenThread): CompanionThread => ({
   id: doc._id,
   // Only an answer the reader chose to keep is a kept record. An older,
   // automatically saved thread is a temporary copy: its follow-ups stay
@@ -430,6 +442,7 @@ export function useCompanion({
       if (base.mode === "define" && history.length === 0)
         recordLookup({
           articleId,
+          unitIndex: unitIndex ?? undefined,
           word: base.selection,
           sentence: sentence ?? "",
           paragraphIndex: base.paragraphIndex ?? undefined,
@@ -496,7 +509,7 @@ export function useCompanion({
 
   /** Opens a kept answer without calling the model again. */
   const open = useCallback(
-    (doc: Doc<"companionThreads">) => {
+    (doc: ReopenThread) => {
       const existing = answersRef.current.find(
         (a) => a.id === doc._id || a.savedId === doc._id,
       );
