@@ -314,7 +314,7 @@ export async function buildMarginaliaContext(
           score: match.score,
           source: item.source,
           text: `${header}\n${item.body}`,
-          clipped: item.clipped,
+          clipped: item.clipped || header.includes("[Context clipped]"),
           path: item.filePath ?? undefined,
         });
         count++;
@@ -346,12 +346,17 @@ export async function buildMarginaliaContext(
       for (const item of result.items) {
         // Same-article activity has direct relevance (1), not an invented
         // vector similarity. Preserve source-version keys even when clipped.
+        const prefix = item.source.startsWith("thread:")
+          ? `--- In "${clipRecallText(article.title, 2048)}" ---\n`
+          : item.source.startsWith("highlight:")
+            ? `- ${item.verb}: `
+            : "- ";
         blocks.push({
           kind: "own",
           score: 1,
           source: item.source,
-          text: `${item.source.startsWith("thread:") ? `--- In "${clipRecallText(article.title, 2048)}" ---\n` : item.source.startsWith("highlight:") ? `- ${item.verb}: ` : "- "}${item.body}`,
-          clipped: item.clipped,
+          text: `${prefix}${item.body}`,
+          clipped: item.clipped || prefix.includes("[Context clipped]"),
         });
         count++;
       }

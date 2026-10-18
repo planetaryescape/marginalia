@@ -719,6 +719,38 @@ describe("bounded private marginalia recall", () => {
     expect(clipped).toContain("[Context clipped]");
   });
 
+  it("accounts for clipped attribution titles even when source bodies are small", async () => {
+    const f = await fixture();
+    const ids = await f.sources();
+    await f.t.run((ctx) =>
+      ctx.db.patch("articles", f.parent, { title: "界".repeat(5000) }),
+    );
+    f.mockEmbeddings();
+    const result = await buildMarginaliaContext(
+      f.action(async (table) =>
+        table === "userNotes" ? [{ _id: ids.note, _score: 0.8 }] : [],
+      ),
+      await f.article(),
+      embedder,
+    );
+    expect(result.contextText).toContain("[Context clipped]");
+    expect(result.contextText).toContain("1 included sources clipped");
+    expect(result.sources).toEqual([`note:${ids.note}:13`]);
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("articles", f.target, { title: "界".repeat(5000) });
+      await ctx.db.patch("companionThreads", ids.thread, {
+        articleId: f.target,
+      });
+    });
+    const own = await buildMarginaliaContext(
+      f.action(),
+      await f.article(),
+      null,
+    );
+    expect(own.contextText).toContain("1 included sources clipped");
+    expect(own.sources).toEqual([`thread:${ids.thread}:16`]);
+  });
+
   it("filters forged same-article activity rows and bounds every family's ordinary history", async () => {
     const f = await fixture();
     await f.t.run(async (ctx) => {
