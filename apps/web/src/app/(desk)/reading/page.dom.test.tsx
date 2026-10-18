@@ -15,15 +15,69 @@ const mocks = vi.hoisted(() => ({
   accept: vi.fn(),
   keepBoth: vi.fn(),
   lookups: {
-    results: [] as unknown[],
+    results: [] as ReturnType<typeof lookup>[],
     status: "Exhausted" as string,
     loadMore: vi.fn(),
   },
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: (ref: string, args?: { today?: string }) => {
+  useQuery: (
+    ref: string,
+    args?: {
+      today?: string;
+      query?: string;
+      letter?: string;
+      wordKey?: string;
+    },
+  ) => {
     if (ref === "room") mocks.todays.push(args?.today);
+    const rows = mocks.lookups.results;
+    const keys = [...new Set(rows.map((r) => r.wordKey))].sort();
+    const letterOf = (key: string) =>
+      key.normalize("NFD").replace(/\p{M}/gu, "").charAt(0).toUpperCase();
+    if (ref === "dictionarySummary")
+      return {
+        total: keys.length,
+        complete: true,
+        month: 0,
+        monthComplete: true,
+        monthCursor: null,
+        letters: [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map((letter) => ({
+          letter,
+          hasWords: keys.some((key) => letterOf(key) === letter),
+        })),
+      };
+    if (ref === "dictionaryHeadwords")
+      return {
+        page: keys
+          .filter(
+            (key) =>
+              (!args?.letter || letterOf(key) === args.letter) &&
+              (!args?.query ||
+                key
+                  .normalize("NFD")
+                  .replace(/\p{M}/gu, "")
+                  .includes(args.query)),
+          )
+          .slice(0, 40)
+          .map((wordKey) => ({
+            wordKey,
+            letter: letterOf(wordKey),
+            preview: rows
+              .filter((r) => r.wordKey === wordKey)
+              .sort((a, b) => a.createdAt - b.createdAt)[0].sense,
+            occurrences: rows.filter((r) => r.wordKey === wordKey).length,
+          })),
+        done: mocks.lookups.status === "Exhausted",
+        after: "next",
+      };
+    if (ref === "dictionarySenses")
+      return {
+        page: rows.filter((r) => r.wordKey === args?.wordKey).slice(0, 4),
+        isDone: true,
+        continueCursor: "",
+      };
     return (mocks as never)[ref];
   },
   usePaginatedQuery: () => mocks.lookups,
@@ -34,7 +88,14 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     stats: { readingRoom: "room", readingTopics: "topics" },
     readingHabits: { readingHabits: "habits", readingLinger: "linger" },
-    dictionary: { page: "page" },
+    dictionary: {
+      page: "page",
+      summary: "dictionarySummary",
+      headwords: "dictionaryHeadwords",
+      senses: "dictionarySenses",
+      monthCount: "dictionaryMonthCount",
+      preparePage: "preparePage",
+    },
     tagMerge: { pending: "merges", accept: "accept", keepBoth: "keepBoth" },
   },
 }));
@@ -398,6 +459,9 @@ describe("Dictionary", () => {
     );
     expect(headwords).toEqual(["elastic", "ergodic", "zeal"]);
 
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("article button")?.click(),
+    );
     const text = container.textContent ?? "";
     expect(text).toContain("3 words");
     // Two senses of one word are numbered, with the sentence in italic
@@ -410,14 +474,20 @@ describe("Dictionary", () => {
     expect(link?.getAttribute("href")).toBe(
       "/read/art1?quote=the+queue+stays+elastic+under+load&p=4",
     );
-    expect(text).toContain("Article no longer in your library");
+    const goneEntry = [...container.querySelectorAll("article")].find(
+      (a) => a.querySelector("h3")?.textContent === "ergodic",
+    );
+    await act(async () => goneEntry?.querySelector("button")?.click());
+    expect(container.textContent).toContain(
+      "Article no longer in your library",
+    );
 
     const thumb = container.querySelector("nav[aria-label='Jump to a letter']");
-    const buttons = [...(thumb?.querySelectorAll("button") ?? [])].map(
-      (b) => b.textContent,
-    );
+    const buttons = [
+      ...(thumb?.querySelectorAll("button:not(:disabled)") ?? []),
+    ].map((b) => b.textContent);
     expect(buttons).toEqual(["E", "Z"]);
-    expect(thumb?.querySelectorAll("[aria-disabled='true']")).toHaveLength(24);
+    expect(thumb?.querySelectorAll("button:disabled")).toHaveLength(24);
     // Guide words head each column
     expect(container.querySelector("h2")?.textContent).toContain(
       "elastic — ergodic",
@@ -427,6 +497,9 @@ describe("Dictionary", () => {
   it("links an entry whose title the server left out, without calling it deleted", async () => {
     mocks.lookups.results = [lookup({ _id: "u", articleTitle: null })];
     await render();
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("article button")?.click(),
+    );
     const link = container.querySelector("article a");
     expect(link?.textContent).toBe("Open article");
     expect(container.textContent).not.toContain("no longer in your library");
@@ -439,6 +512,8 @@ describe("Dictionary", () => {
     ];
     await render();
     const scroll = vi.fn();
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true });
+    Element.prototype.scrollIntoView = scroll;
     const target = document.getElementById("letter-Z");
     expect(target).not.toBeNull();
     (target as HTMLElement).scrollIntoView = scroll;
@@ -471,15 +546,15 @@ describe("Dictionary", () => {
       [...container.querySelectorAll("h3")].map((h) => h.textContent),
     ).toEqual(["épistémique"]);
     await type("qq");
-    expect(container.textContent).toContain("No word contains “qq”.");
+    expect(container.textContent).toContain("No word or sense contains “qq”.");
   });
 
-  it("keeps loading older lookups until the cap, then says it stopped", async () => {
+  it("never drains older lookups automatically, even with more than 2000 words", async () => {
     mocks.lookups.results = [lookup({ _id: "a" })];
     mocks.lookups.status = "CanLoadMore";
     await render();
-    expect(mocks.lookups.loadMore).toHaveBeenCalledWith(40);
-    expect(container.textContent).toContain("loading older words");
+    expect(mocks.lookups.loadMore).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Next words");
 
     mocks.lookups.loadMore.mockClear();
     mocks.lookups.results = Array.from({ length: 2000 }, (_, i) =>
@@ -487,6 +562,7 @@ describe("Dictionary", () => {
     );
     await render();
     expect(mocks.lookups.loadMore).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("2,000 most recent lookups");
+    expect(container.textContent).toContain("2000 words");
+    expect(container.querySelectorAll("article")).toHaveLength(40);
   });
 });

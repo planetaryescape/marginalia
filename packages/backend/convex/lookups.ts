@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { requireArticle } from "./access";
 import { mutation } from "./functions";
+import { dictionaryActive, indexDictionaryLookup } from "./lib/dictionaryIndex";
 import { validateIndex } from "./lib/readerBodies";
 
 const MAX_WORD = 200;
@@ -44,6 +45,11 @@ export const record = mutation({
     sense: v.string(),
   },
   handler: async (ctx, args) => {
+    if (!(await dictionaryActive(ctx, ctx.readerId)))
+      throw new Error("Library is inactive");
+    for (const text of [args.word, args.sentence, args.sense])
+      if (new TextEncoder().encode(text).length > 64 * 1024)
+        throw new Error("Lookup input exceeds 64 KiB");
     const article = await requireArticle(ctx, args.articleId, ctx.readerId);
     validateIndex(args.unitIndex, "unit");
     validateIndex(args.paragraphIndex, "paragraph");
@@ -76,9 +82,14 @@ export const record = mutation({
         sense,
         articleTitle: article.title,
       });
+      await indexDictionaryLookup(ctx, {
+        ...repeat,
+        sense,
+        articleTitle: article.title,
+      });
       return repeat._id;
     }
-    return ctx.db.insert("lookups", {
+    const id = await ctx.db.insert("lookups", {
       userId: ctx.readerId,
       articleId: args.articleId,
       word,
@@ -91,10 +102,13 @@ export const record = mutation({
       articleTitle: article.title,
       createdAt: Date.now(),
     });
+    const row = await ctx.db.get("lookups", id);
+    if (row) await indexDictionaryLookup(ctx, row);
+    return id;
   },
 });
 
-const GONE_BATCH = 100;
+const GONE_BATCH = 16;
 
 /**
  * After an article is deleted, marks the reader's lookups of it so the
@@ -112,7 +126,7 @@ export const markArticleGone = internalMutation({
       .withIndex("by_user_article", (q) =>
         q.eq("userId", userId).eq("articleId", articleId),
       )
-      .paginate({ numItems: GONE_BATCH, cursor });
+      .paginate({ numItems: GONE_BATCH, cursor, maximumBytesRead: 256 * 1024 });
     for (const lookup of page.page)
       await ctx.db.patch("lookups", lookup._id, {
         articleGone: true,

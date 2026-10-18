@@ -123,6 +123,13 @@ describe("groupLookups", () => {
     );
   });
 
+  it("keeps an explicit zero book unit in sentence links", () => {
+    const [entry] = groupLookups([
+      row({ wordKey: "book", sentence: "quote", unitIndex: 0 }),
+    ]);
+    expect(entry.senses[0].href).toBe("/read/art1?unit=0&quote=quote&p=2");
+  });
+
   it("leaves out a row without a word key and handles an empty library", () => {
     expect(groupLookups([row({ wordKey: "" })])).toEqual([]);
     expect(groupLookups([])).toEqual([]);
@@ -153,6 +160,14 @@ describe("searchEntries", () => {
   it("returns everything for a blank search and nothing for no match", () => {
     expect(searchEntries(entries, "  ")).toHaveLength(5);
     expect(searchEntries(entries, "qq")).toEqual([]);
+  });
+  it("matches an interior accented sense substring, not only headword prefixes", () => {
+    const entries = groupLookups([
+      row({ wordKey: "rare", sense: "n. a récondite idea" }),
+    ]);
+    expect(searchEntries(entries, "CONDIT").map((e) => e.key)).toEqual([
+      "rare",
+    ]);
   });
 });
 
