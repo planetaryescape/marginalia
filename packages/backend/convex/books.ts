@@ -463,8 +463,9 @@ export const finishBook = internalMutation({
   },
 });
 
-// A unit is up to 400 KB, and a transaction reads at most 16 MiB
-const DISCARD_BATCH = 10;
+// Valid legacy units can approach 1 MiB. Selection and wrapped deletion read
+// each body more than once; leave room for cards, parent and import metadata.
+const DISCARD_BATCH = 4;
 
 /** Removes a book that failed part-way: its units, then its rows. */
 export const discardBook = internalMutation({

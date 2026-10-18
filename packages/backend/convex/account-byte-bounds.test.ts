@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { addReader } from "../test/owner";
 import { api } from "./_generated/api";
 import authSchema from "./betterAuth/schema";
+import { syncArticleMetadata, syncBookPartCard } from "./lib/articleMetadata";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -37,6 +38,9 @@ it("purges valid near-limit bodies under a cumulative 4 MiB read budget", async 
         annotationStatus: "deferred",
         createdAt: index,
       });
+      const article = await ctx.db.get("articles", articleId);
+      if (!article) throw new Error("Missing seeded article");
+      await syncArticleMetadata(ctx, null, article);
       await ctx.db.insert("userNotes", {
         userId: libraryId,
         articleId,
@@ -55,7 +59,7 @@ it("purges valid near-limit bodies under a cumulative 4 MiB read budget", async 
         createdAt: index,
         updatedAt: index,
       });
-      await ctx.db.insert("bookUnits", {
+      const unitId = await ctx.db.insert("bookUnits", {
         userId: libraryId,
         articleId,
         index: 0,
@@ -66,6 +70,9 @@ it("purges valid near-limit bodies under a cumulative 4 MiB read budget", async 
         estimatedReadMinutes: 1,
         annotationStatus: "deferred",
       });
+      const unit = await ctx.db.get("bookUnits", unitId);
+      if (!unit) throw new Error("Missing seeded unit");
+      await syncBookPartCard(ctx, null, unit);
       await ctx.db.insert("lookups", {
         userId: libraryId,
         articleId,
@@ -97,6 +104,10 @@ it("purges valid near-limit bodies under a cumulative 4 MiB read budget", async 
     "lookups",
     "highlights",
     "articles",
+    "articleMetadata",
+    "bookPartCards",
+    "libraryMetadataState",
+    "shelfCounts",
     "readers",
   ] as const) {
     expect(await t.run((ctx) => ctx.db.query(table).take(1))).toHaveLength(0);

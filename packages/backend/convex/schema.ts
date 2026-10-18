@@ -287,6 +287,104 @@ export default defineSchema({
     .index("by_userId", ["userId"])
     .index("by_userId_and_articleId", ["userId", "articleId"]),
 
+  // Derived display/ownership surface. Never add prose, vectors or outlines.
+  articleMetadata: defineTable({
+    articleId: v.id("articles"),
+    userId: v.string(),
+    sourceCreationTime: v.number(),
+    title: v.string(),
+    url: v.string(),
+    guid: v.string(),
+    urlDeferred: v.optional(v.boolean()),
+    guidDeferred: v.optional(v.boolean()),
+    author: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    excerpt: v.optional(v.string()),
+    feedId: v.optional(v.id("feeds")),
+    publishedAt: v.optional(v.number()),
+    estimatedReadMinutes: v.optional(v.number()),
+    wordCount: v.optional(v.number()),
+    extractionStatus: v.union(
+      v.literal("pending"),
+      v.literal("extracted"),
+      v.literal("failed"),
+    ),
+    annotationStatus: v.union(
+      v.literal("pending"),
+      v.literal("annotated"),
+      v.literal("failed"),
+      v.literal("skipped"),
+      v.literal("deferred"),
+    ),
+    annotationRetries: v.optional(v.number()),
+    annotationVersion: v.optional(v.number()),
+    hasContent: v.optional(v.boolean()),
+    finishedAt: v.optional(v.number()),
+    bookUnitCount: v.optional(v.number()),
+    uploadedFileName: v.optional(v.string()),
+    readerDocumentId: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_articleId", ["articleId"])
+    .index("by_user", ["userId", "sourceCreationTime", "articleId"])
+    .index("by_user_finishedAt", [
+      "userId",
+      "finishedAt",
+      "sourceCreationTime",
+      "articleId",
+    ])
+    .index("by_user_annotationStatus_finishedAt", [
+      "userId",
+      "annotationStatus",
+      "finishedAt",
+      "sourceCreationTime",
+      "articleId",
+    ])
+    .index("by_user_annotationStatus_finishedAt_minutes", [
+      "userId",
+      "annotationStatus",
+      "finishedAt",
+      "estimatedReadMinutes",
+      "sourceCreationTime",
+      "articleId",
+    ])
+    .searchIndex("search_title", {
+      searchField: "title",
+      filterFields: ["userId", "extractionStatus"],
+    }),
+  bookPartCards: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    unitId: v.id("bookUnits"),
+    index: v.number(),
+    title: v.string(),
+    minutes: v.number(),
+  })
+    .index("by_unitId", ["unitId"])
+    .index("by_userId_and_articleId_and_index", [
+      "userId",
+      "articleId",
+      "index",
+    ]),
+  libraryMetadataState: defineTable({
+    userId: v.string(),
+    articlesReady: v.boolean(),
+    phase: v.union(
+      v.literal("articles"),
+      v.literal("parts"),
+      v.literal("saved"),
+      v.literal("loved"),
+      v.literal("done"),
+    ),
+    cursor: v.union(v.string(), v.null()),
+  }).index("by_userId", ["userId"]),
+  shelfCounts: defineTable({
+    userId: v.string(),
+    saved: v.number(),
+    loved: v.number(),
+    ready: v.boolean(),
+  }).index("by_userId", ["userId"]),
+
   annotations: defineTable({
     articleId: v.id("articles"),
     userId: v.string(),
@@ -692,6 +790,15 @@ export default defineSchema({
     // Which statuses the scan has reached: annotated articles first, then
     // ones whose first annotation failed
     phase: v.optional(v.literal("failed")),
+    scanSource: v.optional(v.union(v.literal("metadata"), v.literal("legacy"))),
+    scanAfter: v.optional(v.number()),
+    scanCursor: v.optional(v.string()),
+    scanDone: v.optional(v.boolean()),
+    pendingIds: v.optional(v.array(v.id("articles"))),
+    batchStartedAt: v.optional(v.number()),
+    batchQueued: v.optional(v.number()),
+    nextBatchAt: v.optional(v.number()),
+    lastScheduledAt: v.optional(v.number()),
     queued: v.number(),
     startedAt: v.number(),
     updatedAt: v.number(),
@@ -903,6 +1010,7 @@ export default defineSchema({
     userId: v.string(),
     articleId: v.id("articles"),
     savedAt: v.number(),
+    shelfCounted: v.optional(v.boolean()),
   })
     .index("by_user", ["userId"])
     .index("by_user_article", ["userId", "articleId"]),
@@ -937,6 +1045,7 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_article", ["articleId"])
+    .index("by_articleId_and_annotationId", ["articleId", "annotationId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_user_recent", ["userId", "updatedAt"])
     .searchIndex("search_content", {
@@ -953,6 +1062,7 @@ export default defineSchema({
     userId: v.string(),
     articleId: v.id("articles"),
     lovedAt: v.number(),
+    shelfCounted: v.optional(v.boolean()),
     reviewIndex: v.number(),
     nextReviewAt: v.number(),
     lastReviewedAt: v.optional(v.number()),

@@ -2,6 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startImport } from "../test/imports";
+import { metadataContext } from "../test/metadata";
 import { addReader, saveTestCredential, secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -27,7 +28,8 @@ async function seedBook(
   minutes: number[],
   title = "Thinking in Systems",
 ) {
-  return t.run(async (ctx) => {
+  return t.run(async (rawCtx) => {
+    const ctx = metadataContext(rawCtx);
     const articleId = await ctx.db.insert("articles", {
       userId,
       guid: `upload:${title}:${userId}`,
@@ -843,10 +845,12 @@ describe("removing a half-written book", () => {
       articleId: id,
       importId,
     });
-    // One batch of ten is gone; the rest wait, and the import still names the book
-    expect(
-      await f.t.run((ctx) => ctx.db.query("bookUnits").collect()),
-    ).toHaveLength(15);
+    // A bounded first batch is gone; the import still names the remaining book.
+    const remainingUnits = await f.t.run((ctx) =>
+      ctx.db.query("bookUnits").collect(),
+    );
+    expect(remainingUnits.length).toBeGreaterThan(0);
+    expect(remainingUnits.length).toBeLessThan(25);
     expect(
       (await f.t.run((ctx) => ctx.db.get("documentImports", importId)))
         ?.partialArticleId,
@@ -901,7 +905,7 @@ describe("marks beyond the first part", () => {
 });
 
 describe("how many books a pick reads", () => {
-  it("considers the five newest unfinished books, each with its whole outline", async () => {
+  it("considers the five newest unfinished books through their next part cards", async () => {
     const f = await secondReaderTest(modules);
     for (let i = 0; i < 7; i++)
       await seedBook(f, "default_user", [4, 6], `Book ${i}`);

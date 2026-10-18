@@ -3,6 +3,7 @@ import { components, internal } from "./_generated/api";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { revokeSessions } from "./access";
 import { purgeForReader as purgeArticleImportKeys } from "./articleImportKeys";
+import { purgeArticleMetadata } from "./articleMetadata";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
@@ -274,7 +275,11 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
-  async (ctx, { userId }) => (await purgeMetadata(ctx, userId)) || PAGE_EMPTY,
+  async (ctx, { userId }) => {
+    const removed = await purgeArticleMetadata(ctx, userId);
+    if (removed) return removed;
+    return (await purgeMetadata(ctx, userId)) || PAGE_EMPTY;
+  },
   rows((ctx, u) =>
     ctx.db
       .query("marginaliaPasses")

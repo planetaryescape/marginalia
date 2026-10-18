@@ -1,11 +1,10 @@
 import { v } from "convex/values";
 import { query } from "./functions";
 import { host, readStatus } from "./lib/articleCard";
+import { metadataReady, takeCards } from "./lib/articleMetadata";
 
 /**
- * Candidates read per search. Search results are whole documents and an
- * article row can be close to a megabyte, so this stays far below the 16 MiB
- * read limit; fields are projected before anything is returned.
+ * Preserve the established ranking bound while searching small card records.
  */
 export const MAX_TITLE_MATCHES = 5;
 const MAX_QUERY = 200;
@@ -23,15 +22,24 @@ export const matchTitles = query({
     const text = args.query.trim().slice(0, MAX_QUERY);
     if (text.length < 2) return [];
     const userId = ctx.readerId;
-    const rows = await ctx.db
-      .query("articles")
-      .withSearchIndex("search_title", (q) =>
-        q
-          .search("title", text)
-          .eq("userId", userId)
-          .eq("extractionStatus", "extracted"),
-      )
-      .take(MAX_TITLE_MATCHES);
+    const source = (await metadataReady(ctx, userId))
+      ? ctx.db
+          .query("articleMetadata")
+          .withSearchIndex("search_title", (q) =>
+            q
+              .search("title", text)
+              .eq("userId", userId)
+              .eq("extractionStatus", "extracted"),
+          )
+      : ctx.db
+          .query("articles")
+          .withSearchIndex("search_title", (q) =>
+            q
+              .search("title", text)
+              .eq("userId", userId)
+              .eq("extractionStatus", "extracted"),
+          );
+    const rows = await takeCards(ctx, userId, source, MAX_TITLE_MATCHES);
     const seenUrls = new Set<string>();
     const matches = [];
     for (const [rank, row] of rows.entries()) {

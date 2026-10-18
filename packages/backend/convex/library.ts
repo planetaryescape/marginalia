@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
+import { ownedArticleCard } from "./access";
 import { readStatus } from "./lib/articleCard";
 
 // Data access for the "Ask your library" endpoint (lib/library.ts). Every
@@ -57,19 +58,8 @@ export const loadMatches = internalQuery({
 export const loadArticles = internalQuery({
   args: { userId: v.string(), articleIds: v.array(v.id("articles")) },
   handler: async (ctx, args) => {
-    const rows = await Promise.all(
-      args.articleIds.map((id) => ctx.db.get("articles", id)),
-    );
-    // Only what the librarian needs; article bodies stay out of the prompt
-    return rows.map((row) =>
-      row?.userId === args.userId
-        ? {
-            ...row,
-            content: undefined,
-            contentHtml: undefined,
-            embedding: undefined,
-          }
-        : null,
+    return Promise.all(
+      args.articleIds.map((id) => ownedArticleCard(ctx, id, args.userId)),
     );
   },
 });
@@ -83,8 +73,8 @@ export const findArticles = internalQuery({
   handler: async (ctx, args) => {
     const rows = await Promise.all(
       args.articleIds.map(async (id) => {
-        const article = await ctx.db.get("articles", id);
-        if (article?.userId !== args.userId) return null;
+        const article = await ownedArticleCard(ctx, id, args.userId);
+        if (!article) return null;
         const status = await readStatus(ctx, args.userId, id);
         return {
           articleId: article._id,

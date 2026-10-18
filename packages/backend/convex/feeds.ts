@@ -59,7 +59,9 @@ export const add = mutation({
 
 // Bounds the work behind one dialog; a feed polls at most a few posts at a time
 const PREVIEW_LIMIT = 300;
-const REMOVAL_PAGE = 20;
+// Source scan + trigger pre-delete + deletion's own read, plus protected
+// user material checks. Keep one near-limit article per transaction.
+const REMOVAL_PAGE = 1;
 // Reader allows 20 deletes a minute per token
 const READER_DELETE_SPACING_MS = 3_500;
 
