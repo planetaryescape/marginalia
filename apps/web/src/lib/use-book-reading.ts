@@ -2,7 +2,9 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { FunctionReturnType } from "convex/server";
+import { useEffect, useRef, useState } from "react";
+import { observeParagraphGeometry } from "./paragraph-geometry";
 
 /** `?unit=` as a part number counted from 0, or null when absent or not a number. */
 export function parseUnit(value: string | null): number | null {
@@ -21,57 +23,56 @@ export function useReadable(
   articleId: Id<"articles">,
   unitParam: string | null,
 ) {
-  const doc = useQuery(api.articles.getById, { articleId });
-  const isBook = doc?.bookUnitCount !== undefined && doc !== null;
-  const book = useQuery(api.books.get, isBook ? { articleId } : "skip");
-  const [first, setFirst] = useState<{ id: string; unit: number } | null>(null);
-  useEffect(() => {
-    if (book && first?.id !== articleId)
-      setFirst({ id: articleId, unit: book.nextUnit });
-  }, [book, first, articleId]);
-
   const requested = parseUnit(unitParam);
-  const unitIndex = !isBook
-    ? null
-    : (requested ?? (first?.id === articleId ? first.unit : null));
-  const unit = useQuery(
-    api.books.unit,
-    isBook && unitIndex !== null ? { articleId, index: unitIndex } : "skip",
+  type Bootstrap = NonNullable<
+    FunctionReturnType<typeof api.readerBootstrap.get>
+  >;
+  const [first, setFirst] = useState<{
+    id: string;
+    unit: number;
+    data: Bootstrap;
+  } | null>(null);
+  const chosen =
+    requested ?? (first?.id === articleId ? first.unit : undefined);
+  const fetched = useQuery(api.readerBootstrap.get, {
+    articleId,
+    unitIndex: chosen,
+  });
+  // Locking the default changes query arguments, not the already readable text.
+  // A missing/revoked result (null), unlike a pending subscription, never reuses it.
+  const result =
+    fetched === undefined && first?.id === articleId && chosen === first.unit
+      ? first.data
+      : fetched;
+  // Freeze the default in render as soon as the first text arrives. Progress
+  // updates cannot select another part between effects or after finishing it.
+  if (result?.isBook && result.unitIndex !== null && first?.id !== articleId)
+    setFirst({ id: articleId, unit: result.unitIndex, data: result });
+  const isBook = result?.isBook ?? false;
+  const book = useQuery(
+    api.readerBootstrap.outline,
+    isBook ? { articleId } : "skip",
+  );
+  const furthest = useQuery(
+    api.readerBootstrap.progress,
+    isBook ? { articleId } : "skip",
   );
 
-  const article = useMemo(() => {
-    if (!doc || !isBook) return doc;
-    if (!unit) return undefined;
-    return {
-      ...doc,
-      content: unit.content,
-      contentHtml: unit.contentHtml,
-      wordCount: unit.wordCount,
-      estimatedReadMinutes: unit.estimatedReadMinutes,
-      annotationStatus: unit.annotationStatus,
-    };
-  }, [doc, isBook, unit]);
-
   return {
-    article,
+    article: result?.article,
+    scopeReady: Boolean(result?.article),
     isBook,
-    unitIndex,
-    unitTitle: unit?.title,
+    unitIndex: result?.unitIndex ?? null,
+    unitTitle: result?.unitTitle ?? undefined,
     /** Identity of the part whose text is on screen */
-    unitKey: unit && article ? unit._id : undefined,
+    unitKey: result?.unitKey ?? undefined,
     outline: book?.outline,
     /** The part and percent the reader got furthest to, for resuming within it */
-    furthest: book
-      ? {
-          unit: book.furthestUnit,
-          scroll: book.furthestScroll,
-          paragraph: book.furthestParagraph,
-        }
-      : undefined,
+    furthest: furthest ?? undefined,
     /** Each part's one-line summary by part, null until written */
     summaries: book?.summaries,
     /** A part that doesn't exist (a stale link): the reader falls back to the first. */
-    missingUnit: isBook && unitIndex !== null && unit === null,
+    missingUnit: result?.missingUnit ?? false,
   };
 }
 
@@ -89,7 +90,10 @@ export function useBookProgress(
   articleId: Id<"articles">,
   unitIndex: number | null,
   unitKey: string | undefined,
-  measure: () => { percent: number; paragraphIndex?: number } | null,
+  measure: (
+    lastBucket: number,
+  ) => { percent: number; paragraphIndex?: number } | null,
+  containerRef: React.RefObject<HTMLElement | null>,
 ) {
   const record = useMutation(api.books.recordProgress);
   const measureRef = useRef(measure);
@@ -100,7 +104,7 @@ export function useBookProgress(
     let cancelled = false;
     const send = () => {
       if (cancelled) return;
-      const at = measureRef.current();
+      const at = measureRef.current(last);
       // Nothing is recorded until the part's text has been measured
       if (at === null) return;
       const { percent, paragraphIndex } = at;
@@ -111,6 +115,7 @@ export function useBookProgress(
       record({
         articleId,
         unitIndex,
+        unitKey,
         scrollPercent: step,
         paragraphIndex,
       }).catch(() => {
@@ -119,12 +124,10 @@ export function useBookProgress(
       });
     };
     // After the part's text has been laid out
-    const frame = requestAnimationFrame(send);
-    window.addEventListener("scroll", send, { passive: true });
+    const stop = observeParagraphGeometry(containerRef.current, send);
     return () => {
       cancelled = true;
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", send);
+      stop();
     };
-  }, [articleId, unitIndex, unitKey, record]);
+  }, [articleId, unitIndex, unitKey, record, containerRef]);
 }

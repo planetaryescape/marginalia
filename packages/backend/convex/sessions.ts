@@ -4,12 +4,20 @@ import type { Id } from "./_generated/dataModel";
 import { ownedArticle, requireArticle } from "./access";
 import { countFeedOutcome } from "./feedStats";
 import { mutation, query } from "./functions";
+import { ensureReadingSession } from "./lib/readingSession";
 import { updateQueueStats } from "./readingQueue";
 import { queueTasteRefresh } from "./taste";
 
 export const create = mutation({
-  args: { requestedMinutes: v.number() },
+  args: { requestedMinutes: v.number(), clientKey: v.optional(v.string()) },
   handler: async (ctx, args) => {
+    if (args.clientKey)
+      return ensureReadingSession(
+        ctx,
+        ctx.readerId,
+        args.clientKey,
+        args.requestedMinutes,
+      );
     return ctx.db.insert("sessions", {
       userId: ctx.readerId,
       requestedMinutes: args.requestedMinutes,
@@ -24,6 +32,20 @@ export const getById = query({
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
     return session?.userId === ctx.readerId ? session : null;
+  },
+});
+
+/** Resolves a background desk session without making opening wait for it. */
+export const getByClientKey = query({
+  args: { clientKey: v.string() },
+  handler: async (ctx, { clientKey }) => {
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_userId_and_clientKey", (q) =>
+        q.eq("userId", ctx.readerId).eq("clientKey", clientKey),
+      )
+      .unique();
+    return session ? { sessionId: session._id } : null;
   },
 });
 
@@ -49,6 +71,12 @@ export const updateStatus = mutation({
     if (updates.articleId)
       await requireArticle(ctx, updates.articleId, ctx.readerId);
     const patch: any = { ...updates };
+    // A delayed desk open cannot undo a quick acknowledged Done.
+    if (
+      session.readingStatus === "completed" &&
+      updates.readingStatus === "reading"
+    )
+      return;
     if (
       updates.readingStatus === "completed" ||
       updates.readingStatus === "abandoned"

@@ -43,6 +43,7 @@ import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import { answerNotes, articleHistory } from "@/lib/margin-answers";
 import { defaultColor, type MarkColor, markColor } from "@/lib/mark-colours";
+import { paragraphGeometry } from "@/lib/paragraph-geometry";
 import {
   getArticleBody,
   getParagraphs,
@@ -73,7 +74,10 @@ import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useMarginMode } from "@/lib/use-margin-mode";
-import { useSetMarkDefault } from "@/lib/use-mark-default";
+import {
+  useLegacyMarkDefaults,
+  useSetMarkDefault,
+} from "@/lib/use-mark-default";
 import { useMarkPaint } from "@/lib/use-mark-paint";
 import { useParagraphReturn } from "@/lib/use-paragraph-return";
 import { usePlaceRestore } from "@/lib/use-place-restore";
@@ -88,8 +92,16 @@ import { cn } from "@/lib/utils";
 
 export default function ReadPage() {
   const { articleId } = useParams<{ articleId: string }>();
+  // SAFETY: Convex validates this route-supplied article ID at every query/mutation boundary.
+  const articleKey = articleId as Id<"articles">;
   const searchParams = useSearchParams();
-  const sessionId = searchParams.get("session");
+  const sessionKey = searchParams.get("sessionKey");
+  const backgroundSession = useQuery(
+    api.sessions.getByClientKey,
+    sessionKey ? { clientKey: sessionKey } : "skip",
+  );
+  const sessionId =
+    searchParams.get("session") ?? backgroundSession?.sessionId ?? null;
   const router = useRouter();
 
   // A book is read a part at a time: `article` carries the part on screen
@@ -102,7 +114,8 @@ export default function ReadPage() {
     summaries,
     furthest,
     missingUnit,
-  } = useReadable(articleId as Id<"articles">, searchParams.get("unit"));
+    scopeReady,
+  } = useReadable(articleKey, searchParams.get("unit"));
   // What a book's marks, notes and kept answers are filed under; absent for an article
   const unit = unitIndex ?? undefined;
   // SAFETY: the route segment is an article id, as the queries below assume
@@ -112,9 +125,9 @@ export default function ReadPage() {
   );
   const annotations = useQuery(
     api.annotations.listByArticle,
-    isBook && unitIndex === null
+    !scopeReady
       ? "skip"
-      : { articleId: articleId as any, unitIndex: unitIndex ?? undefined },
+      : { articleId: articleKey, unitIndex: unitIndex ?? undefined },
   );
   const reflection = useQuery(api.reflections.getByArticle, {
     articleId: articleId as any,
@@ -128,10 +141,15 @@ export default function ReadPage() {
   const loveArticle = useMutation(api.lovedArticles.love);
   const unloveArticle = useMutation(api.lovedArticles.unlove);
   const reannotate = useAction(api.articles.requestReannotate);
-  const articleNotes = useQuery(api.userNotes.listByArticle, {
-    articleId: articleId as any,
-    unitIndex: unit,
-  });
+  const articleNotes = useQuery(
+    api.userNotes.listByArticle,
+    !scopeReady
+      ? "skip"
+      : {
+          articleId: articleKey,
+          unitIndex: unit,
+        },
+  );
 
   const [finishing, setFinishing] = useState(false);
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
@@ -170,6 +188,7 @@ export default function ReadPage() {
   const createNote = useMutation(api.userNotes.create);
   const { settings, update: updateSettings, resetText } = useReaderSettings();
   const setMarkDefault = useSetMarkDefault();
+  const { colors: legacyMarkDefaults } = useLegacyMarkDefaults();
   const paragraphs = useParagraphs(articleRef, Boolean(article));
   // A link from Notes names the passage to land on, e.g. `?quote=`.
   const landingParagraph = Number.parseInt(searchParams.get("p") ?? "", 10);
@@ -212,10 +231,15 @@ export default function ReadPage() {
   const summary = useQuery(api.summaries.getByArticle, {
     articleId: articleId as any,
   });
-  const savedThreads = useQuery(api.companionThreads.listByArticle, {
-    articleId: articleId as any,
-    unitIndex: unit,
-  });
+  const savedThreads = useQuery(
+    api.companionThreads.listByArticle,
+    !scopeReady
+      ? "skip"
+      : {
+          articleId: articleKey,
+          unitIndex: unit,
+        },
+  );
   const companion = useCompanion({
     articleId: articleId as any,
     unitIndex: unitIndex,
@@ -239,39 +263,56 @@ export default function ReadPage() {
   } = useEngagementTracker({
     articleId,
     sessionId,
+    sessionKey,
+    requestedMinutes: searchParams.has("minutes")
+      ? Number(searchParams.get("minutes"))
+      : undefined,
     ready: Boolean(article),
     containerRef: articleRef,
     listening: listen.active,
     paragraphVersion: paragraphs.version,
   });
   useBookProgress(
-    articleId as Id<"articles">,
+    articleKey,
     unitIndex,
     unitKey,
-    useCallback(() => {
+    useCallback((lastBucket: number) => {
       const body = getArticleBody(articleRef.current);
       if (!body) return null;
       const rect = body.getBoundingClientRect();
+      const percent = articleProgress(
+        rect.top,
+        rect.height,
+        window.innerHeight,
+      );
+      if (Math.min(100, Math.floor(percent / 5) * 5) === lastBucket)
+        return null;
+      const geometry = paragraphGeometry(articleRef.current);
+      if (!geometry) return null;
       return {
-        percent: articleProgress(rect.top, rect.height, window.innerHeight),
+        percent,
         paragraphIndex:
-          paragraphAtViewTop(
-            getParagraphs(body).map((el) => el.getBoundingClientRect().bottom),
-          ) ?? undefined,
+          paragraphAtViewTop(geometry.rects.map((rect) => rect.bottom)) ??
+          undefined,
       };
     }, []),
+    articleRef,
   );
   // The margin fills in ahead of the reader (rung 2f); a book's parts are written by the part
   const alongsideAnchor = useReadAlongside({
-    articleId: articleId as Id<"articles">,
+    articleId: articleKey,
     enabled: !isBook && article?.annotationStatus === "annotated",
     content: article?.content,
     progress: scrollPercent,
   });
   // A link to a part the book doesn't have opens its first
   useEffect(() => {
-    if (missingUnit) router.replace(`/read/${articleId}?unit=0`);
-  }, [missingUnit, router, articleId]);
+    if (missingUnit) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("unit", "0");
+      router.replace(`/read/${articleId}?${params}`);
+    }
+  }, [missingUnit, router, articleId, searchParams]);
   // The open answer's passage, found again by its text so a refresh can restore it.
   const [openRange, setOpenRange] = useState<Range | null>(null);
   const openThread = companion.thread;
@@ -350,10 +391,15 @@ export default function ReadPage() {
   });
 
   // Highlighter and pen marks (registered after saved passages so those win on click)
-  const highlightDocs = useQuery(api.highlights.listByArticle, {
-    articleId: articleId as any,
-    unitIndex: unit,
-  });
+  const highlightDocs = useQuery(
+    api.highlights.listByArticle,
+    !scopeReady
+      ? "skip"
+      : {
+          articleId: articleKey,
+          unitIndex: unit,
+        },
+  );
   const createHighlight = useMutation(api.highlights.create);
   const removeHighlight = useMutation(api.highlights.remove);
   const recolourHighlight = useMutation(api.highlights.setColor);
@@ -363,7 +409,7 @@ export default function ReadPage() {
     version: paragraphs.version,
   });
 
-  useMarkPaint(marks, settings);
+  useMarkPaint(marks, legacyMarkDefaults);
 
   const isMarked = useCallback(
     (kind: MarkKind, range: Range) => Boolean(findMark(marks, kind, range)),
@@ -428,11 +474,11 @@ export default function ReadPage() {
   // there, and becomes the default for that tool until another is picked.
   const markInColor = useCallback(
     async (kind: MarkKind, range: Range, color: MarkColor) => {
-      await setMarkDefault(kind, color);
+      setMarkDefault(kind, color);
       await attemptToolbar("Couldn't save that.", async () => {
         const existing = findMark(marks, kind, range);
         if (!existing) await saveMark(kind, range, color);
-        else if (markColor(existing.doc, settings) !== color)
+        else if (markColor(existing.doc, legacyMarkDefaults) !== color)
           await recolourHighlight({ highlightId: existing.doc._id, color });
       });
     },
@@ -441,7 +487,7 @@ export default function ReadPage() {
       saveMark,
       recolourHighlight,
       setMarkDefault,
-      settings,
+      legacyMarkDefaults,
       attemptToolbar,
     ],
   );
@@ -449,9 +495,9 @@ export default function ReadPage() {
   const markedColor = useCallback(
     (kind: MarkKind, range: Range) => {
       const existing = findMark(marks, kind, range);
-      return existing ? markColor(existing.doc, settings) : null;
+      return existing ? markColor(existing.doc, legacyMarkDefaults) : null;
     },
-    [marks, settings],
+    [marks, legacyMarkDefaults],
   );
 
   const startCompanion = useCallback(
@@ -726,8 +772,9 @@ export default function ReadPage() {
     setFinishing(true);
     setDoneFailed(false);
     try {
-      // Unsaved reflection text goes first; a failed save shows in place and doesn't stop Done
-      await reflectionFlush.current?.();
+      // Never navigate away from a reflection that failed its acknowledged save.
+      if (reflectionFlush.current && !(await reflectionFlush.current()))
+        throw new Error("Reflection wasn't saved");
       await finish();
       markFinished();
       const destination = doneDestination(back);

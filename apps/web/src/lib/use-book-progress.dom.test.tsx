@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBookProgress } from "./use-book-reading";
@@ -18,10 +18,18 @@ let scrolled = 0;
 let paragraph: number | undefined;
 
 function Probe({ unit, key2 }: { unit: number; key2?: string }) {
-  useBookProgress("b1" as never, unit, key2, () => ({
-    percent: scrolled,
-    paragraphIndex: paragraph,
-  }));
+  const ref = useRef<HTMLElement | null>(null);
+  // SAFETY: the mutation is replaced at the Convex boundary; this synthetic ID is never sent.
+  useBookProgress(
+    "b1" as never,
+    unit,
+    key2,
+    () => ({
+      percent: scrolled,
+      paragraphIndex: paragraph,
+    }),
+    ref,
+  );
   return null;
 }
 const show = (unit: number, key?: string) =>
@@ -33,6 +41,13 @@ const frame = () =>
 
 beforeEach(() => {
   record.mockReset();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   record.mockResolvedValue(undefined);
   scrolled = 0;
   paragraph = undefined;
@@ -57,6 +72,7 @@ describe("recording progress through a book", () => {
     expect(record).toHaveBeenLastCalledWith({
       articleId: "b1",
       unitIndex: 0,
+      unitKey: "u0",
       scrollPercent: 10,
     });
     scrolled = 13;
@@ -72,6 +88,7 @@ describe("recording progress through a book", () => {
     expect(record).toHaveBeenLastCalledWith({
       articleId: "b1",
       unitIndex: 0,
+      unitKey: "u0",
       scrollPercent: 40,
       paragraphIndex: 17,
     });
@@ -84,6 +101,7 @@ describe("recording progress through a book", () => {
     expect(record).toHaveBeenLastCalledWith({
       articleId: "b1",
       unitIndex: 0,
+      unitKey: "u0",
       scrollPercent: 95,
     });
     record.mockClear();
@@ -98,7 +116,7 @@ describe("recording progress through a book", () => {
     await show(1, "u1");
     await frame();
     expect(record.mock.calls.map((c) => c[0])).toEqual([
-      { articleId: "b1", unitIndex: 1, scrollPercent: 0 },
+      { articleId: "b1", unitIndex: 1, unitKey: "u1", scrollPercent: 0 },
     ]);
   });
 });

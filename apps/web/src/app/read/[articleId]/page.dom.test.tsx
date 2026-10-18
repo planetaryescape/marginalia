@@ -12,11 +12,14 @@ const state = vi.hoisted(() => ({
   noop: () => {},
   asyncNoop: async () => {},
   observers: 0,
+  reflectionSaved: true,
+  finish: vi.fn(async () => {}),
+  push: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ articleId: "article-1" }),
   useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({ push: state.noop, replace: state.noop }),
+  useRouter: () => ({ push: state.push, replace: state.noop }),
 }));
 vi.mock("convex/react", () => ({
   useQuery: (ref: Parameters<typeof getFunctionName>[0]) => {
@@ -46,7 +49,12 @@ const article = {
   estimatedReadMinutes: 1,
 };
 vi.mock("@/lib/use-book-reading", () => ({
-  useReadable: () => ({ article, isBook: false, unitIndex: null }),
+  useReadable: () => ({
+    article,
+    isBook: false,
+    unitIndex: null,
+    scopeReady: true,
+  }),
   useBookProgress: () => {},
 }));
 vi.mock("@/lib/reader-settings", async (original) => {
@@ -80,7 +88,7 @@ vi.mock("@/lib/use-engagement-tracker", () => ({
   useEngagementTracker: () => ({
     progress: state.progress,
     trackAnnotationOpen: state.noop,
-    finish: state.asyncNoop,
+    finish: state.finish,
     retry: state.asyncNoop,
   }),
 }));
@@ -102,6 +110,7 @@ vi.mock("@/lib/saved-passages", () => ({
 vi.mock("@/lib/use-mark-paint", () => ({ useMarkPaint: () => {} }));
 vi.mock("@/lib/use-mark-default", () => ({
   useSetMarkDefault: () => state.noop,
+  useLegacyMarkDefaults: () => ({ colors: DEFAULT_SETTINGS }),
 }));
 vi.mock("@/lib/use-read-alongside", () => ({ useReadAlongside: () => null }));
 vi.mock("@/lib/use-reader-theme", () => ({ useReaderTheme: () => {} }));
@@ -129,7 +138,20 @@ vi.mock("@/components/article-renderer", () => ({
 vi.mock("@/components/article-tags", () => ({ ArticleTags: () => null }));
 vi.mock("@/components/article-ask", () => ({ ArticleAsk: () => null }));
 vi.mock("@/components/article-back-matter", () => ({
-  ArticleBackMatter: () => null,
+  ArticleBackMatter: ({
+    reflectionFlush,
+    onDone,
+  }: {
+    reflectionFlush: { current: (() => Promise<boolean>) | null };
+    onDone: () => void;
+  }) => {
+    reflectionFlush.current = async () => state.reflectionSaved;
+    return (
+      <button id="fixture-done" onClick={onDone}>
+        Done fixture
+      </button>
+    );
+  },
 }));
 vi.mock("@/components/summary-panel", () => ({ SummaryPanel: () => null }));
 vi.mock("@/components/reader-toolbar", () => ({ ReaderToolbar: () => null }));
@@ -149,6 +171,9 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.progress = 0;
   state.observers = 0;
+  state.reflectionSaved = true;
+  state.finish.mockClear();
+  state.push.mockClear();
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -175,6 +200,16 @@ beforeEach(() => {
   );
   document.body.innerHTML = '<div id="root"></div>';
   root = createRoot(document.getElementById("root")!);
+});
+it("does not finish or navigate away from a reflection whose save failed", async () => {
+  state.reflectionSaved = false;
+  await act(async () => root.render(<ReadPage />));
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>("#fixture-done")?.click(),
+  );
+  expect(state.finish).not.toHaveBeenCalled();
+  expect(state.push).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("Couldn't save");
 });
 afterEach(async () => {
   await act(async () => root.unmount());

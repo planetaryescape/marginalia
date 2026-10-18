@@ -66,7 +66,7 @@ async function unitRow(
 }
 
 /** Whether a unit's margin should be (re)started: waiting, failed with retries left, or skipped for want of a provider that now exists. */
-async function wantsAnnotation(ctx: MutationCtx, unit: Doc<"bookUnits">) {
+async function wantsAnnotation(ctx: MutationCtx, unit: Doc<"bookUnitStatus">) {
   switch (unit.annotationStatus) {
     case "deferred":
       return true;
@@ -83,22 +83,101 @@ async function wantsAnnotation(ctx: MutationCtx, unit: Doc<"bookUnits">) {
 }
 
 /** Starts a unit's margin if it needs one, within the reader's lookahead budget. */
-async function startUnitAnnotation(ctx: MutationCtx, unit: Doc<"bookUnits">) {
+async function startUnitAnnotation(
+  ctx: MutationCtx,
+  unit: Doc<"bookUnitStatus">,
+) {
   if (!(await wantsAnnotation(ctx, unit))) return;
   if (!(await spendReaderLimit(ctx, unit.userId, "annotateAhead"))) return;
-  await ctx.db.patch("bookUnits", unit._id, {
-    annotationStatus: "pending",
+  const fields = {
+    annotationStatus: "pending" as const,
     skipReason: undefined,
     annotationRetries:
       unit.annotationStatus === "failed"
         ? (unit.annotationRetries ?? 0) + 1
         : unit.annotationRetries,
-  });
+  };
+  await ctx.db.patch("bookUnits", unit.unitId, fields);
+  await ctx.db.patch("bookUnitStatus", unit._id, fields);
   await ctx.scheduler.runAfter(0, internal.actions.annotateUnit.generate, {
     articleId: unit.articleId,
     unitIndex: unit.index,
   });
 }
+
+export async function syncUnitMetadata(
+  ctx: MutationCtx,
+  unit: Doc<"bookUnits">,
+) {
+  const old = await ctx.db
+    .query("bookUnitStatus")
+    .withIndex("by_userId_and_articleId_and_index", (q) =>
+      q
+        .eq("userId", unit.userId)
+        .eq("articleId", unit.articleId)
+        .eq("index", unit.index),
+    )
+    .unique();
+  const fields = {
+    userId: unit.userId,
+    articleId: unit.articleId,
+    index: unit.index,
+    unitId: unit._id,
+    annotationStatus: unit.annotationStatus,
+    skipReason: unit.skipReason,
+    annotationRetries: unit.annotationRetries,
+  };
+  const id = old?._id ?? (await ctx.db.insert("bookUnitStatus", fields));
+  if (old) await ctx.db.patch("bookUnitStatus", id, fields);
+  const stored = await ctx.db.get("bookUnitStatus", id);
+  if (!stored) throw new Error("Unit metadata wasn't saved");
+  return stored;
+}
+async function unitMetadata(
+  ctx: MutationCtx,
+  userId: string,
+  articleId: Id<"articles">,
+  index: number,
+) {
+  const metadata = await ctx.db
+    .query("bookUnitStatus")
+    .withIndex("by_userId_and_articleId_and_index", (q) =>
+      q.eq("userId", userId).eq("articleId", articleId).eq("index", index),
+    )
+    .unique();
+  if (metadata) return metadata;
+  // Mixed old data: at most the current/next body once, never a book-wide scan.
+  const unit = await unitRow(ctx, userId, articleId, index);
+  return unit ? syncUnitMetadata(ctx, unit) : null;
+}
+
+/** Explicit resumable migration: at most eight legacy bodies per transaction. */
+export const backfillUnitMetadata = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    fromIndex: v.number(),
+  },
+  handler: async (ctx, args) => {
+    if (!Number.isInteger(args.fromIndex) || args.fromIndex < 0)
+      throw new Error("Invalid cursor");
+    if (!(await ownedArticle(ctx, args.articleId, args.userId))) return null;
+    const units = await ctx.db
+      .query("bookUnits")
+      .withIndex("by_userId_and_articleId_and_index", (q) =>
+        q
+          .eq("userId", args.userId)
+          .eq("articleId", args.articleId)
+          .gte("index", args.fromIndex),
+      )
+      .take(8);
+    for (const unit of units) await syncUnitMetadata(ctx, unit);
+    return {
+      done: units.length < 8,
+      nextIndex: (units.at(-1)?.index ?? args.fromIndex - 1) + 1,
+    };
+  },
+});
 
 /**
  * Moves a book's finished flag with its article's finishedAt, which archive,
@@ -171,6 +250,8 @@ export const recordProgress = mutation({
   args: {
     articleId: v.id("articles"),
     unitIndex: v.number(),
+    // Additive identity fence; old clients still send only their index.
+    unitKey: v.optional(v.string()),
     scrollPercent: v.number(),
     // The paragraph at the top of the view, kept with the furthest place
     paragraphIndex: v.optional(v.number()),
@@ -187,6 +268,16 @@ export const recordProgress = mutation({
     )
       throw new ConvexError("That part isn't in this book.");
     const scrollPercent = Math.min(100, Math.max(0, args.scrollPercent));
+    const current = await unitMetadata(
+      ctx,
+      ctx.readerId,
+      article._id,
+      args.unitIndex,
+    );
+    if (args.unitKey !== undefined && current?.unitId !== args.unitKey)
+      throw new ConvexError(
+        "This part has changed. Reopen it to save your place.",
+      );
 
     const next = advanceProgress(book, {
       unitIndex: args.unitIndex,
@@ -212,15 +303,9 @@ export const recordProgress = mutation({
         lastReadAt: Date.now(),
       });
 
-    const current = await unitRow(
-      ctx,
-      ctx.readerId,
-      article._id,
-      args.unitIndex,
-    );
     if (current) await startUnitAnnotation(ctx, current);
     if (scrollPercent >= ANNOTATE_NEXT_FROM_PERCENT) {
-      const following = await unitRow(
+      const following = await unitMetadata(
         ctx,
         ctx.readerId,
         article._id,
@@ -298,13 +383,16 @@ export const addUnits = internalMutation({
     if (row?.partialArticleId !== args.articleId || !article) return false;
     if (article.extractionStatus !== "pending")
       throw new Error("Book not found");
-    for (const unit of args.units)
-      await ctx.db.insert("bookUnits", {
+    for (const unit of args.units) {
+      const id = await ctx.db.insert("bookUnits", {
         ...unit,
         userId: args.userId,
         articleId: args.articleId,
         annotationStatus: unit.index === 0 ? "pending" : "deferred",
       });
+      const stored = await ctx.db.get("bookUnits", id);
+      if (stored) await syncUnitMetadata(ctx, stored);
+    }
     return true;
   },
 });
@@ -387,7 +475,19 @@ export const discardBook = internalMutation({
           q.eq("userId", args.userId).eq("articleId", args.articleId),
         )
         .take(DISCARD_BATCH);
-      for (const unit of units) await ctx.db.delete("bookUnits", unit._id);
+      for (const unit of units) {
+        const metadata = await ctx.db
+          .query("bookUnitStatus")
+          .withIndex("by_userId_and_articleId_and_index", (q) =>
+            q
+              .eq("userId", args.userId)
+              .eq("articleId", args.articleId)
+              .eq("index", unit.index),
+          )
+          .unique();
+        if (metadata) await ctx.db.delete("bookUnitStatus", metadata._id);
+        await ctx.db.delete("bookUnits", unit._id);
+      }
       if (units.length === DISCARD_BATCH) {
         await ctx.scheduler.runAfter(0, internal.books.discardBook, args);
         return;
@@ -443,10 +543,13 @@ export const setUnitStatus = internalMutation({
       args.articleId,
       args.unitIndex,
     );
-    if (unit)
+    if (unit) {
       await ctx.db.patch("bookUnits", unit._id, {
         skipReason: args.status === "skipped" ? args.skipReason : undefined,
         annotationStatus: args.status,
       });
+      const stored = await ctx.db.get("bookUnits", unit._id);
+      if (stored) await syncUnitMetadata(ctx, stored);
+    }
   },
 });

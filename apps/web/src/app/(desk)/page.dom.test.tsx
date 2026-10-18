@@ -471,14 +471,18 @@ describe("choosing a time", () => {
     expect(text()).toContain("Title c");
   });
 
-  it("never navigates a replaced deck when its session creation resolves late", async () => {
+  it("opens immediately and never navigates again when a replaced deck's session resolves late", async () => {
     await render();
     await act(async () => time("10").click());
     await act(async () => button("Read now").click());
+    expect(state.push).toHaveBeenCalledTimes(1);
+    expect(state.push.mock.calls[0][0]).toMatch(
+      /^\/read\/a\?sessionKey=[\da-f-]{36}&minutes=10$/,
+    );
     const old = calls("sessions:create")[0];
     await act(async () => time("20").click());
     await act(async () => old.resolve("old-session"));
-    expect(state.push).not.toHaveBeenCalled();
+    expect(state.push).toHaveBeenCalledTimes(1);
     expect(text()).toContain("Title x");
   });
   it("accepts the next card immediately after entry, without a timer cooldown", async () => {
@@ -818,18 +822,19 @@ describe("choosing a time", () => {
     expect(document.querySelector(".saved-mark")?.textContent).toBe("Saved");
   });
 
-  it("Read now opens the article in the session, after the session id is known", async () => {
+  it("Read now opens immediately with the session's stable attribution key", async () => {
     await render();
     await act(async () => time("10").click());
     await act(async () => button("Read now").click());
-    expect(state.push).not.toHaveBeenCalled();
+    expect(state.push).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/read\/a\?sessionKey=[\da-f-]{36}&minutes=10$/),
+      { transitionTypes: ["open-article"] },
+    );
     await act(async () => {
       calls("sessions:create")[0].resolve("s-open");
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(state.push).toHaveBeenCalledWith("/read/a?session=s-open", {
-      transitionTypes: ["open-article"],
-    });
+    expect(state.push).toHaveBeenCalledTimes(1);
     // The reader draws this title in the same commit, so the morph has a destination
     expect(rememberedTitle("a")).toBe("Title a");
     await act(async () => {
@@ -893,9 +898,12 @@ describe("keys on a pick", () => {
     await choose();
     await press("Enter");
     await advance(0);
-    expect(state.push).toHaveBeenLastCalledWith("/read/a?session=s1", {
-      transitionTypes: ["open-article"],
-    });
+    expect(state.push).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^\/read\/a\?sessionKey=[\da-f-]{36}&minutes=10$/),
+      {
+        transitionTypes: ["open-article"],
+      },
+    );
     await advance(SETTLE_MS + 1);
     await press("o");
     await advance(0);
