@@ -5,6 +5,7 @@ import { revokeSessions } from "./access";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { purgeDictionary } from "./lib/dictionaryIndex";
 import { purgeMetadata } from "./vaultFiles";
 
 export const DELETE_CONFIRMATION = "DELETE";
@@ -205,12 +206,17 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
-  rows((ctx, u) =>
-    ctx.db
+  async (ctx, { userId }) => {
+    // Keep this step's numeric position for already-scheduled purges.
+    const removed = await purgeDictionary(ctx, userId);
+    if (removed) return removed;
+    const lookups = await ctx.db
       .query("lookups")
-      .withIndex("by_user_created", (q) => q.eq("userId", u))
-      .take(BATCH),
-  ),
+      .withIndex("by_user_created", (q) => q.eq("userId", userId))
+      .take(BATCH);
+    for (const row of lookups) await ctx.db.delete(row._id);
+    return lookups.length;
+  },
   rows((ctx, u) =>
     ctx.db
       .query("summaries")
