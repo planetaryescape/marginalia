@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
+import { noteIndexState } from "./lib/noteIndex";
 
 const tasteEntry = v.object({
   key: v.string(),
@@ -1053,6 +1054,7 @@ export default defineSchema({
     embedding: v.optional(v.array(v.float64())),
     // When the embedding was set or cleared; the reading-alongside fingerprint reads the newest
     embeddedAt: v.optional(v.number()),
+    noteIndex: v.optional(noteIndexState),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

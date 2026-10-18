@@ -12,6 +12,7 @@ import {
   computeFingerprint,
   sameFingerprint,
 } from "./lib/marginaliaFingerprint";
+import { NOTE_INDEX_LEASE_MS, noteIndexInput } from "./lib/noteIndex";
 import { sectionRanges } from "./lib/readingSections";
 import { READER_LIMITS } from "./limits";
 import schema from "./schema";
@@ -102,6 +103,34 @@ function addNote(f: Fixture, userId: string, withEmbedding = false) {
       createdAt: tick(),
       updatedAt: tick() + 1_000_000,
     });
+  });
+}
+
+/** Simulate the current note worker completing, not an unfenced legacy result.
+ * These fixtures use a far-away vector to stand in for an unsearchable note. */
+async function finishNoteEmbedding(f: Fixture, noteId: Id<"userNotes">) {
+  const note = await f.t.run(async (ctx) => {
+    const note = await ctx.db.get(noteId);
+    if (!note) throw new Error("Missing fixture note");
+    await ctx.db.patch(noteId, {
+      noteIndex: {
+        revision: 1,
+        input: noteIndexInput(note),
+        status: "running",
+        attempt: 1,
+        dispatched: true,
+        leaseUntil: Date.now() + NOTE_INDEX_LEASE_MS,
+      },
+    });
+    return note;
+  });
+  await f.t.mutation(internal.userNotes.setEmbedding, {
+    noteId,
+    userId: note.userId,
+    revision: 1,
+    attempt: 1,
+    embedding: vector,
+    contentPlain: note.contentPlain,
   });
 }
 
@@ -963,12 +992,7 @@ describe("the pass", () => {
     expect(f.prompts).toHaveLength(0);
     expect(await f.request()).toBe("unchanged");
 
-    const note = await f.t.run((ctx) => ctx.db.get(noteId));
-    await f.t.mutation(internal.userNotes.setEmbedding, {
-      noteId,
-      embedding: vector,
-      contentPlain: note?.contentPlain ?? "",
-    });
+    await finishNoteEmbedding(f, noteId);
     expect(await f.request()).toBe("scheduled");
     expect(f.prompts).toHaveLength(1);
   });
@@ -1212,11 +1236,7 @@ describe("the embedding stamp", () => {
 
     later();
     const noteId = await addNote(f, f.readerLibraryId, false);
-    await f.t.mutation(internal.userNotes.setEmbedding, {
-      noteId,
-      embedding: vector,
-      contentPlain: "Remote teams need written culture.",
-    });
+    await finishNoteEmbedding(f, noteId);
     await moved("note embedding");
 
     later();
@@ -1369,15 +1389,9 @@ describe("the embedding stamp", () => {
         createdAt: 1,
       }),
     );
-    expect(
-      await changed(() =>
-        f.t.mutation(internal.userNotes.setEmbedding, {
-          noteId,
-          embedding: vector,
-          contentPlain: "Remote teams need written culture.",
-        }),
-      ),
-    ).toEqual([noteId]);
+    expect(await changed(() => finishNoteEmbedding(f, noteId))).toEqual([
+      noteId,
+    ]);
     expect(
       await changed(() =>
         f.t.mutation(internal.highlights.setEmbedding, {
@@ -1408,11 +1422,7 @@ describe("the embedding stamp", () => {
     const f = await secondReaderTest(modules);
     const owner = await f.t.run((ctx) => computeFingerprint(ctx, OWNER));
     const noteId = await addNote(f, f.readerLibraryId, false);
-    await f.t.mutation(internal.userNotes.setEmbedding, {
-      noteId,
-      embedding: vector,
-      contentPlain: "Remote teams need written culture.",
-    });
+    await finishNoteEmbedding(f, noteId);
     const after = await f.t.run((ctx) => computeFingerprint(ctx, OWNER));
     expect(sameFingerprint(owner, after)).toBe(true);
     const { embeddedMax: _omit, ...older } = owner;

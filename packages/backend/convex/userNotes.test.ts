@@ -33,7 +33,7 @@ describe("note embeddings", () => {
     return { t, noteId };
   }
 
-  it("clears stale vectors on edit and ignores an older embedding job", async () => {
+  it("clears stale vectors and rejects tokenless legacy completions, even for matching plain text", async () => {
     const { t, noteId } = await fixture();
     await t.mutation(api.userNotes.update, {
       noteId,
@@ -58,7 +58,7 @@ describe("note embeddings", () => {
     });
     expect(
       (await t.query(api.userNotes.getById, { noteId }))?.embedding,
-    ).toEqual([5, 6]);
+    ).toBeUndefined();
   });
 
   it("lets a delayed embedding finish after its note was deleted", async () => {
