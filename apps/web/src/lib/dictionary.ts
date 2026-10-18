@@ -1,9 +1,6 @@
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { readLink } from "@/lib/notes-groups";
 
-/** The most lookups the room loads. Past it the dictionary says so rather than reading on. */
-export const DICTIONARY_CAP = 2000;
-
 export type LookupRow = {
   _id: string;
   articleId: Id<"articles">;
@@ -15,6 +12,7 @@ export type LookupRow = {
   wordKey: string;
   sentence: string;
   paragraphIndex?: number;
+  unitIndex?: number;
   sense: string;
   createdAt: number;
 };
@@ -120,7 +118,12 @@ export function groupLookups(rows: LookupRow[]): Entry[] {
             articleGone: row.articleGone,
             href: row.articleGone
               ? null
-              : readLink(row.articleId, row.sentence, row.paragraphIndex),
+              : readLink(
+                  row.articleId,
+                  row.sentence,
+                  row.paragraphIndex,
+                  row.unitIndex,
+                ),
             createdAt: row.createdAt,
           }),
         ),
@@ -137,7 +140,11 @@ export function groupLookups(rows: LookupRow[]): Entry[] {
 export function searchEntries(entries: Entry[], query: string) {
   const needle = foldAccents(query.trim());
   if (!needle) return entries;
-  return entries.filter((e) => foldAccents(e.key).includes(needle));
+  return entries.filter(
+    (e) =>
+      foldAccents(e.key).includes(needle) ||
+      e.senses.some((s) => foldAccents(s.text).includes(needle)),
+  );
 }
 
 /** Every letter of the alphabet, dimmed where there is no word, plus "#" when some word needs it. */
