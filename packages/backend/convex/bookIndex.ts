@@ -28,6 +28,7 @@ import {
   CLAIM_TTL_MS,
   fairBatch,
   INDEX_UNIT_CAP,
+  legacyOverviewClaim,
   MAX_ATTEMPTS,
   MAX_PASSAGES_PER_UNIT,
   MAX_PAUSES,
@@ -253,6 +254,7 @@ export const start = internalMutation({
           ? false
           : (row?.overviewDone ??
             (row?.phase === "passages" || row?.phase === "done")),
+      legacyPoint: keyResume ? legacyOverviewClaim(row, now) : undefined,
       summaryBlocked: undefined,
       passagesBlocked: undefined,
       pausedReason: undefined,
@@ -360,7 +362,11 @@ export const step = internalMutation({
     // Checked every batch: a left reader or a gone book stops the run, and a
     // removed key pauses it until one is saved
     if (!book || state.phase === "done") {
-      await patch({ running: false, pointClaimedAt: undefined });
+      await patch({
+        running: false,
+        pointClaimedAt: undefined,
+        legacyPoint: undefined,
+      });
       return null;
     }
     if (state.protocol !== 2) {
@@ -369,7 +375,8 @@ export const step = internalMutation({
       const nextBatchAt = state.queued ? state.updatedAt + BATCH_DELAY_MS : now;
       await patch({
         protocol: 2,
-        overviewDone: state.phase === "passages",
+        overviewDone: state.overviewDone ?? state.phase === "passages",
+        legacyPoint: legacyOverviewClaim(state, now),
         nextLane: "summary",
         nextBatchAt,
         lastClaim: Math.max(
@@ -524,6 +531,10 @@ export const step = internalMutation({
         lastClaim: claim,
         pointAttempts: state.pointAttempts + Number(queuePoint),
         pointClaimedAt: queuePoint ? claim : state.pointClaimedAt,
+        legacyPoint:
+          queuePoint || overviewDone || phase !== "point"
+            ? undefined
+            : state.legacyPoint,
         nextBatchAt: now + BATCH_DELAY_MS,
         cursor: 0,
         queued: state.queued + total,
@@ -536,6 +547,7 @@ export const step = internalMutation({
         phase: "done",
         overviewDone,
         running: false,
+        legacyPoint: undefined,
         finishedAt: now,
         pausedReason: undefined,
         recoverable: [...lanes.summary, ...lanes.passages].filter(isRecoverable)
@@ -551,6 +563,8 @@ export const step = internalMutation({
     await patch({
       phase: overviewDone && settled.summary ? "passages" : phase,
       overviewDone,
+      legacyPoint:
+        overviewDone || phase !== "point" ? undefined : state.legacyPoint,
       running: !blocked,
       pausedReason: blocked ? (reasons.summary ?? reasons.passages) : undefined,
     });
@@ -606,6 +620,8 @@ export const pointWritten = internalMutation({
       await ctx.runMutation(internal.summaries.saveBookOverview, {
         userId: args.userId,
         articleId: args.articleId,
+        runId: args.runId,
+        claim: args.claim,
         ...args.overview,
       });
     }
@@ -614,6 +630,7 @@ export const pointWritten = internalMutation({
       overviewDone: true,
       cursor: 0,
       pointClaimedAt: undefined,
+      legacyPoint: undefined,
       updatedAt: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.bookIndex.step, {
@@ -634,6 +651,7 @@ export const pointFailed = internalMutation({
     if (!state) return null;
     await ctx.db.patch("bookIndexState", state._id, {
       pointClaimedAt: undefined,
+      legacyPoint: undefined,
       updatedAt: Date.now(),
     });
     await ctx.scheduler.runAfter(BATCH_DELAY_MS, internal.bookIndex.step, {
@@ -658,6 +676,7 @@ export const pointWatchdog = internalMutation({
     if (!state || Date.now() - args.claim < CLAIM_TTL_MS) return null;
     await ctx.db.patch("bookIndexState", state._id, {
       pointClaimedAt: undefined,
+      legacyPoint: undefined,
       updatedAt: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.bookIndex.step, {
@@ -739,6 +758,7 @@ export const pauseIndex = internalMutation({
         ? { passagesBlocked: args.reason }
         : { summaryBlocked: args.reason }),
       pointClaimedAt: stage === "point" ? undefined : state.pointClaimedAt,
+      legacyPoint: stage === "point" ? undefined : state.legacyPoint,
       pointAttempts:
         stage === "point"
           ? Math.max(0, state.pointAttempts - 1)
