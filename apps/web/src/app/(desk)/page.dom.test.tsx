@@ -59,8 +59,8 @@ vi.mock("convex/react", async () => {
           return state.inProgress;
         case "lovedArticles:getDueForReview":
           return state.due;
-        case "feeds:statusSummary":
-          return { count: state.feeds.length, failing: [] };
+        case "feeds:list":
+          return state.feeds;
         case "readwise:status":
           return state.readwise;
         case "suggestions:forWindow":

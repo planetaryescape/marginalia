@@ -103,6 +103,42 @@ afterEach(() => {
 const render = () => act(async () => root.render(<UpNextShelf />));
 
 describe("Up next shelf", () => {
+  it("observes the persistent desk viewport with 600px of load-ahead", async () => {
+    let options: IntersectionObserverInit | undefined;
+    const observe = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          _callback: IntersectionObserverCallback,
+          init?: IntersectionObserverInit,
+        ) {
+          options = init;
+        }
+        observe = observe;
+        disconnect() {}
+      },
+    );
+    state.status = "CanLoadMore";
+    try {
+      await act(async () =>
+        root.render(
+          <div className="desk-route">
+            <UpNextShelf />
+          </div>,
+        ),
+      );
+      expect(options).toEqual({
+        root: document.querySelector(".desk-route"),
+        rootMargin: "0px 0px 600px 0px",
+      });
+      expect(observe).toHaveBeenCalledWith(
+        document.querySelector("button[data-nav-item]")?.parentElement,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("lists unread articles with a source and minutes line", async () => {
     await render();
     const rows = document.querySelectorAll("li");

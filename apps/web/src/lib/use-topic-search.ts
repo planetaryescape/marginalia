@@ -8,15 +8,20 @@ import { useConvex, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { ReaderRequestError, readerRequestError } from "@/lib/companion";
-import { SessionCache } from "@/lib/session-cache";
 import {
   strongTitleMatch,
   type TopicMatch,
   titleFirst,
 } from "@/lib/topic-card";
+import {
+  TOPIC_CACHE_TTL_MS as CACHE_TTL_MS,
+  type TopicCacheEntry as CacheEntry,
+  topicSearchCache as cache,
+} from "@/lib/topic-search-cache";
 import { postTopicSearch as post } from "@/lib/topic-search-request";
 
-const CACHE_TTL_MS = 5 * 60_000;
+export { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
+
 /** Short, because the fast path only embeds and searches. */
 const DEBOUNCE_MS = 250;
 
@@ -33,18 +38,6 @@ export interface TopicSearch {
   explained: boolean;
   /** Why search can't run yet, such as a missing provider key. */
   error?: string;
-}
-
-interface CacheEntry {
-  foundAt: number;
-  find: Pick<TopicSearch, "matches" | "more">;
-  reasons: Record<string, string>;
-  explained: boolean;
-}
-
-const cache = new SessionCache<CacheEntry>(20, CACHE_TTL_MS);
-export function invalidateTopicSearchCache() {
-  cache.forScope(null);
 }
 
 const idle: TopicSearch = {
@@ -79,6 +72,9 @@ export function useTopicSearch(
   const { data: session } = authClient.useSession();
   const counts = useQuery(api.home.counts, {});
   const sessionId = session?.session.id;
+  // Partial revision coverage: counters and local successful writes invalidate.
+  // Other-tab/background content edits still rely on TTL until a global library
+  // revision contract exists; this is not a globally coherent query cache.
   const revision = counts === undefined ? "pending" : JSON.stringify(counts);
   const scope = sessionId ? `${sessionId}:${revision}` : null;
   cache.forScope(scope);

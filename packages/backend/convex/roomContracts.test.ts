@@ -5,36 +5,6 @@ import { api } from "./_generated/api";
 const modules = import.meta.glob("./**/*.ts");
 
 describe("small room contracts", () => {
-  it("keeps source summaries compact and reader-owned while preserving failures", async () => {
-    const t = await ownerTest(modules);
-    await t.run(async (ctx) => {
-      for (const source of [
-        { userId: "default_user", title: "Healthy" },
-        {
-          userId: "default_user",
-          title: "Failed",
-          lastError: "private error detail",
-        },
-        {
-          userId: "other-reader",
-          title: "Foreign",
-          lastError: "foreign error",
-        },
-      ])
-        await ctx.db.insert("feeds", {
-          ...source,
-          url: "https://example.test/feed",
-          articleCount: 0,
-          isActive: true,
-          createdAt: 1,
-        });
-    });
-    expect(await t.query(api.feeds.statusSummary, {})).toEqual({
-      count: 2,
-      failingCount: 1,
-      failedTitle: "Failed",
-    });
-  });
   it("keeps unknown counts unknown without falling back to article hydration", async () => {
     const t = await ownerTest(modules);
     expect(await t.query(api.home.counts, {})).toMatchObject({
