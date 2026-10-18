@@ -195,6 +195,13 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       fileHash: `hash-${i}`,
       indexedAt: now,
     });
+    await ctx.db.insert("vaultFiles", {
+      userId,
+      filePath: `notes/${i}.md`,
+      fileHash: `hash-${i}`,
+    });
+    if (i === 0)
+      await ctx.db.insert("vaultManifestBackfills", { userId, complete: true });
     await ctx.db.insert("savedArticles", { userId, articleId, savedAt: now });
     await ctx.db.insert("marginaliaPasses", {
       userId,

@@ -49,6 +49,7 @@ import { startTimings } from "./lib/serverTiming";
 import { sha256Hex, siteUrl } from "./lib/tokens";
 import { vaultUploadSchema } from "./lib/vaultUpload";
 import { READER_LIMITS } from "./limits";
+import { hashesResponse } from "./vaultFiles";
 
 const http = httpRouter();
 authComponent.registerRoutes(http, createAuth);
@@ -466,12 +467,7 @@ http.route({
     }
 
     // The indexer key belongs to the owner, so the vault is the owner's library
-    const hashes = await ctx.runQuery(internal.noteChunks.allFilePaths, {
-      userId: DEFAULT_USER_ID,
-    });
-    return new Response(JSON.stringify(hashes), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return hashesResponse(ctx, request, DEFAULT_USER_ID);
   }),
 });
 
