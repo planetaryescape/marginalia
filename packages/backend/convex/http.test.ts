@@ -2,6 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ownerWithKey } from "../test/owner";
+import { components } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -102,6 +103,69 @@ function sse(lines: string[]) {
 }
 
 describe("companion HTTP streaming", () => {
+  it("keeps the legacy request-size limit on the new direct path", async () => {
+    const t = await ownerWithKey(modules);
+    const provider = vi.fn();
+    vi.stubGlobal("fetch", provider);
+    const response = await t.fetch("/api/companion", {
+      method: "POST",
+      headers: { Origin: "https://reader.bhekani.com" },
+      body: JSON.stringify({ ...request, paragraphs: ["x".repeat(300_001)] }),
+    });
+    expect(response.status).toBe(413);
+    expect(provider).not.toHaveBeenCalled();
+  });
+  it.each([
+    "companion",
+    "library",
+    "library/find",
+    "library/search",
+  ])("still checks live session revocation for direct /api/%s", async (path) => {
+    const t = await ownerWithKey(modules);
+    const identity = await t.run((ctx) => ctx.auth.getUserIdentity());
+    if (!identity) throw new Error("Fixture missing identity");
+    await t.mutation(components.betterAuth.adapter.deleteOne, {
+      input: {
+        model: "session",
+        where: [{ field: "_id", value: String(identity.sessionId) }],
+      },
+    });
+    const provider = vi.fn();
+    vi.stubGlobal("fetch", provider);
+    const response = await t.fetch(`/api/${path}`, {
+      method: "POST",
+      headers: { Origin: "https://reader.bhekani.com" },
+      body: JSON.stringify(request),
+    });
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://reader.bhekani.com",
+    );
+    expect(response.headers.get("Timing-Allow-Origin")).toBe(
+      "https://reader.bhekani.com",
+    );
+    expect(response.headers.get("Server-Timing")).toMatch(
+      /^auth;dur=\d+, total;dur=\d+$/,
+    );
+    expect(provider).not.toHaveBeenCalled();
+  });
+  it.each([
+    "companion",
+    "library",
+  ])("rejects untrusted origins before any paid work on /api/%s", async (path) => {
+    const t = await ownerWithKey(modules);
+    const provider = vi.fn();
+    vi.stubGlobal("fetch", provider);
+    const response = await t.fetch(`/api/${path}`, {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+      body: JSON.stringify(request),
+    });
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(response.headers.get("Server-Timing")).toBeNull();
+    expect(provider).not.toHaveBeenCalled();
+  });
   it("falls back after a network failure before the first token", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only");
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -126,6 +190,9 @@ describe("companion HTTP streaming", () => {
     expect(await response.text()).toBe("An answer.");
     expect(provider).toHaveBeenCalledTimes(2);
     expect(response.headers.get("X-Companion-Model")).toBeTruthy();
+    expect(response.headers.get("Server-Timing")).toMatch(
+      /^auth;dur=\d+, budget;dur=\d+, parse;dur=\d+, ai;dur=\d+, retrieve;dur=\d+, attempt-1-failed;dur=\d+, first-token;dur=\d+, total;dur=\d+$/,
+    );
   });
   it("fails an interrupted answer instead of completing it as a successful partial response", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only");
@@ -196,7 +263,7 @@ describe("library search CORS", () => {
         headers: { Origin: "https://evil.example" },
         body: JSON.stringify({ question: "life" }),
       });
-      expect(post.status).toBe(401);
+      expect(post.status).toBe(403);
       expect(post.headers.get("Access-Control-Allow-Origin")).toBeNull();
     });
 

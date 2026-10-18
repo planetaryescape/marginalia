@@ -7,7 +7,16 @@ export function readerOrigins(
   return (env?.trim() ? env : DEFAULT_ORIGINS)
     .split(",")
     .map((origin) => origin.trim().replace(/\/$/, ""))
-    .filter((origin) => origin && origin !== "*");
+    .filter((origin) => {
+      try {
+        const url = new URL(origin);
+        return (
+          ["http:", "https:"].includes(url.protocol) && url.origin === origin
+        );
+      } catch {
+        return false;
+      }
+    });
 }
 
 /**
@@ -25,7 +34,9 @@ export function readerCorsHeaders(
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, content-type",
-    "Access-Control-Expose-Headers": "Server-Timing",
+    "Access-Control-Expose-Headers":
+      "Server-Timing, X-Companion-Model, X-Reader-Prework-Rejection",
+    "Timing-Allow-Origin": origin,
     "Access-Control-Max-Age": "600",
     Vary: "Origin",
   };
@@ -43,6 +54,12 @@ export function withReaderCors(
     if (name.startsWith("access-control-")) stale.push(name);
   });
   for (const name of stale) headers.delete(name);
+  headers.delete("Timing-Allow-Origin");
+  const origin = request.headers.get("Origin");
+  if (origin && !(origins ?? readerOrigins()).includes(origin)) {
+    headers.delete("Server-Timing");
+    headers.delete("X-Companion-Model");
+  }
   for (const [name, value] of Object.entries(
     readerCorsHeaders(request, origins),
   ))

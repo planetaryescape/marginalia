@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { host } from "./articleCard";
-import { type EmbeddingTarget, embedText } from "./embeddings";
+import type { EmbeddingTarget } from "./embeddings";
 import type { LibraryFindMatch } from "./librarySearch";
 import { cachedQueryEmbedding } from "./queryEmbeddingCache";
 import type { Timings } from "./serverTiming";
@@ -61,42 +61,49 @@ export async function retrieveLibraryContext(
   embedder: EmbeddingTarget,
   timings?: Timings,
 ) {
-  const vector = await embedText(embedder, question.slice(0, 4000));
-  timings?.mark("embed");
-
+  const [activity, hits] = await Promise.all([
+    ctx.runQuery(internal.library.recentActivity, { userId }),
+    (async () => {
+      const { vector, cached } = await cachedQueryEmbedding(
+        ctx,
+        userId,
+        question,
+        embedder,
+      );
+      timings?.mark(cached ? "embed-cached" : "embed");
+      embedder.signal?.throwIfAborted();
+      return Promise.all([
+        ctx.vectorSearch("articles", "by_embedding", {
+          vector,
+          limit: 24,
+          filter: (q) => q.eq("userId", userId),
+        }),
+        ctx.vectorSearch("impressions", "by_embedding", {
+          vector,
+          limit: 10,
+          filter: (q) => q.eq("userId", userId),
+        }),
+        ctx.vectorSearch("userNotes", "by_embedding", {
+          vector,
+          limit: 8,
+          filter: (q) => q.eq("userId", userId),
+        }),
+        ctx.vectorSearch("highlights", "by_embedding", {
+          vector,
+          limit: 8,
+          filter: (q) => q.eq("userId", userId),
+        }),
+        ctx.vectorSearch("companionThreads", "by_embedding", {
+          vector,
+          limit: 6,
+          filter: (q) => q.eq("userId", userId),
+        }),
+      ]);
+    })(),
+  ]);
+  embedder.signal?.throwIfAborted();
   const [articleHits, impressionHits, noteHits, highlightHits, threadHits] =
-    await Promise.all([
-      ctx.vectorSearch("articles", "by_embedding", {
-        vector,
-        limit: 24,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("impressions", "by_embedding", {
-        vector,
-        limit: 10,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("userNotes", "by_embedding", {
-        vector,
-        limit: 8,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("highlights", "by_embedding", {
-        vector,
-        limit: 8,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("companionThreads", "by_embedding", {
-        vector,
-        limit: 6,
-        filter: (q) => q.eq("userId", userId),
-      }),
-    ]);
-
-  const activity: {
-    impressions: Doc<"impressions">[];
-    interactions: Doc<"articleInteractions">[];
-  } = await ctx.runQuery(internal.library.recentActivity, { userId });
+    hits;
 
   const related: {
     impressions: Doc<"impressions">[];
@@ -110,6 +117,7 @@ export async function retrieveLibraryContext(
     highlightIds: highlightHits.map((h) => h._id),
     threadIds: threadHits.map((h) => h._id),
   });
+  embedder.signal?.throwIfAborted();
 
   // Articles to describe: semantic matches first, then anything the reader's
   // own words point at, then recent rated reads (for "what did I love…")
@@ -135,6 +143,7 @@ export async function retrieveLibraryContext(
       articleIds: order,
     },
   );
+  embedder.signal?.throwIfAborted();
 
   const impressionsByArticle = new Map(
     [...activity.impressions, ...related.impressions].map((row) => [
@@ -255,6 +264,7 @@ export async function buildLibraryContext(
   question: string,
   embedder: EmbeddingTarget,
   history: LibraryRequest["history"] = [],
+  timings?: Timings,
 ): Promise<string> {
   return (
     await retrieveLibraryContext(
@@ -262,6 +272,7 @@ export async function buildLibraryContext(
       userId,
       libraryRetrievalQuery(question, history),
       embedder,
+      timings,
     )
   ).context;
 }
@@ -293,12 +304,14 @@ export async function findLibraryArticles(
     embedder,
   );
   timings.mark(cached ? "embed-cached" : "embed");
+  embedder.signal?.throwIfAborted();
   const hits = await ctx.vectorSearch("articles", "by_embedding", {
     vector,
     limit: FIND_LIMIT,
     filter: (q) => q.eq("userId", userId),
   });
   timings.mark("search");
+  embedder.signal?.throwIfAborted();
   const rows: {
     articleId: Id<"articles">;
     title: string;

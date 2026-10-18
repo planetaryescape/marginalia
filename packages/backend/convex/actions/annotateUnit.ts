@@ -5,6 +5,7 @@ import type { Doc } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { annotationBudget, gateNotes } from "../lib/annotationGate";
+import { annotationOutputTokens } from "../lib/annotationOutputBudget";
 import { buildMarginaliaContext } from "../lib/marginaliaContext";
 import { loadReaderAI } from "../lib/router";
 import {
@@ -76,7 +77,7 @@ export const generate = internalAction({
 
     if (unit.annotationStatus === "annotated") return;
     if (unit.wordCount < 100) return setStatus("skipped");
-    const ai = await loadReaderAI(ctx, userId);
+    const ai = await loadReaderAI(ctx, userId, { roles: ["annotations"] });
     const targets = ai.chain("annotations");
     if (!targets.length) {
       console.warn(
@@ -126,6 +127,7 @@ export const generate = internalAction({
             vocabulary: vocabulary.map((tag) => tag.name),
           }),
           targets,
+          maxOutputTokens: annotationOutputTokens(unit.wordCount),
           onFailure: ai.noteFailure,
         });
 

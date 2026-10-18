@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const embedded = vi.hoisted(() => ({ inputs: [] as string[] }));
 vi.mock("./embeddings", () => ({
+  embeddingModel: () => "test-model",
   embedText: async (_target: unknown, text: string) => {
     embedded.inputs.push(text);
     return [text.length];
@@ -30,6 +31,7 @@ function fakeCtx() {
       return [];
     },
     runQuery: async (_ref: unknown, args: Record<string, unknown>) => {
+      if (args.key !== undefined) return null;
       if (args.noteIds !== undefined)
         return {
           impressions: [],
@@ -54,6 +56,7 @@ function fakeCtx() {
         }));
       return { impressions: [], interactions: [] };
     },
+    scheduler: { runAfter: async () => null },
   } as unknown as ActionCtx;
 }
 

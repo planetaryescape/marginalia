@@ -148,6 +148,7 @@ beforeEach(() => {
           pipeThrough: () => ({
             getReader: () => ({
               read: () => stream.read(),
+              cancel: async () => stream.end(),
               releaseLock() {},
             }),
           }),
