@@ -13,6 +13,7 @@ import {
   type QueryCtx,
   query,
 } from "./functions";
+import { libraryIndexText } from "./lib/importJobs";
 import { embeddingProvider } from "./lib/providers";
 import { readerProviders } from "./lib/readerAI";
 import { spendReaderLimit } from "./limits";
@@ -25,6 +26,8 @@ export const BATCH_DELAY_MS = 45_000;
 export const JOB_STAGGER_MS = 3_000;
 /** Non-empty pages checked per step when they hold nothing to do. */
 const SCAN_PAGES = 5;
+// Two indexed eligibility ranges, each at most five 1 MiB article documents.
+const ARTICLE_PAGE = 5;
 /** Retry after the reader's hourly catch-up budget runs out. */
 const LIMIT_RETRY_MS = 10 * 60_000;
 
@@ -112,19 +115,38 @@ async function scan(
       };
     }
     case "articles": {
-      const rows = await ctx.db
-        .query("articles")
-        .withIndex("by_user", (q) =>
-          cursor === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", cursor),
-        )
-        .take(PAGE);
+      const ranges = await Promise.all(
+        ([undefined, "unavailable"] as const).map((status) =>
+          ctx.db
+            .query("articles")
+            .withIndex("by_catch_up_article", (q) => {
+              const range = q
+                .eq("userId", userId)
+                .eq("extractionStatus", "extracted")
+                .eq("embeddedAt", undefined)
+                .eq("libraryIndex.status", status);
+              return cursor === undefined
+                ? range
+                : range.gt("_creationTime", cursor);
+            })
+            .take(ARTICLE_PAGE),
+        ),
+      );
+      // Both prefixes are read before choosing the oldest five; advancing the
+      // shared cursor cannot skip an older legacy or unavailable article.
+      const candidates = ranges.flat();
+      const rows = candidates
+        .sort((a, b) => a._creationTime - b._creationTime)
+        .slice(0, ARTICLE_PAGE);
       return {
         jobs: rows
-          .filter((row) => !row.embedding && row.content)
+          .filter((row) => !row.embedding && libraryIndexText(row))
           .map((row) => ({ kind: "article", id: row._id })),
-        ...after(rows),
+        cursor: rows.length ? rows[rows.length - 1]._creationTime : cursor,
+        done:
+          ranges.every((rows) => rows.length < ARTICLE_PAGE) &&
+          candidates.length <= ARTICLE_PAGE,
+        read: candidates.length,
       };
     }
     case "notes": {
@@ -212,11 +234,9 @@ async function queue(ctx: MutationCtx, job: Job, delayMs: number) {
       );
       return;
     case "article":
-      await ctx.scheduler.runAfter(
-        delayMs,
-        internal.actions.embedArticle.embed,
-        { articleId: job.id },
-      );
+      await ctx.scheduler.runAfter(delayMs, internal.libraryIndex.enqueue, {
+        articleId: job.id,
+      });
       return;
     case "note":
       await ctx.scheduler.runAfter(
@@ -360,7 +380,10 @@ export const step = internalMutation({
         phase++;
         cursor = undefined;
       } else cursor = page.cursor;
-      if (jobs.length) break;
+      // One article page is <=10 MiB even for legacy maximum-size rows. Never
+      // walk five body-heavy pages in a single 16 MiB transaction. The cursor
+      // advances even for legacy vectors saved without embeddedAt metadata.
+      if (jobs.length || name === "articles") break;
     }
 
     if (!jobs.length && phase >= PHASES.length) {

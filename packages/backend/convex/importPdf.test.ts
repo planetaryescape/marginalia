@@ -2,7 +2,7 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startImport } from "../test/imports";
-import { secondReaderTest } from "../test/owner";
+import { secondReaderTest, TEST_ENCRYPTION_KEY } from "../test/owner";
 import { makePdf } from "../test/pdf";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -18,9 +18,15 @@ const modules = import.meta.glob("./**/*.ts");
 // The action schedules marginalia work; these tests look only at the import
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.mocked(embedTexts)
+    .mockReset()
+    .mockImplementation(() => new Promise(() => {}));
 });
 afterEach(() => {
+  vi.clearAllTimers();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 const WORDS = Array.from(
@@ -185,6 +191,75 @@ describe("importing a book", () => {
     title: `Chapter ${i + 1}`,
     page: i * pagesPerChapter + 1,
   }));
+
+  it("a readable no-key PDF book is caught up automatically after saving an embedding credential", async () => {
+    const f = await secondReaderTest(modules);
+    const { row } = await importOf(
+      f,
+      makePdf(pages, outline),
+      "No-key book.pdf",
+    );
+    if (!row?.articleId) throw new Error("Book was not published");
+    const articleId = row.articleId;
+    await f.t.action(internal.actions.indexLibraryArticle.run, { articleId });
+    expect(await f.t.run((ctx) => ctx.db.get(articleId))).toMatchObject({
+      extractionStatus: "extracted",
+      libraryIndex: { status: "unavailable" },
+    });
+    expect(embedTexts).not.toHaveBeenCalled();
+    expect(
+      await f.owner.query(api.books.unit, { articleId, index: 0 }),
+    ).not.toBeNull();
+    vi.stubEnv("PROVIDER_KEYS_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
+    const http = vi.fn(async () => Response.json({ data: [] }));
+    vi.stubGlobal("fetch", http);
+    const vector = Array.from({ length: 1536 }, () => 0.25);
+    vi.mocked(embedTexts).mockResolvedValue([vector]);
+    // This public action persists the credential and starts the real catch-up.
+    await f.owner.action(api.providerCredentials.save, {
+      provider: "openrouter",
+      apiKey: "fixture-openrouter-book-key",
+    });
+    // Saving a key also wakes summaries/annotations. They are separate pipelines;
+    // isolate this fixture to the real catch-up and library-vector dispatch.
+    await f.t.run(async (ctx) => {
+      const jobs = await ctx.db.system.query("_scheduled_functions").take(200);
+      for (const job of jobs)
+        if (
+          job.state.kind === "pending" &&
+          !job.name.startsWith("catchUp:") &&
+          !job.name.startsWith("libraryIndex:") &&
+          !job.name.startsWith("actions/indexLibraryArticle:")
+        )
+          await ctx.scheduler.cancel(job._id);
+    });
+    for (let i = 0; i < 20; i++) {
+      vi.advanceTimersByTime(1);
+      await f.t.finishInProgressScheduledFunctions();
+    }
+    const article = await f.t.run((ctx) => ctx.db.get(articleId));
+    expect(article).toMatchObject({
+      embedding: vector,
+      extractionStatus: "extracted",
+      libraryIndex: { status: "ready", attempts: 1 },
+    });
+    expect(embedTexts).toHaveBeenCalledTimes(1);
+    const text = vi.mocked(embedTexts).mock.calls[0][1][0];
+    expect(text).toContain("No key book");
+    expect(text).toContain("Chapter 1");
+    expect(text.length).toBeLessThanOrEqual(8000);
+    expect(article?.content).toBeUndefined();
+    expect(
+      await f.owner.query(api.books.unit, { articleId, index: 0 }),
+    ).not.toBeNull();
+    expect(
+      await f.t.run((ctx) => ctx.db.get("documentImports", row._id)),
+    ).toMatchObject({ status: "ready", articleId });
+    expect(http).toHaveBeenCalledTimes(1);
+    expect(await f.owner.query(api.catchUp.status, {})).toMatchObject({
+      itemsQueued: 1,
+    });
+  });
 
   it("stores its text by reading unit and keeps only the outline on the article", async () => {
     const f = await secondReaderTest(modules);

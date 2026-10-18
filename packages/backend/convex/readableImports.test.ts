@@ -112,7 +112,234 @@ function fence(
   };
 }
 
+/** Consume scheduler turns, not lease time; annotations are not due in this window. */
+async function importTurns(t: Fixture["t"], turns = 20) {
+  for (let i = 0; i < turns; i++) {
+    vi.advanceTimersByTime(1);
+    await t.finishInProgressScheduledFunctions();
+  }
+}
+
 describe("readable publication and durable optional indexing", () => {
+  it("an expired index claim remains eligible when its recovery finds two newer workers", async () => {
+    const f = await secondReaderTest(modules);
+    const ids = await Promise.all(
+      [0, 1, 2].map((i) =>
+        f.t.mutation(internal.articles.insertExtracted, {
+          ...input,
+          guid: `expiry-${i}`,
+          url: `${input.url}/expiry-${i}`,
+        }),
+      ),
+    );
+    const old = await f.t.mutation(internal.libraryIndex.claim, {
+      articleId: ids[0],
+    });
+    if (!old) throw new Error("No old claim");
+    vi.setSystemTime(Date.now() + INDEX_LEASE_MS + 1);
+    const next = await f.t.mutation(internal.libraryIndex.claim, {
+      articleId: ids[1],
+    });
+    await f.t.mutation(internal.libraryIndex.claim, { articleId: ids[2] });
+    if (!next) throw new Error("No newer claim");
+    await f.t.mutation(internal.libraryIndex.start, {
+      articleId: ids[0],
+      userId: input.userId,
+    });
+    expect(await row(f, ids[0])).toMatchObject({
+      libraryIndex: { status: "pending", attempts: 1 },
+    });
+    const before = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(100),
+    );
+    await f.t.mutation(internal.libraryIndex.complete, {
+      ...fence(ids[1], next),
+      embedding: vector,
+    });
+    const after = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(100),
+    );
+    expect(
+      after
+        .filter((job) => !before.some((old) => old._id === job._id))
+        .map((job) => job.args[0]),
+    ).toEqual([{ articleId: ids[0], userId: input.userId }]);
+    expect(
+      await f.t.mutation(internal.libraryIndex.claim, { articleId: ids[0] }),
+    ).toMatchObject({ attempts: 2, run: old.run + 1 });
+  });
+  it("indexes all five fast imports through release wakes, before any lease recovery runs", async () => {
+    const f = await secondReaderTest(modules);
+    const ids = await Promise.all(
+      [0, 1, 2, 3, 4].map((i) =>
+        f.t.mutation(internal.articles.insertExtracted, {
+          ...input,
+          guid: `fast-${i}`,
+          url: `${input.url}/fast-${i}`,
+          content: `Readable ${i}`,
+          estimatedReadMinutes: 30,
+        }),
+      ),
+    );
+    const began = Date.now();
+    let active = 0;
+    let maximum = 0;
+    let thirdSawRelease = false;
+    const texts: string[] = [];
+    vi.mocked(embedTexts).mockImplementation(async (_target, text) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      texts.push(text[0]);
+      if (texts.length === 3)
+        thirdSawRelease = (
+          await Promise.all(ids.slice(0, 2).map((id) => row(f, id)))
+        ).some((article) => article?.libraryIndex?.status === "ready");
+      await Promise.resolve();
+      active--;
+      return [vector];
+    });
+    await importTurns(f.t);
+    expect(thirdSawRelease).toBe(true);
+    expect(maximum).toBeLessThanOrEqual(2);
+    expect(new Set(texts).size).toBe(5);
+    expect(texts).toHaveLength(5);
+    expect(
+      (await Promise.all(ids.map((id) => row(f, id)))).every(
+        (article) => article?.libraryIndex?.status === "ready",
+      ),
+    ).toBe(true);
+    expect(Date.now() - began).toBe(20);
+    const recovery = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(200),
+    );
+    const leaseJobs = recovery.filter(
+      (job) =>
+        job.name.includes("libraryIndex:start") &&
+        job.scheduledTime >= began + INDEX_LEASE_MS,
+    );
+    expect(leaseJobs).toHaveLength(5);
+    expect(leaseJobs.every((job) => job.state.kind === "pending")).toBe(true);
+  });
+
+  it("a retry releases its slot immediately, honors retryAt, and never exceeds two concurrent calls", async () => {
+    const f = await secondReaderTest(modules);
+    const ids = await Promise.all(
+      [0, 1, 2, 3, 4].map((i) =>
+        f.t.mutation(internal.articles.insertExtracted, {
+          ...input,
+          guid: `retry-${i}`,
+          url: `${input.url}/retry-${i}`,
+          content: `Retry readable ${i}`,
+          estimatedReadMinutes: 30,
+        }),
+      ),
+    );
+    const began = Date.now();
+    let active = 0;
+    let maximum = 0;
+    const calls = new Map<string, number>();
+    vi.mocked(embedTexts).mockImplementation(async (_target, texts) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      const count = (calls.get(texts[0]) ?? 0) + 1;
+      calls.set(texts[0], count);
+      await Promise.resolve();
+      active--;
+      if (texts[0] === "Retry readable 0" && count === 1)
+        throw new Error("Provider returned 503: fixture");
+      return [vector];
+    });
+    await importTurns(f.t);
+    expect(
+      (await Promise.all(ids.slice(1).map((id) => row(f, id)))).every(
+        (article) => article?.embedding,
+      ),
+    ).toBe(true);
+    const retry = await row(f, ids[0]);
+    expect(retry?.libraryIndex).toMatchObject({
+      status: "pending",
+      attempts: 1,
+    });
+    expect(retry?.libraryIndex?.retryAt).toBeGreaterThan(Date.now());
+    const scheduledBefore = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(200),
+    );
+    for (let i = 0; i < 3; i++)
+      await f.t.mutation(internal.libraryIndex.start, {
+        articleId: ids[0],
+        userId: input.userId,
+      });
+    expect(
+      await f.t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").take(200),
+      ),
+    ).toHaveLength(scheduledBefore.length);
+    expect(calls.get("Retry readable 0")).toBe(1);
+    vi.advanceTimersByTime(5_000);
+    await f.t.finishInProgressScheduledFunctions();
+    await importTurns(f.t);
+    expect(calls.get("Retry readable 0")).toBe(2);
+    expect([...calls.values()].sort()).toEqual([1, 1, 1, 1, 2]);
+    expect(maximum).toBeLessThanOrEqual(2);
+    expect(
+      (await Promise.all(ids.map((id) => row(f, id)))).every(
+        (article) => article?.embedding,
+      ),
+    ).toBe(true);
+    expect(Date.now() - began).toBeLessThan(INDEX_LEASE_MS);
+  });
+
+  it("a full pool creates no repeated immediate dispatch, and release does not wake a leaving library", async () => {
+    const f = await secondReaderTest(modules);
+    const ids = await Promise.all(
+      [0, 1, 2].map((i) =>
+        f.t.mutation(internal.articles.insertExtracted, {
+          ...input,
+          userId: f.readerLibraryId,
+          guid: `leaving-${i}`,
+          url: `${input.url}/leaving-${i}`,
+        }),
+      ),
+    );
+    const first = await f.t.mutation(internal.libraryIndex.claim, {
+      articleId: ids[0],
+    });
+    await f.t.mutation(internal.libraryIndex.claim, { articleId: ids[1] });
+    if (!first) throw new Error("No claim");
+    const before = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(100),
+    );
+    for (let i = 0; i < 3; i++)
+      await f.t.mutation(internal.libraryIndex.start, {
+        articleId: ids[2],
+        userId: f.readerLibraryId,
+      });
+    expect(
+      await f.t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").take(100),
+      ),
+    ).toHaveLength(before.length);
+    await f.t.run(async (ctx) => {
+      const reader = await ctx.db
+        .query("readers")
+        .withIndex("by_libraryId", (q) => q.eq("libraryId", f.readerLibraryId))
+        .unique();
+      if (!reader) throw new Error("No reader");
+      await ctx.db.patch(reader._id, { deletingAt: Date.now() });
+    });
+    expect(
+      await f.t.mutation(internal.libraryIndex.complete, {
+        ...fence(ids[0], first),
+        embedding: vector,
+      }),
+    ).toBe(false);
+    expect(
+      await f.t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").take(100),
+      ),
+    ).toHaveLength(before.length);
+    expect((await row(f, ids[2]))?.libraryIndex?.attempts).toBe(0);
+  });
   it("atomically claims and dispatches scheduled indexing, and recovers an action lost after dispatch", async () => {
     const f = await secondReaderTest(modules);
     const articleId = await f.t.mutation(
@@ -300,8 +527,11 @@ describe("readable publication and durable optional indexing", () => {
     vi.mocked(embedTexts).mockRejectedValue(
       new Error("Provider returned 429: fixture"),
     );
-    for (let n = 0; n < 5; n++)
+    for (let n = 0; n < 5; n++) {
+      const retryAt = (await row(f, articleId))?.libraryIndex?.retryAt;
+      if (retryAt && retryAt > Date.now()) vi.setSystemTime(retryAt);
       await f.t.action(internal.actions.indexLibraryArticle.run, { articleId });
+    }
     expect(embedTexts).toHaveBeenCalledTimes(3);
     expect(await row(f, articleId)).toMatchObject({
       content: input.content,
@@ -482,6 +712,34 @@ describe("readable publication and durable optional indexing", () => {
 });
 
 describe("transactional cross-source identities", () => {
+  it("old deletion cleanup cannot delete aliases remapped to a reimported article", async () => {
+    const f = await secondReaderTest(modules);
+    const oldId = await f.t.mutation(internal.articles.insertExtracted, input);
+    await f.t.run((ctx) => ctx.db.delete(oldId));
+    const newId = await f.t.mutation(internal.articles.insertExtracted, input);
+    expect(newId).not.toBe(oldId);
+    await f.t.mutation(internal.articleImportKeys.discard, {
+      articleId: oldId,
+      userId: input.userId,
+    });
+    expect(
+      await f.t.query(internal.articles.getByUrl, {
+        userId: input.userId,
+        url: input.url,
+      }),
+    ).toMatchObject({ _id: newId });
+    expect(
+      await f.t.query(internal.articles.getByGuid, {
+        userId: input.userId,
+        guid: input.guid,
+      }),
+    ).toMatchObject({ _id: newId });
+    const aliases = await f.t.run((ctx) =>
+      ctx.db.query("articleImportKeys").take(10),
+    );
+    expect(aliases).toHaveLength(2);
+    expect(aliases.every((key) => key.articleId === newId)).toBe(true);
+  });
   it("concurrent RSS/API/manual variants keep one ID, source GUIDs, and the feed association", async () => {
     const f = await secondReaderTest(modules);
     const { articleId, feedId, args } = await placeholder(f);
@@ -676,6 +934,172 @@ describe("transactional cross-source identities", () => {
 });
 
 describe("claimed, deadlined RSS extraction", () => {
+  it("an expired extractor stays queued if its recovery finds two newer workers", async () => {
+    const f = await secondReaderTest(modules);
+    const items = await Promise.all(
+      ["/expiry-0", "/expiry-1", "/expiry-2"].map((suffix) =>
+        placeholder(f, suffix),
+      ),
+    );
+    const old = await f.t.mutation(internal.articleExtraction.claim, {
+      articleId: items[0].articleId,
+    });
+    if (!old) throw new Error("No old claim");
+    vi.setSystemTime(Date.now() + EXTRACTION_LEASE_MS + 1);
+    const next = await f.t.mutation(internal.articleExtraction.claim, {
+      articleId: items[1].articleId,
+    });
+    await f.t.mutation(internal.articleExtraction.claim, {
+      articleId: items[2].articleId,
+    });
+    if (!next) throw new Error("No newer claim");
+    await f.t.mutation(internal.articleExtraction.start, {
+      articleId: items[0].articleId,
+      userId: input.userId,
+    });
+    expect(
+      (await row(f, items[0].articleId))?.extractionLeaseUntil,
+    ).toBeUndefined();
+    const before = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(100),
+    );
+    const content = prepareImportContent(input.contentHtml);
+    if (!content) throw new Error("Invalid fixture");
+    await f.t.mutation(internal.articles.updateExtracted, {
+      ...content,
+      articleId: items[1].articleId,
+      userId: input.userId,
+      extractionRun: next.run,
+    });
+    const after = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(100),
+    );
+    expect(
+      after
+        .filter(
+          (job) =>
+            !before.some((old) => old._id === job._id) &&
+            job.name.includes("articleExtraction:start"),
+        )
+        .map((job) => job.args[0]),
+    ).toEqual([{ articleId: items[0].articleId, userId: input.userId }]);
+    expect(
+      await f.t.mutation(internal.articleExtraction.claim, {
+        articleId: items[0].articleId,
+      }),
+    ).toMatchObject({ run: old.run + 1 });
+    expect((await row(f, items[0].articleId))?.extractionAttempts).toBe(2);
+  });
+  it("extracts five fast items through release wakes before any 45-second recovery", async () => {
+    const f = await secondReaderTest(modules);
+    const items = await Promise.all(
+      ["/fast-0", "/fast-1", "/fast-2", "/fast-3", "/fast-4"].map((suffix) =>
+        placeholder(f, suffix),
+      ),
+    );
+    const began = Date.now();
+    let active = 0;
+    let maximum = 0;
+    let thirdSawRelease = false;
+    const urls: string[] = [];
+    vi.mocked(extract).mockImplementation(async (url) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      urls.push(url);
+      if (urls.length === 3)
+        thirdSawRelease = (
+          await Promise.all(
+            items.slice(0, 2).map((item) => row(f, item.articleId)),
+          )
+        ).some((article) => article?.extractionStatus === "extracted");
+      await Promise.resolve();
+      active--;
+      return { content: input.contentHtml };
+    });
+    await importTurns(f.t);
+    expect(thirdSawRelease).toBe(true);
+    expect(maximum).toBeLessThanOrEqual(2);
+    expect(new Set(urls).size).toBe(5);
+    expect(urls).toHaveLength(5);
+    expect(
+      (await Promise.all(items.map((item) => row(f, item.articleId)))).every(
+        (article) => article?.extractionStatus === "extracted",
+      ),
+    ).toBe(true);
+    expect(Date.now() - began).toBe(20);
+    const recovery = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(200),
+    );
+    const leaseJobs = recovery.filter(
+      (job) =>
+        job.name.includes("articleExtraction:start") &&
+        job.scheduledTime >= began + EXTRACTION_LEASE_MS,
+    );
+    expect(leaseJobs).toHaveLength(5);
+    expect(leaseJobs.every((job) => job.state.kind === "pending")).toBe(true);
+  });
+
+  it("an extraction failure wakes ready items rather than its backoff or a book placeholder", async () => {
+    const f = await secondReaderTest(modules);
+    const items = await Promise.all(
+      ["/backoff", "/active", "/next"].map((suffix) => placeholder(f, suffix)),
+    );
+    const first = await f.t.mutation(internal.articleExtraction.claim, {
+      articleId: items[0].articleId,
+    });
+    await f.t.mutation(internal.articleExtraction.claim, {
+      articleId: items[1].articleId,
+    });
+    if (!first) throw new Error("No claim");
+    await f.t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: input.userId,
+        guid: "partial-book",
+        url: "upload:partial",
+        title: "Partial book",
+        bookUnitCount: 1,
+        extractionStatus: "pending",
+        annotationStatus: "skipped",
+        createdAt: Date.now(),
+      }),
+    );
+    const before = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(100),
+    );
+    for (let i = 0; i < 3; i++)
+      await f.t.mutation(internal.articleExtraction.start, {
+        articleId: items[2].articleId,
+        userId: input.userId,
+      });
+    expect(
+      await f.t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").take(100),
+      ),
+    ).toHaveLength(before.length);
+    await f.t.mutation(internal.articleExtraction.fail, {
+      articleId: items[0].articleId,
+      userId: input.userId,
+      run: first.run,
+      retryable: true,
+    });
+    const after = await f.t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(100),
+    );
+    const wakes = after.filter(
+      (job) => !before.some((old) => old._id === job._id),
+    );
+    expect(
+      wakes
+        .filter((job) => job.scheduledTime <= Date.now())
+        .map((job) => job.args[0]),
+    ).toEqual([{ articleId: items[2].articleId, userId: input.userId }]);
+    expect(
+      await f.t.mutation(internal.articleExtraction.claim, {
+        articleId: items[0].articleId,
+      }),
+    ).toBeNull();
+    expect((await row(f, items[0].articleId))?.extractionAttempts).toBe(1);
+  });
   it("recovers a dispatched extractor lost before its first fetch and rejects the delayed old dispatch", async () => {
     const f = await secondReaderTest(modules);
     const { articleId } = await placeholder(f);

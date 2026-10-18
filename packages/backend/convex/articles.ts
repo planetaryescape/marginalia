@@ -2,6 +2,7 @@ import { ConvexError, type ObjectType, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ownedArticle, requireArticle } from "./access";
+import { wakeExtraction } from "./articleExtraction";
 import { syncBookFinished } from "./books";
 import { liveImport, markImportReady } from "./documentImports";
 import {
@@ -295,8 +296,10 @@ export const updateExtracted = internalMutation({
   handler: async (ctx, args) => {
     const { articleId, extractionRun, userId, ...updates } = args;
     const before = await ctx.db.get(articleId);
-    if (!before || !(await importLibraryActive(ctx, before.userId)))
+    if (!before || !(await importLibraryActive(ctx, before.userId))) {
+      if (userId) await wakeExtraction(ctx, userId);
       return false;
+    }
     if (
       extractionRun !== undefined
         ? before.extractionStatus !== "pending" ||
@@ -304,8 +307,10 @@ export const updateExtracted = internalMutation({
           before.extractionRun !== extractionRun ||
           (before.extractionLeaseUntil ?? 0) <= Date.now()
         : before.extractionLeaseUntil !== undefined
-    )
+    ) {
+      await wakeExtraction(ctx, before.userId);
       return false;
+    }
     validateArticleSize({ ...before, ...updates });
     const firstExtraction = before?.extractionStatus === "pending";
     const annotateNow =
@@ -330,6 +335,7 @@ export const updateExtracted = internalMutation({
     const after = await ctx.db.get(articleId);
     if (after) await updateQueueStats(ctx, before, after);
     await queueLibraryIndex(ctx, articleId);
+    await wakeExtraction(ctx, before.userId);
     if (annotateNow)
       await ctx.scheduler.runAfter(
         1000,
@@ -509,6 +515,7 @@ async function upsertExtractedRow(
       });
       const after = await ctx.db.get(existing._id);
       if (after) await updateQueueStats(ctx, existing, after);
+      await wakeExtraction(ctx, existing.userId);
       if (annotateNow)
         await ctx.scheduler.runAfter(
           args.annotateAfterMs ?? 500,
