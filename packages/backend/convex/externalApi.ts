@@ -1,17 +1,18 @@
 import { v } from "convex/values";
 import { ownedArticle } from "./access";
 import { internalQuery } from "./functions";
+import { findImportArticle } from "./lib/articleIdentity";
 import { externalGuid } from "./lib/externalApi";
 
 export const articleByExternalId = internalQuery({
   args: { userId: v.string(), externalId: v.string() },
   handler: async (ctx, args) => {
-    const article = await ctx.db
-      .query("articles")
-      .withIndex("by_user_guid", (q) =>
-        q.eq("userId", args.userId).eq("guid", externalGuid(args.externalId)),
-      )
-      .first();
+    const article = await findImportArticle(
+      ctx,
+      args.userId,
+      "",
+      externalGuid(args.externalId),
+    );
     return article?._id ?? null;
   },
 });

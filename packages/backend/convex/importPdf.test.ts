@@ -6,6 +6,12 @@ import { secondReaderTest } from "../test/owner";
 import { makePdf } from "../test/pdf";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { embedTexts } from "./lib/embeddings";
+
+vi.mock("./lib/embeddings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./lib/embeddings")>()),
+  embedTexts: vi.fn(() => new Promise(() => {})),
+}));
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -69,6 +75,36 @@ const countRows = (f: Fixture) =>
   }));
 
 describe("importing a PDF that fits one article", () => {
+  it("parses only one delivery of an import and publishes one owned article", async () => {
+    const f = await secondReaderTest(modules);
+    const storageId = await f.t.run((ctx) =>
+      ctx.storage.store(
+        new Blob([Uint8Array.from(makePdf([pageLines(1)]))], {
+          type: "application/pdf",
+        }),
+      ),
+    );
+    const started = await startImport(f.owner, {
+      storageId,
+      fileName: "One.pdf",
+    });
+    if (!started.ok) throw new Error(started.error);
+    await Promise.all([
+      f.t.action(internal.actions.importPdf.run, {
+        importId: started.importId,
+      }),
+      f.t.action(internal.actions.importPdf.run, {
+        importId: started.importId,
+      }),
+    ]);
+    expect(await countRows(f)).toEqual({ articles: 1, books: 0, units: 0 });
+    expect(
+      await f.t.run((ctx) => ctx.db.get("documentImports", started.importId)),
+    ).toMatchObject({ status: "ready" });
+    expect(
+      await f.t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+    ).toBeNull();
+  });
   it("becomes an article of the reader, with its structure", async () => {
     const f = await secondReaderTest(modules);
     const { row, storageId } = await importOf(
@@ -88,6 +124,8 @@ describe("importing a PDF that fits one article", () => {
     });
     expect(article?.contentHtml).toContain("<p>");
     expect(article?.bookUnitCount).toBeUndefined();
+    expect(article?.libraryIndex?.status).toBe("pending");
+    expect(embedTexts).not.toHaveBeenCalled();
     expect(await countRows(f)).toMatchObject({ articles: 1, books: 0 });
     // The upload is not kept once its text is stored
     expect(
@@ -161,6 +199,8 @@ describe("importing a book", () => {
     expect(article?.annotationStatus).toBe("skipped");
     expect(article?.extractionStatus).toBe("extracted");
     expect(article?.bookOutline?.length).toBe(article?.bookUnitCount);
+    expect(article?.libraryIndex?.status).toBe("pending");
+    expect(embedTexts).not.toHaveBeenCalled();
     expect(article?.bookUnitCount).toBeGreaterThanOrEqual(chapters);
 
     const units = await f.t.run((ctx) => ctx.db.query("bookUnits").collect());
@@ -180,6 +220,11 @@ describe("importing a book", () => {
       );
     expect(units[0].annotationStatus).toBe("pending");
     expect(units[1].annotationStatus).toBe("deferred");
+    const statuses = await f.t.run((ctx) =>
+      ctx.db.query("bookUnitStatus").collect(),
+    );
+    expect(statuses).toHaveLength(units.length);
+    expect(statuses[0].annotationStatus).toBe("pending");
     // Once readable, its summaries and passages are queued for the same reader
     const queued = await f.t.run(async (ctx) =>
       (await ctx.db.system.query("_scheduled_functions").take(100)).filter(
@@ -222,6 +267,26 @@ describe("importing a book", () => {
     });
     expect(await countRows(f)).toEqual({ articles: 0, books: 0, units: 0 });
     expect(importId).toBeTruthy();
+  });
+
+  it("a stale cleanup cannot remove a published book or its readable units", async () => {
+    const f = await secondReaderTest(modules);
+    const { row } = await importOf(f, makePdf(pages, outline));
+    if (!row?.articleId) throw new Error("No published book");
+    await f.t.mutation(internal.books.discardBook, {
+      userId: row.userId,
+      articleId: row.articleId,
+      importId: row._id,
+    });
+    expect(
+      await f.owner.query(api.books.unit, {
+        articleId: row.articleId,
+        index: 0,
+      }),
+    ).not.toBeNull();
+    expect(
+      await f.t.run((ctx) => ctx.db.get("documentImports", row._id)),
+    ).toMatchObject({ status: "ready" });
   });
 });
 
