@@ -207,7 +207,7 @@ export default function ReadPage() {
     saved?.paragraphIndex,
     paragraphs.version,
   );
-  const position = useReadingPosition(articleRef, paragraphs.version);
+  const position = useReadingPosition(articleRef, paragraphs.layoutVersion);
   const summary = useQuery(api.summaries.getByArticle, {
     articleId: articleId as any,
   });
@@ -222,7 +222,13 @@ export default function ReadPage() {
     title: article?.title ?? "",
     settings,
   });
-  const listen = useListen(articleRef);
+  const listen = useListen(
+    articleRef,
+    articleId,
+    unitKey,
+    article?.content,
+    article?.contentHtml,
+  );
   const {
     trackAnnotationOpen,
     finish,
@@ -535,7 +541,10 @@ export default function ReadPage() {
     },
     [savedThreads, companion.answers, companion.open, companion.openAnswer],
   );
-  const answers = answerNotes(companion.answers, savedThreads);
+  const answers = useMemo(
+    () => answerNotes(companion.answers, savedThreads),
+    [companion.answers, savedThreads],
+  );
 
   // A link from Notes lands on its line, then opens the note or answer it was for, once.
   const linkedNote = searchParams.get("note");
@@ -864,7 +873,7 @@ export default function ReadPage() {
         isBook={isBook}
         range={openRange}
         containerRef={articleRef}
-        layoutVersion={paragraphs.version}
+        layoutVersion={paragraphs.layoutVersion}
         onClose={companion.collapse}
         onDelete={() => deleteAnswer(answerThread.id)}
         onFollowUp={companion.followUp}
@@ -1108,6 +1117,7 @@ export default function ReadPage() {
                 onJump={jumpToParagraph}
                 canGenerate={!isBook}
                 onExpandedChange={setSummaryOpen}
+                contentVersion={paragraphs.version}
               />
             </div>
           )}
@@ -1176,7 +1186,7 @@ export default function ReadPage() {
               onReflect={handleReflect}
               onDeleteReflection={(id) => removeNote({ noteId: id as any })}
               containerRef={articleRef}
-              layoutVersion={paragraphs.version}
+              layoutVersion={paragraphs.layoutVersion}
               onClose={closeAnnotation}
               onJump={jumpToParagraph}
             />
@@ -1241,7 +1251,7 @@ export default function ReadPage() {
             onReflect={handleReflect}
             onDeleteReflection={(id) => removeNote({ noteId: id as any })}
             containerRef={articleRef}
-            layoutVersion={paragraphs.version}
+            layoutVersion={paragraphs.layoutVersion}
             onClose={closeAnnotation}
             onJump={jumpToParagraph}
           />

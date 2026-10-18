@@ -4,12 +4,16 @@ import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { ArrowRight, ChevronDown, RotateCcw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useState } from "react";
 import { modelName } from "@/lib/models";
 import { getArticleBody, getParagraphs, paragraphText } from "@/lib/paragraphs";
 import { useCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
-import { IdeaMap } from "./idea-map";
+
+const loadIdeaMap = () => import("./idea-map");
+const IdeaMap = lazy(() =>
+  loadIdeaMap().then((module) => ({ default: module.IdeaMap })),
+);
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -72,15 +76,19 @@ function LayerToggle({
   label,
   open,
   onToggle,
+  onIntent,
 }: {
   label: string;
   open: boolean;
   onToggle: () => void;
+  onIntent?: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onToggle}
+      onPointerEnter={onIntent}
+      onFocus={onIntent}
       aria-expanded={open}
       className="flex items-center gap-1 hover:text-[var(--ink)] transition-colors"
     >
@@ -121,7 +129,7 @@ function Layer({
   );
 }
 
-export function SummaryPanel({
+export const SummaryPanel = memo(function SummaryPanel({
   articleId,
   title,
   wordCount,
@@ -141,6 +149,8 @@ export function SummaryPanel({
   canGenerate?: boolean;
   /** Tells the reader when the body is unfolded, so the Ask pill can step aside for it. */
   onExpandedChange?: (expanded: boolean) => void;
+  /** Invalidates DOM-derived fallback word counts only when the prose changes. */
+  contentVersion?: number;
 }) {
   const generate = useAction(api.actions.summarize.generate);
   const [loading, setLoading] = useState(false);
@@ -339,6 +349,9 @@ export function SummaryPanel({
                       )}
                       <LayerToggle
                         label="The map"
+                        onIntent={() => {
+                          void loadIdeaMap();
+                        }}
                         open={layers.map}
                         onToggle={() => setLayer("map", !layers.map)}
                       />
@@ -364,11 +377,15 @@ export function SummaryPanel({
                             <p className="mb-3 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
                               How the ideas connect
                             </p>
-                            <IdeaMap
-                              ideas={summary.ideas}
-                              links={summary.links}
-                              onJump={onJump}
-                            />
+                            <Suspense
+                              fallback={<p role="status">Loading map…</p>}
+                            >
+                              <IdeaMap
+                                ideas={summary.ideas}
+                                links={summary.links}
+                                onJump={onJump}
+                              />
+                            </Suspense>
                             {summary.flow && (
                               <>
                                 <p className="mt-6 mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--reader-muted)]">
@@ -441,4 +458,4 @@ export function SummaryPanel({
       </AnimatePresence>
     </motion.section>
   );
-}
+});

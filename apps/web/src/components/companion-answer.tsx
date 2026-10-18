@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, memo, type ReactNode } from "react";
 
 // The last alternative is a link whose address is unusable or cut off (a
 // stream that ended mid-link); it falls through to showing the text alone.
@@ -82,7 +82,7 @@ function renderInline(
   return nodes;
 }
 
-export function CompanionAnswer({
+export const CompanionAnswer = memo(function CompanionAnswer({
   text,
   lead,
   streaming,
@@ -150,4 +150,4 @@ export function CompanionAnswer({
       })}
     </div>
   );
-}
+});

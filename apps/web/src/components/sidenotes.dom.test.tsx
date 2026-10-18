@@ -25,6 +25,10 @@ const animations: {
 }[] = [];
 // Where lines sit, by data-y; happy-dom has no layout.
 let lineOffset = 0;
+const heightReads: string[] = [];
+const resizeCallbacks: (() => void)[] = [];
+const noMarks: React.ComponentProps<typeof Sidenotes>["marks"] = [];
+let setOpenNote: (id: string | null) => void;
 
 const annotations: SidenoteAnnotation[] = [
   {
@@ -59,6 +63,7 @@ function Article({
   onOpenNotes = () => {},
   onMarkClick = () => {},
   initialOpen = null,
+  progress = 0,
 }: {
   mode?: "sidenotes" | "phone" | "sheet";
   notes?: SidenoteAnnotation[];
@@ -70,12 +75,14 @@ function Article({
   onOpenNotes?: () => void;
   onMarkClick?: (id: string) => void;
   initialOpen?: string | null;
+  progress?: number;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [open, setOpen] = useState<string | null>(initialOpen);
-  (window as unknown as { setOpen: typeof setOpen }).setOpen = setOpen;
+  setOpenNote = setOpen;
   return (
     <>
+      <output>{progress}</output>
       <article ref={ref} data-margin={mode}>
         <div data-article-body>
           <p data-para="3" data-y="100">
@@ -109,7 +116,7 @@ function Article({
         layoutKey={DEFAULT_SETTINGS}
         annotations={notes}
         userNotes={users}
-        marks={[]}
+        marks={noMarks}
         waiting={waiting}
         waitingAnchor={waitingAnchor}
         openId={open}
@@ -127,12 +134,15 @@ const render = async (ui: React.ReactElement) =>
 
 // Each slot animation reports this as finished; a test can hold it open to keep a shrink in progress.
 let animationFinished: Promise<void> = Promise.resolve();
+let animationPlaying = false;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   reducedMotion = false;
   ioConstructed = 0;
   lineOffset = 0;
+  heightReads.length = 0;
+  resizeCallbacks.length = 0;
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -147,6 +157,9 @@ beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
+      constructor(callback: () => void) {
+        resizeCallbacks.push(callback);
+      }
       observe() {}
       disconnect = roDisconnect;
     },
@@ -200,6 +213,9 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
     get(this: HTMLElement) {
+      heightReads.push(this.className);
+      if (this.dataset.liveHeight) return Number(this.dataset.liveHeight);
+      if (this.classList.contains("sidenote-hit")) return 70;
       const card =
         this.querySelector("[data-card-height]") ??
         (this.hasAttribute("data-card-height") ? this : null);
@@ -209,15 +225,24 @@ beforeEach(() => {
   });
   animations.length = 0;
   animationFinished = Promise.resolve();
-  (HTMLElement.prototype as unknown as { animate: unknown }).animate =
-    function (this: HTMLElement, keyframes: Keyframe[], options: unknown) {
+  animationPlaying = false;
+  Object.defineProperty(HTMLElement.prototype, "animate", {
+    configurable: true,
+    value: function (
+      this: HTMLElement,
+      keyframes: Keyframe[],
+      options: KeyframeAnimationOptions,
+    ) {
       animations.push({ el: this, keyframes, options });
       return {
         cancel() {},
-        playState: "finished",
+        get playState() {
+          return animationPlaying ? "running" : "finished";
+        },
         finished: animationFinished,
       };
-    };
+    },
+  });
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get(this: HTMLElement) {
@@ -238,6 +263,61 @@ afterEach(async () => {
 });
 
 describe("Sidenotes at a wide width", () => {
+  it("does no geometry work or observer replacement on unrelated parent progress updates", async () => {
+    await render(<Article />);
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    const read = vi.spyOn(HTMLElement.prototype, "getClientRects");
+    read.mockClear();
+    const observerCount = ioConstructed;
+    const disconnects = roDisconnect.mock.calls.length;
+    heightReads.length = 0;
+    await render(<Article progress={40} />);
+    expect(read).not.toHaveBeenCalled();
+    expect(heightReads).toEqual([]);
+    expect(ioConstructed).toBe(observerCount);
+    expect(roDisconnect).toHaveBeenCalledTimes(disconnects);
+  });
+
+  it("flushes all moved notes together after their geometry reads", async () => {
+    await render(<Article />);
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    heightReads.length = 0;
+    lineOffset = 200;
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      window.dispatchEvent(new Event("resize"));
+      await new Promise(requestAnimationFrame);
+    });
+    expect(
+      heightReads.filter((name) => name === "sidenote-layer"),
+    ).toHaveLength(1);
+    expect(heightReads.at(-1)).toBe("sidenote-layer");
+    expect(q('[data-key="a:a1"]')?.style.top).toBe("304px");
+    expect(window.scrollY).toBe(0);
+  });
+
+  it("coalesces open-card, container and viewport resize notifications into one geometry pass", async () => {
+    await render(<Article initialOpen="a1" />);
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    const read = vi.spyOn(HTMLElement.prototype, "getClientRects");
+    read.mockClear();
+    await act(async () => {
+      for (const callback of resizeCallbacks) {
+        callback();
+        callback();
+      }
+      window.dispatchEvent(new Event("resize"));
+      await new Promise(requestAnimationFrame);
+    });
+    // The two annotation anchors are measured once, not once per observer.
+    expect(read).toHaveBeenCalledTimes(2);
+  });
   it("renders every annotation as a sidenote with its kind and text, and no number", async () => {
     await render(<Article />);
     const notes = all(".sidenote:not(.sidenote-waiting)");
@@ -317,7 +397,8 @@ describe("Sidenotes at a wide width", () => {
 
   it("gives marks the note's text as a description and removes it on unmount", async () => {
     await render(<Article />);
-    const mark = q('[data-annotation-id="a1"]') as HTMLElement;
+    const mark = q('[data-annotation-id="a1"]');
+    if (!mark) throw new Error("Expected the rendered annotation mark");
     const id = mark.getAttribute("aria-describedby");
     expect(id).toBeTruthy();
     expect(document.getElementById(id as string)?.textContent).toContain(
@@ -517,29 +598,24 @@ describe("closing", () => {
   it("hands focus back to the sidenote when the card closes and focus was lost", async () => {
     await render(<Article initialOpen="a2" />);
     (document.activeElement as HTMLElement | null)?.blur();
-    await act(async () =>
-      (window as unknown as { setOpen: (v: null) => void }).setOpen(null),
-    );
+    await act(async () => setOpenNote(null));
     expect(document.activeElement).toBe(q('[data-key="a:a2"] .sidenote-hit'));
   });
 
   it("leaves focus alone when it already moved somewhere else", async () => {
     await render(<Article initialOpen="a2" />);
-    const mark = q('[data-annotation-id="a1"]') as HTMLElement;
+    const mark = q('[data-annotation-id="a1"]');
+    if (!mark) throw new Error("Expected the rendered annotation mark");
     mark.tabIndex = 0;
     mark.focus();
-    await act(async () =>
-      (window as unknown as { setOpen: (v: null) => void }).setOpen(null),
-    );
+    await act(async () => setOpenNote(null));
     expect(document.activeElement).toBe(mark);
   });
 
   it("keeps the open note's slot so neighbours do not move", async () => {
     await render(<Article users={[]} />);
     const before = q('[data-key="a:a2"]')?.style.top;
-    await act(async () =>
-      (window as unknown as { setOpen: (v: string) => void }).setOpen("a1"),
-    );
+    await act(async () => setOpenNote("a1"));
     expect(q('[data-key="a:a1"]')?.getAttribute("data-open")).toBe("true");
     expect(q('[data-key="a:a2"]')?.style.top).toBe(before);
   });
@@ -641,6 +717,16 @@ describe("the open card in the column", () => {
     expect(tops()).toEqual(accordion);
   });
 
+  it("keeps the outgoing accordion card, not the incoming card, while closing", async () => {
+    await render(<Column openId="a1" cardHeight={200} />);
+    animationFinished = new Promise(() => {});
+    await render(<Column openId="a3" cardHeight={200} />);
+    expect(q('[data-key="a:a1"] .sidenote-card-closing')?.textContent).toBe(
+      "card a1",
+    );
+    expect(q('[data-key="a:a3"] .sidenote-card')?.textContent).toBe("card a3");
+  });
+
   it("puts the open card in the column, not in a hit target or a connector", async () => {
     await render(<Column openId="a2" />);
     const note = q('[data-key="a:a2"]') as HTMLElement;
@@ -677,6 +763,32 @@ describe("the open card in the column", () => {
     expect(shrink.map((a) => a.keyframes)).toEqual([
       [{ height: "260px" }, { height: "70px" }],
     ]);
+  });
+
+  it("reverses an interrupted slot from its live height and ignores the superseded completion", async () => {
+    await render(<Column openId={null} />);
+    let finishGrow!: () => void;
+    animationFinished = new Promise<void>((resolve) => {
+      finishGrow = resolve;
+    });
+    await render(<Column openId="a2" />);
+    const note = q('[data-key="a:a2"]')!;
+    note.dataset.liveHeight = "140";
+    animationPlaying = true;
+    let finishShrink!: () => void;
+    animationFinished = new Promise<void>((resolve) => {
+      finishShrink = resolve;
+    });
+    await render(<Column openId={null} />);
+    expect(
+      animations.filter((animation) => animation.el === note).at(-1)?.keyframes,
+    ).toEqual([{ height: "140px" }, { height: "70px" }]);
+    await act(async () => finishGrow());
+    expect(note.querySelector(".sidenote-card-closing")).not.toBeNull();
+    animationPlaying = false;
+    delete note.dataset.liveHeight;
+    await act(async () => finishShrink());
+    expect(note.querySelector(".sidenote-card-closing")).toBeNull();
   });
 
   it("does not animate the slot under reduced motion, but still moves the notes below", async () => {
