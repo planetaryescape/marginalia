@@ -3,6 +3,7 @@ import { components, internal } from "./_generated/api";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { revokeSessions } from "./access";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
+import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeMetadata } from "./vaultFiles";
 
@@ -191,6 +192,7 @@ const STEPS: Step[] = [
       .withIndex("by_userId_and_readerHighlightId", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
+  (ctx, { userId }) => purgeLegacyMarkDefaults(ctx, userId),
   rows((ctx, u) =>
     ctx.db
       .query("userNotes")

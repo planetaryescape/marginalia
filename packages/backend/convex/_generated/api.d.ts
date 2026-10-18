@@ -85,6 +85,7 @@ import type * as lib_ideaSignals from "../lib/ideaSignals.js";
 import type * as lib_ingest from "../lib/ingest.js";
 import type * as lib_library from "../lib/library.js";
 import type * as lib_librarySearch from "../lib/librarySearch.js";
+import type * as lib_localContext from "../lib/localContext.js";
 import type * as lib_marginaliaContext from "../lib/marginaliaContext.js";
 import type * as lib_marginaliaFingerprint from "../lib/marginaliaFingerprint.js";
 import type * as lib_markColours from "../lib/markColours.js";
@@ -236,6 +237,7 @@ declare const fullApi: ApiFromModules<{
   "lib/ingest": typeof lib_ingest;
   "lib/library": typeof lib_library;
   "lib/librarySearch": typeof lib_librarySearch;
+  "lib/localContext": typeof lib_localContext;
   "lib/marginaliaContext": typeof lib_marginaliaContext;
   "lib/marginaliaFingerprint": typeof lib_marginaliaFingerprint;
   "lib/markColours": typeof lib_markColours;

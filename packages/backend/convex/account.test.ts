@@ -122,6 +122,14 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     });
     // A book's rows: its text, and what indexing wrote about it
     if (i === 0) {
+      await ctx.db.insert("legacyMarkDefaults", {
+        userId,
+        kind: "highlight",
+        color: "yellow",
+        version: 1,
+        status: "running",
+        cursor: null,
+      });
       await ctx.db.insert("books", {
         userId,
         articleId,
@@ -535,6 +543,15 @@ describe("account deletion", () => {
       });
     }
     const ownerBefore = await counts(t);
+    const legacyJob = await t.run((ctx) =>
+      ctx.db
+        .query("legacyMarkDefaults")
+        .withIndex("by_userId_and_kind", (q) =>
+          q.eq("userId", readerLibraryId).eq("kind", "highlight"),
+        )
+        .unique(),
+    );
+    expect(legacyJob).not.toBeNull();
     expect((await rowsMentioning(t, readerLibraryId)).length).toBeGreaterThan(
       20,
     );
@@ -550,6 +567,19 @@ describe("account deletion", () => {
     expect(await reader.query(api.auth.currentReader, {})).toBeNull();
 
     await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
+    // Both new and pre-versioned queued pages are harmless after account purge.
+    if (!legacyJob) throw new Error("Missing seeded colour job");
+    await t.mutation(internal.highlights.stampLegacyPage, {
+      jobId: legacyJob._id,
+      cursor: null,
+    });
+    await t.mutation(internal.highlights.stampUncolouredPage, {
+      userId: readerLibraryId,
+      kind: "highlight",
+      color: "blue",
+      cursor: "old-page",
+    });
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);
