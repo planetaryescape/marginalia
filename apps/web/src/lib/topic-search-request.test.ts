@@ -41,24 +41,30 @@ describe("postTopicSearch", () => {
     expect(init.credentials).toBeUndefined();
   });
 
-  it("falls back to the proxy on a network or CORS failure, then skips direct for a while", async () => {
+  it("does not replay an ambiguous network/CORS failure, but backs off future requests", async () => {
     const t = transport(async (url) => {
       if (url.startsWith(SITE)) throw new TypeError("Failed to fetch");
       return ok();
     });
-    await postTopicSearch("search", "rust", signal(), t);
+    await expect(
+      postTopicSearch("search", "rust", signal(), t),
+    ).rejects.toThrow("Failed to fetch");
     expect(t.fetch.mock.calls.map(([url]) => url)).toEqual([
       `${SITE}/api/library/search`,
-      "/api/reader/library/search",
     ]);
     await postTopicSearch("search", "rust", signal(), t);
     expect(t.fetch.mock.calls.at(-1)?.[0]).toBe("/api/reader/library/search");
-    expect(t.fetch).toHaveBeenCalledTimes(3);
+    expect(t.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("falls back to the proxy on 401 and drops the cached token", async () => {
     const t = transport(async (url) =>
-      url.startsWith(SITE) ? new Response("no", { status: 401 }) : ok(),
+      url.startsWith(SITE)
+        ? new Response("no", {
+            status: 401,
+            headers: { "X-Reader-Prework-Rejection": "auth" },
+          })
+        : ok(),
     );
     await postTopicSearch("find", "rust", signal(), t);
     expect(t.forgetToken).toHaveBeenCalled();
@@ -79,10 +85,10 @@ describe("postTopicSearch", () => {
   });
 
   it("throws other error responses as they are, without a fallback", async () => {
-    const t = transport(async () => new Response("{}", { status: 404 }));
+    const t = transport(async () => new Response("{}", { status: 502 }));
     await expect(
       postTopicSearch("find", "rust", signal(), t),
-    ).rejects.toMatchObject({ status: 404 });
+    ).rejects.toMatchObject({ status: 502 });
     expect(t.fetch).toHaveBeenCalledTimes(1);
   });
 

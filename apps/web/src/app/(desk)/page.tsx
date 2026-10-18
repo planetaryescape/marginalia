@@ -3,7 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useConvex, useQuery } from "convex/react";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { ArticleFinder } from "@/components/article-finder";
 import { DeskPick } from "@/components/desk/desk-pick";
 import { ContinueShortcut, DeskRest } from "@/components/desk/desk-rest";
@@ -34,7 +34,7 @@ const TIME_KEYS = { "1": 5, "2": 10, "3": 20, "4": 30 } as const;
 
 /** Counts of what fits each window, for the tooltips only. */
 function TimesWithFits(props: Omit<Parameters<typeof TimeChoices>[0], "fits">) {
-  const overview = useQuery(api.home.overview, {});
+  const overview = useQuery(api.home.counts, {});
   const fits: Fits | undefined = overview?.fits;
   return <TimeChoices {...props} fits={fits} />;
 }
@@ -54,13 +54,19 @@ function Desk() {
     void pdf.start(file);
   };
   // Done brought us here: the slot slides its next pick in (globals.css)
-  const [arrival] = useState(() =>
+  const [arrival, setArrival] = useState(() =>
     !arrivedFromFinish()
       ? undefined
       : typeof document.startViewTransition === "function"
         ? "finish"
         : "finish-swap",
   );
+  useEffect(() => {
+    if (!arrival) return;
+    // The initial finish handoff lasts 320ms + 240ms. Later picks arrive normally.
+    const timer = window.setTimeout(() => setArrival(undefined), 560);
+    return () => window.clearTimeout(timer);
+  }, [arrival]);
   const keyCounter = useRef(0);
   const lastChoice = useRef<{ minutes: number; at: number } | null>(null);
 
@@ -76,6 +82,7 @@ function Desk() {
   }
 
   const choose = (minutes: number) => {
+    setArrival(undefined);
     const now = Date.now();
     const last = lastChoice.current;
     if (last?.minutes === minutes && now - last.at < DOUBLE_CHOICE_MS) return;

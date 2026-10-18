@@ -1,3 +1,4 @@
+import { abortable } from "./abortable";
 import { authClient } from "./auth-client";
 
 /** Refresh this long before expiry so a request never carries a dying token. */
@@ -66,11 +67,13 @@ export function getConvexToken(
     });
     return result.data?.token ?? null;
   },
+  signal?: AbortSignal,
 ): Promise<string | null> {
+  signal?.throwIfAborted();
   if (!session) return Promise.resolve(null);
   if (cached && cached.expiresAt - now() > REFRESH_MARGIN_MS)
     return Promise.resolve(cached.token);
-  if (inflight) return inflight;
+  if (inflight) return signal ? abortable(inflight, signal) : inflight;
   const started = generation;
   const owner = session;
   const pending = fetchToken()
@@ -84,5 +87,5 @@ export function getConvexToken(
       if (inflight === pending) inflight = null;
     });
   inflight = pending;
-  return pending;
+  return signal ? abortable(pending, signal) : pending;
 }

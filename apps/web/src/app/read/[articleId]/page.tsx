@@ -68,6 +68,7 @@ import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { findTextRange, rangeText } from "@/lib/text-range";
 import { markFinished, rememberedTitle } from "@/lib/title-handoff";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
@@ -207,7 +208,7 @@ export default function ReadPage() {
     saved?.paragraphIndex,
     paragraphs.version,
   );
-  const position = useReadingPosition(articleRef, paragraphs.version);
+  const position = useReadingPosition(articleRef, paragraphs.layoutVersion);
   const summary = useQuery(api.summaries.getByArticle, {
     articleId: articleId as any,
   });
@@ -222,7 +223,13 @@ export default function ReadPage() {
     title: article?.title ?? "",
     settings,
   });
-  const listen = useListen(articleRef);
+  const listen = useListen(
+    articleRef,
+    articleId,
+    unitKey,
+    article?.content,
+    article?.contentHtml,
+  );
   const {
     trackAnnotationOpen,
     finish,
@@ -389,6 +396,7 @@ export default function ReadPage() {
     async (message: string, run: () => Promise<void>): Promise<void> => {
       try {
         await run();
+        invalidateTopicSearchCache();
         setToolbarFailure(null);
       } catch {
         setToolbarFailure({
@@ -535,7 +543,10 @@ export default function ReadPage() {
     },
     [savedThreads, companion.answers, companion.open, companion.openAnswer],
   );
-  const answers = answerNotes(companion.answers, savedThreads);
+  const answers = useMemo(
+    () => answerNotes(companion.answers, savedThreads),
+    [companion.answers, savedThreads],
+  );
 
   // A link from Notes lands on its line, then opens the note or answer it was for, once.
   const linkedNote = searchParams.get("note");
@@ -799,6 +810,7 @@ export default function ReadPage() {
         content: `<blockquote><p>${escapeHtml(openAnnotation.content)}</p></blockquote>${paragraphs}`,
         contentPlain: text,
       });
+      invalidateTopicSearchCache();
     },
     [openAnnotation, createNote, articleId, unit],
   );
@@ -864,7 +876,7 @@ export default function ReadPage() {
         isBook={isBook}
         range={openRange}
         containerRef={articleRef}
-        layoutVersion={paragraphs.version}
+        layoutVersion={paragraphs.layoutVersion}
         onClose={companion.collapse}
         onDelete={() => deleteAnswer(answerThread.id)}
         onFollowUp={companion.followUp}
@@ -1108,6 +1120,7 @@ export default function ReadPage() {
                 onJump={jumpToParagraph}
                 canGenerate={!isBook}
                 onExpandedChange={setSummaryOpen}
+                contentVersion={paragraphs.version}
               />
             </div>
           )}
@@ -1174,9 +1187,13 @@ export default function ReadPage() {
                 .filter((note) => note.annotationId === openAnnotation._id)
                 .sort((a, b) => a.createdAt - b.createdAt)}
               onReflect={handleReflect}
-              onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+              onDeleteReflection={(id) =>
+                removeNote({ noteId: id as any }).then(
+                  invalidateTopicSearchCache,
+                )
+              }
               containerRef={articleRef}
-              layoutVersion={paragraphs.version}
+              layoutVersion={paragraphs.layoutVersion}
               onClose={closeAnnotation}
               onJump={jumpToParagraph}
             />
@@ -1239,9 +1256,11 @@ export default function ReadPage() {
               .filter((note) => note.annotationId === openAnnotation._id)
               .sort((a, b) => a.createdAt - b.createdAt)}
             onReflect={handleReflect}
-            onDeleteReflection={(id) => removeNote({ noteId: id as any })}
+            onDeleteReflection={(id) =>
+              removeNote({ noteId: id as any }).then(invalidateTopicSearchCache)
+            }
             containerRef={articleRef}
-            layoutVersion={paragraphs.version}
+            layoutVersion={paragraphs.layoutVersion}
             onClose={closeAnnotation}
             onJump={jumpToParagraph}
           />

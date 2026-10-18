@@ -99,6 +99,24 @@ const scrollToCalls = () =>
   (window.scrollTo as unknown as { mock: { calls: unknown[][] } }).mock.calls;
 
 describe("in-article jumps", () => {
+  it("removes superseded scrollend listeners and the final listener on unmount", async () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    await jumpTo(5);
+    const first = add.mock.calls.find(([event]) => event === "scrollend")![1];
+    await jumpTo(6);
+    expect(remove).toHaveBeenCalledWith("scrollend", first);
+    // Even a superseded completion already queued by the browser cannot end the new jump.
+    if (typeof first === "function") first(new Event("scrollend"));
+    await userScrollTo(0);
+    expect(latest.top).not.toBeNull();
+    const last = add.mock.calls
+      .filter(([event]) => event === "scrollend")
+      .at(-1)![1];
+    await act(async () => root.unmount());
+    expect(remove).toHaveBeenCalledWith("scrollend", last);
+    root = createRoot(document.getElementById("mount")!);
+  });
   it("records where the reader was, and Back restores it", async () => {
     await jumpTo(5);
     expect(latest.top).toEqual({ scrollY: 100, paragraph: 1 });

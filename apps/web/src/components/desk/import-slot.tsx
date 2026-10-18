@@ -15,6 +15,7 @@ import {
 } from "@/lib/pdf-import";
 import { isOnControl, useShortcuts } from "@/lib/shortcuts";
 import { articleTitleName, rememberTitle } from "@/lib/title-handoff";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import type { UploadState } from "@/lib/use-pdf-import";
 import { PdfPickerButton } from "./pdf-picker";
 
@@ -159,6 +160,7 @@ function Ready({
     setFailed(false);
     try {
       await save({ articleId });
+      invalidateTopicSearchCache();
       setSaved(true);
     } catch {
       setFailed(true);

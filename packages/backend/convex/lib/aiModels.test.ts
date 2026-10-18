@@ -1,5 +1,5 @@
-import { APICallError, NoObjectGeneratedError } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 const generateObject = vi.fn();
@@ -37,8 +37,59 @@ const target = (id: string) =>
   ({ id, provider: "openrouter", model: id, apiKey: "k" }) as never;
 
 describe("generateObjectWithFallback", () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     generateObject.mockReset();
+  });
+  it("normalizes SDK retry wrappers and uses explicit zero hidden retries", async () => {
+    generateObject
+      .mockRejectedValueOnce(
+        new RetryError({
+          message: "Retries exhausted",
+          reason: "maxRetriesExceeded",
+          errors: [
+            new APICallError({
+              message: "Unavailable",
+              statusCode: 503,
+              url: "https://fixture.invalid",
+              requestBodyValues: {},
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce({ object: { ok: true } });
+    const result = await generateObjectWithFallback({
+      schema: z.object({ ok: z.boolean() }),
+      targets: [target("first"), target("second")],
+    });
+    expect(result.modelId).toBe("second");
+    expect(
+      generateObject.mock.calls.every(
+        ([options]) =>
+          options.maxRetries === 0 &&
+          options.abortSignal instanceof AbortSignal,
+      ),
+    ).toBe(true);
+  });
+  it("aborts a structured attempt on deadline before trying the next model", async () => {
+    vi.useFakeTimers();
+    let firstSignal!: AbortSignal;
+    generateObject
+      .mockImplementationOnce(({ abortSignal }) => {
+        firstSignal = abortSignal;
+        return new Promise(() => {});
+      })
+      .mockImplementationOnce(() => {
+        expect(firstSignal.aborted).toBe(true);
+        return { object: { ok: true } };
+      });
+    const pending = generateObjectWithFallback({
+      schema: z.object({ ok: z.boolean() }),
+      targets: [target("first"), target("second")],
+      deadlineMs: 5,
+    });
+    await vi.advanceTimersByTimeAsync(6);
+    expect((await pending).modelId).toBe("second");
   });
 
   it("asks the same model again when its answer doesn't parse", async () => {

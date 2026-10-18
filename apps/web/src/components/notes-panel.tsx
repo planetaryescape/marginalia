@@ -4,9 +4,13 @@ import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  lazy,
+  memo,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -14,8 +18,75 @@ import { InlineError } from "@/components/in-place";
 import { type KeptAnswer, splitNotes } from "@/lib/kept-answers";
 import { MODE_LABELS } from "@/lib/margin-answers";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { KeptTranscript } from "./kept-transcript";
-import { NoteEditor } from "./note-editor";
+
+const loadNoteEditor = () => import("./note-editor");
+const NoteEditor = lazy(() =>
+  loadNoteEditor().then((module) => ({ default: module.NoteEditor })),
+);
+
+const NoteHtml = memo(function NoteHtml({
+  content,
+  legacy = false,
+}: {
+  content: string;
+  legacy?: boolean;
+}) {
+  const html = useMemo(() => ({ __html: sanitizeHtml(content) }), [content]);
+  return (
+    <div
+      data-hand={legacy ? undefined : "pen"}
+      className={
+        legacy
+          ? "text-sm font-sans text-[var(--reader-fg-soft)] leading-relaxed break-words [&_h3]:font-medium"
+          : "border-l-2 border-[var(--pen)] pl-3 text-[15px] font-sans text-[var(--ink)] leading-relaxed break-words max-w-none [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-4 [&_blockquote]:border-l [&_blockquote]:pl-2 [&_blockquote]:italic [&_blockquote]:text-[var(--reader-muted)]"
+      }
+      dangerouslySetInnerHTML={html}
+    />
+  );
+});
+
+const NoteRow = memo(function NoteRow({
+  id,
+  selectedText,
+  content,
+  createdAt,
+  onDelete,
+}: {
+  id: Id<"userNotes">;
+  selectedText: string;
+  content: string;
+  createdAt: number;
+  onDelete: (id: Id<"userNotes">) => void;
+}) {
+  return (
+    <div className="px-4 py-3 border-b border-[var(--reader-border)] group">
+      {selectedText && (
+        <blockquote className="text-[12px] font-serif text-[var(--ink-muted)] border-l border-[var(--reader-border-strong)] pl-2 mb-2 italic line-clamp-2">
+          {selectedText}
+        </blockquote>
+      )}
+      <NoteHtml content={content} />
+      <div className="flex items-center justify-between mt-2">
+        <span className="text-[11px] font-sans text-[var(--reader-muted)]">
+          {new Date(createdAt).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </span>
+        <button
+          onClick={() => onDelete(id)}
+          className="md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-[12px] font-sans text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-opacity"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+});
 
 type Selection = {
   text: string;
@@ -55,12 +126,7 @@ function KeptAnswerBody({
   onJump: (index: number) => void;
 }) {
   if (answer.kind === "legacy")
-    return (
-      <div
-        className="text-sm font-sans text-[var(--reader-fg-soft)] leading-relaxed break-words [&_h3]:font-medium"
-        dangerouslySetInnerHTML={{ __html: sanitizeHtml(answer.note.content) }}
-      />
-    );
+    return <NoteHtml content={answer.note.content} legacy />;
   return <KeptTranscript thread={answer.thread} onJump={onJump} />;
 }
 
@@ -176,13 +242,17 @@ export function NotesPanel({
       try {
         if (!plainText.trim()) {
           // Emptied the editor: drop the draft rather than keep a blank note
-          if (id) await removeNote({ noteId: id });
+          if (id) {
+            await removeNote({ noteId: id });
+            invalidateTopicSearchCache();
+          }
           setDraftId(null);
           setStatus("idle");
           return { id: null, ok: true };
         }
         if (id) {
           await updateNote({ noteId: id, content, contentPlain: plainText });
+          invalidateTopicSearchCache();
           setStatus("saved");
           return { id, ok: true };
         }
@@ -196,6 +266,7 @@ export function NotesPanel({
           content,
           contentPlain: plainText,
         });
+        invalidateTopicSearchCache();
         setDraftId(created);
         setStatus("saved");
         return { id: created, ok: true };
@@ -219,7 +290,10 @@ export function NotesPanel({
     onClearSelection();
   };
 
-  const { mine, answers } = splitNotes(notes ?? [], threads ?? []);
+  const { mine, answers } = useMemo(
+    () => splitNotes(notes ?? [], threads ?? []),
+    [notes, threads],
+  );
 
   // A failed delete stays in the list with Retry, and the row stays where it was
   const [deleteFailure, setDeleteFailure] = useState<{
@@ -227,14 +301,18 @@ export function NotesPanel({
     retry: () => Promise<void>;
   } | null>(null);
   const [retryingDelete, setRetryingDelete] = useState(false);
-  const attemptDelete = async (message: string, run: () => Promise<void>) => {
-    try {
-      await run();
-      setDeleteFailure(null);
-    } catch {
-      setDeleteFailure({ message, retry: () => attemptDelete(message, run) });
-    }
-  };
+  const attemptDelete = useCallback(
+    async (message: string, run: () => Promise<void>) => {
+      try {
+        await run();
+        invalidateTopicSearchCache();
+        setDeleteFailure(null);
+      } catch {
+        setDeleteFailure({ message, retry: () => attemptDelete(message, run) });
+      }
+    },
+    [],
+  );
 
   const handleDeleteAnswer = (answer: KeptAnswer) =>
     attemptDelete("Couldn't delete the answer.", async () => {
@@ -244,10 +322,14 @@ export function NotesPanel({
       } else await removeNote({ noteId: answer.note._id });
     });
 
-  const handleDelete = (noteId: Id<"userNotes">) =>
-    attemptDelete("Couldn't delete the note.", async () => {
-      await removeNote({ noteId });
-    });
+  const handleDelete = useCallback(
+    (noteId: Id<"userNotes">) => {
+      void attemptDelete("Couldn't delete the note.", async () => {
+        await removeNote({ noteId });
+      });
+    },
+    [attemptDelete, removeNote],
+  );
 
   return (
     <AnimatePresence>
@@ -279,6 +361,12 @@ export function NotesPanel({
                 <button
                   type="button"
                   onClick={() => setEditingNew(true)}
+                  onPointerEnter={() => {
+                    void loadNoteEditor();
+                  }}
+                  onFocus={() => {
+                    void loadNoteEditor();
+                  }}
                   className="min-h-11 sm:min-h-8 px-3 rounded-md bg-[var(--reader-chip)] text-xs font-sans text-[var(--reader-fg-soft)] hover:text-[var(--reader-fg)] transition-colors"
                 >
                   + New
@@ -298,14 +386,16 @@ export function NotesPanel({
           {/* Note editor */}
           {showEditor && (
             <div className="border-b border-[var(--reader-border)]">
-              <NoteEditor
-                key={editorKey}
-                selectedText={selectionText}
-                onAutosave={handleAutosave}
-                onClose={handleClose}
-                status={status}
-                onFlushReady={registerFlush}
-              />
+              <Suspense fallback={<p role="status">Loading editor…</p>}>
+                <NoteEditor
+                  key={editorKey}
+                  selectedText={selectionText}
+                  onAutosave={handleAutosave}
+                  onClose={handleClose}
+                  status={status}
+                  onFlushReady={registerFlush}
+                />
+              </Suspense>
             </div>
           )}
 
@@ -341,43 +431,14 @@ export function NotesPanel({
             {mine
               .filter((note) => !(showEditor && note._id === draftId))
               .map((note) => (
-                <div
+                <NoteRow
                   key={note._id}
-                  className="px-4 py-3 border-b border-[var(--reader-border)] group"
-                >
-                  {note.selectedText && (
-                    <blockquote className="text-[12px] font-serif text-[var(--ink-muted)] border-l border-[var(--reader-border-strong)] pl-2 mb-2 italic line-clamp-2">
-                      {note.selectedText}
-                    </blockquote>
-                  )}
-
-                  {/* Your words lead: your ink, with your pen's rule beside them */}
-                  <div
-                    data-hand="pen"
-                    className="border-l-2 border-[var(--pen)] pl-3 text-[15px] font-sans text-[var(--ink)] leading-relaxed break-words max-w-none
-                    [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-4 [&_blockquote]:border-l [&_blockquote]:pl-2 [&_blockquote]:italic [&_blockquote]:text-[var(--reader-muted)]"
-                    dangerouslySetInnerHTML={{
-                      __html: sanitizeHtml(note.content),
-                    }}
-                  />
-
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-[11px] font-sans text-[var(--reader-muted)]">
-                      {new Date(note.createdAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                    <button
-                      onClick={() => handleDelete(note._id)}
-                      className="md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-[12px] font-sans text-[var(--reader-muted)] hover:text-[var(--reader-fg)] transition-opacity"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
+                  id={note._id}
+                  selectedText={note.selectedText}
+                  content={note.content}
+                  createdAt={note.createdAt}
+                  onDelete={handleDelete}
+                />
               ))}
 
             {answers.map((answer) => {

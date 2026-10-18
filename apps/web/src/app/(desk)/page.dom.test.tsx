@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SETTLE_MS, SKELETON_DELAY_MS } from "@/components/desk/desk-pick";
-import { rememberedTitle } from "@/lib/title-handoff";
+import { SKELETON_DELAY_MS } from "@/components/desk/desk-pick";
+import { markFinished, rememberedTitle } from "@/lib/title-handoff";
 import { ALT_HOLD_MS, AltHintProvider } from "@/lib/use-alt-hint";
 import { SAVED_MS } from "@/lib/use-timed-flag";
 import DeskRoute, { DOUBLE_CHOICE_MS } from "./page";
+
+// Motion completes in the mock; actions no longer wait on a wall-clock cooldown.
+const SETTLE_MS = 0;
 
 type Pending = {
   name: string;
@@ -18,6 +21,8 @@ type Pending = {
 
 const state = vi.hoisted(() => ({
   overview: undefined as unknown,
+  pauseMotion: false,
+  animations: [] as (() => void)[],
   inProgress: null as unknown,
   due: [] as unknown[],
   feeds: [] as unknown[],
@@ -47,7 +52,7 @@ vi.mock("convex/react", async () => {
       if (args === "skip") return undefined;
       const name = getFunctionName(fn as never);
       switch (name) {
-        case "home:overview":
+        case "home:counts":
           if (state.failOverview) throw new Error("boom");
           return state.overview;
         case "sessions:getInProgress":
@@ -114,11 +119,19 @@ vi.mock("framer-motion", () => {
     ({
       children,
       className,
+      onAnimationComplete,
     }: {
       children?: React.ReactNode;
       className?: string;
+      onAnimationComplete?: () => void;
     }) => {
       const Element = Tag;
+      // The mock completes entry after commit, as real motion does.
+      useEffect(() => {
+        if (state.pauseMotion && onAnimationComplete)
+          state.animations.push(onAnimationComplete);
+        else onAnimationComplete?.();
+      });
       return <Element className={className}>{children}</Element>;
     };
   return {
@@ -152,7 +165,10 @@ const overview = (extra: Record<string, unknown> = {}) => ({
 let root: Root;
 beforeEach(() => {
   vi.useFakeTimers();
+  markFinished(Number.NEGATIVE_INFINITY);
   state.overview = overview();
+  state.pauseMotion = false;
+  state.animations = [];
   state.inProgress = null;
   state.due = [];
   state.feeds = [];
@@ -225,10 +241,32 @@ const settle = () =>
   act(async () => {
     for (const m of state.pending.splice(0))
       m.resolve(m.name === "sessions:create" ? `s${++sessions}` : undefined);
-    await vi.advanceTimersByTimeAsync(SETTLE_MS + 1);
+    await vi.advanceTimersByTimeAsync(1);
   });
 
 describe("desk at rest", () => {
+  it("consumes finish arrival once, so later picks never inherit its delay", async () => {
+    markFinished();
+    await render();
+    const slot = document.querySelector('section[aria-label="Your pick"]');
+    expect(slot?.getAttribute("data-arrival")).toBeTruthy();
+    await advance(560);
+    expect(slot?.getAttribute("data-arrival")).toBeNull();
+    await act(async () => time("10").click());
+    expect(slot?.getAttribute("data-arrival")).toBeNull();
+  });
+  it("renders Continue while unrelated counters and revisit data are pending", async () => {
+    state.overview = undefined;
+    state.inProgress = {
+      article: { _id: "fast", title: "Ready now" },
+      scrollPercent: 20,
+    };
+    await render();
+    expect(
+      document.querySelector('a[href="/read/fast"]')?.textContent,
+    ).toContain("Ready now");
+    expect(text()).toContain("Continue");
+  });
   it("shows the question, the times and the bar, and nothing of the pile", async () => {
     state.inProgress = {
       article: { _id: "p", title: "In progress" },
@@ -421,6 +459,36 @@ describe("a book in the pick", () => {
 });
 
 describe("choosing a time", () => {
+  it("does not act on the next card while the previous title is still exiting", async () => {
+    await render();
+    await act(async () => time("10").click());
+    state.pauseMotion = true;
+    await act(async () => button("Another").click());
+    await act(async () => button("Another").click());
+    expect(text()).toContain("Title b");
+    await act(async () => state.animations.at(-1)?.());
+    await act(async () => button("Another").click());
+    expect(text()).toContain("Title c");
+  });
+
+  it("never navigates a replaced deck when its session creation resolves late", async () => {
+    await render();
+    await act(async () => time("10").click());
+    await act(async () => button("Read now").click());
+    const old = calls("sessions:create")[0];
+    await act(async () => time("20").click());
+    await act(async () => old.resolve("old-session"));
+    expect(state.push).not.toHaveBeenCalled();
+    expect(text()).toContain("Title x");
+  });
+  it("accepts the next card immediately after entry, without a timer cooldown", async () => {
+    await render();
+    await act(async () => time("10").click());
+    await act(async () => button("Another").click());
+    expect(text()).toContain("Title b");
+    await act(async () => button("Another").click());
+    expect(text()).toContain("Title c");
+  });
   it("renders the pick at once, before the session exists, and without a route change", async () => {
     await render();
     await act(async () => time("10").click());

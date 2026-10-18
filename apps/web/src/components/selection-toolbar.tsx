@@ -28,7 +28,7 @@ import type { MarkKind } from "@/lib/highlights";
 import { type MarkColor, SWATCHES } from "@/lib/mark-colours";
 import { passagePlacement } from "@/lib/passage-placement";
 import type { AnswerDepth } from "@/lib/reader-settings";
-import { isTypingTarget, useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 interface SelectionToolbarProps {
@@ -132,6 +132,10 @@ export function SelectionToolbar({
   // The tool whose colour picker is open
   const [picking, setPicking] = useState<MarkKind | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const rangeRef = useRef<Range | null>(null);
+  const frame = useRef(0);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionChanged = useRef(false);
   const askingRef = useRef(false);
   // Asking and picking a colour both keep the toolbar open without a selection
   const holding = asking || picking !== null;
@@ -140,6 +144,11 @@ export function SelectionToolbar({
   }, [holding]);
 
   const hide = useCallback(() => {
+    if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+    hideTimer.current = null;
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    rangeRef.current = null;
     setRange(null);
     setPosition(null);
     setAsking(false);
@@ -147,85 +156,93 @@ export function SelectionToolbar({
     setPicking(null);
   }, []);
 
-  const handleSelectionChange = useCallback(() => {
-    if (askingRef.current) return;
-    const selection = window.getSelection();
-    if (
-      !selection ||
-      selection.isCollapsed ||
-      !selection.rangeCount ||
-      !containerRef.current
-    ) {
-      // Small delay before hiding — avoids flicker when clicking the toolbar
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (!askingRef.current && (!sel || sel.isCollapsed)) hide();
-      }, 200);
-      return;
-    }
-
-    const current = selection.getRangeAt(0);
-    if (
-      !containerRef.current.contains(current.commonAncestorContainer) ||
-      selection.toString().trim().length < 2
-    ) {
-      hide();
-      return;
-    }
-
-    const snapshot = current.cloneRange();
-    setRange(snapshot);
-    setPosition(placement(snapshot));
+  const scheduleMeasurement = useCallback(() => {
+    if (!rangeRef.current && !selectionChanged.current) return;
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      if (selectionChanged.current) {
+        selectionChanged.current = false;
+        if (!askingRef.current) {
+          const selection = window.getSelection();
+          if (!selection || selection.isCollapsed || !selection.rangeCount) {
+            if (hideTimer.current === null)
+              hideTimer.current = setTimeout(() => {
+                hideTimer.current = null;
+                if (
+                  !askingRef.current &&
+                  window.getSelection()?.isCollapsed !== false
+                )
+                  hide();
+              }, 200);
+            return;
+          }
+          const current = selection.getRangeAt(0);
+          if (
+            !containerRef.current?.contains(current.commonAncestorContainer) ||
+            selection.toString().trim().length < 2
+          ) {
+            hide();
+            return;
+          }
+          const previous = rangeRef.current;
+          if (
+            !previous ||
+            previous.startContainer !== current.startContainer ||
+            previous.startOffset !== current.startOffset ||
+            previous.endContainer !== current.endContainer ||
+            previous.endOffset !== current.endOffset
+          ) {
+            const snapshot = current.cloneRange();
+            rangeRef.current = snapshot;
+            setRange(snapshot);
+          }
+        }
+      }
+      if (!rangeRef.current) return;
+      const next = placement(rangeRef.current, toolbarRef.current);
+      setPosition((previous) =>
+        previous &&
+        previous.top === next.top &&
+        previous.left === next.left &&
+        previous.below === next.below &&
+        previous.mobile === next.mobile
+          ? previous
+          : next,
+      );
+    });
   }, [containerRef, hide]);
 
   useEffect(() => {
+    const handleSelectionChange = () => {
+      if (askingRef.current) return;
+      if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+      selectionChanged.current = true;
+      scheduleMeasurement();
+    };
     document.addEventListener("selectionchange", handleSelectionChange);
-    return () =>
-      document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [handleSelectionChange]);
-
-  useEffect(() => {
-    const preventDuplicateMenu = (event: MouseEvent) => {
-      if (!window.matchMedia("(pointer: coarse)").matches) return;
-      if (isTypingTarget(event.target)) return;
-      const body = containerRef.current?.querySelector("[data-article-body]");
-      const selection = window.getSelection();
-      if (
-        event.target instanceof Node &&
-        body?.contains(event.target) &&
-        selection &&
-        !selection.isCollapsed &&
-        selection.rangeCount &&
-        selection.toString().trim().length >= 2 &&
-        body.contains(selection.getRangeAt(0).commonAncestorContainer)
-      )
-        event.preventDefault();
-    };
-    document.addEventListener("contextmenu", preventDuplicateMenu);
-    return () =>
-      document.removeEventListener("contextmenu", preventDuplicateMenu);
-  }, [containerRef]);
-
-  // Follow the passage while the page scrolls
-  useEffect(() => {
-    if (!range) return;
-    const reposition = () => setPosition(placement(range, toolbarRef.current));
-    window.addEventListener("scroll", reposition, { passive: true });
-    window.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("scroll", reposition);
+    window.addEventListener("scroll", scheduleMeasurement, { passive: true });
+    window.addEventListener("resize", scheduleMeasurement);
+    window.visualViewport?.addEventListener("resize", scheduleMeasurement);
+    window.visualViewport?.addEventListener("scroll", scheduleMeasurement);
     return () => {
-      window.removeEventListener("scroll", reposition);
-      window.removeEventListener("resize", reposition);
-      window.visualViewport?.removeEventListener("resize", reposition);
-      window.visualViewport?.removeEventListener("scroll", reposition);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      window.removeEventListener("scroll", scheduleMeasurement);
+      window.removeEventListener("resize", scheduleMeasurement);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasurement);
+      window.visualViewport?.removeEventListener("scroll", scheduleMeasurement);
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+      if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+      hideTimer.current = null;
     };
-  }, [range]);
+  }, [scheduleMeasurement]);
   // Re-measure when the Ask editor changes the menu's height.
   // biome-ignore lint/correctness/useExhaustiveDependencies: asking and picking change the rendered dimensions.
   useLayoutEffect(() => {
-    if (range) setPosition(placement(range, toolbarRef.current));
-  }, [range, asking, picking]);
+    scheduleMeasurement();
+  }, [asking, picking, scheduleMeasurement]);
 
   // Typing a question moves focus out of the article, so keep the passage tinted
   usePassageHighlight("companion-pending", asking ? range : null);
@@ -292,7 +309,8 @@ export function SelectionToolbar({
           if (!target?.toString().trim()) return;
           if (action === "ask") {
             setRange(target);
-            setPosition(placement(target));
+            rangeRef.current = target;
+            scheduleMeasurement();
             setAsking(true);
           } else {
             if (action === "highlight" || action === "underline")

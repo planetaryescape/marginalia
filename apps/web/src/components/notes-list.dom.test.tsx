@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotesList } from "./notes-list";
 
 const mocks = vi.hoisted(() => ({
+  headerCalls: [] as string[][],
   listAll: [] as unknown[] | undefined,
   listKept: [] as unknown[] | undefined,
   removeThread: vi.fn(),
@@ -20,10 +21,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: (ref: string, args?: { articleId?: string }) =>
-    ref === "getById"
-      ? mocks.articles[args?.articleId ?? ""]
-      : (mocks as never)[ref],
+  useQuery: (ref: string, args?: { articleIds?: string[] } | "skip") => {
+    if (ref !== "headers") return (mocks as never)[ref];
+    if (args === "skip") return undefined;
+    mocks.headerCalls.push(args?.articleIds ?? []);
+    return args?.articleIds?.map((articleId) => ({
+      articleId,
+      article: mocks.articles[articleId],
+    }));
+  },
   useMutation: (ref: string) => (mocks as never)[ref],
   usePaginatedQuery: () => mocks.marks,
 }));
@@ -31,7 +37,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     userNotes: { listAll: "listAll", remove: "removeNote" },
     companionThreads: { listKept: "listKept", remove: "removeThread" },
-    articles: { getById: "getById" },
+    articles: { headers: "headers" },
     highlights: { listMine: "listMine" },
   },
 }));
@@ -86,6 +92,7 @@ beforeEach(() => {
   host = document.body.appendChild(document.createElement("div"));
   root = createRoot(host);
   mocks.listAll = [];
+  mocks.headerCalls = [];
   mocks.listKept = [];
   mocks.articles = { art1: ARTICLE, art2: ARTICLE };
   mocks.marks = { results: [], status: "Exhausted", loadMore: vi.fn() };
@@ -104,6 +111,15 @@ const lines = () => [
 ];
 
 describe("the Notes page", () => {
+  it("batches small headings within the article read-byte bound", async () => {
+    mocks.listAll = Array.from({ length: 9 }, (_, i) =>
+      note({ _id: `n${i}`, articleId: `a${i}` }),
+    );
+    for (let i = 0; i < 9; i++) mocks.articles[`a${i}`] = ARTICLE;
+    await render();
+    expect(mocks.headerCalls.map((ids) => ids.length)).toEqual([8, 1]);
+    expect(host.querySelectorAll("a.text-xl")).toHaveLength(9);
+  });
   it("shows a kept answer as one pencil line under its article, and expands it in place", async () => {
     mocks.listKept = [thread({})];
     await render();

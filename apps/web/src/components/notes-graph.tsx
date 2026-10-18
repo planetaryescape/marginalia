@@ -4,9 +4,12 @@ import { useAction, useQuery } from "convex/react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton, SkeletonBar } from "@/components/in-place";
 import { Keycap } from "@/components/keycap";
+import { authClient } from "@/lib/auth-client";
 import type { GraphEdge, NodeKind } from "@/lib/idea-kinds";
 import { KIND_LABELS } from "@/lib/idea-kinds";
+import { SessionCache } from "@/lib/session-cache";
 import { useShortcuts } from "@/lib/shortcuts";
+import { invalidateTopicSearchCache } from "@/lib/use-topic-search";
 import { IdeaGraphLegend, IdeaGraphView } from "./idea-graph-view";
 import { Composer, EdgePanel, NodePanel } from "./idea-panel";
 
@@ -51,6 +54,14 @@ function useWidth(fallback: number) {
  * same map. The list view is one click away through `toggle`.
  */
 export function NotesGraph({ toggle }: { toggle: ReactNode }) {
+  const { data: session } = authClient.useSession();
+  const sessionId = session?.session.id ?? null;
+  const [neighbours] = useState(
+    // Centre-view revision + local compose + TTL only. A global library/vault
+    // revision is still needed for surrounding edits and cross-tab coherence.
+    () => new SessionCache<{ key: string; via?: string }[]>(20, 60_000),
+  );
+  neighbours.forScope(sessionId);
   const [centre, setCentre] = useState<string | undefined>();
   // For a vault idea: the passage it was chosen by
   const [centreVia, setCentreVia] = useState<string | undefined>();
@@ -92,17 +103,38 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   const viaOf = (key: string | undefined) =>
     graph?.nodes.find((n) => n.key === key)?.via;
   const graphCentreVia = viaOf(graphCentre);
+  const centreRevision = JSON.stringify(
+    graph?.nodes.find((node) => node.key === graphCentre),
+  );
   useEffect(() => {
-    if (!graphCentre) return;
+    if (!graphCentre || !sessionId) return;
+    const key = `${graphCentre}:${graphCentreVia ?? ""}:${centreRevision}`;
+    const cached = neighbours.get(key);
+    if (cached) {
+      setSimilar({ for: graphCentre, hints: cached });
+      return;
+    }
     let current = true;
+    const generation = neighbours.generation;
     findSimilar({ key: graphCentre, via: graphCentreVia })
-      .then((hints) => current && setSimilar({ for: graphCentre, hints }))
+      .then((hints) => {
+        if (!current) return;
+        neighbours.set(key, hints, generation);
+        setSimilar({ for: graphCentre, hints });
+      })
       // Without neighbours by meaning the other connections still draw the map
       .catch(() => current && setSimilar({ for: graphCentre, hints: [] }));
     return () => {
       current = false;
     };
-  }, [graphCentre, graphCentreVia, findSimilar]);
+  }, [
+    graphCentre,
+    graphCentreVia,
+    centreRevision,
+    findSimilar,
+    neighbours,
+    sessionId,
+  ]);
 
   const openKey = centre ?? graphCentre;
   const labels = useMemo(
@@ -241,6 +273,8 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
                   prompt={panel.prompt}
                   onCancel={() => setPanel({ kind: "node" })}
                   onSaved={(key) => {
+                    invalidateTopicSearchCache();
+                    neighbours.forScope(null);
                     setAddedKey(key);
                     setPinned(key);
                     setSaved(true);
@@ -277,6 +311,7 @@ function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
     api.ideaGraph.search,
     term.length >= 2 ? { query: term } : "skip",
   );
+  const current = text.trim() === term;
   const pick = (key: string, via?: string) => {
     setText("");
     setTerm("");
@@ -289,14 +324,14 @@ function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
         type="search"
         aria-keyshortcuts="/"
         role="combobox"
-        aria-expanded={Boolean(hits?.length)}
+        aria-expanded={current && Boolean(hits?.length)}
         aria-controls="idea-search-results"
         aria-label="Search your ideas"
         placeholder="What are you thinking about?"
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && hits?.[0])
+          if (event.key === "Enter" && current && hits?.[0])
             pick(hits[0].key, hits[0].via);
           if (event.key === "Escape") {
             if (text) {
@@ -308,7 +343,7 @@ function Search({ onPick }: { onPick: (key: string, via?: string) => void }) {
         className="w-full rounded-lg border border-[var(--reader-border-strong)] bg-transparent px-3.5 py-2.5 text-[14.5px] text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)] focus:outline-none focus-visible:border-[var(--reader-focus)]"
       />
       <Keycap className="absolute right-3 top-1/2 -translate-y-1/2">/</Keycap>
-      {term.length >= 2 && hits !== undefined && (
+      {current && term.length >= 2 && hits !== undefined && (
         <ul
           id="idea-search-results"
           className="absolute z-10 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-[var(--reader-border-strong)] bg-[var(--reader-surface)] py-1 shadow-sm"

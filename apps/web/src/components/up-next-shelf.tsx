@@ -8,7 +8,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { InlineError } from "@/components/in-place";
+import { deskScroller } from "@/lib/desk-scroll";
 import { useListKeys } from "@/lib/list-nav";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 
 // The server ends a page at 8 articles, so asking for more gains nothing
 const PAGE = 8;
@@ -49,7 +51,7 @@ export function UpNextShelf() {
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) loadMore(PAGE);
       },
-      { rootMargin: "0px 0px 600px 0px" },
+      { root: deskScroller(), rootMargin: "0px 0px 600px 0px" },
     );
     watcher.observe(target);
     return () => watcher.disconnect();
@@ -58,7 +60,10 @@ export function UpNextShelf() {
   const undo = (articleId: Id<"articles">): Promise<void> => {
     if (lastArchived.current === articleId) lastArchived.current = null;
     return restoreArticle({ articleId }).then(
-      () => setFailure(null),
+      () => {
+        invalidateTopicSearchCache();
+        setFailure(null);
+      },
       () =>
         setFailure({
           message: "Couldn't restore it. Find it in search instead.",
@@ -69,6 +74,7 @@ export function UpNextShelf() {
   const archive = async (articleId: Id<"articles">, title: string) => {
     try {
       await archiveArticle({ articleId });
+      invalidateTopicSearchCache();
     } catch {
       setFailure({
         message: `Couldn't archive “${title}”.`,
@@ -87,6 +93,7 @@ export function UpNextShelf() {
       await (savedIds.has(articleId)
         ? unsaveArticle({ articleId })
         : saveArticle({ articleId }));
+      invalidateTopicSearchCache();
       setFailure(null);
     } catch {
       setFailure({

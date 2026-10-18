@@ -5,7 +5,7 @@ import { useMutation } from "convex/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { InlineError, SavedMark } from "@/components/in-place";
 import { OPEN_ARTICLE, ViewTransition } from "@/components/view-transition";
 import { pickTransition } from "@/lib/pick-motion";
@@ -16,11 +16,10 @@ import { usePresented } from "@/lib/use-presented";
 import { useSessionRecorder } from "@/lib/use-session-recorder";
 import { type Card, useSuggestionDeck } from "@/lib/use-suggestion-deck";
 import { SAVED_MS, useTimedFlag } from "@/lib/use-timed-flag";
+import { invalidateTopicSearchCache } from "@/lib/use-topic-search";
 
 /** A pick that hasn't arrived by now gets a skeleton in its place. */
 export const SKELETON_DELAY_MS = 150;
-/** Long enough for the card to finish sliding, so a double click moves one card. */
-export const SETTLE_MS = 300;
 
 const LABEL =
   "text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--ink-muted)]";
@@ -104,18 +103,31 @@ export function DeskPick({
   const [direction, setDirection] = useState(0);
   const [saved, flashSaved, clearSaved] = useTimedFlag(SAVED_MS);
   const [saveFailed, setSaveFailed] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const showSkeleton = useAfter(deck.view === "loading", SKELETON_DELAY_MS);
 
   // One action at a time: a second click while one is running is dropped, and
   // each action advances from the index it was clicked on.
   const [runCardAction] = useState(() => createSingleFlight());
-  const act = (task: () => Promise<void>) =>
-    runCardAction(async () => {
-      await task();
-      await new Promise((resolve) => window.setTimeout(resolve, SETTLE_MS));
-    });
-
+  const visibleCard = useRef<string | null>(null);
   const { card, index } = deck;
+  const identity = card ? `${index}:${card._id}` : null;
+  // The first card is usable immediately. Subsequent cards become actionable
+  // when their entry completes, not while the previous title is still exiting.
+  useEffect(() => {
+    if (visibleCard.current === null && identity)
+      visibleCard.current = identity;
+  }, [identity]);
+  const act = (task: () => Promise<void>) => {
+    if (!identity || visibleCard.current !== identity) return;
+    return runCardAction(task);
+  };
   // The offer is counted when the card is on screen, in this time's session
   usePresented(card?._id, (articleId) =>
     recorder.record({
@@ -130,6 +142,7 @@ export function DeskPick({
       clearSaved();
       recorder.record({ articleId: card._id, action: "skipped" });
       setDirection(1);
+      visibleCard.current = "transition";
       deck.advance(index);
     });
   };
@@ -144,8 +157,10 @@ export function DeskPick({
       }
       setSaveFailed(false);
       flashSaved();
+      invalidateTopicSearchCache();
       recorder.record({ articleId: card._id, action: "saved" });
       setDirection(1);
+      visibleCard.current = "transition";
       deck.advance(index);
     });
   };
@@ -155,6 +170,7 @@ export function DeskPick({
       // The reader draws this title in the same commit, so the morph has a destination
       rememberTitle(card._id, card.title);
       const id = await recorder.open(card._id);
+      if (!mounted.current || visibleCard.current !== identity) return;
       router.push(`/read/${card._id}${id ? `?session=${id}` : ""}`, {
         transitionTypes: [OPEN_ARTICLE],
       });
@@ -167,6 +183,7 @@ export function DeskPick({
       setSaveFailed(false);
       clearSaved();
       setDirection(-1);
+      visibleCard.current = "transition";
       deck.back(index);
     });
   };
@@ -282,6 +299,9 @@ export function DeskPick({
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: reduced ? 0 : -24 }}
           transition={pickTransition(direction, reduced)}
+          onAnimationComplete={() => {
+            visibleCard.current = identity;
+          }}
         >
           <ViewTransition
             name={articleTitleName(card._id)}

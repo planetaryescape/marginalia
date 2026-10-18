@@ -7,10 +7,27 @@ import { getParagraphs, useParagraphs } from "./paragraphs";
 
 let root: Root;
 let version = 0;
+let layoutVersion = 0;
+let resized: ResizeObserverCallback;
+const resizeBody = (width: number, height = 0) =>
+  resized(
+    [
+      {
+        target: document.body,
+        contentRect: new DOMRect(0, 0, width, height),
+        borderBoxSize: [],
+        contentBoxSize: [],
+        devicePixelContentBoxSize: [],
+      },
+    ],
+    { observe() {}, unobserve() {}, disconnect() {} },
+  );
 
 function Article({ answerFor }: { answerFor: number | null | undefined }) {
   const ref = useRef<HTMLElement>(null);
-  version = useParagraphs(ref, true).version;
+  const paragraphs = useParagraphs(ref, true);
+  version = paragraphs.version;
+  layoutVersion = paragraphs.layoutVersion;
   return (
     <>
       <article ref={ref}>
@@ -60,6 +77,9 @@ beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
+      constructor(callback: ResizeObserverCallback) {
+        resized = callback;
+      }
       observe() {}
       disconnect() {}
     },
@@ -73,6 +93,37 @@ afterEach(async () => {
 });
 
 describe("answers unfolded in the flow on a phone", () => {
+  it("keeps prose epochs and nodes stable through streamed UI growth and geometry-only resize, but observes prose edits", async () => {
+    await render(0);
+    await settle();
+    const before = version;
+    const geometryBefore = layoutVersion;
+    const host = document.querySelector("[data-marginalia-ui]")!;
+    const first = document.querySelector("[data-article-body] p")!;
+    const measure = vi.spyOn(first, "getBoundingClientRect");
+    await act(async () => {
+      host.querySelector("p")!.firstChild!.textContent =
+        "Streamed answer grows";
+      resizeBody(0, 1000);
+    });
+    await settle();
+    expect(version).toBe(before);
+    expect(layoutVersion).toBe(geometryBefore + 1);
+    expect(measure).not.toHaveBeenCalled();
+    await act(async () => resizeBody(700));
+    await settle();
+    expect(version).toBe(before);
+    expect(measure).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[data-marginalia-ui]")).toBe(host);
+    await act(async () => {
+      first.firstChild!.textContent = "Changed article prose";
+    });
+    await settle();
+    expect(version).toBe(before + 1);
+    expect(first.getAttribute("data-para")).toBe("1");
+    expect(host.querySelector("p")!.hasAttribute("data-para")).toBe(false);
+    measure.mockRestore();
+  });
   it("leave every ¶ number unchanged, under a paragraph", async () => {
     await render(undefined);
     await settle();

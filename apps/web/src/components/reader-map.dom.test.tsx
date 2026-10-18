@@ -2,13 +2,26 @@
 import { act, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as paragraphs from "@/lib/paragraphs";
 import { ReaderMap } from "./reader-map";
 
 let root: Root;
 let container: HTMLElement;
+let desktop = true;
+let mediaChanged: () => void;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  desktop = true;
+  vi.stubGlobal("matchMedia", () => ({
+    get matches() {
+      return desktop;
+    },
+    addEventListener: (_: string, listener: () => void) => {
+      mediaChanged = listener;
+    },
+    removeEventListener: vi.fn(),
+  }));
   // Five invented paragraphs: a question, a plain one, a highlighted one, a connection, a plain one
   document.body.innerHTML = `
     <div id="reader"><div data-article-body>
@@ -27,6 +40,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 const render = (over: { current?: number; ticks?: number[] } = {}) =>
@@ -67,6 +81,25 @@ const bars = () =>
   );
 
 describe("paragraph map", () => {
+  it("extracts no prose on phones, mounts at the desktop breakpoint, and releases its map on return to phone", async () => {
+    desktop = false;
+    const extract = vi.spyOn(paragraphs, "paragraphText");
+    await render();
+    expect(extract).not.toHaveBeenCalled();
+    expect(nav()).toBeNull();
+    await act(async () => {
+      desktop = true;
+      mediaChanged();
+    });
+    expect(nav()).not.toBeNull();
+    expect(extract).toHaveBeenCalledTimes(5);
+    await act(async () => {
+      desktop = false;
+      mediaChanged();
+    });
+    expect(nav()).toBeNull();
+    expect(extract).toHaveBeenCalledTimes(5);
+  });
   it("colours each annotated paragraph's dot by its kind", async () => {
     await render();
     expect(dots()).toEqual(["var(--kind-question)", "var(--kind-connection)"]);

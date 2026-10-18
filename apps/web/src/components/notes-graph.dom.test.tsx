@@ -4,6 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotesGraph } from "./notes-graph";
 
+vi.mock("@/lib/auth-client", () => ({
+  authClient: {
+    useSession: () => ({ data: { session: { id: "graph-test" } } }),
+  },
+}));
+
 const mocks = vi.hoisted(() => ({
   graph: undefined as unknown,
   node: undefined as unknown,
@@ -83,6 +89,61 @@ const render = () =>
   act(async () => root.render(<NotesGraph toggle={<span>toggle</span>} />));
 
 describe("Notes as a map", () => {
+  it("never activates results for the previous debounced term", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.search = [{ key: "note:old", kind: "note", label: "Old result" }];
+      await render();
+      const input = host.querySelector("input");
+      if (!input) throw new Error("Missing idea search input");
+      const type = async (value: string) =>
+        act(async () => {
+          Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            "value",
+          )?.set?.call(input, value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      await type("old");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(210);
+      });
+      expect(host.textContent).toContain("Old result");
+      await type("new");
+      const before = mocks.graphArgs.at(-1);
+      await act(async () =>
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        ),
+      );
+      expect(mocks.graphArgs.at(-1)).toEqual(before);
+      expect(input.value).toBe("new");
+      expect(host.textContent).not.toContain("Old result");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reuses neighbours on A to B to A and invalidates an edited centre", async () => {
+    mocks.similar.mockClear();
+    await render();
+    mocks.graph = {
+      centre: "note:b",
+      nodes: [{ ...note, key: "note:b" }],
+      edges: [],
+    };
+    await render();
+    mocks.graph = { centre: "note:c", nodes: [note], edges: [] };
+    await render();
+    expect(mocks.similar).toHaveBeenCalledTimes(2);
+    mocks.graph = {
+      centre: "note:c",
+      nodes: [{ ...note, label: "Edited" }],
+      edges: [],
+    };
+    await render();
+    expect(mocks.similar).toHaveBeenCalledTimes(3);
+  });
   it("says so when there are no notes yet", async () => {
     mocks.graph = { centre: null, nodes: [], edges: [] };
     await render();

@@ -2,7 +2,23 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { invalidateTopicSearchCache } from "@/lib/use-topic-search";
 import { ArticleFinder } from "./article-finder";
+
+vi.mock("@/lib/topic-search-cache", async (importOriginal) => {
+  const cache =
+    await importOriginal<typeof import("@/lib/topic-search-cache")>();
+  return {
+    ...cache,
+    invalidateTopicSearchCache: vi.fn(cache.invalidateTopicSearchCache),
+  };
+});
+
+vi.mock("@/lib/auth-client", () => ({
+  authClient: {
+    useSession: () => ({ data: { session: { id: "finder-test" } } }),
+  },
+}));
 
 const push = vi.hoisted(() => vi.fn());
 const addByUrl = vi.hoisted(() => vi.fn());
@@ -24,8 +40,8 @@ vi.mock("next/link", () => ({
 vi.mock("convex/react", () => ({
   useAction: () => addByUrl,
   useConvex: () => convexClient,
-  useQuery: (_fn: string, args: unknown) =>
-    args === "skip" ? undefined : noteHits.current,
+  useQuery: (fn: string, args: unknown) =>
+    fn === "counts" ? null : args === "skip" ? undefined : noteHits.current,
   useMutation: (fn: string) => (fn === "record" ? record : save),
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
@@ -35,6 +51,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
     sessions: { recordInteraction: "record" },
     notesSearch: { find: "notes" },
     titleSearch: { matchTitles: "titles" },
+    home: { counts: "counts" },
   },
 }));
 vi.mock("sonner", () => ({ toast }));
@@ -70,6 +87,8 @@ const find = (
 });
 
 beforeEach(() => {
+  invalidateTopicSearchCache();
+  vi.mocked(invalidateTopicSearchCache).mockClear();
   vi.useFakeTimers();
   requests = [];
   push.mockReset();
@@ -569,6 +588,7 @@ describe("topic picker", () => {
       save.mockResolvedValue(undefined);
       await press("s", button);
       expect(save).toHaveBeenCalledWith({ articleId: "a" });
+      expect(invalidateTopicSearchCache).toHaveBeenCalledTimes(1);
       // Enter on a button is the button's own; on the dialog it reads
       await press("Enter", button);
       expect(push).not.toHaveBeenCalled();
@@ -817,6 +837,7 @@ describe("topic picker", () => {
         url: "https://www.example.com/essay",
       });
       expect(push).toHaveBeenCalledWith("/read/n1");
+      expect(invalidateTopicSearchCache).toHaveBeenCalledTimes(1);
     });
 
     it("saves it for later without opening it", async () => {
@@ -827,6 +848,7 @@ describe("topic picker", () => {
       await click("Save for later");
       expect(save).toHaveBeenCalledWith({ articleId: "n1" });
       expect(push).not.toHaveBeenCalled();
+      expect(invalidateTopicSearchCache).toHaveBeenCalledTimes(2);
     });
   });
 });

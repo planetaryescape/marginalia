@@ -98,7 +98,13 @@ function pickVoice(): SpeechSynthesisVoice | null {
 }
 
 /** Reads the article aloud paragraph by paragraph with the Web Speech API. */
-export function useListen(containerRef: React.RefObject<HTMLElement | null>) {
+export function useListen(
+  containerRef: React.RefObject<HTMLElement | null>,
+  articleId?: string,
+  unitKey?: string | null,
+  content?: string,
+  contentHtml?: string,
+) {
   const [state, setState] = useState<{ index: number | null; paused: boolean }>(
     {
       index: null,
@@ -165,7 +171,12 @@ export function useListen(containerRef: React.RefObject<HTMLElement | null>) {
     });
   }, [supported]);
 
-  useEffect(() => stop, [stop]);
+  // Prose identity, not paragraph geometry or arriving annotations, ends speech.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes invalidate the captured paragraph array
+  useEffect(() => {
+    stop();
+    return stop;
+  }, [stop, articleId, unitKey, content, contentHtml]);
 
   return {
     supported,

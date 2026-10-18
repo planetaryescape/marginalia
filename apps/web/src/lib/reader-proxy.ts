@@ -1,18 +1,21 @@
+import { abortable } from "./abortable";
 import { getToken } from "./auth-server";
 
 export async function proxyReaderRequest(request: Request, path: string) {
-  const token = await getToken();
-  if (!token) return new Response("Sign in to your reader", { status: 401 });
   // Session cookies are the credential; require same-origin writes as well.
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin)
     return new Response("Invalid origin", { status: 403 });
+  const token = await abortable(getToken(), request.signal);
+  if (!token) return new Response("Sign in to your reader", { status: 401 });
+  request.signal.throwIfAborted();
   const body = await request.text();
   if (body.length > (path === "engagement" ? 32_000 : 300_000))
     return new Response("Request too large", { status: 413 });
   const site =
     process.env.NEXT_PUBLIC_CONVEX_SITE_URL ??
     process.env.NEXT_PUBLIC_CONVEX_URL?.replace(/\.cloud$/, ".site");
+  if (!site) return new Response("Reader backend unavailable", { status: 503 });
   const result = await fetch(`${site}/api/${path}`, {
     method: "POST",
     headers: {

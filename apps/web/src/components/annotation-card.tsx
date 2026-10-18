@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { ArrowUp, ArrowUpRight, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { type AnnotationKind, kindLabel, kindOf } from "@/lib/margin-kinds";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { cn, obsidianLink } from "@/lib/utils";
 import { CompanionAnswer } from "./companion-answer";
 import { InlineError } from "./in-place";
@@ -64,6 +65,7 @@ export function ConnectedArticle({
     setError(false);
     try {
       await save({ articleId: article._id });
+      invalidateTopicSearchCache();
     } catch {
       setError(true);
     } finally {

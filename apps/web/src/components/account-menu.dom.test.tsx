@@ -42,10 +42,8 @@ vi.mock("convex/react", () => ({
         return data.readwise;
       case "feeds:list":
         return data.feeds;
-      case "waitlist:listRequests":
-        return data.reader?.isOwner
-          ? { pending: Array.from({ length: data.waiting }), recent: [] }
-          : undefined;
+      case "waitlist:pendingCount":
+        return data.reader?.isOwner ? data.waiting : undefined;
       default:
         return undefined;
     }

@@ -43,17 +43,24 @@ export function ContinueShortcut() {
 /** What the slot holds when no time is chosen. Never a count of the pile. */
 export function DeskRest({ showKeys }: { showKeys: boolean }) {
   const reduced = useReducedMotion();
-  const overview = useQuery(api.home.overview, {});
   const inProgress = useQuery(api.sessions.getInProgress);
-  const dueForReview = useQuery(api.lovedArticles.getDueForReview);
-  const feeds = useQuery(api.feeds.list);
-  const readwise = useQuery(api.readwise.status, {});
+  const overview = useQuery(api.home.counts, inProgress === null ? {} : "skip");
+  const dueForReview = useQuery(
+    api.lovedArticles.getDueForReview,
+    inProgress === null ? {} : "skip",
+  );
+  const onboarding =
+    inProgress === null &&
+    dueForReview?.length === 0 &&
+    overview?.annotatedTotal === 0;
+  const feeds = useQuery(api.feeds.list, onboarding ? {} : "skip");
+  const readwise = useQuery(api.readwise.status, onboarding ? {} : "skip");
   const advanceReview = useMutation(api.lovedArticles.advanceReview);
   const snoozeReview = useMutation(api.lovedArticles.snooze);
 
-  if (overview === undefined || inProgress === undefined) return null;
-  if (dueForReview === undefined) return null;
-  const revisit = dueForReview.filter((entry) => entry !== null)[0] ?? null;
+  if (inProgress === undefined) return null;
+  if (!inProgress && dueForReview === undefined) return null;
+  const revisit = dueForReview?.find((entry) => entry !== null) ?? null;
 
   let content: ReactNode = null;
   if (inProgress) {
@@ -142,7 +149,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
         </div>
       </div>
     );
-  } else if (overview.annotatedTotal === 0) {
+  } else if (overview?.annotatedTotal === 0) {
     if (feeds === undefined || readwise === undefined) return null;
     const hasSources = feeds.length > 0 || Boolean(readwise.connected);
     content = hasSources ? (
@@ -164,7 +171,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
         </Link>
       </div>
     );
-  } else if (overview.waiting === 0) {
+  } else if (overview?.waiting === 0) {
     content = (
       <p className="max-w-[620px] text-[15px] text-[var(--ink-soft)]">
         You've read everything waiting. New articles arrive as your sources

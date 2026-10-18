@@ -1,6 +1,7 @@
 "use client";
-import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef } from "react";
+import { deskScroller } from "@/lib/desk-scroll";
 import {
   canReach,
   isReaderPath,
@@ -25,7 +26,19 @@ const USER_SCROLL_EVENTS = [
  * restores; a plain click into a room starts at the top.
  */
 export function ReaderRoomMemory() {
-  return <RoomMemoryTracker pathname={usePathname()} />;
+  return (
+    <Suspense fallback={null}>
+      <CurrentRoomMemory />
+    </Suspense>
+  );
+}
+
+function CurrentRoomMemory() {
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  return (
+    <RoomMemoryTracker pathname={`${pathname}${search ? `?${search}` : ""}`} />
+  );
 }
 
 /** Takes the pathname as a prop, so tests can drive it without mocking the router. */
@@ -47,7 +60,10 @@ export function RoomMemoryTracker({ pathname }: { pathname: string }) {
     recordRoom(pathname);
     room.current = pathname;
     const target = cameFromReader ? savedScroll(pathname) : undefined;
-    if (target === undefined) return;
+    if (target === undefined) {
+      deskScroller()?.scrollTo({ top: 0, behavior: "instant" });
+      return;
+    }
 
     const deadline = performance.now() + RESTORE_MS;
     let frame = 0;
@@ -68,10 +84,18 @@ export function RoomMemoryTracker({ pathname }: { pathname: string }) {
       window.addEventListener(type, stop, { passive: true });
     restoring.current = stop;
     const step = () => {
-      const viewport = window.innerHeight;
-      const height = document.documentElement.scrollHeight;
+      const scroller = deskScroller();
+      // Auth/data boundaries can mount the room after this tracker. Never
+      // restore the reader's window while waiting for the desk viewport.
+      if (!scroller) {
+        if (performance.now() > deadline) stop();
+        else frame = requestAnimationFrame(step);
+        return;
+      }
+      const viewport = scroller.clientHeight;
+      const height = scroller.scrollHeight;
       if (canReach(target, height, viewport) || performance.now() > deadline) {
-        window.scrollTo({
+        scroller.scrollTo({
           top: Math.min(target, Math.max(0, height - viewport)),
           behavior: "instant",
         });
@@ -84,7 +108,9 @@ export function RoomMemoryTracker({ pathname }: { pathname: string }) {
   }, [pathname]);
 
   useEffect(() => {
-    const onScroll = () => {
+    const onScroll = (event: Event) => {
+      const scroller = deskScroller();
+      if (!scroller || event.target !== scroller) return;
       const current = room.current;
       // Ignore the reader's own pages and the jump a restore is making.
       if (
@@ -94,10 +120,16 @@ export function RoomMemoryTracker({ pathname }: { pathname: string }) {
         holdSaves.current
       )
         return;
-      rememberScroll(current, window.scrollY);
+      rememberScroll(current, scroller.scrollTop);
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    document.addEventListener("scroll", onScroll, {
+      passive: true,
+      capture: true,
+    });
+    return () => {
+      document.removeEventListener("scroll", onScroll, true);
+      restoring.current?.();
+    };
   }, []);
 
   return null;

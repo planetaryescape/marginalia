@@ -148,6 +148,35 @@ export async function buildGraph(
 
   // One idea further out from each neighbour, by the cheap signals only
   const edgeIds = new Set(edges.map((edge) => edge.id));
+  // Several neighbours can belong to one article. Share discovery work only
+  // inside this request, so ownership, live updates and budgets stay local.
+  const articleIdeas = new Map<Id<"articles">, Promise<string[]>>();
+  const articleTitles = new Map<
+    Id<"articles">,
+    ReturnType<typeof articleTitle>
+  >();
+  const ideasFor = (articleId: Id<"articles">) => {
+    let result = articleIdeas.get(articleId);
+    if (!result) {
+      result = ideasOnArticle(
+        ctx,
+        userId,
+        articleId,
+        { notes: 6, highlights: 3, answers: 1 },
+        budget.discovery(),
+      );
+      articleIdeas.set(articleId, result);
+    }
+    return result;
+  };
+  const titleFor = (articleId: Id<"articles">) => {
+    let result = articleTitles.get(articleId);
+    if (!result) {
+      result = articleTitle(ctx, userId, articleId, budget.discovery());
+      articleTitles.set(articleId, result);
+    }
+    return result;
+  };
   for (const near of ring) {
     const nearLinks = await linkedKeys(
       ctx,
@@ -175,17 +204,9 @@ export async function buildGraph(
 
     const sameArticle = near.articleId
       ? // Up to seven of an article's ideas may already be on the ring, so ask for one more
-        await ideasOnArticle(
-          ctx,
-          userId,
-          near.articleId,
-          { notes: 6, highlights: 3, answers: 1 },
-          budget.discovery(),
-        )
+        await ideasFor(near.articleId)
       : [];
-    const title = near.articleId
-      ? await articleTitle(ctx, userId, near.articleId, budget.discovery())
-      : null;
+    const title = near.articleId ? await titleFor(near.articleId) : null;
     const options: { key: string; reason: Reason }[] = [
       ...nearLinks.map((key) => ({ key, reason: linkedReason() })),
       ...sameArticle.map((key) => ({

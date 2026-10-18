@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotesPanel } from "./notes-panel";
 
 const mocks = vi.hoisted(() => ({
+  invalidate: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
@@ -14,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   },
   draft: null as null | { html: string; plain: string },
   flushOk: true,
+}));
+
+vi.mock("@/lib/topic-search-cache", () => ({
+  invalidateTopicSearchCache: mocks.invalidate,
 }));
 
 vi.mock("convex/react", () => ({
@@ -65,7 +70,12 @@ vi.mock("./note-editor", () => ({
       });
       return () => onFlushReady(null);
     }, [onFlushReady, onAutosave]);
-    return <div data-testid="editor">{props.selectedText}</div>;
+    return (
+      <div data-testid="editor">
+        {props.selectedText}
+        <textarea aria-label="Draft fixture" defaultValue="" />
+      </div>
+    );
   },
 }));
 
@@ -102,6 +112,8 @@ beforeEach(() => {
     .mockResolvedValueOnce("n1")
     .mockResolvedValueOnce("n2");
   mocks.update.mockReset().mockResolvedValue(undefined);
+  mocks.remove.mockReset().mockResolvedValue(undefined);
+  mocks.invalidate.mockReset();
   mocks.draft = null;
   mocks.flushOk = true;
 });
@@ -187,6 +199,62 @@ describe("non-modal pane", () => {
 });
 
 describe("a new selection while a draft is open", () => {
+  it("keeps the lazy editor's unsaved DOM and focus through parent and autosave-status updates", async () => {
+    await render(true, { text: "A" });
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Draft fixture"]',
+    )!;
+    textarea.value = "Unsent words";
+    textarea.focus();
+    await render(true, { text: "A" });
+    await act(async () => {
+      await mocks.editor!.onAutosave(
+        "<p>Saved earlier words</p>",
+        "Saved earlier words",
+      );
+    });
+    expect(document.querySelector('textarea[aria-label="Draft fixture"]')).toBe(
+      textarea,
+    );
+    expect(textarea.value).toBe("Unsent words");
+    expect(document.activeElement).toBe(textarea);
+  });
+  it("invalidates only acknowledged creates, updates and deletes, never failed saves", async () => {
+    let acknowledge: (id: string) => void = () => {};
+    mocks.create.mockReset().mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          acknowledge = resolve;
+        }),
+    );
+    await render(true, { text: "A" });
+    const editor = mocks.editor;
+    if (!editor) throw new Error("Missing editor");
+    let pending: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      pending = editor.onAutosave("<p>saved</p>", "saved");
+    });
+    expect(mocks.invalidate).not.toHaveBeenCalled();
+    await act(async () => {
+      acknowledge("n1");
+      expect(await pending).toBe(true);
+    });
+    expect(mocks.invalidate).toHaveBeenCalledTimes(1);
+    mocks.update.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      expect(await editor.onAutosave("<p>changed</p>", "changed")).toBe(false);
+    });
+    expect(mocks.invalidate).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      expect(await editor.onAutosave("<p>changed</p>", "changed")).toBe(true);
+    });
+    expect(mocks.invalidate).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      expect(await editor.onAutosave("", "")).toBe(true);
+    });
+    expect(mocks.invalidate).toHaveBeenCalledTimes(3);
+    expect(mocks.remove).toHaveBeenCalledWith({ noteId: "n1" });
+  });
   it("saves A under A, then starts B as a separate note", async () => {
     await render(true, { text: "A" });
     mocks.draft = { html: "<p>note a</p>", plain: "note a" };

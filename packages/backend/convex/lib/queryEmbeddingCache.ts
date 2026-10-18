@@ -23,11 +23,14 @@ export function normaliseQuery(question: string): string {
  * the cache can only make a search faster, never fail it.
  */
 export async function cachedQueryEmbedding(
-  ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
+  ctx: Pick<ActionCtx, "runQuery"> & {
+    scheduler: Pick<ActionCtx["scheduler"], "runAfter">;
+  },
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
 ): Promise<{ vector: number[]; cached: boolean }> {
+  embedder.signal?.throwIfAborted();
   // Embed the normalised text, so every query sharing a key shares one vector
   const text = normaliseQuery(question.slice(0, MAX_QUERY_CHARS));
   const model = embeddingModel(embedder.provider);
@@ -36,22 +39,27 @@ export async function cachedQueryEmbedding(
       internal.queryEmbeddings.lookup,
       { userId, key: text, model, now: Date.now() },
     );
+    embedder.signal?.throwIfAborted();
     if (hit) return { vector: hit, cached: true };
-  } catch (error) {
-    console.error("Query embedding cache read failed", error);
+  } catch {
+    console.error("Query embedding cache read failed");
   }
+  embedder.signal?.throwIfAborted();
 
   const vector = await embedText(embedder, text);
+  embedder.signal?.throwIfAborted();
   try {
-    await ctx.runMutation(internal.queryEmbeddings.store, {
+    // Await durable scheduling, not storage/eviction. Never leave an unawaited
+    // Convex mutation behind when the action finishes.
+    await ctx.scheduler.runAfter(0, internal.queryEmbeddings.store, {
       userId,
       key: text,
       model,
       embedding: vector,
       now: Date.now(),
     });
-  } catch (error) {
-    console.error("Query embedding cache write failed", error);
+  } catch {
+    console.error("Query embedding cache write failed");
   }
   return { vector, cached: false };
 }

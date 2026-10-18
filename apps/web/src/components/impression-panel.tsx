@@ -4,6 +4,7 @@ import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { Star } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { cn } from "@/lib/utils";
 
 export const RATINGS = [
@@ -62,6 +63,7 @@ export function ImpressionPanel({
     setStatus("saving");
     try {
       await save({ articleId, ...patch });
+      invalidateTopicSearchCache();
       setStatus("saved");
     } catch {
       setStatus("error");
@@ -76,7 +78,10 @@ export function ImpressionPanel({
     pendingNote.current = null;
     setStatus("saving");
     void save(pending).then(
-      () => setStatus("saved"),
+      () => {
+        invalidateTopicSearchCache();
+        setStatus("saved");
+      },
       () => {
         if (!pendingNote.current) pendingNote.current = pending;
         setStatus("error");

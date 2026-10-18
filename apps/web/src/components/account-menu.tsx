@@ -146,10 +146,12 @@ export function sourceStatus(
 export function AccountMenu() {
   const reader = useQuery(api.auth.currentReader, {});
   const readwise = useQuery(api.readwise.status, {});
+  // Exact source/error summary needs maintained counters; don't add another
+  // all-row counting query while that migration is still pending.
   const feeds = useQuery(api.feeds.list, {});
   const isOwner = reader?.isOwner === true;
-  const requests = useQuery(api.waitlist.listRequests, isOwner ? {} : "skip");
-  const waiting = requests?.pending.length ?? 0;
+  const waiting =
+    useQuery(api.waitlist.pendingCount, isOwner ? {} : "skip") ?? 0;
   const { installed, prompt, clearPrompt } = useInstallPrompt();
   const [menuOpen, setMenuOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);

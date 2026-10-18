@@ -17,10 +17,12 @@ import {
   type KeptThread,
   readLink,
 } from "@/lib/notes-groups";
+import { invalidateTopicSearchCache } from "@/lib/use-topic-search";
 import { cn } from "@/lib/utils";
 
 /** Marks are read this many at a time; each row carries an embedding, so pages stay small. */
 const MARKS_PAGE = 50;
+const HEADERS_BATCH = 8;
 
 /** The commonplace book: every note, highlight and kept answer, grouped by article. */
 export function NotesList() {
@@ -43,6 +45,7 @@ export function NotesList() {
   const attempt = async (message: string, run: () => Promise<unknown>) => {
     try {
       await run();
+      invalidateTopicSearchCache();
       setFailure(null);
     } catch {
       setFailure({ message, retry: () => attempt(message, run) });
@@ -83,22 +86,29 @@ export function NotesList() {
         </div>
       )}
 
-      {groups?.map((group) => (
-        <ArticleNotesGroup
-          key={group.articleId}
-          group={group}
-          onDelete={(noteId) =>
-            void attempt("Couldn't delete the note.", () =>
-              removeNote({ noteId }),
-            )
-          }
-          onDeleteAnswer={(threadId) =>
-            void attempt("Couldn't delete the answer.", () =>
-              removeThread({ threadId }),
-            )
-          }
-        />
-      ))}
+      {groups &&
+        Array.from(
+          { length: Math.ceil(groups.length / HEADERS_BATCH) },
+          (_, batch) => (
+            <NotesBatch
+              key={batch}
+              groups={groups.slice(
+                batch * HEADERS_BATCH,
+                (batch + 1) * HEADERS_BATCH,
+              )}
+              onDelete={(noteId) =>
+                void attempt("Couldn't delete the note.", () =>
+                  removeNote({ noteId }),
+                )
+              }
+              onDeleteAnswer={(threadId) =>
+                void attempt("Couldn't delete the answer.", () =>
+                  removeThread({ threadId }),
+                )
+              }
+            />
+          ),
+        )}
 
       {marks.status === "CanLoadMore" && (
         <div className="flex justify-center pb-10">
@@ -116,6 +126,31 @@ export function NotesList() {
       )}
     </>
   );
+}
+
+/** Bounded subscriptions as further highlight pages add more article groups. */
+function NotesBatch({
+  groups,
+  onDelete,
+  onDeleteAnswer,
+}: {
+  groups: ArticleGroup[];
+  onDelete: (noteId: Id<"userNotes">) => void;
+  onDeleteAnswer: (threadId: Id<"companionThreads">) => void;
+}) {
+  const headers = useQuery(api.articles.headers, {
+    articleIds: groups.map((group) => group.articleId),
+  });
+  const articles = new Map(headers?.map((row) => [row.articleId, row.article]));
+  return groups.map((group) => (
+    <ArticleNotesGroup
+      key={group.articleId}
+      group={group}
+      article={articles.get(group.articleId)}
+      onDelete={onDelete}
+      onDeleteAnswer={onDeleteAnswer}
+    />
+  ));
 }
 
 /** Rows in the shape of a note, so the list keeps its place while the next page arrives. */
@@ -151,20 +186,21 @@ type LinkTo = (
 
 function ArticleNotesGroup({
   group,
+  article,
   onDelete,
   onDeleteAnswer,
 }: {
   group: ArticleGroup;
+  article: { title: string; url: string } | null | undefined;
   onDelete: (noteId: Id<"userNotes">) => void;
   onDeleteAnswer: (threadId: Id<"companionThreads">) => void;
 }) {
   const { articleId } = group;
   // `undefined` while loading; `null` once the article is gone, which a mark or note can outlive.
-  const article = useQuery(api.articles.getById, { articleId });
   const source = article ? sourceOf(article.url) : null;
   // Where a row opens: the reader at a quote, or nowhere once the article is gone.
   const at: LinkTo = (quote, paragraphIndex, unitIndex, opens) =>
-    article === null
+    !article
       ? null
       : readLink(articleId, quote, paragraphIndex, unitIndex, opens);
 

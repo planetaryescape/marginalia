@@ -8,7 +8,9 @@ import { useEffect, useRef, useState } from "react";
 import { RATINGS } from "@/components/impression-panel";
 import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
 import { ConfirmAction } from "@/components/settings-confirm";
+import { deskScroller } from "@/lib/desk-scroll";
 import { navItems, useListKeys } from "@/lib/list-nav";
+import { invalidateTopicSearchCache } from "@/lib/use-topic-search";
 import { cn, formatReadTime } from "@/lib/utils";
 
 export type ShelfId = "saved" | "loved" | "finished";
@@ -96,7 +98,7 @@ function LoadMore({
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) loadMore(PAGE);
       },
-      { rootMargin: "0px 0px 600px 0px" },
+      { root: deskScroller(), rootMargin: "0px 0px 600px 0px" },
     );
     watcher.observe(target);
     return () => watcher.disconnect();
@@ -144,10 +146,12 @@ export function SavedShelf() {
   const remove = async (id: Id<"articles">, title: string) => {
     // Focus moves to the neighbour first so it never falls to <body>
     const items = navItems();
-    const at = items.findIndex((el) => rowFor(id)?.contains(el));
+    const row = rowFor(id);
+    const at = items.findIndex((el) => row?.contains(el));
     (items[at + 1] ?? items[at - 1])?.focus({ preventScroll: true });
     try {
       await unsave({ articleId: id });
+      invalidateTopicSearchCache();
       setFailed(undefined);
     } catch {
       setFailed({ id, title });

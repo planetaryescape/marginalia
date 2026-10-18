@@ -79,6 +79,35 @@ export function useSavedPassages({
     const article = containerRef.current;
     if (!article || !passages.length) return;
 
+    // A paragraph lookup bounds hover work without changing the ordered click path.
+    const byParagraph = new Map<Element, SavedPassage[]>();
+    const paragraphs = getParagraphs(getArticleBody(article));
+    const indices = new Map(
+      paragraphs.map((paragraph, index) => [paragraph, index]),
+    );
+    const paragraphOf = (node: Node) =>
+      (node instanceof Element
+        ? node
+        : node.parentElement
+      )?.closest<HTMLElement>("[data-para]");
+    for (const passage of passages) {
+      if (!passage.doc.marked) continue;
+      const start = paragraphOf(passage.range.startContainer);
+      const end = paragraphOf(passage.range.endContainer);
+      const first = start ? indices.get(start) : undefined;
+      const last = end ? indices.get(end) : undefined;
+      const candidates =
+        first !== undefined && last !== undefined
+          ? paragraphs.slice(first, last + 1)
+          : paragraphs;
+      for (const paragraph of candidates) {
+        if (!passage.range.intersectsNode(paragraph)) continue;
+        const list = byParagraph.get(paragraph) ?? [];
+        list.push(passage);
+        byParagraph.set(paragraph, list);
+      }
+    }
+
     const hitTest = (e: MouseEvent) =>
       passages.find(
         (p) =>
@@ -98,26 +127,45 @@ export function useSavedPassages({
 
     let frame = 0;
     let hovered: SavedPassage | null = null;
+    const showHover = (hit: SavedPassage | null) => {
+      if (hit === hovered) return;
+      hovered = hit;
+      article.style.cursor = hit ? "pointer" : "";
+      if (!supportsHighlights()) return;
+      if (hit)
+        CSS.highlights.set("companion-saved-hover", new Highlight(hit.range));
+      else CSS.highlights.delete("companion-saved-hover");
+    };
     const onMove = (e: MouseEvent) => {
       cancelAnimationFrame(frame);
+      if (e.buttons || !window.getSelection()?.isCollapsed) {
+        showHover(null);
+        return;
+      }
+      const paragraph =
+        e.target instanceof Element ? e.target.closest("[data-para]") : null;
       frame = requestAnimationFrame(() => {
-        const hit = hitTest(e);
-        if (hit === hovered) return;
-        hovered = hit;
-        article.style.cursor = hit ? "pointer" : "";
-        if (!supportsHighlights()) return;
-        if (hit)
-          CSS.highlights.set("companion-saved-hover", new Highlight(hit.range));
-        else CSS.highlights.delete("companion-saved-hover");
+        const candidates = paragraph ? (byParagraph.get(paragraph) ?? []) : [];
+        showHover(
+          candidates.find((p) =>
+            rangeContainsPoint(p.range, e.clientX, e.clientY),
+          ) ?? null,
+        );
       });
+    };
+    const onLeave = () => {
+      cancelAnimationFrame(frame);
+      showHover(null);
     };
 
     article.addEventListener("click", onClick);
     article.addEventListener("mousemove", onMove);
+    article.addEventListener("mouseleave", onLeave);
     return () => {
       cancelAnimationFrame(frame);
       article.removeEventListener("click", onClick);
       article.removeEventListener("mousemove", onMove);
+      article.removeEventListener("mouseleave", onLeave);
       article.style.cursor = "";
       if (supportsHighlights()) CSS.highlights.delete("companion-saved-hover");
     };

@@ -13,6 +13,7 @@ describe("pickTransition", () => {
 
   it("slides later picks", () => {
     expect(pickTransition(1, false)).toBe(MOVE);
-    expect(pickTransition(-1, true)).toBe(MOVE);
+    expect(pickTransition(-1, true)).toEqual({ duration: 0 });
+    expect(pickTransition(1, true)).toEqual({ duration: 0 });
   });
 });

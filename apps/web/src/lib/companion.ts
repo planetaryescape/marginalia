@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { abortable } from "./abortable";
 import {
   clearAnswers,
   leaveArticle,
@@ -19,6 +20,7 @@ import {
   paragraphText,
 } from "./paragraphs";
 import { type ReaderSettings, webSearchEnabled } from "./reader-settings";
+import { postReaderRequest } from "./reader-transport";
 import { rangeText } from "./text-range";
 
 /** "article" is a question about the whole piece, with no highlighted passage. */
@@ -72,8 +74,10 @@ export class ReaderRequestError extends Error {
 }
 
 /** The backend's reason for a failed request, e.g. a missing provider key. */
-export async function readerRequestError(res: Response) {
-  const text = await res.text().catch(() => "");
+export async function readerRequestError(res: Response, signal?: AbortSignal) {
+  const text = signal
+    ? await abortable(res.text(), signal)
+    : await res.text().catch(() => "");
   try {
     const body = JSON.parse(text) as { error?: unknown; code?: unknown };
     if (typeof body.error === "string")
@@ -95,22 +99,24 @@ export async function streamFromConvex(
     onText: (chunk: string) => void;
   },
 ) {
-  const res = await fetch(`/api/reader/${path.replace(/^\/api\//, "")}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: handlers.signal,
-  });
-  if (!res.ok || !res.body) throw await readerRequestError(res);
+  const res = await postReaderRequest(
+    path.replace(/^\/api\//, ""),
+    body,
+    handlers.signal,
+  );
+  if (!res.ok || !res.body)
+    throw await readerRequestError(res, handlers.signal);
   handlers.onModel(res.headers.get("X-Companion-Model"));
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await abortable(reader.read(), handlers.signal);
       if (done) break;
       handlers.onText(value);
     }
   } finally {
+    // Do not wait for a broken upstream's cancellation handshake.
+    void reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }

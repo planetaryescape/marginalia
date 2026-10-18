@@ -2,7 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ApiTokens } from "@/components/api-tokens";
 import { FeedSuggestion } from "@/components/feed-suggestion";
 import { FileDrop } from "@/components/file-drop";
@@ -32,6 +32,15 @@ const OPML_NAME = /\.(opml|xml)$/i;
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
   const suggestions = useQuery(api.feedSuggestions.list);
+  const suggestionsByFeed = useMemo(() => {
+    const grouped = new Map<Id<"feeds">, NonNullable<typeof suggestions>>();
+    for (const suggestion of suggestions ?? []) {
+      const group = grouped.get(suggestion.feedId);
+      if (group) group.push(suggestion);
+      else grouped.set(suggestion.feedId, [suggestion]);
+    }
+    return grouped;
+  }, [suggestions]);
   const addFeed = useMutation(api.feeds.add);
   const toggleActive = useMutation(api.feeds.toggleActive);
   const pollNow = useAction(api.feeds.pollNow);
@@ -384,9 +393,9 @@ export default function FeedsPage() {
                 />
               )}
               {removingId !== feed._id &&
-                suggestions
-                  ?.filter((s) => s.feedId === feed._id)
-                  .map((s) => (
+                suggestionsByFeed
+                  .get(feed._id)
+                  ?.map((s) => (
                     <FeedSuggestion
                       key={s.feedId}
                       feed={feed}

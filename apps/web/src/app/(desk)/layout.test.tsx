@@ -54,8 +54,16 @@ vi.mock("convex/react", () => ({
         return [];
       case "savedArticles:count":
         return 1;
-      case "articles:getById":
-        return { title: "An article I read", author: "An author" };
+      case "articles:headers":
+        return [
+          {
+            articleId: "article1",
+            article: {
+              title: "An article I read",
+              url: "https://example.test",
+            },
+          },
+        ];
       case "auth:currentReader":
         return { isOwner: state.isOwner, email: "r@example.com", name: "R" };
       default:
