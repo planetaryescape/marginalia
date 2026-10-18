@@ -1,12 +1,12 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
-import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
-import { KeptTranscript } from "@/components/kept-transcript";
+import { LazyKeptTranscript } from "@/components/kept-transcript";
 import { useListKeys } from "@/lib/list-nav";
 import { MODE_LABELS } from "@/lib/margin-answers";
 import {
@@ -14,6 +14,7 @@ import {
   type GroupItem,
   groupByArticle,
   type KeptMark,
+  type KeptNote,
   type KeptThread,
   readLink,
 } from "@/lib/notes-groups";
@@ -26,8 +27,16 @@ const HEADERS_BATCH = 8;
 
 /** The commonplace book: every note, highlight and kept answer, grouped by article. */
 export function NotesList() {
-  const notes = useQuery(api.userNotes.listAll);
-  const kept = useQuery(api.companionThreads.listKept);
+  const notes = usePaginatedQuery(
+    api.userNotes.listPreviews,
+    {},
+    { initialNumItems: 25 },
+  );
+  const kept = usePaginatedQuery(
+    api.companionThreads.listKeptPreviews,
+    {},
+    { initialNumItems: 25 },
+  );
   const marks = usePaginatedQuery(
     api.highlights.listMine,
     {},
@@ -53,12 +62,12 @@ export function NotesList() {
   };
 
   const loading =
-    notes === undefined ||
-    kept === undefined ||
+    notes.status === "LoadingFirstPage" ||
+    kept.status === "LoadingFirstPage" ||
     marks.status === "LoadingFirstPage";
   const groups = loading
     ? undefined
-    : groupByArticle(notes, kept, marks.results);
+    : groupByArticle(notes.results, kept.results, marks.results);
 
   return (
     <>
@@ -110,18 +119,26 @@ export function NotesList() {
           ),
         )}
 
-      {marks.status === "CanLoadMore" && (
+      {[notes, kept, marks].some(
+        (collection) => collection.status === "CanLoadMore",
+      ) && (
         <div className="flex justify-center pb-10">
           <button
             type="button"
-            onClick={() => marks.loadMore(MARKS_PAGE)}
+            onClick={() => {
+              for (const collection of [notes, kept, marks])
+                if (collection.status === "CanLoadMore")
+                  collection.loadMore(25);
+            }}
             className="text-sm text-[var(--reader-muted)] hover:text-[var(--reader-fg)] underline underline-offset-4 transition-colors"
           >
             Show more
           </button>
         </div>
       )}
-      {marks.status === "LoadingMore" && (
+      {[notes, kept, marks].some(
+        (collection) => collection.status === "LoadingMore",
+      ) && (
         <NotesSkeleton label="Loading more notes" rows={2} className="pb-10" />
       )}
     </>
@@ -279,7 +296,7 @@ function NoteRow({
   at,
   onDelete,
 }: {
-  note: Doc<"userNotes">;
+  note: KeptNote;
   at: LinkTo;
   onDelete: () => void;
 }) {
@@ -402,8 +419,8 @@ function KeptAnswerRow({
               </blockquote>
             </Opens>
           )}
-          <KeptTranscript
-            thread={thread}
+          <LazyKeptTranscript
+            threadId={thread._id}
             onJump={() => {
               const href = at(
                 thread.selection || undefined,

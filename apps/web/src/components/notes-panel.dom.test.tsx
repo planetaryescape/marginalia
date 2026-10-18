@@ -23,6 +23,11 @@ vi.mock("@/lib/topic-search-cache", () => ({
 
 vi.mock("convex/react", () => ({
   useQuery: () => [],
+  usePaginatedQuery: () => ({
+    results: [],
+    status: "Exhausted",
+    loadMore: vi.fn(),
+  }),
   useMutation: (ref: string) => (mocks as never)[ref],
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
@@ -83,7 +88,11 @@ let root: Root;
 const onClose = vi.fn();
 const onClear = vi.fn();
 type Sel = { text: string } | null;
-async function render(isOpen: boolean, pendingSelection: Sel = null) {
+async function render(
+  isOpen: boolean,
+  pendingSelection: Sel = null,
+  unitIndex?: number,
+) {
   await act(async () =>
     root.render(
       <>
@@ -92,6 +101,7 @@ async function render(isOpen: boolean, pendingSelection: Sel = null) {
         </main>
         <NotesPanel
           articleId="a1"
+          unitIndex={unitIndex}
           isOpen={isOpen}
           onClose={onClose}
           pendingSelection={pendingSelection}
@@ -199,6 +209,36 @@ describe("non-modal pane", () => {
 });
 
 describe("a new selection while a draft is open", () => {
+  it("flushes an identical passage into its original book part before opening the next part's draft", async () => {
+    await render(true, { text: "same passage" }, 0);
+    mocks.draft = { html: "<p>part zero</p>", plain: "part zero" };
+    await render(true, { text: "same passage" }, 1);
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({
+      unitIndex: 0,
+      contentPlain: "part zero",
+    });
+    await act(async () => {
+      await mocks.editor?.onAutosave("<p>part one</p>", "part one");
+    });
+    expect(mocks.create.mock.calls[1][0]).toMatchObject({
+      unitIndex: 1,
+      contentPlain: "part one",
+    });
+  });
+  it("retains an unsaved draft's original scope when a part switch has no new selection", async () => {
+    await render(true, { text: "old passage" }, 0);
+    await render(true, null, 1);
+    expect(document.body.textContent).toContain(
+      "This draft still belongs to the previous article or part",
+    );
+    await act(async () => {
+      await mocks.editor?.onAutosave("<p>still mine</p>", "still mine");
+    });
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({
+      unitIndex: 0,
+      selectedText: "old passage",
+    });
+  });
   it("keeps the lazy editor's unsaved DOM and focus through parent and autosave-status updates", async () => {
     await render(true, { text: "A" });
     const textarea = document.querySelector<HTMLTextAreaElement>(

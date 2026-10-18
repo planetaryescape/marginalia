@@ -1,7 +1,16 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
+import {
+  assertBytes,
+  MAX_STORED_TURNS,
+  TRANSCRIPT_BYTES,
+  threadPreview,
+  validateIndex,
+  validateTranscript,
+} from "./lib/readerBodies";
 
 const turnValidator = v.object({
   role: v.union(v.literal("user"), v.literal("assistant")),
@@ -80,6 +89,12 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
+    validateTranscript(args.turns);
+    assertBytes(args.selection, 32_000, "Selection");
+    if (args.question) assertBytes(args.question, 16_000, "Question");
+    validateIndex(args.unitIndex, "unit");
+    validateIndex(args.paragraphIndex, "paragraph");
+    if (args.model) assertBytes(args.model, 512, "Model");
     const now = Date.now();
     const threadId = await ctx.db.insert("companionThreads", {
       ...args,
@@ -122,33 +137,34 @@ export const keep = mutation({
   },
   handler: async (ctx, { legacyId, ...args }) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
+    validateTranscript(args.turns);
+    assertBytes(args.answerId, 512, "Answer identity");
+    if (!args.answerId.trim()) throw new Error("An answer needs an identity");
+    assertBytes(args.selection, 32_000, "Selection");
+    if (args.question) assertBytes(args.question, 16_000, "Question");
+    validateIndex(args.unitIndex, "unit");
+    validateIndex(args.paragraphIndex, "paragraph");
+    if (args.model) assertBytes(args.model, 512, "Model");
     const now = Date.now();
-    const unitIndex = args.unitIndex;
-    // A book's answers are looked up within their part
-    const threads =
-      unitIndex === undefined
-        ? await ctx.db
-            .query("companionThreads")
-            .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
-            .take(200)
-        : await ctx.db
-            .query("companionThreads")
-            .withIndex("by_article_and_unitIndex", (q) =>
-              q.eq("articleId", args.articleId).eq("unitIndex", unitIndex),
-            )
-            .take(200);
-    const legacy = legacyId
-      ? threads.find(
-          (t) =>
-            t._id === legacyId &&
-            t.userId === ctx.readerId &&
-            t.answerId === undefined,
-        )
-      : undefined;
-    const existing =
-      threads.find(
-        (t) => t.userId === ctx.readerId && t.answerId === args.answerId,
-      ) ?? legacy;
+    const identified = await ctx.db
+      .query("companionThreads")
+      .withIndex("by_userId_and_articleId_and_unitIndex_and_answerId", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .eq("articleId", args.articleId)
+          .eq("unitIndex", args.unitIndex)
+          .eq("answerId", args.answerId),
+      )
+      .first();
+    const candidate = legacyId ? await ctx.db.get(legacyId) : null;
+    const legacy =
+      candidate?.userId === ctx.readerId &&
+      candidate.articleId === args.articleId &&
+      candidate.unitIndex === args.unitIndex &&
+      candidate.answerId === undefined
+        ? candidate
+        : null;
+    const existing = identified ?? legacy;
     const threadId =
       existing?._id ??
       (await ctx.db.insert("companionThreads", {
@@ -162,6 +178,21 @@ export const keep = mutation({
       // A stale tab may hold fewer turns than the record has grown to; never
       // shrink a kept transcript.
       const stale = args.turns.length < existing.turns.length;
+      const unchanged =
+        existing.turns.length === args.turns.length &&
+        existing.model === args.model &&
+        existing.turns.every(
+          (turn, index) =>
+            turn.role === args.turns[index].role &&
+            turn.content === args.turns[index].content,
+        );
+      // A retry neither creates another row nor launches another embedding.
+      if (
+        existing.answerId === args.answerId &&
+        existing.keptAt !== undefined &&
+        (stale || unchanged)
+      )
+        return existing._id;
       await ctx.db.patch("companionThreads", existing._id, {
         answerId: args.answerId,
         turns: stale ? existing.turns : args.turns,
@@ -188,6 +219,8 @@ export const updateTurns = mutation({
   handler: async (ctx, args) => {
     const thread = await ctx.db.get("companionThreads", args.threadId);
     if (thread?.userId !== ctx.readerId) throw new Error("Thread not found");
+    validateTranscript(args.turns);
+    if (args.model) assertBytes(args.model, 512, "Model");
     await ctx.db.patch("companionThreads", args.threadId, {
       turns: args.turns,
       model: args.model,
@@ -215,6 +248,83 @@ export const remove = mutation({
 export const getByIdInternal = internalQuery({
   args: { threadId: v.id("companionThreads") },
   handler: async (ctx, args) => ctx.db.get("companionThreads", args.threadId),
+});
+
+export const listPreviewsByArticle = query({
+  args: {
+    articleId: v.id("articles"),
+    unitIndex: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId)))
+      return { page: [], isDone: true, continueCursor: "" };
+    const page = await ctx.db
+      .query("companionThreads")
+      .withIndex("by_article_and_unitIndex", (q) =>
+        q.eq("articleId", args.articleId).eq("unitIndex", args.unitIndex),
+      )
+      .order("desc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(25, args.paginationOpts.numItems)),
+        maximumBytesRead: 2_000_000,
+      });
+    return {
+      ...page,
+      page: await Promise.all(
+        page.page
+          .filter((row) => row.userId === ctx.readerId)
+          .map(threadPreview),
+      ),
+    };
+  },
+});
+
+export const listKeptPreviews = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("companionThreads")
+      .withIndex("by_user_kept", (q) =>
+        q.eq("userId", ctx.readerId).gt("keptAt", 0),
+      )
+      .order("desc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(25, args.paginationOpts.numItems)),
+        maximumBytesRead: 2_000_000,
+      });
+    return { ...page, page: await Promise.all(page.page.map(threadPreview)) };
+  },
+});
+
+export const getBody = query({
+  args: { threadId: v.id("companionThreads") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.threadId);
+    if (row?.userId !== ctx.readerId) return null;
+    // Explicit hydration carries only the fields needed to reopen an answer.
+    return {
+      _id: row._id,
+      articleId: row.articleId,
+      answerId: row.answerId,
+      mode: row.mode,
+      selection: row.selection,
+      question: row.question,
+      paragraphIndex: row.paragraphIndex,
+      unitIndex: row.unitIndex,
+      turns: row.turns,
+      model: row.model,
+      keptAt: row.keptAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      legacyOversized:
+        row.turns.length > MAX_STORED_TURNS ||
+        new TextEncoder().encode(JSON.stringify(row.turns)).byteLength >
+          TRANSCRIPT_BYTES,
+    };
+  },
 });
 
 export const setEmbedding = internalMutation({

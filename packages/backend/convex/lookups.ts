@@ -3,14 +3,23 @@ import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { requireArticle } from "./access";
 import { mutation } from "./functions";
+import { validateIndex } from "./lib/readerBodies";
 
 const MAX_WORD = 200;
 const MAX_SENTENCE = 1000;
 const MAX_SENSE = 300;
 
 const collapse = (text: string) => text.replace(/\s+/g, " ").trim();
-const clip = (text: string, max: number) =>
-  text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+const clip = (text: string, max: number) => {
+  // Preserve the legacy code-unit clipping identity, but never persist a split
+  // surrogate at the boundary (Convex strings must be valid Unicode).
+  return text.length > max
+    ? `${text
+        .slice(0, max - 1)
+        .replace(/[\uD800-\uDBFF]$/, "")
+        .trimEnd()}…`
+    : text;
+};
 
 /** Quotes, brackets and sentence punctuation around a term; `+ # . -` inside or after it are part of the term. */
 const AROUND = /^[\s.,;:!?"'“”‘’()[\]{}<>«»]+|[\s.,;:!?"'“”‘’()[\]{}<>«»]+$/g;
@@ -30,11 +39,15 @@ export const record = mutation({
     word: v.string(),
     sentence: v.string(),
     paragraphIndex: v.optional(v.number()),
+    unitIndex: v.optional(v.number()),
     occurrence: v.optional(v.number()),
     sense: v.string(),
   },
   handler: async (ctx, args) => {
     const article = await requireArticle(ctx, args.articleId, ctx.readerId);
+    validateIndex(args.unitIndex, "unit");
+    validateIndex(args.paragraphIndex, "paragraph");
+    validateIndex(args.occurrence, "occurrence");
     const word = clip(collapse(args.word), MAX_WORD);
     const wordKey = wordKeyOf(word);
     const sense = clip(collapse(args.sense), MAX_SENSE);
@@ -42,19 +55,22 @@ export const record = mutation({
       throw new Error("A lookup needs a word and a sense");
     const sentence = clip(collapse(args.sentence), MAX_SENTENCE);
 
-    const sameWord = await ctx.db
+    // All legacy rows are indexed too (their absent unit is `undefined`).
+    // The complete equality range participates in Convex's transaction conflict
+    // detection, so concurrent retries cannot both insert an occurrence.
+    const repeat = await ctx.db
       .query("lookups")
-      .withIndex("by_user_word", (q) =>
-        q.eq("userId", ctx.readerId).eq("wordKey", wordKey),
+      .withIndex("by_occurrence", (q) =>
+        q
+          .eq("userId", ctx.readerId)
+          .eq("articleId", args.articleId)
+          .eq("unitIndex", args.unitIndex)
+          .eq("wordKey", wordKey)
+          .eq("paragraphIndex", args.paragraphIndex)
+          .eq("occurrence", args.occurrence)
+          .eq("sentence", sentence),
       )
-      .take(200);
-    const repeat = sameWord.find(
-      (row) =>
-        row.articleId === args.articleId &&
-        row.paragraphIndex === args.paragraphIndex &&
-        row.occurrence === args.occurrence &&
-        row.sentence === sentence,
-    );
+      .first();
     if (repeat) {
       await ctx.db.patch("lookups", repeat._id, {
         sense,
@@ -69,6 +85,7 @@ export const record = mutation({
       wordKey,
       sentence,
       paragraphIndex: args.paragraphIndex,
+      unitIndex: args.unitIndex,
       occurrence: args.occurrence,
       sense,
       articleTitle: article.title,

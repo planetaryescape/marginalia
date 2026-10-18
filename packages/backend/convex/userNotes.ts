@@ -1,8 +1,17 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { nodeKey } from "./lib/ideaGraph";
+import {
+  assertBytes,
+  NOTE_HTML_BYTES,
+  NOTE_PLAIN_BYTES,
+  notePreview,
+  validateIndex,
+  validateNote,
+} from "./lib/readerBodies";
 
 export const create = mutation({
   args: {
@@ -18,11 +27,20 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await requireArticle(ctx, args.articleId, ctx.readerId);
+    validateNote(args.content, args.contentPlain);
+    assertBytes(args.selectedText, 32_000, "Selection");
+    if (args.prompt) assertBytes(args.prompt, 16_000, "Prompt");
+    validateIndex(args.unitIndex, "unit");
     let annotationId = args.annotationId;
     if (annotationId) {
       // The annotation may since have been replaced, but never another reader's
       const annotation = await ctx.db.get("annotations", annotationId);
-      if (annotation && annotation.userId !== ctx.readerId)
+      if (
+        annotation &&
+        (annotation.userId !== ctx.readerId ||
+          annotation.articleId !== args.articleId ||
+          annotation.unitIndex !== args.unitIndex)
+      )
         throw new Error("Annotation not found");
       // Replaced while the reader was writing: keep the note as their own,
       // anchored by its passage, so it still sits beside its line
@@ -60,6 +78,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const note = await ctx.db.get("userNotes", args.noteId);
     if (note?.userId !== ctx.readerId) throw new Error("Note not found");
+    validateNote(args.content, args.contentPlain);
     await ctx.db.patch(args.noteId, {
       content: args.content,
       contentPlain: args.contentPlain,
@@ -130,6 +149,80 @@ export const getById = query({
   handler: async (ctx, args) => {
     const note = await ctx.db.get(args.noteId);
     return note?.userId === ctx.readerId ? note : null;
+  },
+});
+
+/** Additive lean contract. Full HTML and vectors never enter a collection DTO.
+ * Pagination bounds whole-document database reads, not just wire bytes. */
+export const listPreviewsByArticle = query({
+  args: {
+    articleId: v.id("articles"),
+    unitIndex: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId)))
+      return { page: [], isDone: true, continueCursor: "" };
+    const page = await ctx.db
+      .query("userNotes")
+      .withIndex("by_article_and_unitIndex", (q) =>
+        q.eq("articleId", args.articleId).eq("unitIndex", args.unitIndex),
+      )
+      .order("desc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(25, args.paginationOpts.numItems)),
+        maximumBytesRead: 2_000_000,
+      });
+    return {
+      ...page,
+      page: await Promise.all(
+        page.page.filter((row) => row.userId === ctx.readerId).map(notePreview),
+      ),
+    };
+  },
+});
+
+export const listPreviews = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("userNotes")
+      .withIndex("by_user_recent", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(25, args.paginationOpts.numItems)),
+        maximumBytesRead: 2_000_000,
+      });
+    return { ...page, page: await Promise.all(page.page.map(notePreview)) };
+  },
+});
+
+export const getPreviewById = query({
+  args: { noteId: v.id("userNotes") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.noteId);
+    return row?.userId === ctx.readerId ? notePreview(row) : null;
+  },
+});
+
+/** Old oversized notes are returned whole only here, on explicit open. Never
+ * return truncated rich HTML that an editor could overwrite as a full note. */
+export const getBody = query({
+  args: { noteId: v.id("userNotes") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.noteId);
+    if (row?.userId !== ctx.readerId) return null;
+    return {
+      _id: row._id,
+      content: row.content,
+      contentPlain: row.contentPlain,
+      legacyOversized:
+        new TextEncoder().encode(row.content).byteLength > NOTE_HTML_BYTES ||
+        new TextEncoder().encode(row.contentPlain).byteLength >
+          NOTE_PLAIN_BYTES,
+    };
   },
 });
 

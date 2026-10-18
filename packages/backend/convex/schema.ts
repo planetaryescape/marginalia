@@ -857,6 +857,12 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_userId_and_articleId_and_unitIndex_and_answerId", [
+      "userId",
+      "articleId",
+      "unitIndex",
+      "answerId",
+    ])
     .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_article", ["articleId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
@@ -884,6 +890,7 @@ export default defineSchema({
     // Lower-cased `word` without surrounding punctuation, for finding repeats
     wordKey: v.string(),
     sentence: v.string(),
+    unitIndex: v.optional(v.number()),
     paragraphIndex: v.optional(v.number()),
     // Which match of the word in its paragraph was looked up
     occurrence: v.optional(v.number()),
@@ -895,6 +902,15 @@ export default defineSchema({
     articleGone: v.optional(v.boolean()),
     createdAt: v.number(),
   })
+    .index("by_occurrence", [
+      "userId",
+      "articleId",
+      "unitIndex",
+      "wordKey",
+      "paragraphIndex",
+      "occurrence",
+      "sentence",
+    ])
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_user_word", ["userId", "wordKey"])
     .index("by_user_article", ["userId", "articleId"]),

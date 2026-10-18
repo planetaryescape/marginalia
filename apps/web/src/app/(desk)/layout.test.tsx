@@ -73,9 +73,16 @@ vi.mock("convex/react", () => ({
   useConvex: () => ({ prewarmQuery: vi.fn() }),
   useMutation: () => vi.fn(),
   useAction: () => vi.fn(),
-  usePaginatedQuery: () => ({
-    results: [],
-    status: "Exhausted",
+  usePaginatedQuery: (ref: FunctionReference<"query">) => ({
+    results:
+      getFunctionName(ref) === "userNotes:listPreviews"
+        ? (state.notes ?? [])
+        : [],
+    status:
+      getFunctionName(ref) === "userNotes:listPreviews" &&
+      state.notes === undefined
+        ? "LoadingFirstPage"
+        : "Exhausted",
     loadMore: vi.fn(),
   }),
 }));
