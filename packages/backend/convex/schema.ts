@@ -478,8 +478,8 @@ export default defineSchema({
   // About 300-token runs of an ordinary article's paragraphs, embedded the
   // first time the reader asks about the article (D-DES-054). The text isn't
   // stored: the paragraph range says where it is, and `contentHash` says the
-  // article hasn't changed since. Ranked in the action, never by vector index,
-  // so a just-written row can't be missed.
+  // article hasn't changed since. Exact ranking reads bounded server-query
+  // pages, never an eventually consistent approximate vector index.
   articlePassages: defineTable({
     userId: v.string(),
     articleId: v.id("articles"),
@@ -492,6 +492,24 @@ export default defineSchema({
     fromOffset: v.number(),
     toOffset: v.number(),
     embedding: v.array(v.float64()),
+    generation: v.optional(v.number()),
+  })
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId_and_articleId_and_generation", [
+      "userId",
+      "articleId",
+      "generation",
+    ])
+    .index("by_userId", ["userId"]),
+
+  articlePassageState: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    contentHash: v.string(),
+    model: v.string(),
+    generation: v.number(),
+    count: v.number(),
+    total: v.number(),
   })
     .index("by_userId_and_articleId", ["userId", "articleId"])
     .index("by_userId", ["userId"]),

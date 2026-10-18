@@ -767,10 +767,9 @@ describe("Ask about this book", () => {
     const { f, mock, mine } = await askSetup();
     // The second reader names the owner's book
     const response = await ask(f.reader, { articleId: mine, unitIndex: 0 });
-    expect(response.status).toBe(200);
-    const { user } = mock.prompts.at(-1) ?? { user: "" };
-    expect(user).not.toContain("alpha passage in my book");
-    expect(user).not.toContain("<book_outline>");
+    expect(response.status).toBe(404);
+    expect(mock.prompts).toHaveLength(0);
+    expect(mock.embedInputs).toHaveLength(0);
   });
 
   it("reads another reader's passages as nothing", async () => {

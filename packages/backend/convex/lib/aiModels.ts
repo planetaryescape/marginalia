@@ -15,6 +15,7 @@ import {
   isTerminalChatGPTError,
 } from "./chatgptResponses";
 import { PROVIDER_NAMES, type Provider } from "./providers";
+import { resolveTarget } from "./providerTarget";
 import { interruptible, requestAttempt } from "./requestControl";
 import type { ProviderTarget } from "./router";
 
@@ -118,9 +119,11 @@ export async function generateObjectWithFallback<T>(options: {
       const isLast = index === options.targets.length - 1;
       if (target.provider === "chatgpt") {
         try {
+          const resolved = await resolveTarget(target);
+          attempt.signal.throwIfAborted();
           return {
             object: await interruptible(
-              generateWithChatGPT(target, {
+              generateWithChatGPT(resolved, {
                 ...options,
                 signal: attempt.signal,
               }),
@@ -246,6 +249,7 @@ async function generateWithChatGPT<T>(
     signal: AbortSignal;
   },
 ): Promise<T> {
+  options.signal.throwIfAborted();
   const content = await completeResponses({
     accessToken: target.apiKey,
     model: target.model,

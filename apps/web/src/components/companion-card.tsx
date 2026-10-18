@@ -36,6 +36,7 @@ export function CompanionCard({
   onDelete,
   onFollowUp,
   onRegenerate,
+  onStop,
   onJump,
   onKeep,
   onResync,
@@ -53,6 +54,7 @@ export function CompanionCard({
   onDelete: () => void;
   onFollowUp: (question: string) => void;
   onRegenerate: () => void;
+  onStop?: () => void;
   onJump: (index: number) => void;
   onKeep: () => void;
   /** Writes the latest follow-up to the kept record again after a failed update. */
@@ -163,6 +165,15 @@ export function CompanionCard({
           {thread.model ? modelName(thread.model) : "…"}
         </span>
         <div className="ml-auto flex items-center">
+          {streaming && onStop && (
+            <button
+              type="button"
+              onClick={onStop}
+              className="px-2 text-[12px] quiet-link"
+            >
+              Stop
+            </button>
+          )}
           <button
             type="button"
             onClick={onKeep}

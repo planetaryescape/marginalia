@@ -782,7 +782,7 @@ describe("refreshing ChatGPT tokens", () => {
       [TOKEN_URL]: () => Response.json({ error: code }, { status: 400 }),
     });
     const response = await companion(t);
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(401);
     expect(mock.calls.some((c) => c.url === RESPONSES_URL)).toBe(false);
     const [row] = await connectionRows(t);
     expect(row.status).toBe("reconnect");

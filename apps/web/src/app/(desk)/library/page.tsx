@@ -17,6 +17,7 @@ import {
 import { LibraryThread, type LibraryTurn } from "@/components/library-thread";
 import { LibraryTopic } from "@/components/library-topic";
 import { UpNextShelf } from "@/components/up-next-shelf";
+import { answerBuffer } from "@/lib/answer-buffer";
 import { ReaderRequestError, streamFromConvex } from "@/lib/companion";
 import { useTabKeys } from "@/lib/list-nav";
 import { useShortcuts } from "@/lib/shortcuts";
@@ -37,6 +38,7 @@ function Librarian() {
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const followRef = useRef(true);
   useShortcuts({ "/": () => inputRef.current?.focus() }, true, {
     help: { group: "Library", keys: [["/", "Ask your library"]] },
   });
@@ -60,6 +62,13 @@ function Librarian() {
       setError(null);
       setStreaming(true);
       let answer = "";
+      const buffer = answerBuffer(() => {
+        if (!current()) return;
+        setTurns((t) => [
+          ...t.slice(0, -1),
+          { role: "assistant", content: answer },
+        ]);
+      });
       try {
         await streamFromConvex(
           "/api/library",
@@ -70,10 +79,7 @@ function Librarian() {
             onText: (chunk) => {
               if (!current()) return;
               answer += chunk;
-              setTurns((t) => [
-                ...t.slice(0, -1),
-                { role: "assistant", content: answer },
-              ]);
+              buffer.schedule();
             },
           },
         );
@@ -87,6 +93,7 @@ function Librarian() {
               : "Couldn't reach the librarian. Try again.",
           );
       } finally {
+        buffer.flush();
         if (current()) setStreaming(false);
       }
     },
@@ -95,11 +102,23 @@ function Librarian() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  useEffect(() => {
+    const scroller = endRef.current?.closest(".desk-route");
+    if (!scroller) return;
+    const update = () => {
+      followRef.current =
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <
+        120;
+    };
+    scroller.addEventListener("scroll", update, { passive: true });
+    return () => scroller.removeEventListener("scroll", update);
+  }, []);
+
   const length = turns.reduce((n, t) => n + t.content.length, 0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow the answer as it streams in
   useEffect(() => {
-    if (turns.length > 2)
-      endRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (turns.length > 2 && followRef.current)
+      endRef.current?.scrollIntoView({ block: "nearest", behavior: "instant" });
   }, [length, turns.length]);
 
   return (

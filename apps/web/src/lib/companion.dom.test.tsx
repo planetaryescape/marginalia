@@ -176,6 +176,38 @@ afterEach(async () => {
 });
 
 describe("answers are temporary until kept", () => {
+  it("flushes Stop independently for concurrent answers and never paints a superseded generation", async () => {
+    await mount();
+    await ask();
+    const first = latest.answers[0].id;
+    await ask();
+    const second = latest.answers[1].id;
+    await act(async () => {
+      for (let i = 0; i < 100; i++) streams[0].push("x");
+      streams[0].push("last");
+      streams[1].push("second");
+    });
+    await settle();
+    await act(async () => latest.stop(first));
+    expect(
+      latest.answers.find((answer) => answer.id === first)?.turns.at(-1)
+        ?.content,
+    ).toBe(`${"x".repeat(100)}last`);
+    expect(streams[0].signal.aborted).toBe(true);
+    expect(streams[1].signal.aborted).toBe(false);
+    await finish(" final", 1);
+    expect(
+      latest.answers.find((answer) => answer.id === second)?.turns.at(-1)
+        ?.content,
+    ).toBe("second final");
+    await act(async () => latest.openAnswer(first));
+    await act(async () => latest.regenerate());
+    streams[0].push("stale");
+    await finish("replacement", 2);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(latest.thread?.turns.at(-1)?.content).toBe("replacement");
+  });
+
   it("streams an answer without writing anything to the server", async () => {
     await mount();
     await ask();

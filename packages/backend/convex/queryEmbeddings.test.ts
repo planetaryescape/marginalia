@@ -38,6 +38,7 @@ function actionCtx(t: ReturnType<typeof readerTest>) {
   };
   return {
     runQuery: (ref: unknown, args: unknown) => run.query(ref, args),
+    runMutation: (ref: unknown, args: unknown) => run.mutation(ref, args),
     scheduler: {
       runAfter: (_delay: number, ref: unknown, args: unknown) =>
         run.mutation(ref, args),
@@ -68,6 +69,7 @@ describe("cachedQueryEmbedding", () => {
       "rust async",
       embedder,
     );
+    await first.publication;
     const second = await cachedQueryEmbedding(
       ctx,
       "reader-a",
@@ -76,7 +78,7 @@ describe("cachedQueryEmbedding", () => {
     );
 
     expect(first.cached).toBe(false);
-    expect(second).toEqual({ vector: embedding, cached: true });
+    expect(second).toMatchObject({ vector: embedding, cached: true });
     expect(first.vector).toEqual(embedding);
     expect(calls).toHaveLength(1);
   });
@@ -86,7 +88,9 @@ describe("cachedQueryEmbedding", () => {
     const calls = embeddingCalls();
     const ctx = actionCtx(t);
 
-    await cachedQueryEmbedding(ctx, "reader-a", "  Rust   Async ", embedder);
+    await (
+      await cachedQueryEmbedding(ctx, "reader-a", "  Rust   Async ", embedder)
+    ).publication;
     const repeat = await cachedQueryEmbedding(
       ctx,
       "reader-a",
@@ -135,6 +139,7 @@ describe("cachedQueryEmbedding", () => {
       "rust async",
       embedder,
     );
+    await result.publication;
     const again = await cachedQueryEmbedding(
       ctx,
       "reader-a",
@@ -159,10 +164,8 @@ describe("cachedQueryEmbedding", () => {
       runQuery: async () => {
         throw new Error("cache unavailable");
       },
-      scheduler: {
-        runAfter: async () => {
-          throw new Error("cache unavailable");
-        },
+      runMutation: async () => {
+        throw new Error("cache unavailable");
       },
     } as never;
 
@@ -173,7 +176,8 @@ describe("cachedQueryEmbedding", () => {
       embedder,
     );
 
-    expect(result).toEqual({ vector: embedding, cached: false });
+    await result.publication;
+    expect(result).toMatchObject({ vector: embedding, cached: false });
     expect(calls).toHaveLength(1);
     expect(errors).toHaveBeenCalledTimes(2);
   });

@@ -268,6 +268,14 @@ http.route({
     }
 
     const preparation = cancellablePreparation(ctx, request.signal);
+    if (
+      parsed.data.articleId &&
+      !(await preparation.runQuery(internal.articlePassages.authorized, {
+        userId: readerId,
+        articleId: parsed.data.articleId,
+      }))
+    )
+      return new Response("Article not found", { status: 404 });
     const [summary, { ai, book, article, nearby }] = await Promise.all([
       parsed.data.articleId
         ? preparation.runQuery(internal.summaries.forCompanion, {

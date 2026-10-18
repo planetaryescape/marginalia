@@ -64,7 +64,7 @@ export async function retrieveLibraryContext(
   const [activity, hits] = await Promise.all([
     ctx.runQuery(internal.library.recentActivity, { userId }),
     (async () => {
-      const { vector, cached } = await cachedQueryEmbedding(
+      const { vector, cached, publication } = await cachedQueryEmbedding(
         ctx,
         userId,
         question,
@@ -72,7 +72,7 @@ export async function retrieveLibraryContext(
       );
       timings?.mark(cached ? "embed-cached" : "embed");
       embedder.signal?.throwIfAborted();
-      return Promise.all([
+      const searches = Promise.all([
         ctx.vectorSearch("articles", "by_embedding", {
           vector,
           limit: 24,
@@ -99,6 +99,8 @@ export async function retrieveLibraryContext(
           filter: (q) => q.eq("userId", userId),
         }),
       ]);
+      const [hits] = await Promise.all([searches, publication]);
+      return hits;
     })(),
   ]);
   embedder.signal?.throwIfAborted();
@@ -297,7 +299,7 @@ export async function findLibraryArticles(
   embedder: EmbeddingTarget,
   timings: Timings,
 ): Promise<{ matches: LibraryFindMatch[]; more: boolean }> {
-  const { vector, cached } = await cachedQueryEmbedding(
+  const { vector, cached, publication } = await cachedQueryEmbedding(
     ctx,
     userId,
     question,
@@ -324,6 +326,7 @@ export async function findLibraryArticles(
     articleIds: hits.map((hit) => hit._id),
   });
   timings.mark("load");
+  await publication;
   const byId = new Map(rows.map((row) => [row.articleId, row]));
   const seenUrls = new Set<string>();
   const ranked = hits.flatMap((hit, rank) => {
