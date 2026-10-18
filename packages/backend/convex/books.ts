@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { ownedArticle } from "./access";
+import { libraryIsActive, ownedArticle } from "./access";
 import { unitSummaries } from "./bookIndex";
 import { liveImport, markImportReady } from "./documentImports";
 import {
@@ -161,6 +161,12 @@ export const backfillUnitMetadata = internalMutation({
   handler: async (ctx, args) => {
     if (!Number.isInteger(args.fromIndex) || args.fromIndex < 0)
       throw new Error("Invalid cursor");
+    if (!(await libraryIsActive(ctx, args.userId))) return null;
+    const reader = await ctx.db
+      .query("readers")
+      .withIndex("by_libraryId", (q) => q.eq("libraryId", args.userId))
+      .first();
+    if (reader?.deletingAt !== undefined) return null;
     if (!(await ownedArticle(ctx, args.articleId, args.userId))) return null;
     const units = await ctx.db
       .query("bookUnits")

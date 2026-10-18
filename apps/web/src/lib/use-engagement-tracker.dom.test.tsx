@@ -132,6 +132,57 @@ afterEach(async () => {
 });
 
 describe("paragraph dwell in the reader", () => {
+  it("does not resend an acknowledged prior day on the next flush, while current-day progress remains cumulative", async () => {
+    vi.setSystemTime(new Date(2026, 9, 12, 23, 59, 58));
+    await act(async () => root.render(<Reader articleId="a" />));
+    await advance(2500);
+    checkpoint.mockClear();
+    await act(async () => tracker.retry());
+    const first = checkpoint.mock.calls.map(([snapshot]) => snapshot);
+    expect(first.map((snapshot) => snapshot.day)).toEqual([
+      "2026-10-12",
+      "2026-10-13",
+    ]);
+    await advance(1000);
+    checkpoint.mockClear();
+    await act(async () => tracker.retry());
+    expect(checkpoint).toHaveBeenCalledTimes(1);
+    const current = checkpoint.mock.calls[0][0];
+    expect(current.day).toBe("2026-10-13");
+    expect(current.visitId).toBe(first[1].visitId);
+    expect(current.activeTimeMs).toBeGreaterThan(first[1].activeTimeMs);
+  });
+  it("does not prune a prior day after a timeout, even if the old send later resolves", async () => {
+    vi.setSystemTime(new Date(2026, 9, 12, 23, 59, 58));
+    await act(async () => root.render(<Reader articleId="a" />));
+    await advance(2500);
+    let resolve: (value: null) => void = () => {};
+    checkpoint.mockImplementationOnce(
+      () =>
+        new Promise<null>((r) => {
+          resolve = r;
+        }),
+    );
+    const retry = tracker.retry();
+    const rejected = expect(retry).rejects.toThrow("hasn't synced");
+    await advance(5100);
+    await rejected;
+    await act(async () => {
+      resolve(null);
+      await Promise.resolve();
+    });
+    checkpoint.mockClear();
+    await act(async () => tracker.retry());
+    expect(checkpoint.mock.calls.map(([snapshot]) => snapshot.day)).toEqual([
+      "2026-10-12",
+      "2026-10-13",
+    ]);
+    checkpoint.mockClear();
+    await act(async () => tracker.retry());
+    expect(checkpoint.mock.calls.map(([snapshot]) => snapshot.day)).toEqual([
+      "2026-10-13",
+    ]);
+  });
   it("retains an unacknowledged finish for unload after a delivery deadline, including when the old mutation resolves late", async () => {
     await act(async () => root.render(<Reader articleId="a" />));
     await advance(100);

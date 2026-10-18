@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { libraryIsActive, ownedArticle } from "./access";
 import { setAnnotationStatus } from "./articles";
+import { syncUnitMetadata } from "./books";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { CURRENT_ANNOTATION_VERSION } from "./lib/annotationGate";
 import { annotationType } from "./lib/annotationKinds";
@@ -341,5 +342,6 @@ export const replaceForUnit = internalMutation({
     await ctx.db.patch("bookUnits", unit._id, {
       annotationStatus: "annotated",
     });
+    await syncUnitMetadata(ctx, { ...unit, annotationStatus: "annotated" });
   },
 });
