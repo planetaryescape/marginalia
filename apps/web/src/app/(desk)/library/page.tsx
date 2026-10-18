@@ -48,6 +48,8 @@ function Librarian() {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      const current = () =>
+        abortRef.current === controller && !controller.signal.aborted;
       const history = turns;
       setTurns([
         ...history,
@@ -66,6 +68,7 @@ function Librarian() {
             signal: controller.signal,
             onModel: () => {},
             onText: (chunk) => {
+              if (!current()) return;
               answer += chunk;
               setTurns((t) => [
                 ...t.slice(0, -1),
@@ -74,16 +77,17 @@ function Librarian() {
             },
           },
         );
-        if (!answer.trim()) setError("No answer came back. Try asking again.");
+        if (current() && !answer.trim())
+          setError("No answer came back. Try asking again.");
       } catch (e) {
-        if (!controller.signal.aborted)
+        if (current())
           setError(
             e instanceof ReaderRequestError && e.code
               ? e.message
               : "Couldn't reach the librarian. Try again.",
           );
       } finally {
-        setStreaming(false);
+        if (current()) setStreaming(false);
       }
     },
     [streaming, turns],
@@ -167,6 +171,7 @@ function Librarian() {
             type="button"
             onClick={() => {
               abortRef.current?.abort();
+              abortRef.current = null;
               setTurns([]);
               setError(null);
               setStreaming(false);
@@ -216,10 +221,11 @@ function Shelves() {
   const shelf = shelfFromUrl(params.get("shelf"));
   const matchesFor = params.get("q")?.trim() ?? "";
   const topic = params.get("topic")?.trim() ?? "";
-  const overview = useQuery(api.home.overview, {});
-  const saved = useQuery(api.savedArticles.count, {});
-  const loved = useQuery(api.lovedArticles.count, {});
-  const finished = useQuery(api.impressions.listRecent, {});
+  const shelfArgs = matchesFor || topic ? "skip" : {};
+  const overview = useQuery(api.home.counts, shelfArgs);
+  const saved = useQuery(api.savedArticles.count, shelfArgs);
+  const loved = useQuery(api.lovedArticles.count, shelfArgs);
+  const finished = useQuery(api.impressions.recentCount, shelfArgs);
   const tabs: {
     id: ShelfId | "up-next";
     label: string;
@@ -248,7 +254,7 @@ function Shelves() {
       id: "finished",
       label: "Finished",
       href: "/library?shelf=finished",
-      count: finished?.length ?? null,
+      count: finished ?? null,
     },
   ];
 

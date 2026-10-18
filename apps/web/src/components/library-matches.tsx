@@ -42,7 +42,7 @@ export function MatchRow({
  */
 export function LibraryMatches({ query }: { query: string }) {
   const [retry, setRetry] = useState(0);
-  const result = useTopicSearch(query, true, retry);
+  const result = useTopicSearch(query, true, retry, "list");
   useListKeys();
   const current = result.query === query;
 

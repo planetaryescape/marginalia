@@ -4,9 +4,11 @@ import {
   libraryFindResponseSchema,
   librarySearchResponseSchema,
 } from "@marginalia/backend/library-search";
-import { useConvex } from "convex/react";
-import { useEffect, useRef, useState } from "react";
+import { useConvex, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { authClient } from "@/lib/auth-client";
 import { ReaderRequestError, readerRequestError } from "@/lib/companion";
+import { SessionCache } from "@/lib/session-cache";
 import {
   strongTitleMatch,
   type TopicMatch,
@@ -34,9 +36,15 @@ export interface TopicSearch {
 }
 
 interface CacheEntry {
-  time: number;
+  foundAt: number;
   find: Pick<TopicSearch, "matches" | "more">;
   reasons: Record<string, string>;
+  explained: boolean;
+}
+
+const cache = new SessionCache<CacheEntry>(20, CACHE_TTL_MS);
+export function invalidateTopicSearchCache() {
+  cache.forScope(null);
 }
 
 const idle: TopicSearch = {
@@ -59,38 +67,50 @@ async function failure(thrown: unknown) {
  * the reason lines. A backend without `find` answers 404, and the explained
  * search alone supplies the cards, as before.
  */
-export function useTopicSearch(text: string, enabled: boolean, retry: number) {
+export function useTopicSearch(
+  text: string,
+  enabled: boolean,
+  retry: number,
+  mode: "typing" | "list" = "typing",
+) {
   const [state, setState] = useState<TopicSearch>(idle);
-  const cache = useRef(new Map<string, CacheEntry>());
+  const [stateScope, setStateScope] = useState<string | null>(null);
   const convex = useConvex();
+  const { data: session } = authClient.useSession();
+  const counts = useQuery(api.home.counts, {});
+  const sessionId = session?.session.id;
+  const revision = counts === undefined ? "pending" : JSON.stringify(counts);
+  const scope = sessionId ? `${sessionId}:${revision}` : null;
+  cache.forScope(scope);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: retry explicitly reruns a failed request
   useEffect(() => {
-    if (!enabled) return;
-    const key = text.toLowerCase();
-    const remember = (entry: CacheEntry) => {
-      const entries = cache.current;
-      entries.delete(key);
-      if (entries.size >= 20) {
-        const oldest = entries.keys().next().value;
-        if (oldest !== undefined) entries.delete(oldest);
-      }
-      entries.set(key, entry);
+    if (!enabled || !sessionId) return;
+    setStateScope(scope);
+    const generation = cache.generation;
+    const key = text.trim().toLowerCase();
+    const remember = (entry: Omit<CacheEntry, "foundAt">) => {
+      if (scope && !signal.aborted)
+        cache.set(key, { ...entry, foundAt }, generation);
     };
     const controller = new AbortController();
     const { signal } = controller;
-    const cached = cache.current.get(key);
-    if (cached && Date.now() - cached.time < CACHE_TTL_MS) {
+    const entry = retry === 0 && scope ? cache.get(key) : undefined;
+    const cached =
+      entry && Date.now() - entry.foundAt < CACHE_TTL_MS ? entry : undefined;
+    // Completing/retrying reasons must not renew the lifetime of old cards.
+    const foundAt = cached?.foundAt ?? Date.now();
+    if (cached) {
       setState({
         query: text,
         status: "ready",
         ...cached.find,
         reasons: cached.reasons,
-        explained: true,
+        explained: cached.explained || mode === "list",
       });
-      return;
+      if (cached.explained || mode === "list") return;
     }
-    setState({ ...idle, query: text, status: "loading", explained: false });
+    if (!cached)
+      setState({ ...idle, query: text, status: "loading", explained: false });
 
     // Reasons attach by id, so a different ranking can't move one onto another card.
     const reasonsFor = (
@@ -147,89 +167,100 @@ export function useTopicSearch(text: string, enabled: boolean, retry: number) {
       }
     };
 
-    const timer = window.setTimeout(async () => {
-      void showTitle();
-      try {
-        let find: CacheEntry["find"];
+    const timer = window.setTimeout(
+      async () => {
+        if (!cached) void showTitle();
         try {
-          const body = libraryFindResponseSchema.parse(
-            await post(
-              "find",
-              text,
-              AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-            ),
-          );
-          find = { matches: land(body.matches), more: body.more };
-        } catch (thrown) {
-          if (!(thrown instanceof Response && thrown.status === 404))
-            throw thrown;
-          // A backend without the fast path: the explained search gives the cards.
-          const ranked = await search();
+          let find: CacheEntry["find"];
+          try {
+            if (cached) find = cached.find;
+            else {
+              const body = libraryFindResponseSchema.parse(
+                await post(
+                  "find",
+                  text,
+                  AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+                ),
+              );
+              find = { matches: land(body.matches), more: body.more };
+            }
+          } catch (thrown) {
+            if (!(thrown instanceof Response && thrown.status === 404))
+              throw thrown;
+            // A backend without the fast path: the explained search gives the cards.
+            const ranked = await search();
+            if (signal.aborted) return;
+            find = {
+              matches: land(
+                ranked.map(({ reason, ...match }) => ({
+                  ...match,
+                  source: null,
+                })),
+              ),
+              more: false,
+            };
+            const reasons = reasonsFor(ranked, find.matches);
+            remember({ find, reasons, explained: true });
+            setState({
+              query: text,
+              status: "ready",
+              ...find,
+              reasons,
+              explained: true,
+            });
+            return;
+          }
           if (signal.aborted) return;
-          find = {
-            matches: land(
-              ranked.map(({ reason, ...match }) => ({
-                ...match,
-                source: null,
-              })),
-            ),
-            more: false,
-          };
-          const reasons = reasonsFor(ranked, find.matches);
-          remember({ time: Date.now(), find, reasons });
+          remember({
+            find,
+            reasons: cached?.reasons ?? {},
+            explained: cached?.explained ?? !find.matches.length,
+          });
+          // Nothing to explain when the library has no match.
           setState({
             query: text,
             status: "ready",
             ...find,
-            reasons,
-            explained: true,
+            reasons: cached?.reasons ?? {},
+            explained: mode === "list" || !find.matches.length,
           });
-          return;
+          if (!find.matches.length || mode === "list") return;
+          let reasons: Record<string, string> | null = null;
+          try {
+            reasons = reasonsFor(await search(), find.matches);
+          } catch {
+            // The cards stand without a reason; a failed explanation isn't an error to show.
+          }
+          if (signal.aborted) return;
+          if (reasons) remember({ find, reasons, explained: true });
+          setState((current) =>
+            current.query === text
+              ? { ...current, reasons: reasons ?? {}, explained: true }
+              : current,
+          );
+        } catch (thrown) {
+          if (signal.aborted) return;
+          const error = await failure(thrown);
+          // Reading the error body takes time; a newer query may have started meanwhile
+          if (signal.aborted) return;
+          setState({
+            ...idle,
+            query: text,
+            status: "error",
+            error:
+              error instanceof ReaderRequestError && error.code
+                ? error.message
+                : undefined,
+          });
         }
-        if (signal.aborted) return;
-        // Nothing to explain when the library has no match.
-        setState({
-          query: text,
-          status: "ready",
-          ...find,
-          reasons: {},
-          explained: !find.matches.length,
-        });
-        if (!find.matches.length) return;
-        let reasons: Record<string, string> | null = null;
-        try {
-          reasons = reasonsFor(await search(), find.matches);
-        } catch {
-          // The cards stand without a reason; a failed explanation isn't an error to show.
-        }
-        if (signal.aborted) return;
-        if (reasons) remember({ time: Date.now(), find, reasons });
-        setState((current) =>
-          current.query === text
-            ? { ...current, reasons: reasons ?? {}, explained: true }
-            : current,
-        );
-      } catch (thrown) {
-        if (signal.aborted) return;
-        const error = await failure(thrown);
-        // Reading the error body takes time; a newer query may have started meanwhile
-        if (signal.aborted) return;
-        setState({
-          ...idle,
-          query: text,
-          status: "error",
-          error:
-            error instanceof ReaderRequestError && error.code
-              ? error.message
-              : undefined,
-        });
-      }
-    }, DEBOUNCE_MS);
+      },
+      mode === "list" || cached ? 0 : DEBOUNCE_MS,
+    );
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, text, retry, convex]);
+  }, [enabled, text, retry, convex, mode, scope, sessionId]);
 
-  return state;
+  return enabled && sessionId && stateScope === scope ? state : idle;
 }

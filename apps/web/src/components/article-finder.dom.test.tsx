@@ -2,7 +2,14 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { invalidateTopicSearchCache } from "@/lib/use-topic-search";
 import { ArticleFinder } from "./article-finder";
+
+vi.mock("@/lib/auth-client", () => ({
+  authClient: {
+    useSession: () => ({ data: { session: { id: "finder-test" } } }),
+  },
+}));
 
 const push = vi.hoisted(() => vi.fn());
 const addByUrl = vi.hoisted(() => vi.fn());
@@ -24,8 +31,8 @@ vi.mock("next/link", () => ({
 vi.mock("convex/react", () => ({
   useAction: () => addByUrl,
   useConvex: () => convexClient,
-  useQuery: (_fn: string, args: unknown) =>
-    args === "skip" ? undefined : noteHits.current,
+  useQuery: (fn: string, args: unknown) =>
+    fn === "counts" ? null : args === "skip" ? undefined : noteHits.current,
   useMutation: (fn: string) => (fn === "record" ? record : save),
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
@@ -35,6 +42,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
     sessions: { recordInteraction: "record" },
     notesSearch: { find: "notes" },
     titleSearch: { matchTitles: "titles" },
+    home: { counts: "counts" },
   },
 }));
 vi.mock("sonner", () => ({ toast }));
@@ -70,6 +78,7 @@ const find = (
 });
 
 beforeEach(() => {
+  invalidateTopicSearchCache();
   vi.useFakeTimers();
   requests = [];
   push.mockReset();
