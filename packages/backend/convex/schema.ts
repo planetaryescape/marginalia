@@ -967,6 +967,19 @@ export default defineSchema({
     .index("by_user_word", ["userId", "wordKey"])
     .index("by_user_article", ["userId", "articleId"]),
 
+  // Canonical baseline for marks made before explicit colours were stored.
+  // Version 1 freezes the first real browser preference, once per reader/tool.
+  // Continuations must find this exact row; purging it fences queued work.
+  legacyMarkDefaults: defineTable({
+    userId: v.string(),
+    kind: v.union(v.literal("highlight"), v.literal("underline")),
+    color: markColor,
+    version: v.literal(1),
+    status: v.union(v.literal("running"), v.literal("done")),
+    cursor: v.union(v.string(), v.null()),
+    scheduledId: v.optional(v.id("_scheduled_functions")),
+  }).index("by_userId_and_kind", ["userId", "kind"]),
+
   // Highlighter and pen marks, re-anchored by text when the article renders.
   // A mark keeps the colour it was made in; rows without one follow the reader's current setting.
   highlights: defineTable({
@@ -991,6 +1004,7 @@ export default defineSchema({
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_userId", ["userId"])
     .index("by_reader_highlight", ["readerHighlightId"])
+    .index("by_userId_and_kind_and_color", ["userId", "kind", "color"])
     .index("by_userId_and_readerHighlightId", ["userId", "readerHighlightId"])
     .searchIndex("search_text", {
       searchField: "text",
