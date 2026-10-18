@@ -902,6 +902,35 @@ export default defineSchema({
     .index("by_user_started", ["userId", "startedAt"])
     .index("by_user_article", ["userId", "articleId"]),
 
+  // One small cumulative Continue row per reader/article, not an event window.
+  readingResumes: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    eligible: v.boolean(),
+    lastActivityAt: v.number(),
+    maxScrollPercent: v.number(),
+    paragraphIndex: v.optional(v.number()),
+    placeUpdatedAt: v.number(),
+    placeKey: v.string(),
+    hasCheckpoint: v.boolean(),
+  })
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId_and_eligible_and_lastActivityAt_and_articleId", [
+      "userId",
+      "eligible",
+      "lastActivityAt",
+      "articleId",
+    ]),
+  readingResumeState: defineTable({
+    userId: v.string(),
+    phase: v.union(
+      v.literal("interactions"),
+      v.literal("checkpoints"),
+      v.literal("done"),
+    ),
+    cursor: v.union(v.string(), v.null()),
+  }).index("by_userId", ["userId"]),
+
   // Milliseconds each paragraph held the reader's attention in one visit and
   // local day, keyed by the paragraph's displayed number. A sibling of
   // readingActivity, not a field on it: that table is scanned on every

@@ -144,6 +144,7 @@ import type * as queryEmbeddings from "../queryEmbeddings.js";
 import type * as readerBootstrap from "../readerBootstrap.js";
 import type * as readers from "../readers.js";
 import type * as readingActivity from "../readingActivity.js";
+import type * as readingResume from "../readingResume.js";
 import type * as readingHabits from "../readingHabits.js";
 import type * as readingQueue from "../readingQueue.js";
 import type * as readingRoomBackfill from "../readingRoomBackfill.js";
@@ -308,6 +309,7 @@ declare const fullApi: ApiFromModules<{
   readerBootstrap: typeof readerBootstrap;
   readers: typeof readers;
   readingActivity: typeof readingActivity;
+  readingResume: typeof readingResume;
   readingHabits: typeof readingHabits;
   readingQueue: typeof readingQueue;
   readingRoomBackfill: typeof readingRoomBackfill;
