@@ -135,11 +135,11 @@ async function setup() {
       });
       return articleId;
     });
-  const ask = (
+  const ask = async (
     client: { fetch: (path: string, init: RequestInit) => Promise<Response> },
     body: Record<string, string | number | string[] | null>,
-  ) =>
-    client.fetch("/api/companion", {
+  ) => {
+    const response = await client.fetch("/api/companion", {
       method: "POST",
       body: JSON.stringify({
         mode: "article",
@@ -150,6 +150,10 @@ async function setup() {
         ...body,
       }),
     });
+    // These assertions describe completed turns, not just primed HTTP headers.
+    await response.clone().text();
+    return response;
+  };
   const rows = (userId?: string) =>
     f.t.run(async (ctx) =>
       (await ctx.db.query("articlePassages").take(1_000)).filter(

@@ -44,7 +44,12 @@ import {
   companionRequestSchema,
   selectContext,
 } from "./lib/readingCompanion";
-import { cancellablePreparation, interruptible } from "./lib/requestControl";
+import {
+  cancellablePreparation,
+  interruptible,
+  ownedPreparation,
+  type PreparationOwner,
+} from "./lib/requestControl";
 import { loadReaderAI } from "./lib/router";
 import { startTimings, type Timings } from "./lib/serverTiming";
 import { sha256Hex, siteUrl } from "./lib/tokens";
@@ -206,6 +211,7 @@ function readerAIAction(
     ctx: ActionCtx,
     request: Request,
     timings: Timings,
+    publication: PreparationOwner,
   ) => Promise<Response>,
   { joinPreparation = false }: { joinPreparation?: boolean } = {},
 ) {
@@ -218,9 +224,10 @@ function readerAIAction(
         new Response("Invalid origin", { status: 403 }),
       );
     let response: Response;
+    const publication = ownedPreparation(ctx, request.signal);
     try {
       request.signal.throwIfAborted();
-      const work = handler(ctx, request, timings);
+      const work = handler(ctx, request, timings, publication);
       // Library preparation owns a durable cache publication. Its finally
       // must finish before the HTTP action exits, even though the browser has
       // already abandoned the response on Stop.
@@ -247,6 +254,21 @@ function readerAIAction(
                 : 502,
         },
       );
+    } finally {
+      // Only the successfully returned stream may inherit the private lifetime.
+      // On Stop the outer waiter may leave shared refresh alone, but must drain
+      // every registered private transaction/helper before its context exits.
+      if (request.signal.aborted || !publication.response) {
+        publication.abort();
+        try {
+          await publication.response?.body?.cancel();
+        } catch {
+          // An already-errored stream still owes its private transactions.
+        } finally {
+          await publication.settle();
+          publication.dispose();
+        }
+      }
     }
     const headers = new Headers(response.headers);
     headers.set("Server-Timing", timings.header());
@@ -316,11 +338,11 @@ http.route({
 http.route({
   path: "/api/companion",
   method: "POST",
-  handler: readerAIAction(async (ctx, request, timings) => {
-    const readerId = await signedInReader(ctx, timings);
+  handler: readerAIAction(async (ctx, request, timings, publication) => {
+    const readerId = await signedInReader(publication.ctx, timings);
     request.signal.throwIfAborted();
     if (!readerId) return readerAuthNeeded();
-    const limited = await aiBudgetExceeded(ctx, readerId, timings);
+    const limited = await aiBudgetExceeded(publication.ctx, readerId, timings);
     if (limited) return limited;
     const parsed = companionRequestSchema.safeParse(await readerJson(request));
     timings.mark("parse");
@@ -331,7 +353,7 @@ http.route({
       });
     }
 
-    const preparation = cancellablePreparation(ctx, request.signal);
+    const preparation = publication.ctx;
     if (parsed.data.prepared && parsed.data.articleId) {
       const paragraphs = await preparation.runQuery(
         internal.preparedArticles.read,
@@ -361,10 +383,11 @@ http.route({
             userId: readerId,
           })
         : null,
-      (async () => {
+      publication.run(async () => {
+        // Keep the raw context captured by shared rotating-credential factories.
         const ai = await loadReaderAI(ctx, readerId, {
           roles: [parsed.data.depth],
-          signal: request.signal,
+          signal: publication.signal,
         });
         request.signal.throwIfAborted();
         timings.mark("ai");
@@ -399,6 +422,7 @@ http.route({
                 question: parsed.data.question ?? "",
                 history: parsed.data.history,
                 embedder: ai.embedder(),
+                publication,
               })
             : null;
         request.signal.throwIfAborted();
@@ -414,11 +438,12 @@ http.route({
                 question: parsed.data.question ?? "",
                 history: parsed.data.history,
                 embedder: ai.embedder(),
+                publication,
               })
             : null;
         request.signal.throwIfAborted();
         return { ai, book, article, nearby };
-      })(),
+      }),
     ]);
     const targets = ai.chain(parsed.data.depth);
     if (!targets.length) return setupNeeded("no_provider");
@@ -443,15 +468,17 @@ http.route({
       ...messages,
     ];
 
-    return streamWithFallback(
+    const response = await streamWithFallback(
       chat,
       targets,
       parsed.data.web,
       request.signal,
-      ai.noteFailure,
+      (error) => publication.run(() => ai.noteFailure(error)),
       1200,
-      { depth: parsed.data.depth, timings },
+      { depth: parsed.data.depth, timings, publication },
     );
+    if (response.status === 200) return publication.handoff(response);
+    return response;
   }),
 });
 
