@@ -1,16 +1,18 @@
 import { v } from "convex/values";
-import { ownedArticle } from "./access";
+import { ownedArticleCard } from "./access";
 import { internalMutation, mutation, query } from "./functions";
 import { manualState } from "./lib/manualAnnotations";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return null;
-    return ctx.db
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId)))
+      return null;
+    const reflection = await ctx.db
       .query("reflections")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
       .first();
+    return reflection?.userId === ctx.readerId ? reflection : null;
   },
 });
 

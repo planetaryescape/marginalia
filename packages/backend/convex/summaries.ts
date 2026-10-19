@@ -1,5 +1,10 @@
 import { v } from "convex/values";
-import { libraryIsActive, ownedArticle, requireArticle } from "./access";
+import {
+  libraryIsActive,
+  ownedArticle,
+  ownedArticleCard,
+  requireArticle,
+} from "./access";
 import { internalMutation, internalQuery, query } from "./functions";
 import { legacyOverviewClaim } from "./lib/bookIndex";
 import {
@@ -19,11 +24,13 @@ import { sha256Hex } from "./lib/tokens";
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return null;
-    return ctx.db
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId)))
+      return null;
+    const summary = await ctx.db
       .query("summaries")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
       .first();
+    return summary?.userId === ctx.readerId ? summary : null;
   },
 });
 
