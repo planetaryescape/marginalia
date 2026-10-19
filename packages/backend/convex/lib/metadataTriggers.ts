@@ -9,8 +9,12 @@ import {
 } from "./highlightIdentity";
 import { syncResumeEligibility } from "./readingResume";
 import { membershipChanged } from "./shelfCounts";
+import { syncTagVocabulary } from "./tagVocabulary";
 
 export const metadataTriggers = new Triggers<DataModel>();
+metadataTriggers.register("tags", (ctx, change) =>
+  syncTagVocabulary({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
 metadataTriggers.register("highlights", highlightIdentityTrigger);
 metadataTriggers.register("articles", highlightArticleIdentityTrigger);
 metadataTriggers.register("feeds", (ctx, change) =>

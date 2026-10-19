@@ -48,6 +48,62 @@ const legacy = (rows: Doc<"tags">[]) =>
     .map(({ name, key, aliases }) => ({ name, key, aliases }));
 
 describe("bounded private tag metadata", () => {
+  it("retains exact legacy reads during migration and verifies the ready cutover in one snapshot", async () => {
+    const f = await secondReaderTest(modules);
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i < 60; i++)
+        await ctx.db.insert("tags", tag(`key-${i}`, i, i % 2 === 0));
+    });
+    const expected = async () =>
+      f.t.run(async (ctx) => {
+        const ordered = await ctx.db
+          .query("tags")
+          .withIndex("by_user_key", (q) => q.eq("userId", userId))
+          .collect();
+        return {
+          prompt: legacy(
+            [...ordered].sort((a, b) => a._creationTime - b._creationTime),
+          ),
+          missing: ordered
+            .filter((t) => !t.embedding)
+            .slice(0, 50)
+            .map((t) => ({ id: t._id, text: t.name })),
+        };
+      });
+    const checkLegacy = async () => {
+      const value = await expected();
+      expect(await f.t.query(internal.tags.vocabulary, { userId })).toEqual(
+        value.prompt,
+      );
+      expect(
+        await f.t.query(internal.tags.missingEmbeddings, { userId }),
+      ).toEqual(value.missing);
+    };
+    await checkLegacy();
+    await f.t.mutation(internal.tags.migrateVocabulary, { userId });
+    await f.t.run(async (raw) => {
+      const row = await raw.db.query("tags").first();
+      if (!row) throw new Error("Missing fixture tag");
+      await metadataTriggers.wrapDB(raw).db.patch(row._id, { count: 999 });
+    });
+    await checkLegacy();
+    expect(
+      await f.t.query(internal.tags.verifyVocabulary, { userId }),
+    ).toMatchObject({ ready: false, matches: false });
+    await migrate(f.t);
+    await checkLegacy();
+    expect(await f.t.query(internal.tags.verifyVocabulary, { userId })).toEqual(
+      { ready: true, matches: true, complete: true, checked: 60, overflow: 0 },
+    );
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db.query("tagVocabularyPayloads").first();
+      if (!row) throw new Error("Missing fixture payload");
+      await ctx.db.patch(row._id, { name: "Wrong projection" });
+    });
+    expect(
+      await f.t.query(internal.tags.verifyVocabulary, { userId }),
+    ).toMatchObject({ ready: true, matches: false, checked: 60 });
+  });
   it("keeps the exact legacy top150 across Unicode/collation ties and large vectors; physically reads only bounded metadata", async () => {
     const f = await secondReaderTest(modules);
     const keys = [
@@ -75,14 +131,14 @@ describe("bounded private tag metadata", () => {
       });
     });
     await expect(
-      f.t.query(internal.tags.vocabulary, { userId }),
+      f.t.run((ctx) => promptVocabulary(ctx, userId)),
     ).rejects.toThrow("migration required");
     const first = await f.t.mutation(internal.tags.migrateVocabulary, {
       userId,
     });
     expect(first).toEqual({ done: false, migrated: 1 });
     await expect(
-      f.t.query(internal.tags.vocabulary, { userId }),
+      f.t.run((ctx) => promptVocabulary(ctx, userId)),
     ).rejects.toThrow("migration required");
     await migrate(f.t);
     const rows = await f.t.run((ctx) =>
@@ -96,6 +152,9 @@ describe("bounded private tag metadata", () => {
     expect(await f.t.query(internal.tags.vocabulary, { userId })).toEqual(
       legacy(rows),
     );
+    expect(
+      await f.t.query(internal.tags.verifyVocabulary, { userId }),
+    ).toMatchObject({ ready: true, matches: false, complete: false });
     const physical = await f.t.run(async (ctx) => {
       const metadata = await ctx.db.query("tagVocabulary").collect();
       const payloads = await ctx.db.query("tagVocabularyPayloads").collect();
@@ -397,8 +456,14 @@ describe("bounded private tag metadata", () => {
       }).overflow,
     ).toBe(true);
     await expect(
-      f.t.query(internal.tags.vocabulary, { userId }),
+      f.t.run((ctx) => promptVocabulary(ctx, userId)),
     ).rejects.toThrow("byte budget");
+    expect((await f.t.query(internal.tags.vocabulary, { userId }))[0].key).toBe(
+      original.key,
+    );
+    expect(
+      await f.t.query(internal.tags.verifyVocabulary, { userId }),
+    ).toMatchObject({ ready: false, matches: false, overflow: 1 });
     await f.t.run((raw) =>
       metadataTriggers.wrapDB(raw).db.patch(id, {
         key: "界".repeat(1000),

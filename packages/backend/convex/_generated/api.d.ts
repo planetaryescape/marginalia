@@ -142,6 +142,8 @@ import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
 import type * as lib_sse from "../lib/sse.js";
 import type * as lib_statsPeriod from "../lib/statsPeriod.js";
 import type * as lib_tagMatching from "../lib/tagMatching.js";
+import type * as lib_tagVocabulary from "../lib/tagVocabulary.js";
+import type * as lib_tagVocabularySchema from "../lib/tagVocabularySchema.js";
 import type * as lib_taste from "../lib/taste.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_unfinishedBooks from "../lib/unfinishedBooks.js";
@@ -326,6 +328,8 @@ declare const fullApi: ApiFromModules<{
   "lib/sse": typeof lib_sse;
   "lib/statsPeriod": typeof lib_statsPeriod;
   "lib/tagMatching": typeof lib_tagMatching;
+  "lib/tagVocabulary": typeof lib_tagVocabulary;
+  "lib/tagVocabularySchema": typeof lib_tagVocabularySchema;
   "lib/taste": typeof lib_taste;
   "lib/tokens": typeof lib_tokens;
   "lib/unfinishedBooks": typeof lib_unfinishedBooks;
