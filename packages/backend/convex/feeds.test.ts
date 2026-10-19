@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ownerTest } from "../test/owner";
 import { internal } from "./_generated/api";
 
@@ -7,7 +7,11 @@ const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
 const DAY = 86_400_000;
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 type Post = { id: number; daysAgo: number };
 
@@ -42,8 +46,23 @@ async function fixture() {
       createdAt: Date.now(),
     }),
   );
-  const poll = () =>
-    t.action(internal.actions.pollFeeds.pollAllFeeds, { userId: OWNER });
+  const poll = async () => {
+    await t.action(internal.actions.pollFeeds.pollAllFeeds, { userId: OWNER });
+    await t.mutation(internal.feedPolling.dispatch, {});
+    for (let n = 0; n < 10; n++) {
+      const states = await t.run((ctx) =>
+        ctx.db.query("feedPollStates").collect(),
+      );
+      const ready = states.filter((s) => s.leaseUntil && !s.started);
+      if (!ready.length) break;
+      for (const state of ready)
+        await t.action(internal.actions.pollFeeds.pollClaimedFeed, {
+          stateId: state._id,
+          generation: state.generation,
+        });
+      await t.mutation(internal.feedPolling.dispatch, {});
+    }
+  };
   const titles = () =>
     t.run(async (ctx) =>
       (await ctx.db.query("articles").collect()).map((a) => a.title).sort(),

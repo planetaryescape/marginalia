@@ -1,100 +1,149 @@
 "use node";
 import { v } from "convex/values";
+import Parser from "rss-parser";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
+import {
+  FEED_BATCH_BYTES,
+  FEED_BODY_BYTES,
+  FEED_ITEM_BATCH,
+  FEED_ITEMS,
+  pollClaim,
+  utf8Bytes,
+  validFeedEntry,
+} from "../lib/feedPollProtocol";
 
+// Old queued cron/manual payloads remain valid; no foreground network wait.
 export const pollAllFeeds = internalAction({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    // Disabled and deleted readers get no background work
-    if (!(await ctx.runQuery(internal.access.libraryActive, args))) return;
-    const feeds = await ctx.runQuery(internal.feeds.listActive, {
-      userId: args.userId,
-    });
-
-    // The cron polls without pollNow, so the flag is set here too
-    await ctx.runMutation(internal.feeds.markChecking, args);
-    for (const feed of feeds) {
-      try {
-        await pollSingleFeed(ctx, feed);
-      } catch (error) {
-        console.error(`Failed to poll feed ${feed.url}:`, error);
-        await ctx.runMutation(internal.feeds.updateError, {
-          feedId: feed._id,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-      }
-    }
-    // A bounded legacy wake for the whole poll, even with no new posts.
-    // Per-row claims make overlapping poll deliveries safe.
-    await ctx.scheduler.runAfter(
-      0,
-      internal.actions.extractArticle.extractPending,
-      { userId: args.userId },
-    );
+    await ctx.runMutation(internal.feedPolling.begin, args);
   },
 });
 
-// A newly added feed brings only its latest posts, not its whole archive:
-// importing a few dozen feeds would otherwise fill the queue with hundreds of
-// old posts and annotate every one
 export const FIRST_POLL_POSTS = 3;
-// …and only recent ones, so a feed that went quiet years ago adds nothing
 const FIRST_POLL_MAX_AGE_MS = 30 * 86_400_000;
+export const FEED_NETWORK_MS = 10_000;
+const POLL_ACTION_MS = 45_000;
 
-async function pollSingleFeed(ctx: any, feed: any): Promise<number> {
-  // Dynamic import for Node.js action
-  const Parser = (await import("rss-parser")).default;
-  const response = await fetch(feed.url, {
-    headers: { "User-Agent": "Marginalia/1.0" },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok) throw new Error(`Feed returned ${response.status}`);
-  const parsed = await new Parser().parseString(await response.text());
+/** The same deadline covers headers AND the streaming body, not just fetch(). */
+export async function readFeedBody(response: Response, signal: AbortSignal) {
+  if (Number(response.headers.get("content-length")) > FEED_BODY_BYTES) {
+    await response.body?.cancel();
+    throw new Error("Feed exceeds 1 MiB");
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const body = new Uint8Array(FEED_BODY_BYTES);
+  let bytes = 0;
+  const abort = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const { value, done } = await reader.read();
+      signal.throwIfAborted();
+      if (done) break;
+      if (bytes + value.byteLength > FEED_BODY_BYTES)
+        throw new Error("Feed exceeds 1 MiB");
+      body.set(value, bytes);
+      bytes += value.byteLength;
+    }
+    const xml = new TextDecoder().decode(body.subarray(0, bytes));
+    if (/<!\s*(DOCTYPE|ENTITY)\b/i.test(xml))
+      throw new Error("Feed XML declarations are not supported");
+    return xml;
+  } finally {
+    signal.removeEventListener("abort", abort);
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
 
-  const items = (parsed.items ?? []).map((item) => ({
+type FeedValidators = {
+  etag?: string;
+  modified?: string;
+  representationUrl?: string;
+};
+async function fetchFeed(
+  url: string,
+  validators: FeedValidators,
+  signal: AbortSignal,
+) {
+  let representationUrl = url;
+  for (let redirects = 0; redirects <= 3; redirects++) {
+    const headers: Record<string, string> = { "User-Agent": "Marginalia/1.0" };
+    // Redirects are not the representation whose validators were committed.
+    if (representationUrl === (validators.representationUrl ?? url)) {
+      if (validators.etag) headers["If-None-Match"] = validators.etag;
+      if (validators.modified)
+        headers["If-Modified-Since"] = validators.modified;
+    }
+    const response = await fetch(representationUrl, {
+      headers,
+      signal,
+      redirect: "manual",
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      await response.body?.cancel();
+      const location = response.headers.get("location");
+      if (!location || redirects === 3)
+        throw new Error(
+          "Feed exceeds three redirects or has no redirect target",
+        );
+      const next = new URL(location, representationUrl).href;
+      if (validFeedEntry({ url: next, title: "" }))
+        throw new Error("Feed redirect URL is invalid");
+      representationUrl = next;
+      continue;
+    }
+    return { response, representationUrl };
+  }
+  throw new Error("Feed redirect limit reached");
+}
+
+type FeedPosition = { lastFetchedAt?: number; importAfter?: number };
+export function selectFeedItems(
+  items: Array<Parser.Item & { author?: string }>,
+  feed: FeedPosition,
+  now: number,
+) {
+  if (items.length > FEED_ITEMS) throw new Error("Feed exceeds 200 items");
+  const datedItems = items.map((item) => ({
     item,
-    publishedAt: item.pubDate ? new Date(item.pubDate).getTime() : undefined,
+    publishedAt: item.pubDate ? Date.parse(item.pubDate) : undefined,
   }));
-  let candidates = items;
-  let importAfter: number | undefined = feed.importAfter;
-  if (!feed.lastFetchedAt) {
-    // Feeds list newest first; dated posts are sorted in case one doesn't
-    const dated = items.filter((i): i is typeof i & { publishedAt: number } =>
-      Number.isFinite(i.publishedAt),
+  let candidates = datedItems;
+  let importAfter = feed.importAfter;
+  if (feed.lastFetchedAt === undefined) {
+    const dated = datedItems.filter(
+      (i): i is typeof i & { publishedAt: number } =>
+        Number.isFinite(i.publishedAt),
     );
     if (dated.length) {
-      const cutoff = Date.now() - FIRST_POLL_MAX_AGE_MS;
       candidates = dated
-        .filter((i) => i.publishedAt >= cutoff)
+        .filter((i) => i.publishedAt >= now - FIRST_POLL_MAX_AGE_MS)
         .sort((a, b) => b.publishedAt - a.publishedAt)
         .slice(0, FIRST_POLL_POSTS);
-      // A feed with nothing recent waits for its next post
       importAfter = candidates.length
-        ? Math.min(...candidates.map((i) => i.publishedAt as number))
+        ? Math.min(...candidates.map((i) => i.publishedAt ?? 0))
         : Math.max(...dated.map((i) => i.publishedAt)) + 1;
     } else {
-      candidates = items.slice(0, FIRST_POLL_POSTS);
+      candidates = datedItems.slice(0, FIRST_POLL_POSTS);
       importAfter = undefined;
     }
   } else if (importAfter !== undefined) {
-    // Keeps the older posts left out on the first poll out for good. Undated
-    // posts can't be placed, so they're treated as new.
-    candidates = items.filter(
-      (i) =>
-        !Number.isFinite(i.publishedAt) ||
-        (i.publishedAt as number) >= importAfter!,
+    const cutoff = importAfter;
+    candidates = datedItems.filter(
+      (i) => !Number.isFinite(i.publishedAt) || (i.publishedAt ?? 0) >= cutoff,
     );
   }
-
-  let newCount = 0;
-  for (const { item, publishedAt } of candidates) {
+  const entries = candidates.flatMap(({ item, publishedAt }) => {
     const guid = item.guid || item.link || item.title || "";
-    if (!guid) continue;
-
-    const result = await ctx.runMutation(internal.articles.upsertFeed, {
-      feedId: feed._id,
-      userId: feed.userId,
+    if (!guid) return [];
+    const entry = {
       guid,
       url: item.link || "",
       title: item.title || "Untitled",
@@ -102,20 +151,82 @@ async function pollSingleFeed(ctx: any, feed: any): Promise<number> {
       publishedAt: Number.isFinite(publishedAt) ? publishedAt : undefined,
       excerpt: item.contentSnippet?.slice(0, 500),
       imageUrl: item.enclosure?.url,
-      extractionStatus: "pending" as const,
-      annotationStatus: "pending" as const,
-      createdAt: Date.now(),
-    });
-    if (result.created) newCount++;
-  }
-
-  await ctx.runMutation(internal.feeds.updateLastFetched, {
-    feedId: feed._id,
-    importAfter,
+    };
+    if (utf8Bytes(entry) > 8 * 1024) throw new Error("Feed item exceeds 8 KiB");
+    return [entry];
   });
-
-  if (newCount > 0) {
-    console.log(`Feed ${feed.title}: ${newCount} new articles`);
-  }
-  return newCount;
+  return { entries, importAfter };
 }
+
+export const pollClaimedFeed = internalAction({
+  args: pollClaim,
+  handler: async (ctx, claim) => {
+    const feed = await ctx.runMutation(internal.feedPolling.takePayload, claim);
+    if (!feed) return;
+    const deadline = Date.now() + POLL_ACTION_MS;
+    try {
+      const signal = AbortSignal.timeout(FEED_NETWORK_MS);
+      const { response, representationUrl } = await fetchFeed(
+        feed.url,
+        feed,
+        signal,
+      );
+      if (response.status === 304) {
+        await response.body?.cancel();
+        await ctx.runMutation(internal.feedPolling.finish, {
+          ...claim,
+          unchanged: true,
+          representationUrl,
+        });
+        return;
+      }
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`Feed returned ${response.status}`);
+      }
+      const xml = await readFeedBody(response, signal);
+      const parsed = await new Parser().parseString(xml);
+      const { entries, importAfter } = selectFeedItems(
+        parsed.items ?? [],
+        feed,
+        Date.now(),
+      );
+      let batches = 0;
+      for (let offset = 0; offset < entries.length; ) {
+        if (Date.now() >= deadline)
+          throw new Error("Feed check exceeded its commit deadline");
+        const items: typeof entries = [];
+        for (const entry of entries.slice(offset, offset + FEED_ITEM_BATCH)) {
+          if (utf8Bytes([...items, entry]) > FEED_BATCH_BYTES) break;
+          items.push(entry);
+        }
+        if (
+          !(await ctx.runMutation(internal.feedPolling.commitItems, {
+            ...claim,
+            batch: batches,
+            items,
+          }))
+        )
+          return;
+        batches++;
+        offset += items.length;
+      }
+      await ctx.runMutation(internal.feedPolling.finish, {
+        ...claim,
+        batches,
+        importAfter,
+        etag: response.headers.get("etag") ?? undefined,
+        modified: response.headers.get("last-modified") ?? undefined,
+        representationUrl,
+      });
+    } catch (error) {
+      // Store a bounded classification, not a private URL/provider response body.
+      const message =
+        error instanceof Error ? error.message : "Feed check failed";
+      await ctx.runMutation(internal.feedPolling.finish, {
+        ...claim,
+        error: message,
+      });
+    }
+  },
+});
