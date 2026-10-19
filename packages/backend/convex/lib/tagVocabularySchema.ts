@@ -17,6 +17,12 @@ export const tagVocabularyTables = {
     height: v.number(),
   })
     .index("by_tagId", ["tagId"])
+    .index("by_userId_and_active_and_sourceCreationTime_and_tagId", [
+      "userId",
+      "active",
+      "sourceCreationTime",
+      "tagId",
+    ])
     .index("by_userId_and_key_and_sourceCreationTime_and_tagId", [
       "userId",
       "key",
