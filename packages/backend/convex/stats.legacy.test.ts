@@ -1,4 +1,7 @@
 /// <reference types="vite/client" />
+import { createHash } from "node:crypto";
+import { appendFileSync } from "node:fs";
+import { getFunctionName, type TransactionMetrics } from "convex/server";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { legacyReportingOracle } from "../test/legacyReportingOracle";
@@ -7,11 +10,36 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import authSchema from "./betterAuth/schema";
 import { articleProjection } from "./lib/articleMetadata";
+import {
+  noteReportingProjection,
+  reflectionReportingProjection,
+} from "./lib/legacyReporting";
+import { metadataTriggers } from "./lib/metadataTriggers";
 import * as statsDates from "./lib/statsPeriod";
 import { statsPeriod } from "./lib/statsPeriod";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+type NativeEvidence =
+  | TransactionMetrics
+  | { message: string; metrics: TransactionMetrics }
+  | string;
+function evidence(label: string, value: NativeEvidence) {
+  if (process.env.LEGACY_REPORT_EVIDENCE)
+    appendFileSync(
+      process.env.LEGACY_REPORT_EVIDENCE,
+      `${JSON.stringify({ label, value })}\n`,
+    );
+}
+async function nativeLimit<T>(label: string, read: () => Promise<T>) {
+  const error = await read().then(
+    () => null,
+    (error) => String(error),
+  );
+  if (error === null) throw new Error("Expected native read limit failure");
+  expect(error).toContain("Read too much data");
+  evidence(label, error);
+}
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -24,6 +52,53 @@ const endpoints = [
   api.stats.getReadingPatterns,
   api.stats.getWeeklyStats,
 ];
+
+// Test-only explicit readiness. Production activation belongs to main's
+// bounded backfill + same-snapshot source/order/count equality gate.
+async function reportingReady(
+  f: Awaited<ReturnType<typeof fixture>>,
+  ready: boolean,
+  backfill = false,
+) {
+  await f.t.run(async (ctx) => {
+    if (backfill) {
+      for (const row of await ctx.db
+        .query("userNotes")
+        .withIndex("by_user_created", (q) => q.eq("userId", f.libraryId))
+        .take(5002))
+        await ctx.db.insert(
+          "noteReportingMetadata",
+          noteReportingProjection(row),
+        );
+      for (const row of await ctx.db
+        .query("reflections")
+        .withIndex("by_user_responded", (q) => q.eq("userId", f.libraryId))
+        .take(5002))
+        if (row.respondedAt !== undefined)
+          await ctx.db.insert(
+            "reflectionReportingMetadata",
+            reflectionReportingProjection(row),
+          );
+    }
+    for (const kind of ["notes", "reflections"] as const) {
+      const old = await ctx.db
+        .query("legacyReportingState")
+        .withIndex("by_userId_and_kind", (q) =>
+          q.eq("userId", f.libraryId).eq("kind", kind),
+        )
+        .unique();
+      if (old) await ctx.db.patch(old._id, { ready });
+      else
+        await ctx.db.insert("legacyReportingState", {
+          userId: f.libraryId,
+          kind,
+          ready,
+          overflow: 0,
+          cursor: null,
+        });
+    }
+  });
+}
 
 async function fixture() {
   const t = convexTest({ schema, modules, transactionLimits: true });
@@ -196,9 +271,46 @@ describe("retained reporting", () => {
     await f.note(missing, Date.now(), "Missing parent, own note");
     await f.visit(foreign, Date.now());
     await f.visit(missing, Date.now());
+    const linked = await f.note(id, Date.now(), "\u00a0A linked thought\u00a0");
+    const blankLinked = await f.note(id, Date.now(), "\u00a0\n\t");
+    await f.t.run(async (ctx) => {
+      const annotationId = await ctx.db.insert("annotations", {
+        userId: f.libraryId,
+        articleId: id,
+        type: "question",
+        anchorText: "A passage",
+        anchorStartOffset: 0,
+        anchorEndOffset: 9,
+        content: "Why?",
+        relevanceScore: 1,
+        wasViewed: false,
+        wasDismissed: false,
+        createdAt: 1,
+      });
+      await ctx.db.patch(linked, { annotationId });
+      await ctx.db.patch(blankLinked, { annotationId });
+    });
+    await reportingReady(f, false, true);
     for (const range of [undefined, "week", "7days", "30days"] as const) {
       const options = { timeZone, range };
+      await reportingReady(f, false);
       const report = await f.client.query(api.stats.getDashboard, options);
+      await reportingReady(f, true);
+      const projected = await f.client.query(api.stats.getDashboard, options);
+      expect(projected).toEqual(report);
+      evidence(
+        "fixed-clock-forced-path-parity",
+        JSON.stringify({
+          clock: Date.now(),
+          options,
+          legacySha256: createHash("sha256")
+            .update(JSON.stringify(report))
+            .digest("hex"),
+          compactSha256: createHash("sha256")
+            .update(JSON.stringify(projected))
+            .digest("hex"),
+        }),
+      );
       const oracle = await f.t.run(async (ctx) => {
         const p = statsPeriod(Date.now(), timeZone, range);
         return legacyReportingOracle(
@@ -312,7 +424,7 @@ describe("retained reporting", () => {
       annotationsOpenedCount: 1,
     });
     await expect(f.client.query(api.stats.getDashboard, {})).rejects.toThrow(
-      "Read too much data",
+      "Reporting data exceeds this request's read budget",
     );
   });
 
@@ -478,7 +590,7 @@ describe("retained reporting", () => {
       console.info("legacy-small-native", endpoint, result.metrics);
     }
     await expect(f.client.query(api.stats.getDashboard, {})).rejects.toThrow(
-      "Read too much data",
+      "Reporting data exceeds this request's read budget",
     );
   });
 
@@ -491,6 +603,7 @@ describe("retained reporting", () => {
     vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
     const f = await fixture();
     const id = await f.article();
+    const period = statsPeriod(Date.now());
     for (let batch = 0; batch < 11; batch++)
       await f.t.run(async (ctx) => {
         for (let i = batch * 500; i < Math.min(5002, (batch + 1) * 500); i++) {
@@ -512,10 +625,13 @@ describe("retained reporting", () => {
             await ctx.db.insert(table, {
               userId: f.libraryId,
               articleId: id,
-              selectedText: "",
+              selectedText: `passage-${i}`,
               content: "x",
               contentPlain: "x",
-              createdAt: Date.now(),
+              createdAt:
+                i < 4998
+                  ? period.previousStart
+                  : Date.now() - (i === 5001 ? 1 : 2),
               updatedAt: Date.now(),
             });
           else
@@ -532,6 +648,7 @@ describe("retained reporting", () => {
             });
         }
       });
+    await reportingReady(f, true, true);
     const result = await f.client.run(async (ctx) => ({
       value: await ctx.runQuery(api.stats.getDashboard, {}),
       metrics: await ctx.meta.getTransactionMetrics(),
@@ -545,7 +662,15 @@ describe("retained reporting", () => {
             ? "notesTaken"
             : "reflectionsWritten"
       ],
-    ).toBe(5001);
+    ).toBe(table === "userNotes" ? 3 : 5001);
+    if (table === "userNotes") {
+      expect(result.value.lastWeek.notesTaken).toBe(4998);
+      expect(result.value.recentNotes.map((n) => n.selectedText)).toEqual([
+        "passage-4998",
+        "passage-4999",
+        "passage-5000",
+      ]);
+    }
     expect(result.metrics.documentsWritten.used).toBe(0);
   });
 
@@ -596,6 +721,212 @@ describe("retained reporting", () => {
     ).toEqual(["Unavailable article", "Unavailable article"]);
     expect(result.metrics.bytesRead.used).toBeLessThan(40_000);
     expect(result.metrics.documentsWritten.used).toBe(0);
+  });
+
+  it("counts 18 near-990KB notes and responses using real generic hooks, hydrating only three full notes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
+    const f = await fixture();
+    const id = await f.article();
+    await f.visit(id, Date.now() - 1);
+    const prose = "界".repeat(330_000);
+    for (let i = 0; i < 18; i++) {
+      const writer = await f.t.run(async (ctx) => {
+        const { db } = metadataTriggers.wrapDB(ctx);
+        await db.insert("userNotes", {
+          userId: f.libraryId,
+          articleId: id,
+          selectedText: `passage-${i}`,
+          content: "",
+          contentPlain: prose,
+          createdAt: Date.now() - 100 + i,
+          updatedAt: 1,
+        });
+        await db.insert("reflections", {
+          userId: f.libraryId,
+          articleId: id,
+          strongestPoint: "",
+          weakestAssumption: "",
+          credibleCounterview: "",
+          questionForYou: "",
+          userResponse: prose,
+          respondedAt: Date.now() - 100 + i,
+          createdAt: 1,
+        });
+        return ctx.meta.getTransactionMetrics();
+      });
+      if (i === 0) evidence("generic-writer-native", writer);
+    }
+    await reportingReady(f, true);
+    for (const endpoint of endpoints) {
+      const result = await f.client.run(async (ctx) => ({
+        value: await ctx.runQuery(endpoint, {}),
+        metrics: await ctx.meta.getTransactionMetrics(),
+      }));
+      expect(result.metrics.documentsWritten.used).toBe(0);
+      expect(result.metrics.bytesRead.used).toBeLessThan(3_100_000);
+      console.info("legacy-report-compact-native", endpoint, result.metrics);
+      evidence(`compact-native:${getFunctionName(endpoint)}`, result.metrics);
+    }
+    const report = await f.client.query(api.stats.getDashboard, {});
+    expect(report.thisWeek.notesTaken).toBe(18);
+    expect(report.thisWeek.reflectionsWritten).toBe(18);
+    expect(report.partial).toBe(false);
+    expect(report.articles[0].notesCount).toBe(18);
+    expect(
+      report.recentNotes.map((n) => [n.selectedText, n.contentPlain]),
+    ).toEqual([
+      ["passage-17", prose],
+      ["passage-16", prose],
+      ["passage-15", prose],
+    ]);
+    await nativeLimit("old-whole-notes-native-failure", () =>
+      f.t.run((ctx) =>
+        ctx.db
+          .query("userNotes")
+          .withIndex("by_user_created", (q) => q.eq("userId", f.libraryId))
+          .take(5001),
+      ),
+    );
+    await nativeLimit("old-whole-reflections-native-failure", () =>
+      f.t.run((ctx) =>
+        ctx.db
+          .query("reflections")
+          .withIndex("by_user_responded", (q) => q.eq("userId", f.libraryId))
+          .take(5001),
+      ),
+    );
+    await reportingReady(f, false);
+    await expect(f.client.query(api.stats.getDashboard, {})).rejects.toThrow(
+      "Reporting data exceeds this request's read budget",
+    );
+  });
+
+  it("refuses cumulative full-ID visit/event scans before native limits, including empty other sources", async () => {
+    const f = await fixture();
+    const id = await f.article();
+    const annotationsOpened = Array.from({ length: 128 }, (_, i) =>
+      `${i}`.padEnd(32, "a"),
+    );
+    for (let batch = 0; batch < 11; batch++)
+      await f.t.run(async (ctx) => {
+        for (let i = batch * 500; i < Math.min(5001, (batch + 1) * 500); i++) {
+          await ctx.db.insert("readingActivity", {
+            userId: f.libraryId,
+            articleId: id,
+            visitId: `v-${i}`,
+            day: "ignored",
+            startedAt: Date.now() - 1,
+            updatedAt: 1,
+            activeTimeMs: 1,
+            visibleTimeMs: 1,
+            timeSpentMs: 1,
+            maxScrollPercent: 1,
+            annotationsOpened,
+          });
+          await ctx.db.insert("articleInteractions", {
+            userId: f.libraryId,
+            articleId: id,
+            action: "opened",
+            annotationsOpened,
+            createdAt: Date.now() - 1,
+          });
+        }
+      });
+    for (const endpoint of [
+      api.stats.getDashboard,
+      api.stats.getArticleDetails,
+      api.stats.getWeeklyStats,
+      api.stats.getReadingPatterns,
+    ]) {
+      const result = await f.client.run(async (ctx) => {
+        let message = "";
+        try {
+          await ctx.runQuery(endpoint, {});
+        } catch (error) {
+          message = String(error);
+        }
+        return { message, metrics: await ctx.meta.getTransactionMetrics() };
+      });
+      expect(result.message).toContain(
+        "Reporting data exceeds this request's read budget",
+      );
+      expect(result.metrics.bytesRead.used).toBeLessThan(13 * 1024 * 1024);
+      expect(result.metrics.documentsWritten.used).toBe(0);
+      console.info("legacy-report-bounded-refusal-native", endpoint, result);
+      evidence(`bounded-refusal-native:${getFunctionName(endpoint)}`, result);
+    }
+    await nativeLimit("old-full-ID-activity-native-failure", () =>
+      f.t.run((ctx) =>
+        ctx.db
+          .query("readingActivity")
+          .withIndex("by_user_started", (q) => q.eq("userId", f.libraryId))
+          .take(5001),
+      ),
+    );
+  });
+
+  it("charges unready note scans and unready/deferred title bodies to the SAME physical allowance", async () => {
+    const f = await fixture();
+    for (let i = 0; i < 9; i++) {
+      const id = await f.article(`Fallback ${i}`, f.libraryId, false);
+      await f.visit(id, Date.now() - 1);
+      await f.note(id, Date.now() - 1, "界".repeat(330_000));
+    }
+    const result = await f.client.run(async (ctx) => {
+      let message = "";
+      try {
+        await ctx.runQuery(api.stats.getArticleDetails, {});
+      } catch (error) {
+        message = String(error);
+      }
+      return { message, metrics: await ctx.meta.getTransactionMetrics() };
+    });
+    expect(result.message).toContain(
+      "Reporting data exceeds this request's read budget",
+    );
+    expect(result.metrics.bytesRead.used).toBeGreaterThan(10 * 1024 * 1024);
+    expect(result.metrics.bytesRead.used).toBeLessThan(13 * 1024 * 1024);
+    expect(result.metrics.documentsWritten.used).toBe(0);
+    evidence("source-plus-title-shared-native", result);
+  });
+
+  it("uses exact legacy fallback for overflow/unready metadata and refuses missing/foreign ready prose", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
+    const f = await fixture();
+    const id = await f.article();
+    const noteId = await f.note(id, Date.now() - 1, "An exact thought");
+    await reportingReady(f, false, true);
+    const legacy = await f.client.query(api.stats.getDashboard, {});
+    await f.t.run(async (ctx) => {
+      for (const state of await ctx.db
+        .query("legacyReportingState")
+        .withIndex("by_userId", (q) => q.eq("userId", f.libraryId))
+        .collect())
+        await ctx.db.patch(state._id, { ready: true, overflow: 1 });
+    });
+    expect(await f.client.query(api.stats.getDashboard, {})).toEqual(legacy);
+    await f.t.run(async (ctx) => {
+      for (const state of await ctx.db
+        .query("legacyReportingState")
+        .withIndex("by_userId", (q) => q.eq("userId", f.libraryId))
+        .collect())
+        await ctx.db.patch(state._id, { overflow: 0 });
+      // Deliberately corrupt the fixture outside generic hooks to exercise the
+      // authority guard. Production generic ownership moves replace metadata.
+      await ctx.db.patch(noteId, {
+        userId: "foreign-library",
+        contentPlain: "private",
+      });
+    });
+    await expect(f.client.query(api.stats.getRecentNotes, {})).rejects.toThrow(
+      "Reporting note metadata is incomplete",
+    );
+    await f.t.run((ctx) => ctx.db.delete(noteId));
+    await expect(f.client.query(api.stats.getRecentNotes, {})).rejects.toThrow(
+      "Reporting note metadata is incomplete",
+    );
   });
 
   it("keeps absent/disabled/deleting authorization fences for every retained endpoint", async () => {

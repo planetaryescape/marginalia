@@ -209,6 +209,9 @@ const LEGACY_BYTES = 10 * MAX_DOCUMENT_BYTES;
 type LegacyBudget = {
   used: number;
   reserved: number;
+  physicalUsed: number;
+  physicalReserved: number;
+  physicalLimit: number;
   limit: number;
   tail: Promise<void>;
 };
@@ -219,6 +222,9 @@ function legacyBudget(ctx: Pick<QueryCtx, "db">) {
     budget = {
       used: 0,
       reserved: 0,
+      physicalUsed: 0,
+      physicalReserved: 0,
+      physicalLimit: Number.POSITIVE_INFINITY,
       limit: LEGACY_BYTES,
       tail: Promise.resolve(),
     };
@@ -226,16 +232,32 @@ function legacyBudget(ctx: Pick<QueryCtx, "db">) {
   }
   return budget;
 }
-function reserveLegacyBytes(ctx: Pick<QueryCtx, "db">, bytes: number) {
+function reserveLegacyBytes(
+  ctx: Pick<QueryCtx, "db">,
+  bytes: number,
+  body = true,
+) {
   const budget = legacyBudget(ctx);
-  if (budget.used + budget.reserved + bytes > budget.limit)
+  if (
+    budget.physicalUsed + budget.physicalReserved + bytes >
+    budget.physicalLimit
+  )
+    throw new ConvexError(
+      "Reporting data exceeds this request's read budget. No partial result was returned.",
+    );
+  if (body && budget.used + budget.reserved + bytes > budget.limit)
     throw new ConvexError(
       "Article headers exceed this request's read budget. Request fewer articles.",
     );
-  budget.reserved += bytes;
+  if (body) budget.reserved += bytes;
+  budget.physicalReserved += bytes;
   return (actual: number) => {
-    budget.reserved -= bytes;
-    budget.used += actual;
+    if (body) {
+      budget.reserved -= bytes;
+      budget.used += actual;
+    }
+    budget.physicalReserved -= bytes;
+    budget.physicalUsed += actual;
   };
 }
 
@@ -250,11 +272,35 @@ export function readLegacyDocument<T extends GenericDocument>(
   ctx: Pick<QueryCtx, "db">,
   read: () => Promise<T | null>,
 ): Promise<T | null> {
+  return readBudgetedDocument(ctx, read, true);
+}
+
+/** Legacy reports reserve 3 MiB for authentication before entering the handler
+ * (owner row, reader row, and live-session component lookup, each <= 1 MiB).
+ * Source scans, compact joins and prose/title bodies share this authority; body
+ * reads ALSO retain the existing 10 MiB policy. No independent fallback pool. */
+export function readReportingDocument<T extends GenericDocument>(
+  ctx: Pick<QueryCtx, "db">,
+  read: () => Promise<T | null>,
+): Promise<T | null> {
   const budget = legacyBudget(ctx);
-  // Do not reject 40 small concurrent identity joins merely because their
-  // worst-case reservations overlap. Only legacy/deferred body reads queue.
+  budget.physicalLimit = Math.min(
+    budget.physicalLimit,
+    13 * MAX_DOCUMENT_BYTES,
+  );
+  return readBudgetedDocument(ctx, read, false);
+}
+
+function readBudgetedDocument<T extends GenericDocument>(
+  ctx: Pick<QueryCtx, "db">,
+  read: () => Promise<T | null>,
+  body: boolean,
+): Promise<T | null> {
+  const budget = legacyBudget(ctx);
+  // Queue body reads and retained-report reads so worst-case reservations do
+  // not overlap. Unrelated compact identity joins keep their existing behavior.
   const result = budget.tail.then(async () => {
-    const charge = reserveLegacyBytes(ctx, MAX_DOCUMENT_BYTES);
+    const charge = reserveLegacyBytes(ctx, MAX_DOCUMENT_BYTES, body);
     let row: T | null = null;
     try {
       row = await read();
