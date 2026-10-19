@@ -13,6 +13,7 @@ import {
 } from "./_generated/server";
 import { requireOwner, requireReader } from "./access";
 import { metadataTriggers as triggers } from "./lib/metadataTriggers";
+import "./lib/manualAnnotationTriggers";
 
 export * from "./_generated/server";
 
