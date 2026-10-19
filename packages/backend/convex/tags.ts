@@ -19,7 +19,10 @@ import {
   migrateTagAliases,
   verifyAndActivateTagAliases,
 } from "./lib/tagAliases";
-import { exactActiveAssignmentTags } from "./lib/tagAssignment";
+import {
+  boundedAssignmentView,
+  exactActiveAssignmentTags,
+} from "./lib/tagAssignment";
 import {
   isTopicKey,
   MAX_TAGS_PER_ARTICLE,
@@ -29,6 +32,10 @@ import {
   TAG_PROMOTE_AFTER,
   tagDisplayName,
 } from "./lib/tagMatching";
+import {
+  migrateTagVectors,
+  verifyAndActivateTagVectors,
+} from "./lib/tagVectors";
 import {
   migrateTagVocabulary,
   missingVocabularyEmbeddings,
@@ -187,18 +194,47 @@ export const assign = internalMutation({
       return [];
     await unlinkArticleTags(ctx, args.articleId);
 
+    const exact = await exactActiveAssignmentTags(
+      ctx,
+      args.userId,
+      args.proposals,
+    );
+    const bounded = exact
+      ? null
+      : await boundedAssignmentView(ctx, args.userId, args.proposals);
     const known =
-      (await exactActiveAssignmentTags(ctx, args.userId, args.proposals)) ??
-      (await ctx.db
-        .query("tags")
-        .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
-        .collect());
+      exact ??
+      (bounded
+        ? []
+        : await ctx.db
+            .query("tags")
+            .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
+            .collect());
+    const getTag = async (id: Id<"tags">) =>
+      bounded ? bounded.get(id) : known.find((t) => t._id === id);
+    const matching = async (
+      proposal: { key: string; embedding?: readonly number[] },
+      exclude?: Id<"tags">,
+    ) =>
+      bounded
+        ? bounded.match(proposal, exclude)
+        : matchTag(
+            proposal,
+            known
+              .filter((t) => t._id !== exclude)
+              .map((tag) => ({
+                id: tag._id,
+                key: tag.key,
+                aliases: tag.aliases,
+                embedding: tag.embedding,
+              })),
+          );
     const linked = new Set<Id<"tags">>();
     const now = Date.now();
 
     const link = async (tagId: Id<"tags">) => {
       if (linked.has(tagId) || linked.size >= MAX_TAGS_PER_ARTICLE) return;
-      const tag = known.find((t) => t._id === tagId);
+      const tag = await getTag(tagId);
       if (!tag) return;
       await ctx.db.insert("articleTags", {
         userId: args.userId,
@@ -221,18 +257,10 @@ export const assign = internalMutation({
       if (linked.size >= MAX_TAGS_PER_ARTICLE) break;
       const key = normaliseTag(proposal.name);
       if (!key) continue;
-      const match = matchTag(
-        { key, embedding: proposal.embedding },
-        known.map((tag) => ({
-          id: tag._id,
-          key: tag.key,
-          aliases: tag.aliases,
-          embedding: tag.embedding,
-        })),
-      );
+      const match = await matching({ key, embedding: proposal.embedding });
       if (match.kind === "skip") continue;
       if (match.kind === "existing") {
-        const tag = known.find((t) => t._id === match.tagId);
+        const tag = await getTag(match.tagId);
         if (
           tag &&
           match.alias &&
@@ -245,21 +273,18 @@ export const assign = internalMutation({
         await link(match.tagId);
         // A candidate waiting for promotion keeps its nearest visible tag
         if (tag?.status === "candidate" && tag.nearestTagId) {
-          if (known.some((t) => t._id === tag.nearestTagId))
+          if (
+            bounded
+              ? bounded.has(tag.nearestTagId)
+              : known.some((t) => t._id === tag.nearestTagId)
+          )
             await link(tag.nearestTagId);
           else {
             // That tag was merged away: find where its name went (an alias
             // of the kept tag, or the closest by embedding) and point there
-            const moved = matchTag(
+            const moved = await matching(
               { key: tag.key, embedding: tag.embedding },
-              known
-                .filter((t) => t._id !== tag._id)
-                .map((t) => ({
-                  id: t._id,
-                  key: t.key,
-                  aliases: t.aliases,
-                  embedding: t.embedding,
-                })),
+              tag._id,
             );
             const nearest =
               moved.kind === "existing"
@@ -287,7 +312,10 @@ export const assign = internalMutation({
         createdAt: now,
       });
       const created = await ctx.db.get("tags", id);
-      if (created) known.push(created);
+      if (created) {
+        if (bounded) bounded.add(created);
+        else known.push(created);
+      }
       await link(id);
       // A near miss also takes its nearest tag, so the article is findable meanwhile
       if (match.nearestTagId) await link(match.nearestTagId);
@@ -374,6 +402,16 @@ export const migrateAliases = internalMutation({
 export const verifyAndActivateAliases = internalMutation({
   args: { userId: v.string() },
   handler: (ctx, args) => verifyAndActivateTagAliases(ctx, args.userId),
+});
+
+export const migrateVectors = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => migrateTagVectors(ctx, args.userId),
+});
+
+export const verifyAndActivateVectors = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => verifyAndActivateTagVectors(ctx, args.userId),
 });
 
 /** Tags still without an embedding, for the embedding action. */
