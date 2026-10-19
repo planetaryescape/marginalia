@@ -125,6 +125,14 @@ export function matchTag<Id extends string>(
   const exact = byKey.get(proposal.key);
   if (exact) return { kind: "existing", tagId: exact };
 
+  return matchTagEmbedding(proposal, tags);
+}
+
+/** Shared exact ranking, including the legacy first-NaN and ID tie behavior. */
+export function matchTagEmbedding<Id extends string>(
+  proposal: { key: string; embedding?: readonly number[] },
+  tags: readonly Pick<KnownTag<Id>, "id" | "embedding">[],
+): TagMatch<Id> {
   if (!proposal.embedding) return { kind: "skip" };
   let best: { id: Id; score: number } | null = null;
   for (const tag of tags) {

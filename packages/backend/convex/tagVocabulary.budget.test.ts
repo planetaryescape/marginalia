@@ -9,6 +9,12 @@ import {
   migrateTagAliases,
   verifyAndActivateTagAliases,
 } from "./lib/tagAliases";
+import {
+  equalEmbedding,
+  migrateTagVectors,
+  vectorState,
+  verifyAndActivateTagVectors,
+} from "./lib/tagVectors";
 import { purgeTagVocabulary } from "./lib/tagVocabulary";
 import schema from "./schema";
 
@@ -168,6 +174,155 @@ async function measuredAssignment(
     return links;
   });
 }
+
+it("assigns actual candidate/semantic proposals and relinks with the unchanged 540 full payloads under native limits", async () => {
+  const current = await fixture(true, undefined, true);
+  let done = false;
+  let migrationRead = 0;
+  let migrationWrite = 0;
+  for (let i = 0; i < 600 && !done; i++) {
+    const measured = await current.t.run(async (ctx) => {
+      const result = await migrateTagVectors(ctx, userId);
+      return { result, metrics: await ctx.meta.getTransactionMetrics() };
+    });
+    done = measured.result.done;
+    migrationRead = Math.max(migrationRead, measured.metrics.bytesRead.used);
+    migrationWrite = Math.max(
+      migrationWrite,
+      measured.metrics.bytesWritten.used,
+    );
+  }
+  expect(done).toBe(true);
+  expect(migrationRead).toBeLessThan(1_000_000);
+  expect(migrationWrite).toBeLessThan(1_000_000);
+  evidence(
+    "B12 vector migration maxima",
+    JSON.stringify({ migrationRead, migrationWrite }),
+  );
+  // Test-only physical stress activation: production correctly refuses this
+  // >8MB canonical baseline rather than claiming a partial page is complete.
+  expect(
+    await current.t.run((ctx) => verifyAndActivateTagVectors(ctx, userId)),
+  ).toBe(false);
+  const vectors = await current.t.run((ctx) =>
+    ctx.db.query("tagVectors").collect(),
+  );
+  expect(vectors).toHaveLength(540);
+  for (const row of vectors)
+    await current.t.run(async (ctx) => {
+      const canonical = await ctx.db.get(row.tagId);
+      expect(canonical?.key).toBe(row.key);
+      expect(canonical?._creationTime).toBe(row.sourceCreationTime);
+      expect(equalEmbedding(canonical?.embedding, row.embedding)).toBe(true);
+      expect(canonical?.aliases[0].length).toBeGreaterThan(15_500);
+      expect(canonical?.embedding).toHaveLength(1536);
+    });
+  await current.t.run(async (ctx) => {
+    const state = await vectorState(ctx, userId);
+    if (!state?.backfilled || state.overflow)
+      throw new Error("Incomplete stress vector index");
+    evidence("B12 vector stress readiness", JSON.stringify(state));
+    await ctx.db.patch(state._id, { ready: true });
+  });
+  const semantic = {
+    name: "semantic synonym",
+    embedding: Array(1536).fill(0.125),
+  };
+  const novel = {
+    name: "novel candidate",
+    embedding: Array.from({ length: 1536 }, (_, i) => (i % 2 ? 0.125 : -0.125)),
+  };
+  const proposals = [semantic, novel, { name: "novel candidate" }];
+  let expected: string[] = [];
+  for (const phase of [
+    "native candidate+semantic",
+    "native candidate+semantic unlink/relink",
+  ]) {
+    const result = await current.t.run(async (ctx) => {
+      const ids = await ctx.runMutation(internal.tags.assign, {
+        userId,
+        articleId: current.articleId,
+        proposals,
+      });
+      const metrics = await ctx.meta.getTransactionMetrics();
+      expect(metrics.bytesRead.used).toBeLessThan(12_000_000);
+      expect(metrics.bytesWritten.used).toBeLessThan(1_000_000);
+      evidence(
+        "B12 actual semantic assignment",
+        JSON.stringify({ phase, ...metrics }),
+      );
+      return ids;
+    });
+    expect(result).toHaveLength(2);
+    if (expected.length) expect(result).toEqual(expected);
+    expected = result;
+  }
+  // A true .8-.9 near miss links both the candidate and its nearest tag.
+  const near = Array.from(
+    { length: 1536 },
+    (_, i) => 0.85 + (i % 2 ? 1 : -1) * Math.sqrt(1 - 0.85 ** 2),
+  );
+  for (const phase of [
+    "native near candidate",
+    "native near candidate unlink/relink",
+  ]) {
+    await current.t.run(async (ctx) => {
+      expect(
+        await ctx.runMutation(internal.tags.assign, {
+          userId,
+          articleId: current.articleId,
+          proposals: [{ name: "near candidate", embedding: near }],
+        }),
+      ).toHaveLength(2);
+      const metrics = await ctx.meta.getTransactionMetrics();
+      expect(metrics.bytesRead.used).toBeLessThan(12_000_000);
+      expect(metrics.bytesWritten.used).toBeLessThan(1_000_000);
+      evidence(
+        "B12 actual near assignment",
+        JSON.stringify({ phase, ...metrics }),
+      );
+    });
+  }
+  await current.t.run(async (ctx) => {
+    const alpha = await ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) =>
+        q.eq("userId", userId).eq("key", "alpha"),
+      )
+      .unique();
+    const beta = await ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) => q.eq("userId", userId).eq("key", "beta"))
+      .unique();
+    if (!alpha || !beta) throw new Error("Missing large fixture candidate");
+    await metadataTriggers.wrapDB(ctx).db.patch(alpha._id, {
+      status: "candidate",
+      count: 1,
+      nearestTagId: beta._id,
+    });
+  });
+  for (const phase of [
+    "native full-payload exact candidate",
+    "native full-payload exact candidate relink",
+  ]) {
+    await current.t.run(async (ctx) => {
+      expect(
+        await ctx.runMutation(internal.tags.assign, {
+          userId,
+          articleId: current.articleId,
+          proposals: [{ name: "alpha" }, { name: "alpha" }],
+        }),
+      ).toHaveLength(2);
+      const metrics = await ctx.meta.getTransactionMetrics();
+      expect(metrics.bytesRead.used).toBeLessThan(12_000_000);
+      expect(metrics.bytesWritten.used).toBeLessThan(1_000_000);
+      evidence(
+        "B12 actual exact candidate",
+        JSON.stringify({ phase, ...metrics }),
+      );
+    });
+  }
+});
 
 it("assigns and replaces three existing active names under a native 1MB read limit", async () => {
   const current = await fixture(true, 1_000_000);
