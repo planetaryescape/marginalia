@@ -10,8 +10,12 @@ const modules = import.meta.glob("./**/*.ts");
 const userId = "default_user";
 const names = ["alpha", "beta", "gamma"];
 
-async function fixture(ready: boolean) {
-  const t = convexTest({ schema, modules, transactionLimits: true });
+async function fixture(ready: boolean, maxReadBytes?: number) {
+  const t = convexTest({
+    schema,
+    modules,
+    transactionLimits: maxReadBytes ? { bytesRead: maxReadBytes } : true,
+  });
   const articleId = await t.run((ctx) =>
     ctx.db.insert("articles", {
       userId,
@@ -69,20 +73,45 @@ async function fixture(ready: boolean) {
 async function measuredAssignment(
   f: Awaited<ReturnType<typeof fixture>>,
   phase: string,
+  proposals = names.map((name) => ({ name })),
+  bounded = false,
 ) {
   return f.t.run(async (ctx) => {
     const links = await ctx.runMutation(internal.tags.assign, {
       userId,
       articleId: f.articleId,
-      proposals: names.map((name) => ({ name })),
+      proposals,
     });
+    const metrics = await ctx.meta.getTransactionMetrics();
+    if (bounded) {
+      expect(metrics.bytesRead.used).toBeLessThan(1_000_000);
+    }
     console.log(
       "B12 installed writer metrics",
-      JSON.stringify({ phase, ...(await ctx.meta.getTransactionMetrics()) }),
+      JSON.stringify({ phase, ...metrics }),
     );
     return links;
   });
 }
+
+it("assigns and replaces three existing active names under a native 1MB read limit", async () => {
+  const current = await fixture(true, 1_000_000);
+  const assigned = await measuredAssignment(
+    current,
+    "native 1MB exact",
+    undefined,
+    true,
+  );
+  expect(assigned).toHaveLength(3);
+  expect(
+    await measuredAssignment(
+      current,
+      "native 1MB three unlink/relinks",
+      undefined,
+      true,
+    ),
+  ).toEqual(assigned);
+});
 
 it("keeps a previously valid near-limit assignment valid with installed vocabulary maintenance", async () => {
   let phase = "baseline setup";
@@ -104,9 +133,32 @@ it("keeps a previously valid near-limit assignment valid with installed vocabula
   phase = "ready metadata setup";
   const current = await fixture(true);
   phase = "maintained assignment";
-  expect(await measuredAssignment(current, phase)).toHaveLength(3);
+  expect(
+    await measuredAssignment(current, phase, undefined, true),
+  ).toHaveLength(3);
   phase = "maintained unlink + relink";
-  expect(await measuredAssignment(current, phase)).toHaveLength(3);
+  expect(
+    await measuredAssignment(current, phase, undefined, true),
+  ).toHaveLength(3);
+  phase = "legacy full scan: MAX3 with four proposals and three prior links";
+  expect(
+    await measuredAssignment(current, phase, [
+      ...names.map((name) => ({ name })),
+      { name: "ignored after MAX3" },
+    ]),
+  ).toHaveLength(3);
+  phase = "unsupported final name: no speculative vector hydration";
+  expect(
+    await measuredAssignment(current, phase, [
+      { name: "alpha" },
+      { name: "beta" },
+      { name: "absent" },
+    ]),
+  ).toHaveLength(2);
+  phase = "restore exact links";
+  expect(
+    await measuredAssignment(current, phase, undefined, true),
+  ).toHaveLength(3);
   const tags = await current.t.run((ctx) => ctx.db.query("tags").collect());
   expect(
     tags
