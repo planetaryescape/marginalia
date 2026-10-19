@@ -37,6 +37,117 @@ const THREADS_PER_ANSWER = 2;
 
 const CONNECTION_TYPES: readonly string[] = KIND_FAMILIES.connection;
 
+/** Raw article reads shared by one buildGraph transaction, never node-specific
+ * links, exclusions, scores, reasons or vault passages. The budget is bound as
+ * well as the reader and database: a denied read is not canonical absence. */
+export class RequestArticleReads {
+  private readonly titles = new Map<Id<"articles">, Promise<string | null>>();
+  private readonly ideas = new Map<string, Promise<string[]>>();
+  private readonly connections = new Map<
+    Id<"articles">,
+    ReturnType<typeof connectionsOnArticle>
+  >();
+  private readonly tags = new Map<
+    Id<"articles">,
+    ReturnType<typeof activeTags>
+  >();
+  private readonly taggedArticles = new Map<
+    Id<"tags">,
+    Promise<Doc<"articleTags">[]>
+  >();
+
+  constructor(
+    private readonly ctx: Db,
+    private readonly userId: string,
+    private readonly budget: ReadBudget,
+  ) {}
+
+  matches(ctx: Db, userId: string, budget: ReadBudget) {
+    return (
+      ctx.db === this.ctx.db && userId === this.userId && budget === this.budget
+    );
+  }
+
+  title(articleId: Id<"articles">): Promise<string | null> {
+    const known = this.titles.get(articleId);
+    // A known title remains usable after the physical whole-article cap is spent.
+    if (known) return known;
+    if (!this.budget.mayReadArticle) return Promise.resolve(null);
+    const read = articleTitle(this.ctx, this.userId, articleId, this.budget);
+    this.titles.set(articleId, read);
+    return read;
+  }
+
+  onArticle(
+    articleId: Id<"articles">,
+    per: { notes: number; highlights: number; answers: number },
+  ): Promise<string[]> {
+    const key = JSON.stringify([
+      articleId,
+      per.notes,
+      per.highlights,
+      per.answers,
+    ]);
+    const known = this.ideas.get(key);
+    if (known) return known;
+    if (this.budget.allow(1) === 0) return Promise.resolve([]);
+    const read = ideasOnArticle(
+      this.ctx,
+      this.userId,
+      articleId,
+      per,
+      this.budget,
+    );
+    this.ideas.set(key, read);
+    return read;
+  }
+
+  connectionsOn(articleId: Id<"articles">) {
+    let read = this.connections.get(articleId);
+    if (!read) {
+      if (this.budget.allow(1) === 0) return Promise.resolve([]);
+      read = connectionsOnArticle(
+        this.ctx,
+        this.userId,
+        articleId,
+        this.budget,
+      );
+      this.connections.set(articleId, read);
+    }
+    return read;
+  }
+
+  activeTagsOn(articleId: Id<"articles">) {
+    let read = this.tags.get(articleId);
+    if (!read) {
+      if (this.budget.allow(1) === 0) return Promise.resolve([]);
+      read = activeTags(this.ctx, this.userId, articleId, this.budget);
+      this.tags.set(articleId, read);
+    }
+    return read;
+  }
+
+  articlesWithTag(tagId: Id<"tags">) {
+    let read = this.taggedArticles.get(tagId);
+    if (!read) {
+      if (this.budget.allow(1) === 0) return Promise.resolve([]);
+      read = articlesWithTag(this.ctx, tagId, this.budget);
+      this.taggedArticles.set(tagId, read);
+    }
+    return read;
+  }
+}
+
+function articlesWithTag(ctx: Db, tagId: Id<"tags">, budget: ReadBudget) {
+  return budget.take(ARTICLES_PER_TAG + 1, (limit) =>
+    ctx.db
+      .query("articleTags")
+      .withIndex("by_tag", (q) => q.eq("tagId", tagId))
+      .order("desc")
+      .take(limit),
+  );
+}
+
 /** The other end of each link the reader drew from or to a node, newest first. */
 export async function linkedKeys(
   ctx: Db,
@@ -170,8 +281,23 @@ export async function gatherCandidates(
   centre: LoadedNode,
   similar: { key: string; via?: string }[],
   budget: ReadBudget = UNLIMITED,
+  requestReads?: RequestArticleReads,
 ) {
   const found = new Candidates(centre.key);
+  const reads = requestReads?.matches(ctx, userId, budget)
+    ? requestReads
+    : undefined;
+  const titleFor = (articleId: Id<"articles">) =>
+    reads
+      ? reads.title(articleId)
+      : articleTitle(ctx, userId, articleId, budget);
+  const ideasFor = (
+    articleId: Id<"articles">,
+    per: { notes: number; highlights: number; answers: number },
+  ) =>
+    reads
+      ? reads.onArticle(articleId, per)
+      : ideasOnArticle(ctx, userId, articleId, per, budget);
 
   // Newest first, and each a little below the one before, so the idea just
   // written beside the centre outranks older links however many there are
@@ -195,29 +321,23 @@ export async function gatherCandidates(
 
   if (centre.articleId) {
     const articleId = centre.articleId;
-    const title = await articleTitle(ctx, userId, articleId, budget);
+    const title = await titleFor(articleId);
     // A note on an article brings the article itself onto the map
     if (centre.kind !== "article")
       found.add(nodeKey("article", articleId), fromArticleReason(), 80);
-    for (const key of await ideasOnArticle(
-      ctx,
-      userId,
+    for (const key of await ideasFor(
       articleId,
       // One more than the ring holds: the centre is among its own article's ideas
       { notes: 6, highlights: 6, answers: 4 },
-      budget,
     ))
       found.add(
         key,
         centre.kind === "article" ? fromArticleReason() : articleReason(title),
       );
 
-    for (const row of await connectionsOnArticle(
-      ctx,
-      userId,
-      articleId,
-      budget,
-    )) {
+    for (const row of await (reads
+      ? reads.connectionsOn(articleId)
+      : connectionsOnArticle(ctx, userId, articleId, budget))) {
       if (row.notePath)
         found.add(
           nodeKey("vault", row.notePath),
@@ -227,14 +347,12 @@ export async function gatherCandidates(
           row.noteChunkId,
         );
       else if (row.articleRefId) {
-        const other = await articleTitle(ctx, userId, row.articleRefId, budget);
-        for (const key of await ideasOnArticle(
-          ctx,
-          userId,
-          row.articleRefId,
-          { notes: 2, highlights: 1, answers: 0 },
-          budget,
-        ))
+        const other = await titleFor(row.articleRefId);
+        for (const key of await ideasFor(row.articleRefId, {
+          notes: 2,
+          highlights: 1,
+          answers: 0,
+        }))
           found.add(
             key,
             connectionReason(
@@ -246,30 +364,25 @@ export async function gatherCandidates(
       }
     }
 
-    const tags = (await activeTags(ctx, userId, articleId, budget)).slice(
-      0,
-      TAGS_USED,
-    );
+    const tags = (
+      await (reads
+        ? reads.activeTagsOn(articleId)
+        : activeTags(ctx, userId, articleId, budget))
+    ).slice(0, TAGS_USED);
     for (const tag of tags) {
       // One more than used, because the centre's own article may be among them
-      const rows = await budget.take(ARTICLES_PER_TAG + 1, (limit) =>
-        ctx.db
-          .query("articleTags")
-          .withIndex("by_tag", (q) => q.eq("tagId", tag._id))
-          .order("desc")
-          .take(limit),
-      );
+      const rows = await (reads
+        ? reads.articlesWithTag(tag._id)
+        : articlesWithTag(ctx, tag._id, budget));
       const others = rows
         .filter((row) => row.userId === userId && row.articleId !== articleId)
         .slice(0, ARTICLES_PER_TAG);
       for (const row of others)
-        for (const key of await ideasOnArticle(
-          ctx,
-          userId,
-          row.articleId,
-          { notes: 1, highlights: 1, answers: 0 },
-          budget,
-        ))
+        for (const key of await ideasFor(row.articleId, {
+          notes: 1,
+          highlights: 1,
+          answers: 0,
+        }))
           found.add(key, tagReason(tag.name));
     }
   } else if (centre.kind === "vault") {
@@ -285,14 +398,12 @@ export async function gatherCandidates(
     for (const row of rows) {
       if (row.userId !== userId) continue;
       if (await articleCleanupPending(ctx, row.articleId, budget)) continue;
-      const title = await articleTitle(ctx, userId, row.articleId, budget);
-      for (const key of await ideasOnArticle(
-        ctx,
-        userId,
-        row.articleId,
-        { notes: 3, highlights: 2, answers: 1 },
-        budget,
-      ))
+      const title = await titleFor(row.articleId);
+      for (const key of await ideasFor(row.articleId, {
+        notes: 3,
+        highlights: 2,
+        answers: 1,
+      }))
         found.add(
           key,
           connectionReason(

@@ -18,15 +18,14 @@ import {
 } from "./lib/ideaGraph";
 import {
   articleFor,
-  articleTitle,
   type Db,
   type LoadedNode,
   loadNode,
 } from "./lib/ideaNodes";
 import {
   gatherCandidates,
-  ideasOnArticle,
   linkedKeys,
+  RequestArticleReads,
 } from "./lib/ideaSignals";
 import type { MarkColor } from "./lib/markColours";
 
@@ -95,6 +94,8 @@ export async function buildGraph(
   },
   budget: ReadBudget = new ReadBudget(),
 ): Promise<Graph> {
+  const discoveryBudget = budget.discovery();
+  const articleReads = new RequestArticleReads(ctx, userId, discoveryBudget);
   const centre =
     (args.centre
       ? await loadNode(ctx, userId, args.centre, budget, false, args.centreVia)
@@ -107,7 +108,8 @@ export async function buildGraph(
     centre,
     (args.similar ?? []).slice(0, HINTS_USED),
     // Finding who is near may not use up what loading them needs
-    budget.discovery(),
+    discoveryBudget,
+    articleReads,
   );
   // The idea just written from the map always has a place beside the centre
   if (args.pin) found.pin(args.pin, linkedReason());
@@ -150,40 +152,13 @@ export async function buildGraph(
   const edgeIds = new Set(edges.map((edge) => edge.id));
   // Several neighbours can belong to one article. Share discovery work only
   // inside this request, so ownership, live updates and budgets stay local.
-  const articleIdeas = new Map<Id<"articles">, Promise<string[]>>();
-  const articleTitles = new Map<
-    Id<"articles">,
-    ReturnType<typeof articleTitle>
-  >();
-  const ideasFor = (articleId: Id<"articles">) => {
-    let result = articleIdeas.get(articleId);
-    if (!result) {
-      result = ideasOnArticle(
-        ctx,
-        userId,
-        articleId,
-        { notes: 6, highlights: 3, answers: 1 },
-        budget.discovery(),
-      );
-      articleIdeas.set(articleId, result);
-    }
-    return result;
-  };
-  const titleFor = (articleId: Id<"articles">) => {
-    let result = articleTitles.get(articleId);
-    if (!result) {
-      result = articleTitle(ctx, userId, articleId, budget.discovery());
-      articleTitles.set(articleId, result);
-    }
-    return result;
-  };
   for (const near of ring) {
     const nearLinks = await linkedKeys(
       ctx,
       userId,
       near.key,
       4,
-      budget.discovery(),
+      discoveryBudget,
     );
     // A link between two ideas already on the map is a line worth drawing
     for (const key of nearLinks) {
@@ -204,9 +179,15 @@ export async function buildGraph(
 
     const sameArticle = near.articleId
       ? // Up to seven of an article's ideas may already be on the ring, so ask for one more
-        await ideasFor(near.articleId)
+        await articleReads.onArticle(near.articleId, {
+          notes: 6,
+          highlights: 3,
+          answers: 1,
+        })
       : [];
-    const title = near.articleId ? await titleFor(near.articleId) : null;
+    const title = near.articleId
+      ? await articleReads.title(near.articleId)
+      : null;
     const options: { key: string; reason: Reason }[] = [
       ...nearLinks.map((key) => ({ key, reason: linkedReason() })),
       ...sameArticle.map((key) => ({
