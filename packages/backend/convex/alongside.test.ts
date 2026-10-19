@@ -1334,7 +1334,7 @@ describe("the embedding stamp", () => {
     expect(second.vaultIndexedMax).toBeGreaterThan(first.vaultIndexedMax);
   });
 
-  it("writes only the row it stamps, so concurrent embeddings never contend", async () => {
+  it("writes only its source and private stamp, so concurrent embeddings never contend", async () => {
     const f = await secondReaderTest(modules);
     const dump = async () =>
       new Map(
@@ -1389,33 +1389,41 @@ describe("the embedding stamp", () => {
         createdAt: 1,
       }),
     );
-    expect(await changed(() => finishNoteEmbedding(f, noteId))).toEqual([
-      noteId,
-    ]);
-    expect(
-      await changed(() =>
-        f.t.mutation(internal.highlights.setEmbedding, {
-          highlightId,
-          embedding: vector,
-        }),
-      ),
-    ).toEqual([highlightId]);
-    expect(
-      await changed(() =>
-        f.t.mutation(internal.companionThreads.setEmbedding, {
-          threadId,
-          embedding: vector,
-        }),
-      ),
-    ).toEqual([threadId]);
-    expect(
-      await changed(() =>
-        f.t.mutation(internal.articles.setEmbedding, {
-          articleId,
-          embedding: vector,
-        }),
-      ),
-    ).toEqual([articleId]);
+    const independent = async <T>(
+      sourceId: Id<
+        "userNotes" | "highlights" | "companionThreads" | "articles"
+      >,
+      write: () => Promise<T>,
+    ) => {
+      const ids = await changed(write);
+      const stamp = await f.t.run((ctx) =>
+        ctx.db
+          .query("marginaliaSourceStamps")
+          .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+          .unique(),
+      );
+      expect(stamp).not.toBeNull();
+      expect(ids).toEqual([sourceId, stamp?._id]);
+    };
+    await independent(noteId, () => finishNoteEmbedding(f, noteId));
+    await independent(highlightId, () =>
+      f.t.mutation(internal.highlights.setEmbedding, {
+        highlightId,
+        embedding: vector,
+      }),
+    );
+    await independent(threadId, () =>
+      f.t.mutation(internal.companionThreads.setEmbedding, {
+        threadId,
+        embedding: vector,
+      }),
+    );
+    await independent(articleId, () =>
+      f.t.mutation(internal.articles.setEmbedding, {
+        articleId,
+        embedding: vector,
+      }),
+    );
   });
 
   it("is per reader, and compares equal to a fingerprint from before it existed", async () => {
