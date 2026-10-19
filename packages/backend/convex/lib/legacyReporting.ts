@@ -195,7 +195,7 @@ export async function reportingReflections(
       ctx.db
         .query("reflectionReportingMetadata")
         .withIndex(
-          "by_userId_and_respondedAt_and_sourceCreationTime_and_reflectionId",
+          "by_userId_respondedAt_sourceCreationTime_reflectionId",
           (q) =>
             q
               .eq("userId", userId)

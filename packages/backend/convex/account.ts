@@ -15,6 +15,7 @@ import { purgeFeedStatus } from "./lib/feedStatus";
 import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
 import { purgeFullSummaries } from "./lib/fullSummaries";
 import { purgeHighlightIdentities } from "./lib/highlightIdentity";
+import { purgeLegacyReporting } from "./lib/legacyReporting";
 import { purgeManualAnnotations } from "./lib/manualAnnotations";
 import { purgeTagAliases } from "./lib/tagAliases";
 import { purgeTagVectors } from "./lib/tagVectors";
@@ -307,6 +308,8 @@ const STEPS: Step[] = [
     if (fingerprints) return fingerprints;
     const resumes = await purgeReadingResumes(ctx, userId);
     if (resumes) return resumes;
+    const reporting = await purgeLegacyReporting(ctx, userId);
+    if (reporting) return reporting;
     const removed = await purgeArticleMetadata(ctx, userId);
     if (removed) return removed;
     const manual = await purgeManualAnnotations(ctx, userId);

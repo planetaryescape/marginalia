@@ -29,10 +29,12 @@ export const legacyReportingTables = {
   })
     .index("by_reflectionId", ["reflectionId"])
     .index("by_userId", ["userId"])
-    .index(
-      "by_userId_and_respondedAt_and_sourceCreationTime_and_reflectionId",
-      ["userId", "respondedAt", "sourceCreationTime", "reflectionId"],
-    ),
+    .index("by_userId_respondedAt_sourceCreationTime_reflectionId", [
+      "userId",
+      "respondedAt",
+      "sourceCreationTime",
+      "reflectionId",
+    ]),
   legacyReportingState: defineTable({
     userId: v.string(),
     kind: v.union(v.literal("notes"), v.literal("reflections")),

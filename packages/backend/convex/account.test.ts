@@ -17,6 +17,10 @@ import {
   highlightArticleIdentityTrigger,
   highlightIdentityTrigger,
 } from "./lib/highlightIdentity";
+import {
+  syncNoteReporting,
+  syncReflectionReporting,
+} from "./lib/legacyReporting";
 import { metadataTriggers } from "./lib/metadataTriggers";
 import { syncTagAliases } from "./lib/tagAliases";
 import { syncTagVectors } from "./lib/tagVectors";
@@ -549,6 +553,43 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     createdAt: now,
   });
   await ctx.db.delete(orphan);
+  const orphanNote = await ctx.db.insert("userNotes", {
+    userId,
+    articleId: orphan,
+    selectedText: "Orphan report fixture",
+    content: "",
+    contentPlain: "Retained reporting fixture",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const note = await ctx.db.get(orphanNote);
+  if (!note) throw new Error("Missing orphan note");
+  await syncNoteReporting(ctx, null, note);
+  await ctx.db.delete(orphanNote);
+  const orphanReflection = await ctx.db.insert("reflections", {
+    userId,
+    articleId: orphan,
+    strongestPoint: "",
+    weakestAssumption: "",
+    credibleCounterview: "",
+    questionForYou: "",
+    userResponse: "",
+    respondedAt: now,
+    createdAt: now,
+  });
+  const reflection = await ctx.db.get(orphanReflection);
+  if (!reflection) throw new Error("Missing orphan reflection");
+  await syncReflectionReporting(ctx, null, reflection);
+  await ctx.db.delete(orphanReflection);
+  for (const kind of ["notes", "reflections"] as const)
+    await ctx.db.insert("legacyReportingState", {
+      userId,
+      kind,
+      ready: true,
+      backfilled: true,
+      cursor: null,
+      overflow: 0,
+    });
   await ctx.db.insert("edgeExplanationState", {
     userId,
     pair: "fixture-orphan",
@@ -834,6 +875,20 @@ describe("account deletion", () => {
         userId: readerLibraryId,
       }),
     ).toBe(false);
+    for (const kind of ["notes", "reflections"] as const) {
+      expect(
+        await t.mutation(internal.legacyReportingMetadata.migrate, {
+          userId: readerLibraryId,
+          kind,
+        }),
+      ).toEqual({ done: false, migrated: 0, retained: false });
+      expect(
+        await t.mutation(internal.legacyReportingMetadata.verifyAndActivate, {
+          userId: readerLibraryId,
+          kind,
+        }),
+      ).toBe(false);
+    }
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);

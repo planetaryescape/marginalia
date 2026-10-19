@@ -8,6 +8,7 @@ import { feedStatusTables } from "./lib/feedStatus";
 import { fingerprintTables } from "./lib/fingerprintSchema";
 import { fullSummaryState } from "./lib/fullSummaries";
 import { highlightIdentityTables } from "./lib/highlightIdentitySchema";
+import { legacyReportingTables } from "./lib/legacyReportingSchema";
 import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
@@ -24,6 +25,7 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  ...legacyReportingTables,
   ...feedPollTables,
   ...feedStatusTables,
   ...fingerprintTables,
