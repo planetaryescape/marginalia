@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { feedPollTables } from "./lib/feedPollProtocol";
 import { fingerprintTables } from "./lib/fingerprintSchema";
+import { highlightIdentityTables } from "./lib/highlightIdentitySchema";
 import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
@@ -18,6 +19,7 @@ const tasteEntry = v.object({
 export default defineSchema({
   ...feedPollTables,
   ...fingerprintTables,
+  ...highlightIdentityTables,
   manualAnnotationState,
   // Exact displayed Ask paragraphs: one replaceable, <=950KB version per scope.
   preparedArticles: defineTable({
@@ -1311,6 +1313,7 @@ export default defineSchema({
     .index("by_user_embeddedAt", ["userId", "embeddedAt"])
     .index("by_article", ["articleId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
+    .index("by_userId_and_articleId", ["userId", "articleId"])
     .index("by_userId", ["userId"])
     .index("by_reader_highlight", ["readerHighlightId"])
     .index("by_userId_and_kind_and_color", ["userId", "kind", "color"])

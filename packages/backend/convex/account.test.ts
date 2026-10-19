@@ -12,6 +12,11 @@ import type { MutationCtx } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
 import { sealTokens } from "./lib/chatgptTokens";
 import { indexDictionaryLookup } from "./lib/dictionaryIndex";
+import {
+  highlightArticleIdentityTrigger,
+  highlightIdentityTrigger,
+} from "./lib/highlightIdentity";
+import { metadataTriggers } from "./lib/metadataTriggers";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -334,13 +339,26 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       if (!lookup) throw new Error("Missing seeded lookup");
       await indexDictionaryLookup(ctx, lookup);
     }
-    await ctx.db.insert("highlights", {
+    const highlightId = await ctx.db.insert("highlights", {
       userId,
       articleId,
       kind: "highlight",
       text: "Text",
       embedding,
       createdAt: now,
+    });
+    await ctx.db.insert("highlightIdentities", {
+      userId,
+      articleId,
+      highlightId,
+      textHash:
+        "71988c4d8e0803ba4519f0b2864c1331c14a1890bf8694e251379177bfedb5c3",
+    });
+    await ctx.db.insert("highlightIdentityState", {
+      userId,
+      articleId,
+      ready: true,
+      cursor: null,
     });
     await ctx.db.insert("summaries", {
       userId,
@@ -494,6 +512,12 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     createdAt: now,
   });
   await ctx.db.delete(orphan);
+  await ctx.db.insert("highlightIdentityState", {
+    userId,
+    articleId: orphan,
+    ready: false,
+    cursor: null,
+  });
   await ctx.db.insert("manualAnnotationState", {
     userId,
     articleId: orphan,
@@ -543,6 +567,12 @@ async function counts(t: Fixture["t"]) {
 describe("account deletion", () => {
   it("removes every trace of the reader in batches and leaves the owner untouched", async () => {
     vi.useFakeTimers();
+    expect(metadataTriggers.registered.highlights).toContain(
+      highlightIdentityTrigger,
+    );
+    expect(metadataTriggers.registered.articles).toContain(
+      highlightArticleIdentityTrigger,
+    );
     const fixture = await secondReaderTest(modules);
     const { t, reader, owner, readerLibraryId } = fixture;
     await t.run(async (ctx) => {
@@ -638,6 +668,13 @@ describe("account deletion", () => {
       expect(complete).toBe(true);
     }
     const ownerBefore = await counts(t);
+    const highlightState = await t.run((ctx) =>
+      ctx.db
+        .query("highlightIdentityState")
+        .withIndex("by_userId", (q) => q.eq("userId", readerLibraryId))
+        .first(),
+    );
+    if (!highlightState) throw new Error("Missing seeded highlight readiness");
     const legacyJob = await t.run((ctx) =>
       ctx.db
         .query("legacyMarkDefaults")
@@ -695,6 +732,13 @@ describe("account deletion", () => {
         userId: readerLibraryId,
       }),
     ).toMatchObject({ inactive: true, complete: false });
+    expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
+    expect(
+      await t.mutation(internal.readwise.prepareHighlightIdentities, {
+        userId: readerLibraryId,
+        articleId: highlightState.articleId,
+      }),
+    ).toEqual({ ready: false, unavailable: true });
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);
