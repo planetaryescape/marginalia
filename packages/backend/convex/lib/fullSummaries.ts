@@ -23,6 +23,8 @@ export const fullSummaryState = defineTable({
   attempts: v.number(),
   leaseUntil: v.number(),
   resultId: v.optional(v.id("summaries")),
+  // The one visible result this run replaces; permits replay after it is deleted.
+  replacesSummaryId: v.optional(v.id("summaries")),
 })
   .index("by_articleId", ["articleId"])
   .index("by_userId", ["userId"]);

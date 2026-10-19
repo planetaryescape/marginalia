@@ -203,14 +203,264 @@ describe("full summary single flight", () => {
     expect(await f.state()).toMatchObject({ status: "failed", attempts: 1 });
   });
 
-  it("tokenless legacy requests are callable but cannot prove their source or spend", async () => {
+  it("old-shaped public calls coalesce across clients, publish, and preserve their explicit completed-redo behavior", async () => {
     const f = await fixture();
     const { sourceHash: _hash, ...legacy } = f.args;
+    const h = hold();
+    const first = f.reader.action(api.actions.summarize.generate, legacy);
+    await h.started;
+    const identity = await f.reader.run((ctx) => ctx.auth.getUserIdentity());
+    if (!identity) throw new Error("Missing fixture identity");
+    const second = f.t
+      .withIdentity(identity)
+      .action(api.actions.summarize.generate, legacy);
+    await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0));
+    expect(model.generate).toHaveBeenCalledTimes(1);
+    h.release();
+    await first;
+    await vi.advanceTimersByTimeAsync(2000);
+    await second;
+    const oldId = (await f.rows())[0]._id;
+    expect((await f.rows())[0].gist).toBe("Current gist");
+    await f.reader.action(api.actions.summarize.generate, legacy);
+    expect(model.generate).toHaveBeenCalledTimes(2);
+    expect((await f.rows())[0]._id).not.toBe(oldId);
+    expect(await f.state()).toMatchObject({ status: "complete", attempts: 1 });
+  });
+
+  it("legacy full-body generation fences its server-entry snapshot without claiming proof of the prior DOM", async () => {
+    const f = await fixture();
+    const { sourceHash: _hash, ...legacy } = f.args;
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, {
+        content: "Entry snapshot",
+        title: "Server entry title",
+      }),
+    );
+    const h = hold();
+    const running = f.reader
+      .action(api.actions.summarize.generate, legacy)
+      .then(
+        () => null,
+        (error) => error,
+      );
+    await h.started;
+    expect(model.generate.mock.calls[0][0].prompt).toBe(
+      "# Original\n\n¶1\nDisplayed α\n\n¶2\nDisplayed 😀",
+    );
+    expect(await f.save()).toBeNull();
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, {
+        content: "Changed during provider",
+      }),
+    );
+    h.release();
+    expect(await running).toBeInstanceOf(Error);
+    expect(model.generate).toHaveBeenCalledTimes(1);
+    expect(await f.rows()).toEqual([]);
+    expect(await f.state()).toMatchObject({ status: "failed" });
+  });
+
+  it("a supplied stale or empty proof is still strict, including the current title", async () => {
+    const f = await fixture();
+    for (const proof of ["", await sourceHash("Other source")])
+      await expect(
+        f.reader.action(api.actions.summarize.generate, {
+          ...f.args,
+          sourceHash: proof,
+        }),
+      ).rejects.toThrow("Reload");
     await expect(
-      f.reader.action(api.actions.summarize.generate, legacy),
+      f.reader.action(api.actions.summarize.generate, {
+        ...f.args,
+        title: "Stale title",
+      }),
     ).rejects.toThrow("Reload");
     expect(model.generate).not.toHaveBeenCalled();
-    expect(await f.state()).toBeNull();
+  });
+
+  it("two authenticated explicit refreshes replace the same visible map once; replay cannot buy a third call", async () => {
+    const f = await fixture();
+    await f.request();
+    const previous = (await f.rows())[0];
+    const refresh = { ...f.args, expectedSummaryId: previous._id };
+    const h = hold();
+    const first = f.reader.action(api.actions.summarize.generate, refresh);
+    await h.started;
+    const identity = await f.reader.run((ctx) => ctx.auth.getUserIdentity());
+    if (!identity) throw new Error("Missing fixture identity");
+    const second = f.t
+      .withIdentity(identity)
+      .action(api.actions.summarize.generate, refresh);
+    await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0));
+    expect(model.generate).toHaveBeenCalledTimes(2);
+    expect(await f.rows()).toEqual([previous]);
+    h.release();
+    await first;
+    await vi.advanceTimersByTimeAsync(2000);
+    await second;
+    const current = (await f.rows())[0];
+    expect(current._id).not.toBe(previous._id);
+    await f.reader.action(api.actions.summarize.generate, refresh);
+    await f.request();
+    expect(model.generate).toHaveBeenCalledTimes(2);
+    expect(await f.rows()).toEqual([current]);
+    // Legitimate successful Redos are not counted as consecutive failures.
+    for (let i = 0; i < 4; i++) {
+      const visible = (await f.rows())[0];
+      await f.reader.action(api.actions.summarize.generate, {
+        ...f.args,
+        expectedSummaryId: visible._id,
+      });
+    }
+    expect(model.generate).toHaveBeenCalledTimes(6);
+    expect(await f.state()).toMatchObject({ status: "complete", attempts: 1 });
+    await expect(
+      f.reader.action(api.actions.summarize.generate, refresh),
+    ).rejects.toThrow("Summary changed");
+    expect(model.generate).toHaveBeenCalledTimes(6);
+  });
+
+  it("refresh failures retain the visible map and cap three consecutive attempts, resetting after success", async () => {
+    const f = await fixture();
+    await f.request();
+    let visible = (await f.rows())[0];
+    model.generate
+      .mockRejectedValueOnce(new Error("Refresh failed"))
+      .mockRejectedValueOnce(new Error("Refresh failed"));
+    for (let i = 0; i < 2; i++)
+      await expect(
+        f.reader.action(api.actions.summarize.generate, {
+          ...f.args,
+          expectedSummaryId: visible._id,
+        }),
+      ).rejects.toThrow("Refresh failed");
+    expect(await f.rows()).toEqual([visible]);
+    await f.reader.action(api.actions.summarize.generate, {
+      ...f.args,
+      expectedSummaryId: visible._id,
+    });
+    visible = (await f.rows())[0];
+    model.generate.mockRejectedValue(new Error("Refresh failed again"));
+    for (let i = 0; i < 3; i++)
+      await expect(
+        f.reader.action(api.actions.summarize.generate, {
+          ...f.args,
+          expectedSummaryId: visible._id,
+        }),
+      ).rejects.toThrow("Refresh failed again");
+    await expect(
+      f.reader.action(api.actions.summarize.generate, {
+        ...f.args,
+        expectedSummaryId: visible._id,
+      }),
+    ).rejects.toThrow("attempt limit");
+    expect(await f.rows()).toEqual([visible]);
+    expect(model.generate).toHaveBeenCalledTimes(7);
+  });
+
+  it("stale refresh result IDs cannot authorize changed-source or A→B→A work, but the current visible map can", async () => {
+    const f = await fixture();
+    await f.request();
+    const old = (await f.rows())[0];
+    await f.reader.action(api.actions.summarize.generate, {
+      ...f.args,
+      expectedSummaryId: old._id,
+    });
+    const current = (await f.rows())[0];
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, { content: "B" }),
+    );
+    const changed = { ...f.args, sourceHash: await sourceHash("B") };
+    await expect(
+      f.reader.action(api.actions.summarize.generate, {
+        ...changed,
+        expectedSummaryId: old._id,
+      }),
+    ).rejects.toThrow("Summary changed");
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, { content: "Source α 😀" }),
+    );
+    await expect(
+      f.reader.action(api.actions.summarize.generate, {
+        ...f.args,
+        expectedSummaryId: old._id,
+      }),
+    ).rejects.toThrow("Summary changed");
+    expect(model.generate).toHaveBeenCalledTimes(2);
+    await f.reader.action(api.actions.summarize.generate, {
+      ...f.args,
+      expectedSummaryId: current._id,
+    });
+    expect(model.generate).toHaveBeenCalledTimes(3);
+  });
+
+  it("held refresh cannot replace its usable map after source mutation, and a current-source explicit refresh can recover", async () => {
+    const f = await fixture();
+    await f.request();
+    const previous = (await f.rows())[0];
+    const h = hold();
+    const running = f.reader
+      .action(api.actions.summarize.generate, {
+        ...f.args,
+        expectedSummaryId: previous._id,
+      })
+      .then(
+        () => null,
+        (error) => error,
+      );
+    await h.started;
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, {
+        content: "Current source B",
+      }),
+    );
+    h.release();
+    expect(await running).toBeInstanceOf(Error);
+    expect(await f.rows()).toEqual([previous]);
+    expect(await f.state()).toMatchObject({ status: "failed" });
+    await f.reader.action(api.actions.summarize.generate, {
+      ...f.args,
+      sourceHash: await sourceHash("Current source B"),
+      expectedSummaryId: previous._id,
+    });
+    expect((await f.rows())[0]._id).not.toBe(previous._id);
+    expect(model.generate).toHaveBeenCalledTimes(3);
+  });
+
+  it("another reader's expected result cannot authorize refresh or reveal their map", async () => {
+    const f = await fixture();
+    await f.request();
+    const foreignId = await f.t.run(async (ctx) => {
+      const articleId = await ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "foreign",
+        url: "https://example.com/foreign",
+        title: "Foreign",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      });
+      return ctx.db.insert("summaries", {
+        userId: "default_user",
+        articleId,
+        gist: "Foreign private map",
+        model: "fixture",
+        createdAt: Date.now(),
+      });
+    });
+    await expect(
+      f.reader.action(api.actions.summarize.generate, {
+        ...f.args,
+        expectedSummaryId: foreignId,
+      }),
+    ).rejects.toThrow("Summary changed");
+    expect(model.generate).toHaveBeenCalledTimes(1);
+    expect(
+      await f.reader.query(api.summaries.getByArticle, {
+        articleId: f.articleId,
+      }),
+    ).toMatchObject({ gist: "Current gist" });
   });
 
   it("expired leases recover only explicitly, with old and tokenless callbacks fenced", async () => {

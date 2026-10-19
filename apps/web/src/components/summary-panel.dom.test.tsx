@@ -196,6 +196,7 @@ describe("SummaryPanel open state", () => {
       title: "A saved article",
       paragraphs: ["One.", "Two."],
       sourceHash: await sourceHash(),
+      expectedSummaryId: summaryWithMap._id,
     });
     await act(async () =>
       reject(new Error("Summary is still running. Try again to check it.")),

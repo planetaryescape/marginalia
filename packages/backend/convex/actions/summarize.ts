@@ -95,9 +95,10 @@ export const generate = action({
     title: v.string(),
     // Sent by the reader so ¶ numbers match the paragraphs it renders
     paragraphs: v.array(v.string()),
-    // Optional only so pre-upgrade clients remain callable; missing proof is
-    // rejected before spending, never guessed from stored plain text.
+    // Supplied proofs are strict. Legacy callers instead bind their literal
+    // display to the server-entry source snapshot, not a reconstructed DOM.
     sourceHash: v.optional(v.string()),
+    expectedSummaryId: v.optional(v.id("summaries")),
   },
   handler: async (ctx, args) => {
     const total = args.paragraphs.length;

@@ -347,9 +347,6 @@ describe("models from the reader's own providers", () => {
         articleId,
         title: "A",
         paragraphs: ["Text"],
-        sourceHash: await (
-          await import("./lib/preparedRepresentation")
-        ).sourceHash(),
       }),
     ).rejects.toThrow(NO_PROVIDER_MESSAGE);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -461,9 +458,6 @@ describe("provider router", () => {
       articleId,
       title: "Reader article",
       paragraphs: ["Rest supports clear thinking."],
-      sourceHash: await (
-        await import("./lib/preparedRepresentation")
-      ).sourceHash(),
     });
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("https://api.anthropic.com/v1/messages");
