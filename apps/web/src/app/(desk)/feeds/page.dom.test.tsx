@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   keepFeed: vi.fn(),
   toggleActive: vi.fn(),
   pollNow: vi.fn(),
+  addBatch: vi.fn(),
 }));
 
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
@@ -49,6 +50,7 @@ vi.mock("convex/react", () => ({
     if (ref === "feeds.remove") return state.removeFeed;
     if (ref === "feedSuggestions.keep") return state.keepFeed;
     if (ref === "feeds.toggleActive") return state.toggleActive;
+    if (ref === "feeds.addBatch") return state.addBatch;
     return vi.fn().mockResolvedValue(null);
   },
 }));
@@ -114,6 +116,11 @@ beforeEach(() => {
   state.removeFeed.mockReset().mockResolvedValue(null);
   state.toggleActive.mockReset().mockResolvedValue(null);
   state.pollNow.mockReset().mockResolvedValue(null);
+  state.addBatch
+    .mockReset()
+    .mockImplementation(async ({ entries }: { entries: { url: string }[] }) =>
+      entries.map((entry) => ({ url: entry.url, status: "created" })),
+    );
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();
   state.keepFeed.mockReset().mockResolvedValue(null);
@@ -303,6 +310,70 @@ describe("dropping an OPML file on the page", () => {
     expect(document.body.textContent).not.toContain(
       "Drop to import your feeds",
     );
+  });
+
+  it("imports 25 outlines with three acknowledgements and shows duplicate/invalid entry feedback", async () => {
+    state.addBatch.mockImplementation(
+      async ({ entries }: { entries: { url: string }[] }) =>
+        entries.map((entry) => ({
+          url: entry.url,
+          status: entry.url.includes("feed12")
+            ? "duplicate"
+            : entry.url.includes("feed22")
+              ? "invalid"
+              : "created",
+          message: "Invalid feed URL",
+        })),
+    );
+    const opml = `<opml><body>${Array.from({ length: 25 }, (_, n) => `<outline xmlUrl="https://feed${n}.example/rss" text="Feed ${n}"/>`).join("")}</body></opml>`;
+    await act(async () => root.render(<FeedsPage />));
+    await act(async () => {
+      drag("drop", [new File([opml], "feeds.opml")]);
+    });
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "Imported 23 feeds; 1 already added; 1 invalid",
+      ),
+    );
+    expect(
+      state.addBatch.mock.calls.map(([args]) => args.entries.length),
+    ).toEqual([10, 10, 5]);
+    expect(document.querySelector("details")?.textContent).toContain(
+      "https://feed12.example/rss: Already added",
+    );
+    expect(document.querySelector("details")?.textContent).toContain(
+      "https://feed22.example/rss: Invalid feed URL",
+    );
+  });
+
+  it("keeps acknowledged progress on failure and retries only the remaining batch", async () => {
+    const opml = `<opml><body>${Array.from({ length: 11 }, (_, n) => `<outline xmlUrl="https://feed${n}.example/rss"/>`).join("")}</body></opml>`;
+    state.addBatch
+      .mockImplementationOnce(
+        async ({ entries }: { entries: { url: string }[] }) =>
+          entries.map((entry) => ({ url: entry.url, status: "created" })),
+      )
+      .mockRejectedValueOnce(new Error("Connection interrupted"));
+    await act(async () => root.render(<FeedsPage />));
+    await act(async () => {
+      drag("drop", [new File([opml], "feeds.opml")]);
+    });
+    await vi.waitFor(() =>
+      expect(document.querySelector(".inline-error")?.textContent).toContain(
+        "Connection interrupted",
+      ),
+    );
+    await act(async () => button("Retry")?.click());
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("Imported 11 feeds"),
+    );
+    expect(
+      state.addBatch.mock.calls.map(([args]) => args.entries[0].url),
+    ).toEqual([
+      "https://feed0.example/rss",
+      "https://feed10.example/rss",
+      "https://feed10.example/rss",
+    ]);
   });
 
   it("a feed added says so beside Add, not in a toast", async () => {

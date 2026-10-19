@@ -222,11 +222,21 @@ describe("checking feeds", () => {
       }),
     );
     await t.mutation(internal.feeds.markChecking, { userId: OWNER });
+    await t.mutation(internal.feedPolling.dispatch, {});
     const flag = (id: Id<"feeds">) =>
       t.run(async (ctx) => (await ctx.db.get(id))?.checkingSince ?? null);
     expect(await flag(feedId)).toBeTypeOf("number");
     expect(await flag(paused)).toBeNull();
     await t.mutation(internal.feeds.updateLastFetched, { feedId });
+    // A legacy writer must not retire a newer durable claim.
+    expect(await flag(feedId)).toBeTypeOf("number");
+    const state = await t.run((ctx) => ctx.db.query("feedPollStates").first());
+    if (!state) throw new Error("Missing feed claim");
+    await t.mutation(internal.feedPolling.finish, {
+      stateId: state._id,
+      generation: state.generation,
+      batches: 0,
+    });
     expect(await flag(feedId)).toBeNull();
   });
 });

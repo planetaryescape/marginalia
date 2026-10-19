@@ -2,7 +2,7 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiTokens } from "@/components/api-tokens";
 import { FeedSuggestion } from "@/components/feed-suggestion";
 import { FileDrop } from "@/components/file-drop";
@@ -24,6 +24,11 @@ import {
 } from "@/components/settings-controls";
 import { SettingsPage, SettingsSection } from "@/components/settings-section";
 import { useListKeys } from "@/lib/list-nav";
+import {
+  importOpmlBatches,
+  type OpmlOutcome,
+  type OpmlProgress,
+} from "@/lib/opml-import";
 import { formatDate } from "@/lib/utils";
 
 const CHECK_FLAG_TTL_MS = 10 * 60_000;
@@ -42,6 +47,7 @@ export default function FeedsPage() {
     return grouped;
   }, [suggestions]);
   const addFeed = useMutation(api.feeds.add);
+  const addBatch = useMutation(api.feeds.addBatch);
   const toggleActive = useMutation(api.feeds.toggleActive);
   const pollNow = useAction(api.feeds.pollNow);
   const [polling, setPolling] = useState(false);
@@ -69,6 +75,7 @@ export default function FeedsPage() {
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const importingRef = useRef(false);
   // Foreground failures stay beside the control that failed, with Retry where
   // trying again can change the result
   const [addFailure, setAddFailure] = useState<string | null>(null);
@@ -85,6 +92,7 @@ export default function FeedsPage() {
   // Results of the reader's own add and import, shown where they acted
   const [added, setAdded] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [importOutcomes, setImportOutcomes] = useState<OpmlOutcome[]>([]);
   useListKeys(
     {
       p: { action: "toggle" },
@@ -111,39 +119,54 @@ export default function FeedsPage() {
     setPolling(false);
   };
 
-  const importOpml = async (file: File) => {
+  const importOpml = async (file: File, resume?: OpmlProgress) => {
+    if (importingRef.current) return;
+    importingRef.current = true;
     setRemovingId(null);
     setImporting(true);
     setImportFailure(null);
     setImportResult(null);
+    let progress = resume;
     try {
-      const text = await file.text();
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(text, "text/xml");
-      if (doc.querySelector("parsererror"))
-        throw new Error("This OPML file isn't valid XML.");
-      const outlines = doc.querySelectorAll("outline[xmlUrl]");
-      if (!outlines.length)
-        throw new Error("No feed URLs found in this OPML file.");
-      let added = 0;
-      let skipped = 0;
-      for (const outline of outlines) {
-        const feedUrl = outline.getAttribute("xmlUrl");
-        const title =
-          outline.getAttribute("title") || outline.getAttribute("text") || "";
-        if (!feedUrl) continue;
-        try {
-          await addFeed({
-            url: feedUrl,
-            title: title || new URL(feedUrl).hostname,
-          });
-          added++;
-        } catch {
-          skipped++;
-        }
+      if (!progress) {
+        if (file.size > 2 * 1024 * 1024)
+          throw new Error("Choose an OPML file smaller than 2 MiB.");
+        setImportOutcomes([]);
+        const text = await file.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, "text/xml");
+        if (doc.querySelector("parsererror"))
+          throw new Error("This OPML file isn't valid XML.");
+        const outlines = doc.querySelectorAll("outline[xmlUrl]");
+        if (!outlines.length)
+          throw new Error("No feed URLs found in this OPML file.");
+        if (outlines.length > 2000)
+          throw new Error("Import at most 2,000 feeds from one file.");
+        progress = {
+          entries: Array.from(outlines, (outline) => ({
+            url: outline.getAttribute("xmlUrl") ?? "",
+            title:
+              outline.getAttribute("title") ||
+              outline.getAttribute("text") ||
+              "",
+          })),
+          offset: 0,
+          outcomes: [],
+        };
       }
+      await importOpmlBatches(progress, (entries) => addBatch({ entries }));
+      const added = progress.outcomes.filter(
+        (o) => o.status === "created",
+      ).length;
+      const duplicates = progress.outcomes.filter(
+        (o) => o.status === "duplicate",
+      ).length;
+      const invalid = progress.outcomes.filter(
+        (o) => o.status === "invalid",
+      ).length;
+      setImportOutcomes([...progress.outcomes]);
       setImportResult(
-        `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
+        `Imported ${added} feeds${duplicates ? `; ${duplicates} already added` : ""}${invalid ? `; ${invalid} invalid` : ""}`,
       );
     } catch (error) {
       setImportFailure({
@@ -151,9 +174,11 @@ export default function FeedsPage() {
           error instanceof Error
             ? error.message
             : "Couldn't read the OPML file.",
-        retry: () => void importOpml(file),
+        retry: () => void importOpml(file, progress),
       });
+      if (progress) setImportOutcomes([...progress.outcomes]);
     } finally {
+      importingRef.current = false;
       setImporting(false);
     }
   };
@@ -281,6 +306,24 @@ export default function FeedsPage() {
             </SavedMark>
           )}
         </p>
+
+        {importOutcomes.length > 0 && (
+          <details className="text-sm text-[var(--reader-muted)]">
+            <summary>Import details ({importOutcomes.length})</summary>
+            <ul>
+              {importOutcomes.map((outcome, index) => (
+                <li key={`${index}:${outcome.url}`}>
+                  {outcome.url}:{" "}
+                  {outcome.status === "created"
+                    ? "Added"
+                    : outcome.status === "duplicate"
+                      ? "Already added"
+                      : outcome.message || "Invalid feed"}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
 
         {importFailure &&
           (importFailure.retry ? (
