@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import type { QueryCtx } from "../_generated/server";
+import { readLegacyDocument } from "./articleMetadata";
+import { fingerprintState } from "./fingerprintMetadata";
 
 /**
  * The cheap gate of reading alongside (D-DES-046): a handful of numbers read
@@ -35,6 +37,70 @@ export async function computeFingerprint(
   userId: string,
   now = Date.now(),
 ): Promise<MarginaliaFingerprint> {
+  if ((await fingerprintState(ctx, userId))?.phase !== "done")
+    return computeLegacyFingerprint(ctx, userId, now);
+  const newest = (kind: "userNotes" | "companionThreads") =>
+    ctx.db
+      .query("marginaliaSourceStamps")
+      .withIndex("by_userId_and_kind_and_updatedAt", (q) =>
+        q.eq("userId", userId).eq("kind", kind),
+      )
+      .order("desc")
+      .first();
+  const [note, thread, chunk, highlights, embedded] = await Promise.all([
+    newest("userNotes"),
+    newest("companionThreads"),
+    ctx.db
+      .query("marginaliaSourceStamps")
+      .withIndex("by_userId_and_kind_and_indexedAt", (q) =>
+        q.eq("userId", userId).eq("kind", "noteChunks"),
+      )
+      .order("desc")
+      .first(),
+    ctx.db
+      .query("marginaliaSourceStamps")
+      .withIndex("by_userId_and_kind_and_sourceCreationTime", (q) =>
+        q.eq("userId", userId).eq("kind", "highlights"),
+      )
+      .order("desc")
+      .take(COUNT_CAP),
+    Promise.all(
+      (
+        ["userNotes", "highlights", "companionThreads", "articles"] as const
+      ).map(
+        async (kind) =>
+          (
+            await ctx.db
+              .query("marginaliaSourceStamps")
+              .withIndex("by_userId_and_kind_and_embeddedAt", (q) =>
+                q.eq("userId", userId).eq("kind", kind),
+              )
+              .order("desc")
+              .first()
+          )?.embeddedAt ?? 0,
+      ),
+    ),
+  ]);
+  return {
+    notesMax: note?.updatedAt ?? 0,
+    threadsMax: thread?.updatedAt ?? 0,
+    highlightsMax: highlights[0]?.sourceCreationTime ?? 0,
+    highlightsCount: highlights.length,
+    vaultIndexedMax: chunk?.indexedAt ?? 0,
+    embeddedMax: Math.max(...embedded),
+    passAt: now,
+  };
+}
+
+/** Mixed-version compatibility: never expose a partial metadata baseline.
+ * Legacy source reads share the existing cumulative 10 MiB body budget and
+ * reserve one whole document before each read. Oversize libraries fail closed
+ * until explicit migration, rather than guessing an unchanged/paid decision. */
+export async function computeLegacyFingerprint(
+  ctx: Pick<QueryCtx, "db">,
+  userId: string,
+  now = Date.now(),
+): Promise<MarginaliaFingerprint> {
   // Each table's newest embedding stamp, read from its own index so
   // independent writes never touch a shared row. (The library-article read
   // returns one whole article row, about 900 KB at worst; no lighter source
@@ -43,33 +109,53 @@ export async function computeFingerprint(
     table: "userNotes" | "highlights" | "companionThreads" | "articles",
   ) =>
     (
-      await ctx.db
-        .query(table)
-        .withIndex("by_user_embeddedAt", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first()
+      await readLegacyDocument(ctx, () =>
+        ctx.db
+          .query(table)
+          .withIndex("by_user_embeddedAt", (q) => q.eq("userId", userId))
+          .order("desc")
+          .first(),
+      )
     )?.embeddedAt ?? 0;
   const [note, thread, chunk, highlights, embedded] = await Promise.all([
-    ctx.db
-      .query("userNotes")
-      .withIndex("by_user_recent", (q) => q.eq("userId", userId))
-      .order("desc")
-      .first(),
-    ctx.db
-      .query("companionThreads")
-      .withIndex("by_user_updatedAt", (q) => q.eq("userId", userId))
-      .order("desc")
-      .first(),
-    ctx.db
-      .query("noteChunks")
-      .withIndex("by_user_indexedAt", (q) => q.eq("userId", userId))
-      .order("desc")
-      .first(),
-    ctx.db
-      .query("highlights")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .order("desc")
-      .take(COUNT_CAP),
+    readLegacyDocument(ctx, () =>
+      ctx.db
+        .query("userNotes")
+        .withIndex("by_user_recent", (q) => q.eq("userId", userId))
+        .order("desc")
+        .first(),
+    ),
+    readLegacyDocument(ctx, () =>
+      ctx.db
+        .query("companionThreads")
+        .withIndex("by_user_updatedAt", (q) => q.eq("userId", userId))
+        .order("desc")
+        .first(),
+    ),
+    readLegacyDocument(ctx, () =>
+      ctx.db
+        .query("noteChunks")
+        .withIndex("by_user_indexedAt", (q) => q.eq("userId", userId))
+        .order("desc")
+        .first(),
+    ),
+    (async () => {
+      const rows = [];
+      const iterator = ctx.db
+        .query("highlights")
+        .withIndex("by_userId", (q) => q.eq("userId", userId))
+        .order("desc")
+        [Symbol.asyncIterator]();
+      while (rows.length < COUNT_CAP) {
+        const row = await readLegacyDocument(ctx, async () => {
+          const next = await iterator.next();
+          return next.done ? null : next.value;
+        });
+        if (!row) break;
+        rows.push(row);
+      }
+      return rows;
+    })(),
     Promise.all(
       (
         ["userNotes", "highlights", "companionThreads", "articles"] as const

@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
+import { fingerprintTables } from "./lib/fingerprintSchema";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
@@ -13,6 +14,7 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  ...fingerprintTables,
   // Exact displayed Ask paragraphs: one replaceable, <=950KB version per scope.
   preparedArticles: defineTable({
     userId: v.string(),

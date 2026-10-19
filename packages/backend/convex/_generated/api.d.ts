@@ -51,6 +51,7 @@ import type * as externalApi from "../externalApi.js";
 import type * as feedStats from "../feedStats.js";
 import type * as feedSuggestions from "../feedSuggestions.js";
 import type * as feeds from "../feeds.js";
+import type * as fingerprintMetadata from "../fingerprintMetadata.js";
 import type * as functions from "../functions.js";
 import type * as highlights from "../highlights.js";
 import type * as home from "../home.js";
@@ -222,6 +223,7 @@ declare const fullApi: ApiFromModules<{
   feedStats: typeof feedStats;
   feedSuggestions: typeof feedSuggestions;
   feeds: typeof feeds;
+  fingerprintMetadata: typeof fingerprintMetadata;
   functions: typeof functions;
   highlights: typeof highlights;
   home: typeof home;
