@@ -1,10 +1,14 @@
 import { getConvexSize, type Value, v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { removeFromQueueStats } from "../readingQueue";
-import { unlinkArticleTags } from "../tags";
 import { bumpFeedArticleCount } from "./feedArticleCount";
+import {
+  type CheckingRemoval,
+  READER_DELETE_SPACING_MS,
+  resumeFeedRemoval,
+} from "./feedRemovalState";
 
 /** What happens to a feed's articles when the reader unsubscribes. */
 export const feedArticlesChoice = v.union(
@@ -178,35 +182,113 @@ export function removes(choice: FeedArticlesChoice, use: ArticleUse): boolean {
   return choice === "all" || !use.opened;
 }
 
-/**
- * Deletes an article and what was generated for it. Reading history stays so
- * statistics don't change; it holds only the ID, which readers already skip
- * when the article is gone.
- */
-export async function deleteArticle(
-  ctx: MutationCtx,
+/** The non-reflection protection policy, rechecked in the final deletion
+ * transaction. Reflection absence requires the separate complete current-job
+ * scan; this helper alone is NEVER deletion authority. */
+export async function articleUseWithoutReflections(
+  ctx: QueryCtx,
   article: Doc<"articles">,
-): Promise<void> {
-  const generated = await Promise.all(
-    (["annotations", "summaries", "reflections"] as const).map((table) =>
-      ctx.db
+): Promise<ArticleUse> {
+  for (const table of [
+    "highlights",
+    "userNotes",
+    "companionThreads",
+    "impressions",
+  ] as const) {
+    if (
+      await ctx.db
         .query(table)
         .withIndex("by_article", (q) => q.eq("articleId", article._id))
-        .collect(),
-    ),
-  );
-  const marks = await Promise.all(
-    (["savedArticles", "lovedArticles"] as const).map((table) =>
-      ctx.db
+        .first()
+    )
+      return { marked: true, opened: false };
+  }
+  if (article.finishedAt !== undefined) return { marked: false, opened: true };
+  for (const action of ["opened", "finished"] as const) {
+    if (
+      await ctx.db
+        .query("articleInteractions")
+        .withIndex("by_user_article_action", (q) =>
+          q
+            .eq("userId", article.userId)
+            .eq("articleId", article._id)
+            .eq("action", action),
+        )
+        .first()
+    )
+      return { marked: false, opened: true };
+  }
+  for (const table of [
+    "readingActivity",
+    "savedArticles",
+    "lovedArticles",
+  ] as const) {
+    if (
+      await ctx.db
         .query(table)
         .withIndex("by_user_article", (q) =>
           q.eq("userId", article.userId).eq("articleId", article._id),
         )
-        .collect(),
-    ),
-  );
-  for (const row of [...generated.flat(), ...marks.flat()])
-    await ctx.db.delete(row._id);
+        .first()
+    )
+      return { marked: false, opened: true };
+  }
+  return { marked: false, opened: false };
+}
+
+/**
+ * Production caller must consume its complete current proof in this transaction.
+ * Delete the source
+ * now and discard its generated material in bounded follow-up transactions.
+ * Reading history stays so statistics don't change; readers skip the gone ID.
+ */
+export async function finishFeedArticleProof(
+  ctx: MutationCtx,
+  job: CheckingRemoval,
+  article: Doc<"articles">,
+) {
+  const run = await ctx.db.get(job.runId);
+  if (run?.phase !== "feed" || run.currentJobId !== job._id)
+    throw new Error("Removal run no longer owns this proof");
+  await deleteArticle(ctx, article, job._id);
+  let readerDeletes = job.readerDeletes;
+  if (article.readerDocumentId)
+    await ctx.scheduler.runAfter(
+      readerDeletes++ * READER_DELETE_SPACING_MS,
+      internal.actions.readwiseSync.deleteReaderDocument,
+      { userId: job.userId, readerDocumentId: article.readerDocumentId },
+    );
+  await resumeFeedRemoval(ctx, job, readerDeletes);
+}
+
+export async function deleteArticle(
+  ctx: MutationCtx,
+  article: Doc<"articles">,
+  proofId?: Id<"feedArticleCleanup">,
+): Promise<void> {
+  const current = await ctx.db.get(article._id);
+  if (!current) return;
+  if (current.userId !== article.userId)
+    throw new Error("Article ownership changed");
+  // Transition before parent deletion, so the source lifecycle hook preserves
+  // the post-delete claim. Direct helper fixtures without a proof create only
+  // cleanup; production removal supplies its owned checking job.
+  let jobId = proofId;
+  const cleanup = {
+    userId: article.userId,
+    articleId: article._id,
+    phase: "annotations" as const,
+  };
+  if (jobId) {
+    const proof = await ctx.db.get(jobId);
+    if (
+      proof?.phase !== "checking" ||
+      proof.articleId !== article._id ||
+      proof.userId !== article.userId
+    )
+      throw new Error("Removal proof unavailable");
+    await ctx.db.replace(jobId, cleanup);
+  } else jobId = await ctx.db.insert("feedArticleCleanup", cleanup);
   // Looked-up words are the reader's own and stay; only their link goes. Done
   // in its own transactions, because a feed removal deletes many articles in
   // one and each can have hundreds of lookups.
@@ -219,9 +301,14 @@ export async function deleteArticle(
     userId: article.userId,
     articleId: article._id,
   });
-  await unlinkArticleTags(ctx, article._id);
   await removeFromQueueStats(ctx, article);
   await ctx.db.delete("articles", article._id);
+  // Parent absence immediately fences publication and reader access. Each
+  // cleanup transaction reads/deletes at most one potentially 1 MiB child;
+  // generic writer pre/post reads are included in that bound.
+  await ctx.scheduler.runAfter(0, internal.feedRemovalCleanup.discard, {
+    jobId,
+  });
   await ctx.scheduler.runAfter(0, internal.articleImportKeys.discard, {
     userId: article.userId,
     articleId: article._id,

@@ -19,7 +19,13 @@ import {
   tagReason,
   UNLIMITED,
 } from "./ideaGraph";
-import { articleTitle, type Db, type LoadedNode, linkRow } from "./ideaNodes";
+import {
+  articleCleanupPending,
+  articleTitle,
+  type Db,
+  type LoadedNode,
+  linkRow,
+} from "./ideaNodes";
 
 const LINKS_PER_NODE = 10;
 const TAGS_PER_ARTICLE = 6;
@@ -145,6 +151,7 @@ export async function connectionsOnArticle(
   articleId: Id<"articles">,
   budget: ReadBudget = UNLIMITED,
 ) {
+  if (await articleCleanupPending(ctx, articleId, budget)) return [];
   const rows = await budget.take(CONNECTION_ANNOTATIONS, (limit) =>
     ctx.db
       .query("annotations")
@@ -277,6 +284,7 @@ export async function gatherCandidates(
     );
     for (const row of rows) {
       if (row.userId !== userId) continue;
+      if (await articleCleanupPending(ctx, row.articleId, budget)) continue;
       const title = await articleTitle(ctx, userId, row.articleId, budget);
       for (const key of await ideasOnArticle(
         ctx,

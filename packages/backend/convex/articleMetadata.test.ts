@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, it, vi } from "vitest";
+import { finishArticleRemoval } from "../test/feedRemoval";
 import { metadataContext } from "../test/metadata";
 import { addReader, ownerTest, secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
@@ -602,6 +603,7 @@ describe("exact stored shelf membership counts", () => {
       if (!row) throw new Error("article fixture missing");
       await deleteArticle(ctx, row);
     });
+    await finishArticleRemoval(t, id);
     expect(await t.query(api.articleMetadata.counts, {})).toEqual({
       ready: true,
       saved: 0,

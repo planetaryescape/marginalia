@@ -2,6 +2,7 @@
 
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { finishArticleRemoval, proveArticleRemoval } from "../test/feedRemoval";
 import { metadataContext } from "../test/metadata";
 import {
   saveTestCredential,
@@ -209,11 +210,21 @@ describe("manual reannotation consuming lifecycle", () => {
       feedId,
       choice: "all",
     });
+    await proveArticleRemoval(f.t, f.articleId);
     hold.release();
     await running;
     expect(
       await f.reader.query(api.articles.getById, { articleId: f.articleId }),
     ).toBeNull();
+    const retained = await f.margin();
+    expect(retained.notes.map((note) => note.content)).toEqual([
+      "Successful old note",
+    ]);
+    expect(retained.reflections.map((row) => row.strongestPoint)).toEqual([
+      "Successful old reflection",
+    ]);
+    expect(retained.summaries).toEqual([]);
+    await finishArticleRemoval(f.t, f.articleId);
     expect(await f.margin()).toEqual({
       notes: [],
       reflections: [],

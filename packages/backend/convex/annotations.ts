@@ -42,6 +42,8 @@ export const markViewed = mutation({
     const annotation = await ctx.db.get("annotations", args.annotationId);
     if (annotation?.userId !== ctx.readerId)
       throw new Error("Annotation not found");
+    if (!(await ownedArticleCard(ctx, annotation.articleId, ctx.readerId)))
+      throw new Error("Annotation not found");
     if (!annotation.wasViewed)
       await ctx.db.patch(args.annotationId, { wasViewed: true });
   },
@@ -95,6 +97,8 @@ export const markDismissed = mutation({
     const annotation = await ctx.db.get("annotations", args.annotationId);
     if (annotation?.userId !== ctx.readerId)
       throw new Error("Annotation not found");
+    if (!(await ownedArticleCard(ctx, annotation.articleId, ctx.readerId)))
+      throw new Error("Annotation not found");
     await ctx.db.patch(args.annotationId, { wasDismissed: true });
   },
 });
@@ -102,6 +106,7 @@ export const markDismissed = mutation({
 export const deleteByArticle = internalMutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    if (!(await ctx.db.get(args.articleId))) return;
     // A pre-upgrade manual action may still be between its clear RPCs. It
     // cannot erase the retained/current margin after this source is adopted.
     if (await manualState(ctx, args.articleId)) return;
@@ -125,6 +130,8 @@ export const referencedArticle = query({
   handler: async (ctx, args) => {
     const annotation = await ctx.db.get("annotations", args.annotationId);
     if (annotation?.userId !== ctx.readerId || !annotation.articleRefId)
+      return null;
+    if (!(await ownedArticleCard(ctx, annotation.articleId, ctx.readerId)))
       return null;
     const article = await ownedArticleCard(
       ctx,
