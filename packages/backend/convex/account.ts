@@ -7,6 +7,7 @@ import { purgeArticleMetadata } from "./articleMetadata";
 import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { purgeCurrentReporting } from "./lib/currentReporting";
 import { purgeDictionary } from "./lib/dictionaryIndex";
 import { purgeDiscoveryRevision } from "./lib/discoveryRevision";
 import { purgeEdgeExplanations } from "./lib/edgeExplanations";
@@ -313,6 +314,14 @@ const STEPS: Step[] = [
     if (resumes) return resumes;
     const reporting = await purgeLegacyReporting(ctx, userId);
     if (reporting) return reporting;
+    const currentReporting = await purgeCurrentReporting(ctx, userId);
+    // A fully drained, tiny page can share this existing metadata round. Larger
+    // pages keep their own byte headroom; never schedule a redundant empty page.
+    if (
+      currentReporting.removed &&
+      (!currentReporting.complete || currentReporting.reservedBytes > 64 * 1024)
+    )
+      return currentReporting.removed;
     const removed = await purgeArticleMetadata(ctx, userId);
     if (removed) return removed;
     const manual = await purgeManualAnnotations(ctx, userId);

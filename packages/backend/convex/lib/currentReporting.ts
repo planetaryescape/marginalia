@@ -1,4 +1,4 @@
-import { convexToJson } from "convex/values";
+import { convexToJson, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { metadataLibraryRetained } from "./shelfCounts";
@@ -140,18 +140,44 @@ export async function currentDwellReader(ctx: QueryCtx, userId: string) {
 // Main calls this in the existing compact-metadata purge slot. Never paginate:
 // account may already have spent its single paginate in this transaction.
 export async function purgeCurrentReporting(ctx: MutationCtx, userId: string) {
-  for (const table of [
+  const MiB = 1024 * 1024;
+  let removed = 0;
+  let bytes = 0;
+  let complete = true;
+  tables: for (const table of [
     "visitReportingMetadata",
     "dwellReportingMetadata",
     "currentReportingState",
   ] as const) {
-    const rows = await ctx.db
-      .query(table)
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .take(100);
-    if (!rows.length) continue;
-    for (const row of rows) await ctx.db.delete(row._id);
-    return rows.length;
+    // Drain across table boundaries in one compact-metadata invocation, rather
+    // than scheduling a new account round for each singleton state. Reserve a
+    // whole possible document BEFORE each read; no hidden take(100) overshoot.
+    while (true) {
+      if (removed >= 100 || bytes + MiB > 2 * MiB) {
+        complete = false;
+        break tables;
+      }
+      const row = await ctx.db
+        .query(table)
+        .withIndex("by_userId", (q) => q.eq("userId", userId))
+        .first();
+      if (!row) break;
+      const size = getDocumentSize(row);
+      bytes += size;
+      // Deletion can read the old row too, including a generic writer's lookup.
+      // The row is now known in this snapshot: reserve two further actual sizes.
+      if (bytes + 2 * size > 2 * MiB) {
+        complete = false;
+        break tables;
+      }
+      await ctx.db.delete(row._id);
+      bytes += 2 * size;
+      removed++;
+    }
   }
-  return 0;
+  if (!complete && removed === 0)
+    throw new Error(
+      "Current reporting metadata exceeds the account purge budget",
+    );
+  return { removed, complete, reservedBytes: bytes };
 }

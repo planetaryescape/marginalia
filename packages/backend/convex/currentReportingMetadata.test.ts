@@ -169,6 +169,62 @@ it.each([
   expect(metrics.documentsWritten.used).toBe(0);
 });
 
+it("purges singleton current metadata across all three tables in one finite account round", async () => {
+  const f = await fixture();
+  await f.ready();
+  await f.t.run(async (ctx) => {
+    const { db } = metadataTriggers.wrapDB(ctx);
+    await db.insert("readingActivity", f.visit());
+    await db.insert("paragraphDwell", f.dwell());
+  });
+  const result = await f.t.run(async (ctx) => ({
+    page: await purgeCurrentReporting(ctx, f.userId),
+    metrics: await ctx.meta.getTransactionMetrics(),
+  }));
+  expect(result.page).toMatchObject({ removed: 4, complete: true });
+  expect(result.metrics.bytesRead.used).toBeLessThan(2 * 1024 * 1024);
+  expect(
+    await f.t.run((ctx) => purgeCurrentReporting(ctx, f.userId)),
+  ).toMatchObject({ removed: 0, complete: true });
+});
+
+it("reserves physical purge bytes before every read, even for oversized raw metadata arrays", async () => {
+  const f = await fixture();
+  await f.t.run(async (ctx) => {
+    for (let i = 0; i < 25; i++) {
+      const dwellId = await ctx.db.insert("paragraphDwell", f.dwell());
+      // Deliberately larger than the canonical <=1024-entry projection. The
+      // schema permits 8192 values; account cleanup must not take(100) blindly.
+      await ctx.db.insert("dwellReportingMetadata", {
+        dwellId,
+        userId: f.userId,
+        articleId: f.articleId,
+        sourceCreationTime: i,
+        updatedAt: Date.now(),
+        values: Array.from({ length: 8192 }, () => 1),
+      });
+    }
+  });
+  const first = await f.t.run(async (ctx) => ({
+    page: await purgeCurrentReporting(ctx, f.userId),
+    metrics: await ctx.meta.getTransactionMetrics(),
+  }));
+  expect(first.page.removed).toBeGreaterThan(0);
+  expect(first.page.removed).toBeLessThan(25);
+  expect(first.page.complete).toBe(false);
+  expect(first.metrics.bytesRead.used).toBeLessThan(2 * 1024 * 1024);
+  let removed = first.page.removed;
+  for (let round = 0; round < 10; round++) {
+    const page = await f.t.run((ctx) => purgeCurrentReporting(ctx, f.userId));
+    removed += page.removed;
+    if (page.complete) break;
+  }
+  expect(removed).toBe(25);
+  expect(
+    await f.t.run((ctx) => purgeCurrentReporting(ctx, f.userId)),
+  ).toMatchObject({ removed: 0, complete: true });
+});
+
 it("migrates both kinds one source row at a time while generic changes move behind the cursor", async () => {
   const f = await fixture();
   const ids = await f.t.run(async (ctx) => ({
@@ -372,7 +428,7 @@ it("retains disabled libraries, removes foreign-owner moves, and never recreates
     expect(await f.activate(kind)).toBe(false);
   }
   await f.t.run(async (ctx) => {
-    while (await purgeCurrentReporting(ctx, f.userId)) {
+    while ((await purgeCurrentReporting(ctx, f.userId)).removed) {
       /* bounded fixture */
     }
     expect(await ctx.db.query("currentReportingState").first()).toBeNull();

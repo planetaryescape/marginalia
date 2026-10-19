@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
+import { currentReportingTables } from "./lib/currentReportingSchema";
 import { discoveryEpochs } from "./lib/discoveryRevisionSchema";
 import { edgeExplanationState } from "./lib/edgeExplanations";
 import { feedPollTables } from "./lib/feedPollProtocol";
@@ -26,6 +27,7 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  ...currentReportingTables,
   discoveryEpochs,
   ...legacyReportingTables,
   ...feedPollTables,

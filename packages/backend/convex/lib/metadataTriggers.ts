@@ -1,6 +1,7 @@
 import { Triggers } from "convex-helpers/server/triggers";
 import type { DataModel } from "../_generated/dataModel";
 import { syncArticleMetadata, syncBookPartCard } from "./articleMetadata";
+import { syncDwellReporting, syncVisitReporting } from "./currentReporting";
 import { invalidateFeedPoll } from "./feedPollLifecycle";
 import { cancelFeedArticleProof } from "./feedRemovalState";
 import { syncFeedStatus } from "./feedStatus";
@@ -18,6 +19,12 @@ import { syncTagVectors } from "./tagVectors";
 import { syncTagVocabulary } from "./tagVocabulary";
 
 export const metadataTriggers = new Triggers<DataModel>();
+metadataTriggers.register("readingActivity", (ctx, change) =>
+  syncVisitReporting({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
+metadataTriggers.register("paragraphDwell", (ctx, change) =>
+  syncDwellReporting({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
 metadataTriggers.register("userNotes", (ctx, change) =>
   syncNoteReporting({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
 );

@@ -11,6 +11,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
 import { sealTokens } from "./lib/chatgptTokens";
+import { syncDwellReporting, syncVisitReporting } from "./lib/currentReporting";
 import { indexDictionaryLookup } from "./lib/dictionaryIndex";
 import { syncFeedStatus } from "./lib/feedStatus";
 import {
@@ -554,6 +555,43 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
   });
   await ctx.db.delete(orphan);
   await ctx.db.insert("discoveryEpochs", { userId, shard: 0, epoch: 1 });
+  const orphanVisit = await ctx.db.insert("readingActivity", {
+    userId,
+    articleId: orphan,
+    visitId: "orphan-report",
+    day: "fixture-day",
+    startedAt: now,
+    updatedAt: now,
+    activeTimeMs: 0,
+    visibleTimeMs: 0,
+    timeSpentMs: 0,
+    maxScrollPercent: 0,
+    annotationsOpened: [],
+  });
+  const visit = await ctx.db.get(orphanVisit);
+  if (!visit) throw new Error("Missing orphan visit");
+  await syncVisitReporting(ctx, null, visit);
+  await ctx.db.delete(orphanVisit);
+  const orphanDwell = await ctx.db.insert("paragraphDwell", {
+    userId,
+    articleId: orphan,
+    visitId: "orphan-report",
+    day: "fixture-day",
+    updatedAt: now,
+    dwell: { paragraph: 1000 },
+  });
+  const dwell = await ctx.db.get(orphanDwell);
+  if (!dwell) throw new Error("Missing orphan dwell");
+  await syncDwellReporting(ctx, null, dwell);
+  await ctx.db.delete(orphanDwell);
+  for (const kind of ["visits", "dwell"] as const)
+    await ctx.db.insert("currentReportingState", {
+      userId,
+      kind,
+      ready: true,
+      backfilled: true,
+      cursor: null,
+    });
   const orphanNote = await ctx.db.insert("userNotes", {
     userId,
     articleId: orphan,
@@ -885,6 +923,20 @@ describe("account deletion", () => {
       ).toEqual({ done: false, migrated: 0, retained: false });
       expect(
         await t.mutation(internal.legacyReportingMetadata.verifyAndActivate, {
+          userId: readerLibraryId,
+          kind,
+        }),
+      ).toBe(false);
+    }
+    for (const kind of ["visits", "dwell"] as const) {
+      expect(
+        await t.mutation(internal.currentReportingMetadata.migrate, {
+          userId: readerLibraryId,
+          kind,
+        }),
+      ).toEqual({ done: false, migrated: 0, retained: false });
+      expect(
+        await t.mutation(internal.currentReportingMetadata.verifyAndActivate, {
           userId: readerLibraryId,
           kind,
         }),
