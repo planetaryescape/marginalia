@@ -838,7 +838,27 @@ describe("account deletion", () => {
     );
     expect(await reader.query(api.auth.currentReader, {})).toBeNull();
 
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    try {
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.startsWith(
+          "finishAllScheduledFunctions: too many iterations.",
+        )
+      )
+        throw error;
+      // The helper throws after its 100th completed round without making the
+      // terminal empty check. Do not run another job or raise its iteration
+      // bound: accept only an already-drained queue, then assert all data gone.
+      const unfinished = await t.run(async (ctx) =>
+        (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+          (job) =>
+            job.state.kind === "pending" || job.state.kind === "inProgress",
+        ),
+      );
+      expect(unfinished).toEqual([]);
+    }
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     // Both new and pre-versioned queued pages are harmless after account purge.
     if (!legacyJob) throw new Error("Missing seeded colour job");

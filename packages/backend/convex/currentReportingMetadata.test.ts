@@ -510,6 +510,40 @@ it.each([
   }
 });
 
+it("uses no cursor journal across a moving clock and canonical-to-compact readiness switch", async () => {
+  const f = await fixture();
+  await f.t.run((ctx) => ctx.db.insert("readingActivity", f.visit()));
+  const args = { timeZone: "Europe/London", period: "month" } as const;
+  for (const compact of [false, true]) {
+    if (compact) {
+      vi.setSystemTime(Date.now() + 1000);
+      await f.ready();
+    }
+    const room = await f.client.run(async (ctx) => {
+      const prototype = Object.getPrototypeOf(
+        ctx.db
+          .query("readingActivity")
+          .withIndex("by_user_started", (q) => q.eq("userId", f.userId)),
+      );
+      // Test-only tripwire for the actual live InvalidCursor failure class.
+      // convex-test does not emulate the server's reactive pagination journal.
+      const journal = vi
+        .spyOn(prototype, "paginate")
+        .mockRejectedValue(
+          new Error("Reactive pagination journal must not be reused"),
+        );
+      try {
+        const value = await ctx.runQuery(api.stats.readingRoom, args);
+        expect(journal).not.toHaveBeenCalled();
+        return value;
+      } finally {
+        journal.mockRestore();
+      }
+    });
+    expect(room).toMatchObject({ activeTimeMs: 60_000, partial: false });
+  }
+});
+
 it("preserves Object.values order across rows rather than regrouping IEEE additions", async () => {
   const f = await fixture();
   await f.tag();
