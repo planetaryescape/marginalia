@@ -1,7 +1,7 @@
 import { getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { ownedArticle } from "./access";
+import { ownedArticle, ownedArticleCard } from "./access";
 import { query } from "./functions";
 import {
   bucketActiveMinutes,
@@ -376,9 +376,8 @@ export const roomArgs = {
 // read limit for the articles, tags and feeds the same query reads. Past it the
 // room says it is partial.
 const ROOM_VISITS = 1500;
-// Rows written before `estimatedReadMinutes` was copied onto them fall back to
-// reading the article, whose document can be close to a megabyte. This many
-// such reads per query; the backfill removes the need.
+// Older visits need an estimated-minutes card. Keep the existing join cap for
+// metadata-unready/deferred sources that still require guarded body fallback.
 const ARTICLE_FALLBACKS = 8;
 const ARTICLE_BATCH = 20;
 const ROOM_FEEDS = 200;
@@ -464,7 +463,7 @@ export const readingRoom = query({
       fallbacks++;
       lengths.set(
         id,
-        (await ownedArticle(ctx, id, ctx.readerId))?.estimatedReadMinutes,
+        (await ownedArticleCard(ctx, id, ctx.readerId))?.estimatedReadMinutes,
       );
     }
     const split = splitReads(

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { libraryIsActive, ownedArticle } from "./access";
+import { libraryIsActive, ownedArticleCard } from "./access";
 import { countFeedOutcome } from "./feedStats";
 import {
   internalMutation,
@@ -338,7 +338,7 @@ export const record = internalMutation({
 export const furthest = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    const article = await ownedArticle(ctx, args.articleId, ctx.readerId);
+    const article = await ownedArticleCard(ctx, args.articleId, ctx.readerId);
     if (!article) return null;
     return (await visitsOf(ctx, article)).reduce(
       (max, v) => Math.max(max, v.maxScrollPercent),
@@ -355,13 +355,16 @@ export const furthest = query({
 export const furthestPlace = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    const article = await ownedArticle(ctx, args.articleId, ctx.readerId);
+    const article = await ownedArticleCard(ctx, args.articleId, ctx.readerId);
     if (!article) return null;
     return pickFurthestPlace(await visitsOf(ctx, article));
   },
 });
 
-function visitsOf(ctx: QueryCtx, article: Doc<"articles">) {
+function visitsOf(
+  ctx: QueryCtx,
+  article: Pick<Doc<"articles">, "userId" | "_id">,
+) {
   return ctx.db
     .query("readingActivity")
     .withIndex("by_user_article", (q) =>

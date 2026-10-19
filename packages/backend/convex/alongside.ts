@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { libraryIsActive, ownedArticle } from "./access";
+import { libraryIsActive, ownedArticle, ownedArticleCard } from "./access";
 import { noteFields } from "./annotations";
 import {
   internalMutation,
@@ -181,7 +181,7 @@ export const requestAhead = mutation({
 export const workingSections = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId))) return [];
     const now = Date.now();
     const rows = await passRows(ctx, ctx.readerId, args.articleId).collect();
     return rows

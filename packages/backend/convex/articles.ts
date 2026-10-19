@@ -1,7 +1,7 @@
 import { ConvexError, type ObjectType, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { ownedArticle, requireArticle } from "./access";
+import { ownedArticle, ownedArticleCard, requireArticle } from "./access";
 import { wakeExtraction } from "./articleExtraction";
 import { syncBookFinished } from "./books";
 import { liveImport, markImportReady } from "./documentImports";
@@ -47,11 +47,11 @@ export const getById = query({
 export const headers = query({
   args: { articleIds: v.array(v.id("articles")) },
   handler: async (ctx, { articleIds }) => {
-    // Article rows can approach 1 MiB even though the response is tiny.
+    // Keep the legacy batch shape; current clients use articleMetadata.headers.
     if (articleIds.length > 8) throw new Error("Too many article headers");
     return Promise.all(
       [...new Set(articleIds)].map(async (articleId) => {
-        const article = await ownedArticle(ctx, articleId, ctx.readerId);
+        const article = await ownedArticleCard(ctx, articleId, ctx.readerId);
         return {
           articleId,
           article: article ? { title: article.title, url: article.url } : null,
