@@ -15,6 +15,7 @@ import {
 } from "./lib/manualAnnotations";
 import { isReading } from "./lib/shelfArticle";
 import { metadataLibraryRetained } from "./lib/shelfCounts";
+import { exactActiveAssignmentTags } from "./lib/tagAssignment";
 import {
   isTopicKey,
   MAX_TAGS_PER_ARTICLE,
@@ -182,10 +183,12 @@ export const assign = internalMutation({
       return [];
     await unlinkArticleTags(ctx, args.articleId);
 
-    const known = await ctx.db
-      .query("tags")
-      .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
-      .collect();
+    const known =
+      (await exactActiveAssignmentTags(ctx, args.userId, args.proposals)) ??
+      (await ctx.db
+        .query("tags")
+        .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
+        .collect());
     const linked = new Set<Id<"tags">>();
     const now = Date.now();
 

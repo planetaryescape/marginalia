@@ -17,6 +17,12 @@ export const tagVocabularyTables = {
     height: v.number(),
   })
     .index("by_tagId", ["tagId"])
+    .index("by_userId_and_key_and_sourceCreationTime_and_tagId", [
+      "userId",
+      "key",
+      "sourceCreationTime",
+      "tagId",
+    ])
     .index("by_userId", ["userId"]),
   // Rotations/height reads must never hydrate names, aliases or embedding text.
   tagVocabularyPayloads: defineTable({
