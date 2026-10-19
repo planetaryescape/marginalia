@@ -1,7 +1,27 @@
-import { v } from "convex/values";
+import { getConvexSize, type Infer, v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, internalQuery, query } from "./functions";
 import { readHashPage, writeManifest } from "./vaultFiles";
+
+// Source writes now also read their lifecycle trigger documents. Reserve 4 MiB
+// for manifests, stamps and routing; charge scan + delete reads and insertion
+// writes/trigger reads cumulatively, not merely the uploaded DTO size.
+function assertWriteBudget(
+  previous: Doc<"noteChunks">[],
+  next: Infer<typeof chunkValidator>[],
+  userId: string,
+) {
+  const oldBytes = previous.reduce((sum, row) => sum + getConvexSize(row), 0);
+  const newBytes = next.reduce(
+    (sum, row) => sum + getConvexSize({ ...row, userId }) + 256,
+    0,
+  );
+  if (3 * oldBytes + 2 * newBytes > 12 * 1024 * 1024)
+    throw new Error(
+      "Vault file exceeds atomic lifecycle write budget; preserved unchanged",
+    );
+}
 
 async function boundedFile(ctx: MutationCtx, userId: string, filePath: string) {
   const result = await ctx.db
@@ -65,6 +85,7 @@ export const deleteByFile = internalMutation({
   args: { userId: v.string(), filePath: v.string() },
   handler: async (ctx, args) => {
     const chunks = await boundedFile(ctx, args.userId, args.filePath);
+    assertWriteBudget(chunks, [], args.userId);
     for (const chunk of chunks) {
       await ctx.db.delete(chunk._id);
     }
@@ -80,6 +101,7 @@ export const insertBatch = internalMutation({
   handler: async (ctx, args) => {
     if (args.chunks.length > 25)
       throw new Error("Vault upload batch exceeds limit");
+    assertWriteBudget([], args.chunks, args.userId);
     for (const chunk of args.chunks) {
       await ctx.db.insert("noteChunks", { ...chunk, userId: args.userId });
       await writeManifest(ctx, args.userId, chunk.filePath, chunk.fileHash);
@@ -113,6 +135,7 @@ export const replaceFile = internalMutation({
       );
     }
     const previous = await boundedFile(ctx, args.userId, args.filePath);
+    assertWriteBudget(previous, args.chunks, args.userId);
     for (const chunk of previous) await ctx.db.delete(chunk._id);
     for (const chunk of args.chunks)
       await ctx.db.insert("noteChunks", { ...chunk, userId: args.userId });

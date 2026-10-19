@@ -1,10 +1,26 @@
 import { Triggers } from "convex-helpers/server/triggers";
 import type { DataModel } from "../_generated/dataModel";
 import { syncArticleMetadata, syncBookPartCard } from "./articleMetadata";
+import { syncFingerprintSource } from "./fingerprintMetadata";
 import { syncResumeEligibility } from "./readingResume";
 import { membershipChanged } from "./shelfCounts";
 
 export const metadataTriggers = new Triggers<DataModel>();
+for (const kind of [
+  "articles",
+  "userNotes",
+  "highlights",
+  "companionThreads",
+  "noteChunks",
+] as const)
+  metadataTriggers.register(kind, (ctx, change) =>
+    syncFingerprintSource(
+      { ...ctx, db: ctx.innerDb },
+      kind,
+      change.oldDoc,
+      change.newDoc,
+    ),
+  );
 metadataTriggers.register("articles", (ctx, change) =>
   syncArticleMetadata(
     { ...ctx, db: ctx.innerDb },

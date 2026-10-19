@@ -8,6 +8,7 @@ import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
+import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
 import { purgePreparedPage } from "./preparedArticles";
 import { purgeReadingResumes } from "./readingResume";
 import { purgeMetadata } from "./vaultFiles";
@@ -271,15 +272,21 @@ const STEPS: Step[] = [
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),
   ),
-  rows((ctx, u) =>
-    ctx.db
-      .query("noteChunks")
-      .withIndex("by_user", (q) => q.eq("userId", u))
-      .take(BATCH),
+  rows(
+    async (ctx, u) =>
+      (
+        await ctx.db
+          .query("noteChunks")
+          .withIndex("by_user", (q) => q.eq("userId", u))
+          .paginate(BODY_PAGE)
+      ).page,
+    PAGE_EMPTY,
   ),
   async (ctx, { userId }) => {
     const prepared = await purgePreparedPage(ctx, userId);
     if (prepared) return prepared;
+    const fingerprints = await purgeFingerprintMetadata(ctx, userId);
+    if (fingerprints) return fingerprints;
     const resumes = await purgeReadingResumes(ctx, userId);
     if (resumes) return resumes;
     const removed = await purgeArticleMetadata(ctx, userId);

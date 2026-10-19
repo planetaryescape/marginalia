@@ -574,6 +574,13 @@ describe("account deletion", () => {
       complete = false;
       for (let i = 0; i < 100 && !complete; i++) {
         complete = (
+          await t.mutation(internal.fingerprintMetadata.backfill, { userId })
+        ).complete;
+      }
+      expect(complete).toBe(true);
+      complete = false;
+      for (let i = 0; i < 100 && !complete; i++) {
+        complete = (
           await t.mutation(internal.readingResume.backfill, { userId })
         ).complete;
       }
@@ -627,6 +634,11 @@ describe("account deletion", () => {
         userId: readerLibraryId,
       }),
     ).toMatchObject({ inactive: true, complete: false });
+    expect(
+      await t.mutation(internal.fingerprintMetadata.backfill, {
+        userId: readerLibraryId,
+      }),
+    ).toMatchObject({ retained: false, complete: false });
     expect(
       await t.mutation(internal.readingResume.backfill, {
         userId: readerLibraryId,
