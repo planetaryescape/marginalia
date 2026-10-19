@@ -33,6 +33,11 @@ import {
   tagDisplayName,
 } from "./lib/tagMatching";
 import {
+  beginTagVectorProof,
+  stepTagVectorProof,
+  tagVectorProofStatus,
+} from "./lib/tagVectorProof";
+import {
   migrateTagVectors,
   verifyAndActivateTagVectors,
 } from "./lib/tagVectors";
@@ -412,6 +417,32 @@ export const migrateVectors = internalMutation({
 export const verifyAndActivateVectors = internalMutation({
   args: { userId: v.string() },
   handler: (ctx, args) => verifyAndActivateTagVectors(ctx, args.userId),
+});
+
+export const beginVectorProof = internalMutation({
+  args: {
+    userId: v.string(),
+    expectedStateId: v.id("tagVectorState"),
+    expectedRun: v.number(),
+  },
+  handler: (ctx, args) =>
+    beginTagVectorProof(
+      ctx,
+      args.userId,
+      args.expectedStateId,
+      args.expectedRun,
+    ),
+});
+
+export const vectorProofStatus = internalQuery({
+  args: { userId: v.string() },
+  handler: (ctx, args) => tagVectorProofStatus(ctx, args.userId),
+});
+
+export const stepVectorProof = internalMutation({
+  args: { userId: v.string(), token: v.string(), expectedStep: v.number() },
+  handler: (ctx, args) =>
+    stepTagVectorProof(ctx, args.userId, args.token, args.expectedStep),
 });
 
 /** Tags still without an embedding, for the embedding action. */

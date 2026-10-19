@@ -10,9 +10,7 @@ import {
   verifyAndActivateTagAliases,
 } from "./lib/tagAliases";
 import {
-  equalEmbedding,
   migrateTagVectors,
-  vectorState,
   verifyAndActivateTagVectors,
 } from "./lib/tagVectors";
 import { purgeTagVocabulary } from "./lib/tagVocabulary";
@@ -199,31 +197,46 @@ it("assigns actual candidate/semantic proposals and relinks with the unchanged 5
     "B12 vector migration maxima",
     JSON.stringify({ migrationRead, migrationWrite }),
   );
-  // Test-only physical stress activation: production correctly refuses this
-  // >8MB canonical baseline rather than claiming a partial page is complete.
+  // The legacy one-snapshot boolean still refuses this >8MB baseline.
   expect(
     await current.t.run((ctx) => verifyAndActivateTagVectors(ctx, userId)),
   ).toBe(false);
-  const vectors = await current.t.run((ctx) =>
-    ctx.db.query("tagVectors").collect(),
+  const initialProofStatus = await current.t.query(
+    internal.tags.vectorProofStatus,
+    { userId },
   );
-  expect(vectors).toHaveLength(540);
-  for (const row of vectors)
-    await current.t.run(async (ctx) => {
-      const canonical = await ctx.db.get(row.tagId);
-      expect(canonical?.key).toBe(row.key);
-      expect(canonical?._creationTime).toBe(row.sourceCreationTime);
-      expect(equalEmbedding(canonical?.embedding, row.embedding)).toBe(true);
-      expect(canonical?.aliases[0].length).toBeGreaterThan(15_500);
-      expect(canonical?.embedding).toHaveLength(1536);
-    });
-  await current.t.run(async (ctx) => {
-    const state = await vectorState(ctx, userId);
-    if (!state?.backfilled || state.overflow)
-      throw new Error("Incomplete stress vector index");
-    evidence("B12 vector stress readiness", JSON.stringify(state));
-    await ctx.db.patch(state._id, { ready: true });
+  if (!initialProofStatus) throw new Error("Missing vector proof state");
+  let proof = await current.t.mutation(internal.tags.beginVectorProof, {
+    userId,
+    expectedStateId: initialProofStatus.stateId,
+    expectedRun: 0,
   });
+  expect(proof).not.toBeNull();
+  const activationMetrics = [];
+  for (
+    let i = 0;
+    i < 100 && proof && proof.phase !== "complete" && proof.phase !== "failed";
+    i++
+  ) {
+    const { token, step: expectedStep } = proof;
+    const measured = await current.t.run(async (ctx) => {
+      const result = await ctx.runMutation(internal.tags.stepVectorProof, {
+        userId,
+        token,
+        expectedStep,
+      });
+      return { result, metrics: await ctx.meta.getTransactionMetrics() };
+    });
+    activationMetrics.push({ phase: proof.phase, ...measured.metrics });
+    expect(measured.metrics.bytesRead.used).toBeLessThan(8_000_000);
+    expect(measured.metrics.bytesWritten.used).toBeLessThan(10_000);
+    proof = measured.result;
+  }
+  expect(proof?.phase).toBe("complete");
+  evidence(
+    "B12 production paged vector activation",
+    JSON.stringify(activationMetrics),
+  );
   const semantic = {
     name: "semantic synonym",
     embedding: Array(1536).fill(0.125),
