@@ -3,9 +3,10 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { UserRound } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Component, type ReactNode, useEffect, useState } from "react";
 import { InstallAppContent, useInstallPrompt } from "@/components/install-app";
 import { ago } from "@/components/readwise-card";
 import { SOURCE_URL } from "@/components/source-link";
@@ -23,10 +24,7 @@ interface ReadwiseStatus {
   syncedAt: number | null;
   error: string | null;
 }
-interface FeedStatus {
-  title: string;
-  lastError?: string;
-}
+type FeedStatus = FunctionReturnType<typeof api.feedStatus.status>;
 
 /**
  * Seven swatches that change the theme live. They are menu items so arrow keys
@@ -106,21 +104,29 @@ function ThemeRow() {
  */
 export function sourceStatus(
   readwise: ReadwiseStatus | null | undefined,
-  feeds: FeedStatus[] | undefined,
-): { line: string; failed: boolean } {
-  const failing = feeds?.filter((feed) => feed.lastError) ?? [];
+  feeds: FeedStatus | null | undefined,
+) {
   if (readwise?.error) return { line: "Readwise sync failed.", failed: true };
-  if (failing.length === 1)
+  if (feeds?.ready && feeds.failed === 1)
     return {
-      line: `“${failing[0].title}” couldn’t be fetched.`,
+      line: `“${feeds.failingTitle}” couldn’t be fetched.`,
       failed: true,
     };
-  if (failing.length > 1)
+  if (feeds?.ready && feeds.failed > 1)
     return {
-      line: `${failing.length} sources couldn’t be fetched.`,
+      line: `${feeds.failed} sources couldn’t be fetched.`,
       failed: true,
     };
 
+  if (!feeds?.ready || readwise === undefined)
+    return {
+      line:
+        feeds === null
+          ? "Source status unavailable. Open Sources to check."
+          : "Checking source status…",
+      failed: false,
+      unknown: true,
+    };
   const parts: string[] = [];
   if (readwise) {
     if (!readwise.connected) parts.push("Readwise not connected");
@@ -128,27 +134,76 @@ export function sourceStatus(
       parts.push(`Readwise synced ${ago(readwise.syncedAt)}`);
     else parts.push("Readwise first sync pending");
   }
-  if (feeds) {
-    parts.push(
-      feeds.length === 0
-        ? "No sources yet"
-        : `${feeds.length} ${feeds.length === 1 ? "source" : "sources"}`,
-    );
-  }
+  parts.push(
+    feeds.total === 0
+      ? "No sources yet"
+      : `${feeds.total} ${feeds.total === 1 ? "source" : "sources"}`,
+  );
   return { line: parts.join(" · "), failed: false };
 }
 
 /**
  * The avatar at the right of the header. It holds the settings pages (Sources,
  * Readers for the owner, Account) and the rarely used actions, and shows one
- * line of source status. Only a failed source marks the avatar.
+ * line of source status. Unknown status stays marked until it can be verified.
  */
+class SourceStatusBoundary extends Component<
+  { children: ReactNode; readwise?: ReadwiseStatus },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? (
+      <AccountMenuContent
+        readwise={this.props.readwise}
+        feeds={null}
+        retryStatus={() => this.setState({ failed: false })}
+      />
+    ) : (
+      this.props.children
+    );
+  }
+}
+
 export function AccountMenu() {
-  const reader = useQuery(api.auth.currentReader, {});
+  return (
+    <SourceStatusBoundary>
+      <ReadwiseStatusSubscription />
+    </SourceStatusBoundary>
+  );
+}
+
+function ReadwiseStatusSubscription() {
   const readwise = useQuery(api.readwise.status, {});
-  // Exact source/error summary needs maintained counters; don't add another
-  // all-row counting query while that migration is still pending.
-  const feeds = useQuery(api.feeds.list, {});
+  return (
+    <SourceStatusBoundary readwise={readwise}>
+      <SourceStatusSubscription readwise={readwise} />
+    </SourceStatusBoundary>
+  );
+}
+
+function SourceStatusSubscription({
+  readwise,
+}: {
+  readwise: ReadwiseStatus | undefined;
+}) {
+  const feeds = useQuery(api.feedStatus.status, {});
+  return <AccountMenuContent readwise={readwise} feeds={feeds} />;
+}
+
+function AccountMenuContent({
+  readwise,
+  feeds,
+  retryStatus,
+}: {
+  readwise: ReadwiseStatus | undefined;
+  feeds: FeedStatus | null | undefined;
+  retryStatus?: () => void;
+}) {
+  const reader = useQuery(api.auth.currentReader, {});
   const isOwner = reader?.isOwner === true;
   const waiting =
     useQuery(api.waitlist.pendingCount, isOwner ? {} : "skip") ?? 0;
@@ -173,16 +228,20 @@ export function AccountMenu() {
             <button
               type="button"
               aria-label={
-                status.failed ? "Account, a source needs attention" : "Account"
+                status.failed
+                  ? "Account, a source needs attention"
+                  : status.unknown
+                    ? "Account, source status unavailable"
+                    : "Account"
               }
               title="Account"
               className="relative flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-full ring-1 ring-[var(--reader-border-strong)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
             >
               <UserRound size={17} />
-              {status.failed && (
+              {(status.failed || status.unknown) && (
                 <span
                   aria-hidden
-                  data-source-status="failed"
+                  data-source-status={status.failed ? "failed" : "unknown"}
                   className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[var(--danger)] ring-2 ring-[var(--reader-bg)]"
                 />
               )}
@@ -216,6 +275,11 @@ export function AccountMenu() {
                 {status.line}
               </span>
             </DropdownMenu.Label>
+            {retryStatus && (
+              <DropdownMenu.Item className={MENU_ITEM} onSelect={retryStatus}>
+                Retry source status
+              </DropdownMenu.Item>
+            )}
             <DropdownMenu.Separator className={HAIRLINE} />
             {/* The header shows Your reading from md up; the phone bar has no slot for it */}
             <DropdownMenu.Item className={cn(MENU_ITEM, "md:hidden")} asChild>
