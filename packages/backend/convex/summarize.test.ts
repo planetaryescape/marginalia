@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ownerWithKey } from "../test/owner";
 import { api } from "./_generated/api";
-import { sourceHash } from "./lib/preparedRepresentation";
 
 const modules = import.meta.glob("./**/*.ts");
 afterEach(() => {
@@ -81,7 +80,6 @@ describe("article summaries", () => {
       articleId,
       title: "A saved article",
       paragraphs: ["Rest supports clear thinking."],
-      sourceHash: await sourceHash(),
     });
     expect(
       await t.query(api.summaries.getByArticle, { articleId }),

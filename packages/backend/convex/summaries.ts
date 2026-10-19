@@ -35,6 +35,7 @@ export const claimFull = internalMutation({
     title: v.string(),
     paragraphs: v.array(v.string()),
     sourceHash: v.optional(v.string()),
+    expectedSummaryId: v.optional(v.id("summaries")),
   },
   handler: async (ctx, args) => {
     const article = await requireArticle(ctx, args.articleId, args.userId);
@@ -42,10 +43,10 @@ export const claimFull = internalMutation({
       throw new Error("Library unavailable");
     if (
       article.bookUnitCount ||
-      !args.sourceHash ||
-      args.sourceHash !==
-        (await sourceHash(article.content, article.contentHtml)) ||
-      args.title !== article.title
+      (args.sourceHash !== undefined &&
+        (args.sourceHash !==
+          (await sourceHash(article.content, article.contentHtml)) ||
+          args.title !== article.title))
     )
       throw new Error("Reload the article before generating its summary");
     if (
@@ -55,6 +56,9 @@ export const claimFull = internalMutation({
         950_000
     )
       throw new Error("Summary representation too large or empty");
+    // A legacy caller cannot prove its earlier DOM snapshot. Bind its literal
+    // title/paragraphs to this server-entry source/model snapshot instead; the
+    // publication fence must still reject any subsequent source/model change.
     const source = await summarySource(ctx, article);
     const input = await sha256Hex(
       JSON.stringify([
@@ -64,23 +68,52 @@ export const claimFull = internalMutation({
       ]),
     );
     const old = await summaryState(ctx, args.articleId);
+    const current = await ctx.db
+      .query("summaries")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .first();
+    if (current && current.userId !== args.userId)
+      throw new Error("Summary ownership changed");
+    const sameInput = old?.userId === args.userId && old.input === input;
+    // Deleted old IDs are vouched for only by this private current-input claim,
+    // never by a caller's guess about which map an earlier run replaced.
     if (
-      old?.userId === args.userId &&
-      old.input === input &&
+      args.expectedSummaryId !== undefined &&
+      args.expectedSummaryId !== current?._id &&
+      !(sameInput && old.replacesSummaryId === args.expectedSummaryId)
+    )
+      throw new Error(
+        "Summary changed. Use the latest visible map to redo it.",
+      );
+    if (
+      sameInput &&
       old.status === "complete" &&
-      old.resultId &&
-      (await ctx.db.get(old.resultId))
+      current &&
+      old.resultId === current._id &&
+      // New ordinary calls reuse; a refresh of the current visible map buys
+      // one replacement. Old clients had only an explicit generate/redo call,
+      // so their completed calls retain that behavior (in-flight calls join).
+      (args.expectedSummaryId !== undefined
+        ? args.expectedSummaryId !== current._id
+        : args.sourceHash !== undefined)
     )
       return { kind: "complete" as const, run: old.run };
     if (old?.status === "running" && old.leaseUntil > Date.now()) {
-      if (old.userId !== args.userId || old.input !== input)
+      if (!sameInput)
         throw new Error(
           "Another summary is running. Try again after it settles",
         );
       return { kind: "join" as const, run: old.run };
     }
+    if (
+      args.expectedSummaryId !== undefined &&
+      args.expectedSummaryId !== current?._id
+    )
+      throw new Error(
+        "Summary changed. Use the latest visible map to redo it.",
+      );
     const attempts =
-      old?.userId === args.userId && old.input === input ? old.attempts + 1 : 1;
+      sameInput && old.status !== "complete" ? old.attempts + 1 : 1;
     if (attempts > SUMMARY_ATTEMPTS)
       throw new Error("Summary attempt limit reached for this input");
     const row = {
@@ -92,6 +125,7 @@ export const claimFull = internalMutation({
       attempts,
       status: "running" as const,
       leaseUntil: Date.now() + SUMMARY_LEASE_MS,
+      replacesSummaryId: current?._id,
     };
     if (old) await ctx.db.replace(old._id, row);
     else await ctx.db.insert("fullSummaryState", row);

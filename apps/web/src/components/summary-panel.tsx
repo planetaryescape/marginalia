@@ -197,6 +197,7 @@ export const SummaryPanel = memo(function SummaryPanel({
         title,
         paragraphs,
         sourceHash: await sourceHash(content, contentHtml),
+        expectedSummaryId: summary?._id,
       });
       if (epoch === requestEpoch.current) setExpanded(true);
     } catch (error) {
