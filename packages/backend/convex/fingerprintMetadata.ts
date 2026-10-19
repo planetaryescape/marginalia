@@ -4,6 +4,11 @@ import {
   fingerprintState,
   syncFingerprintSource,
 } from "./lib/fingerprintMetadata";
+import {
+  computeFingerprint,
+  computeLegacyFingerprint,
+  sameFingerprint,
+} from "./lib/marginaliaFingerprint";
 import { metadataLibraryRetained } from "./lib/shelfCounts";
 
 export const status = internalQuery({
@@ -16,6 +21,23 @@ export const status = internalQuery({
       ready: state?.phase === "done",
       phase: state?.phase ?? null,
     };
+  },
+});
+
+/** Explicit migration postcondition, never the hot alongside path. Both reads
+ * use one snapshot; no baseline is changed and no model work is scheduled. */
+export const verify = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const retained = await metadataLibraryRetained(ctx, userId);
+    const ready =
+      retained && (await fingerprintState(ctx, userId))?.phase === "done";
+    if (!ready) return { ready: false, matches: null };
+    const [current, legacy] = await Promise.all([
+      computeFingerprint(ctx, userId, 0),
+      computeLegacyFingerprint(ctx, userId, 0),
+    ]);
+    return { ready: true, matches: sameFingerprint(current, legacy) };
   },
 });
 

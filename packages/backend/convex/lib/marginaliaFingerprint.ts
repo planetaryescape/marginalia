@@ -117,51 +117,52 @@ export async function computeLegacyFingerprint(
           .first(),
       )
     )?.embeddedAt ?? 0;
-  const [note, thread, chunk, highlights, embedded] = await Promise.all([
-    readLegacyDocument(ctx, () =>
-      ctx.db
-        .query("userNotes")
-        .withIndex("by_user_recent", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first(),
-    ),
-    readLegacyDocument(ctx, () =>
-      ctx.db
-        .query("companionThreads")
-        .withIndex("by_user_updatedAt", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first(),
-    ),
-    readLegacyDocument(ctx, () =>
-      ctx.db
-        .query("noteChunks")
-        .withIndex("by_user_indexedAt", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first(),
-    ),
-    (async () => {
-      const rows = [];
-      const iterator = ctx.db
-        .query("highlights")
-        .withIndex("by_userId", (q) => q.eq("userId", userId))
-        .order("desc")
-        [Symbol.asyncIterator]();
-      while (rows.length < COUNT_CAP) {
-        const row = await readLegacyDocument(ctx, async () => {
-          const next = await iterator.next();
-          return next.done ? null : next.value;
-        });
-        if (!row) break;
-        rows.push(row);
-      }
-      return rows;
-    })(),
-    Promise.all(
-      (
-        ["userNotes", "highlights", "companionThreads", "articles"] as const
-      ).map(newestEmbedded),
-    ),
-  ]);
+  // Legacy body reads already share a serial byte-reservation queue. Await
+  // each one before starting another so a failed budget cannot leave queued
+  // database reads running after this query returns its error.
+  const note = await readLegacyDocument(ctx, () =>
+    ctx.db
+      .query("userNotes")
+      .withIndex("by_user_recent", (q) => q.eq("userId", userId))
+      .order("desc")
+      .first(),
+  );
+  const thread = await readLegacyDocument(ctx, () =>
+    ctx.db
+      .query("companionThreads")
+      .withIndex("by_user_updatedAt", (q) => q.eq("userId", userId))
+      .order("desc")
+      .first(),
+  );
+  const chunk = await readLegacyDocument(ctx, () =>
+    ctx.db
+      .query("noteChunks")
+      .withIndex("by_user_indexedAt", (q) => q.eq("userId", userId))
+      .order("desc")
+      .first(),
+  );
+  const highlights = [];
+  const iterator = ctx.db
+    .query("highlights")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .order("desc")
+    [Symbol.asyncIterator]();
+  while (highlights.length < COUNT_CAP) {
+    const row = await readLegacyDocument(ctx, async () => {
+      const next = await iterator.next();
+      return next.done ? null : next.value;
+    });
+    if (!row) break;
+    highlights.push(row);
+  }
+  const embedded: number[] = [];
+  for (const table of [
+    "userNotes",
+    "highlights",
+    "companionThreads",
+    "articles",
+  ] as const)
+    embedded.push(await newestEmbedded(table));
   return {
     notesMax: note?.updatedAt ?? 0,
     threadsMax: thread?.updatedAt ?? 0,

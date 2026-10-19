@@ -87,6 +87,8 @@ import type * as lib_embeddings from "../lib/embeddings.js";
 import type * as lib_externalApi from "../lib/externalApi.js";
 import type * as lib_feedArticleCount from "../lib/feedArticleCount.js";
 import type * as lib_feedRemoval from "../lib/feedRemoval.js";
+import type * as lib_fingerprintMetadata from "../lib/fingerprintMetadata.js";
+import type * as lib_fingerprintSchema from "../lib/fingerprintSchema.js";
 import type * as lib_ideaGraph from "../lib/ideaGraph.js";
 import type * as lib_ideaNodes from "../lib/ideaNodes.js";
 import type * as lib_ideaSignals from "../lib/ideaSignals.js";
@@ -259,6 +261,8 @@ declare const fullApi: ApiFromModules<{
   "lib/externalApi": typeof lib_externalApi;
   "lib/feedArticleCount": typeof lib_feedArticleCount;
   "lib/feedRemoval": typeof lib_feedRemoval;
+  "lib/fingerprintMetadata": typeof lib_fingerprintMetadata;
+  "lib/fingerprintSchema": typeof lib_fingerprintSchema;
   "lib/ideaGraph": typeof lib_ideaGraph;
   "lib/ideaNodes": typeof lib_ideaNodes;
   "lib/ideaSignals": typeof lib_ideaSignals;

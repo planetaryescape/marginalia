@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import { addReader } from "../test/owner";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import authSchema from "./betterAuth/schema";
 import { syncArticleMetadata, syncBookPartCard } from "./lib/articleMetadata";
 import schema from "./schema";
@@ -89,8 +89,30 @@ it("purges valid near-limit bodies under a cumulative 4 MiB read budget", async 
         text,
         createdAt: index,
       });
+      await ctx.db.insert("noteChunks", {
+        userId: libraryId,
+        filePath: `large-${index}.md`,
+        fileName: "Large note",
+        chunkIndex: 0,
+        content: text,
+        fileHash: "fixture",
+        embedding: [],
+        indexedAt: index,
+      });
     });
   }
+  let complete = false;
+  for (let i = 0; i < 100 && !complete; i++) {
+    complete = (
+      await t.mutation(internal.fingerprintMetadata.backfill, {
+        userId: libraryId,
+      })
+    ).complete;
+  }
+  expect(complete).toBe(true);
+  expect(
+    await t.run((ctx) => ctx.db.query("marginaliaSourceStamps").take(64)),
+  ).toHaveLength(30);
   // A row-count-only policy really does fail for valid stored documents.
   await expect(
     t.run((ctx) => ctx.db.query("userNotes").take(64)),
@@ -104,6 +126,9 @@ it("purges valid near-limit bodies under a cumulative 4 MiB read budget", async 
     "lookups",
     "highlights",
     "articles",
+    "noteChunks",
+    "marginaliaSourceStamps",
+    "marginaliaFingerprintState",
     "articleMetadata",
     "bookPartCards",
     "libraryMetadataState",

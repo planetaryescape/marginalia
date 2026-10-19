@@ -70,6 +70,44 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("verifies migration against one legacy snapshot without accepting partial or stale metadata", async () => {
+  const t = fixture();
+  const args = { userId: OWNER };
+  const articleId = await t.run((ctx) => ctx.db.insert("articles", article()));
+  expect(await t.query(internal.fingerprintMetadata.verify, args)).toEqual({
+    ready: false,
+    matches: null,
+  });
+  await migrate(t);
+  expect(await t.query(internal.fingerprintMetadata.verify, args)).toEqual({
+    ready: true,
+    matches: true,
+  });
+  // Deliberately bypass supported triggers to prove the verifier detects a
+  // mismatched derived baseline rather than merely checking its ready flag.
+  await t.run((ctx) => ctx.db.patch(articleId, { embeddedAt: 42 }));
+  expect(await t.query(internal.fingerprintMetadata.verify, args)).toEqual({
+    ready: true,
+    matches: false,
+  });
+});
+
+it("starts no further legacy body reads after an earlier source read fails", async () => {
+  const t = fixture();
+  await t.run(async (ctx) => {
+    const reads = vi.spyOn(ctx.db, "query").mockImplementationOnce(() => {
+      throw new Error("Synthetic source read failure");
+    });
+    await expect(computeLegacyFingerprint(ctx, OWNER)).rejects.toThrow(
+      "Synthetic source read failure",
+    );
+    // Let any wrongly queued reservation callbacks run while this transaction
+    // is still open. A failing Promise.all must not abandon its child reads.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reads).toHaveBeenCalledTimes(1);
+  });
+});
+
 it("keeps ready checks below 128 KiB and the unchanged public gate below 1.25 MiB with near-limit bodies and 260 vectors", async () => {
   vi.useFakeTimers();
   const t = fixture();
