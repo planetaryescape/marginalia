@@ -156,6 +156,7 @@ import type * as lib_tagAliasSchema from "../lib/tagAliasSchema.js";
 import type * as lib_tagAliases from "../lib/tagAliases.js";
 import type * as lib_tagAssignment from "../lib/tagAssignment.js";
 import type * as lib_tagMatching from "../lib/tagMatching.js";
+import type * as lib_tagVectorProof from "../lib/tagVectorProof.js";
 import type * as lib_tagVectorSchema from "../lib/tagVectorSchema.js";
 import type * as lib_tagVectors from "../lib/tagVectors.js";
 import type * as lib_tagVocabulary from "../lib/tagVocabulary.js";
@@ -358,6 +359,7 @@ declare const fullApi: ApiFromModules<{
   "lib/tagAliases": typeof lib_tagAliases;
   "lib/tagAssignment": typeof lib_tagAssignment;
   "lib/tagMatching": typeof lib_tagMatching;
+  "lib/tagVectorProof": typeof lib_tagVectorProof;
   "lib/tagVectorSchema": typeof lib_tagVectorSchema;
   "lib/tagVectors": typeof lib_tagVectors;
   "lib/tagVocabulary": typeof lib_tagVocabulary;
