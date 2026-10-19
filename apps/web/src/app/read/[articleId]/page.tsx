@@ -1211,6 +1211,8 @@ export default function ReadPage() {
               <SummaryPanel
                 articleId={articleId as any}
                 title={article.title}
+                content={article.content}
+                contentHtml={article.contentHtml}
                 wordCount={article.wordCount}
                 summary={summary}
                 containerRef={articleRef}

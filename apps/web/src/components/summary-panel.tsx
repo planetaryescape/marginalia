@@ -1,10 +1,11 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
+import { sourceHash } from "@marginalia/backend/prepared-representation";
 import { useAction } from "convex/react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { ArrowRight, ChevronDown, RotateCcw } from "lucide-react";
-import { lazy, memo, Suspense, useEffect, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import { modelName } from "@/lib/models";
 import { getArticleBody, getParagraphs, paragraphText } from "@/lib/paragraphs";
 import { useCommand } from "@/lib/shortcuts";
@@ -132,6 +133,8 @@ function Layer({
 export const SummaryPanel = memo(function SummaryPanel({
   articleId,
   title,
+  content,
+  contentHtml,
   wordCount,
   summary,
   containerRef,
@@ -141,6 +144,8 @@ export const SummaryPanel = memo(function SummaryPanel({
 }: {
   articleId: Id<"articles">;
   title: string;
+  content?: string;
+  contentHtml?: string;
   wordCount: number | undefined;
   summary: Doc<"summaries"> | null | undefined;
   containerRef: React.RefObject<HTMLElement | null>;
@@ -157,6 +162,15 @@ export const SummaryPanel = memo(function SummaryPanel({
   const [error, setError] = useState<string | null>(null);
   // A stored summary starts folded on later visits; a fresh one opens
   const [expanded, setExpanded] = useState(false);
+  const requestEpoch = useRef(0);
+  useEffect(() => {
+    requestEpoch.current++;
+    setLoading(false);
+    setError(null);
+    return () => {
+      requestEpoch.current++;
+    };
+  }, [articleId, content, contentHtml, title]);
   useEffect(() => {
     onExpandedChange?.(expanded);
     return () => onExpandedChange?.(false);
@@ -171,18 +185,30 @@ export const SummaryPanel = memo(function SummaryPanel({
   };
 
   const run = async () => {
+    const epoch = ++requestEpoch.current;
     const paragraphs = getParagraphs(getArticleBody(containerRef.current)).map(
       paragraphText,
     );
     setError(null);
     setLoading(true);
     try {
-      await generate({ articleId, title, paragraphs });
-      setExpanded(true);
-    } catch {
-      setError("Couldn't summarise this one. Try again.");
+      await generate({
+        articleId,
+        title,
+        paragraphs,
+        sourceHash: await sourceHash(content, contentHtml),
+        expectedSummaryId: summary?._id,
+      });
+      if (epoch === requestEpoch.current) setExpanded(true);
+    } catch (error) {
+      if (epoch === requestEpoch.current)
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Couldn't summarise this one. Try again.",
+        );
     } finally {
-      setLoading(false);
+      if (epoch === requestEpoch.current) setLoading(false);
     }
   };
 
@@ -193,7 +219,7 @@ export const SummaryPanel = memo(function SummaryPanel({
       .join(" ")
       .split(/\s+/).length;
 
-  const state = loading ? "loading" : summary ? "ready" : "idle";
+  const state = summary ? "ready" : loading ? "loading" : "idle";
 
   // "u" on the reading page: summarise, or fold and unfold an existing summary
   useCommand("toggle-summary", () => {
@@ -218,6 +244,7 @@ export const SummaryPanel = memo(function SummaryPanel({
             key="idle"
             type="button"
             onClick={run}
+            disabled={loading}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.15 } }}
@@ -442,10 +469,15 @@ export const SummaryPanel = memo(function SummaryPanel({
                         <button
                           type="button"
                           onClick={run}
+                          disabled={loading}
                           className="ml-auto flex items-center gap-1 hover:text-[var(--reader-fg)] transition-colors"
                         >
                           <RotateCcw size={11} />{" "}
-                          {summary.thesis ? "Redo" : "Refresh summary"}
+                          {loading
+                            ? "Generating…"
+                            : summary.thesis
+                              ? "Redo"
+                              : "Refresh summary"}
                         </button>
                       )}
                     </motion.div>
@@ -456,6 +488,11 @@ export const SummaryPanel = memo(function SummaryPanel({
           </motion.div>
         )}
       </AnimatePresence>
+      {error && summary && (
+        <p role="alert" className="px-5 pb-4 text-sm">
+          {error}
+        </p>
+      )}
     </motion.section>
   );
 });

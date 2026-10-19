@@ -92,6 +92,8 @@ import type * as lib_feedPollProtocol from "../lib/feedPollProtocol.js";
 import type * as lib_feedRemoval from "../lib/feedRemoval.js";
 import type * as lib_fingerprintMetadata from "../lib/fingerprintMetadata.js";
 import type * as lib_fingerprintSchema from "../lib/fingerprintSchema.js";
+import type * as lib_fullSummaries from "../lib/fullSummaries.js";
+import type * as lib_fullSummaryTriggers from "../lib/fullSummaryTriggers.js";
 import type * as lib_highlightIdentity from "../lib/highlightIdentity.js";
 import type * as lib_highlightIdentitySchema from "../lib/highlightIdentitySchema.js";
 import type * as lib_ideaGraph from "../lib/ideaGraph.js";
@@ -274,6 +276,8 @@ declare const fullApi: ApiFromModules<{
   "lib/feedRemoval": typeof lib_feedRemoval;
   "lib/fingerprintMetadata": typeof lib_fingerprintMetadata;
   "lib/fingerprintSchema": typeof lib_fingerprintSchema;
+  "lib/fullSummaries": typeof lib_fullSummaries;
+  "lib/fullSummaryTriggers": typeof lib_fullSummaryTriggers;
   "lib/highlightIdentity": typeof lib_highlightIdentity;
   "lib/highlightIdentitySchema": typeof lib_highlightIdentitySchema;
   "lib/ideaGraph": typeof lib_ideaGraph;

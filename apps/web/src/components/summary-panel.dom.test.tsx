@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
+import { sourceHash } from "@marginalia/backend/prepared-representation";
 import { act, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -81,6 +82,7 @@ let container: HTMLElement;
 let mount: HTMLElement;
 
 beforeEach(() => {
+  generate.mockReset().mockResolvedValue(undefined);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   document.body.innerHTML = `<div id="reader"><div data-article-body><p data-para>One.</p><p data-para>Two.</p></div></div>`;
   container = document.getElementById("reader") as HTMLElement;
@@ -173,6 +175,59 @@ describe("SummaryPanel layers", () => {
 });
 
 describe("SummaryPanel open state", () => {
+  it("keeps old output usable while a shared generation waits and reports a truthful failure", async () => {
+    let reject = (_error: Error) => {};
+    generate.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    await render(summaryWithMap);
+    await click(button("Summary"));
+    await click(button("Redo"));
+    await act(async () => {
+      await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce());
+    });
+    expect(text()).toContain("Rest helps people think.");
+    expect(button("Generating").disabled).toBe(true);
+    expect(generate).toHaveBeenCalledWith({
+      articleId,
+      title: "A saved article",
+      paragraphs: ["One.", "Two."],
+      sourceHash: await sourceHash(),
+      expectedSummaryId: summaryWithMap._id,
+    });
+    await act(async () =>
+      reject(new Error("Summary is still running. Try again to check it.")),
+    );
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "still running",
+    );
+    expect(text()).toContain("Rest helps people think.");
+    expect(button("Redo").disabled).toBe(false);
+  });
+
+  it("does not expand another article when an old request settles", async () => {
+    let resolve = () => {};
+    generate.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((done) => {
+          resolve = () => done(undefined);
+        }),
+    );
+    await render(null);
+    await click(button("Summary, key"));
+    await act(async () => {
+      await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce());
+    });
+    // SAFETY: fabricated opaque ID is used only by this mocked UI fixture.
+    await render(summaryWithMap, "other-article" as Id<"articles">);
+    await act(async () => resolve());
+    expect(button("Summary").getAttribute("aria-expanded")).toBe("false");
+    expect(text()).not.toContain("Rest helps people think.");
+  });
+
   it("reports when the body unfolds and folds, so the reader can hide the Ask pill", async () => {
     const onExpandedChange = vi.fn();
     const openId = "article-expanded-report" as Id<"articles">;
