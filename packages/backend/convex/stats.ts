@@ -6,6 +6,15 @@ import { query } from "./functions";
 import { limitLegacyReadBytes } from "./lib/articleMetadata";
 import { reportingFeedTitles } from "./lib/feedStatus";
 import {
+  type ReportingNote,
+  type ReportingReflection,
+  reportingArticleCard,
+  reportingNoteSource,
+  reportingNotes,
+  reportingReflections,
+  takeReportingRows,
+} from "./lib/legacyReporting";
+import {
   bucketActiveMinutes,
   localDayKeyer,
   MIN_READ_MS,
@@ -70,24 +79,30 @@ async function legacyVisits(
   userId: string,
 ) {
   const [activity, interactions] = await Promise.all([
-    ctx.db
-      .query("readingActivity")
-      .withIndex("by_user_started", (q) =>
-        q
-          .eq("userId", userId)
-          .gte("startedAt", period.previousStart)
-          .lt("startedAt", period.end),
-      )
-      .take(LIMIT + 1),
-    ctx.db
-      .query("articleInteractions")
-      .withIndex("by_user_created", (q) =>
-        q
-          .eq("userId", userId)
-          .gte("createdAt", period.previousStart)
-          .lt("createdAt", period.end),
-      )
-      .take(LIMIT + 1),
+    takeReportingRows(
+      ctx,
+      ctx.db
+        .query("readingActivity")
+        .withIndex("by_user_started", (q) =>
+          q
+            .eq("userId", userId)
+            .gte("startedAt", period.previousStart)
+            .lt("startedAt", period.end),
+        ),
+      LIMIT + 1,
+    ),
+    takeReportingRows(
+      ctx,
+      ctx.db
+        .query("articleInteractions")
+        .withIndex("by_user_created", (q) =>
+          q
+            .eq("userId", userId)
+            .gte("createdAt", period.previousStart)
+            .lt("createdAt", period.end),
+        ),
+      LIMIT + 1,
+    ),
   ]);
   return {
     activity,
@@ -97,15 +112,7 @@ async function legacyVisits(
 }
 
 function legacyNotes(ctx: QueryCtx, period: LegacyPeriod, userId: string) {
-  return ctx.db
-    .query("userNotes")
-    .withIndex("by_user_created", (q) =>
-      q
-        .eq("userId", userId)
-        .gte("createdAt", period.previousStart)
-        .lt("createdAt", period.end),
-    )
-    .take(LIMIT + 1);
+  return reportingNotes(ctx, period, userId, LIMIT + 1);
 }
 
 function legacyReflections(
@@ -113,15 +120,7 @@ function legacyReflections(
   period: LegacyPeriod,
   userId: string,
 ) {
-  return ctx.db
-    .query("reflections")
-    .withIndex("by_user_responded", (q) =>
-      q
-        .eq("userId", userId)
-        .gte("respondedAt", period.previousStart)
-        .lt("respondedAt", period.end),
-    )
-    .take(LIMIT + 1);
+  return reportingReflections(ctx, period, userId, LIMIT + 1);
 }
 
 type LegacyVisits = Awaited<ReturnType<typeof legacyVisits>>;
@@ -161,8 +160,8 @@ function legacyReadingTotals(
 
 function legacyMetrics(
   { activity, interactions, legacySessions }: LegacyVisits,
-  notes: Doc<"userNotes">[],
-  reflections: Doc<"reflections">[],
+  notes: ReportingNote[],
+  reflections: ReportingReflection[],
   period: LegacyPeriod,
   start: number,
   end: number,
@@ -189,7 +188,7 @@ function legacyMetrics(
     if (finite(s.activeTimeMs) > 0)
       days.add(dayKey(s.createdAt, period.timeZone));
   const periodNotes = notes.filter(
-    (n) => within(n.createdAt, start, end) && n.contentPlain.trim(),
+    (n) => within(n.createdAt, start, end) && n.nonblank,
   );
   return {
     ...legacyReadingTotals(measured, events, legacy),
@@ -203,7 +202,7 @@ function legacyMetrics(
     reflectionsWritten:
       periodNotes.filter((n) => n.annotationId).length +
       reflections.filter(
-        (r) => within(r.respondedAt ?? 0, start, end) && r.userResponse?.trim(),
+        (r) => within(r.respondedAt ?? 0, start, end) && r.nonblank,
       ).length,
     readingDays: days.size,
     visitsCount: new Set(
@@ -221,7 +220,7 @@ function legacyMetrics(
 async function legacyArticleDetails(
   ctx: QueryCtx,
   { activity, interactions, legacySessions }: LegacyVisits,
-  notes: Doc<"userNotes">[],
+  notes: ReportingNote[],
   period: LegacyPeriod,
   userId: string,
 ) {
@@ -274,7 +273,7 @@ async function legacyArticleDetails(
     detail(s.articleId, s.createdAt).activeTimeMs += finite(s.activeTimeMs);
   const noteCounts = new Map<Id<"articles">, number>();
   for (const note of notes) {
-    if (note.createdAt >= period.start && note.contentPlain.trim())
+    if (note.createdAt >= period.start && note.nonblank)
       noteCounts.set(note.articleId, (noteCounts.get(note.articleId) ?? 0) + 1);
   }
   return (
@@ -283,7 +282,7 @@ async function legacyArticleDetails(
         .sort((a, b) => b[1].readAt - a[1].readAt)
         .slice(0, 25)
         .map(async ([articleId, d]) => {
-          const article = await ownedArticleCard(ctx, articleId, userId);
+          const article = await reportingArticleCard(ctx, articleId, userId);
           if (!article) return null;
           return {
             articleId,
@@ -340,24 +339,27 @@ function legacyDaily(
 
 function legacyRecentNotes(
   ctx: QueryCtx,
-  notes: Doc<"userNotes">[],
+  notes: ReportingNote[],
   period: LegacyPeriod,
   userId: string,
 ) {
   return Promise.all(
     notes
-      .filter((n) => n.createdAt >= period.start && n.contentPlain.trim())
+      .filter((n) => n.createdAt >= period.start && n.nonblank)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 3)
-      .map(async (n) => ({
-        articleId: n.articleId,
-        selectedText: n.selectedText,
-        contentPlain: n.contentPlain,
-        createdAt: n.createdAt,
-        articleTitle:
-          (await ownedArticleCard(ctx, n.articleId, userId))?.title ??
-          "Unavailable article",
-      })),
+      .map(async (note) => {
+        const n = await reportingNoteSource(ctx, note, userId);
+        return {
+          articleId: n.articleId,
+          selectedText: n.selectedText,
+          contentPlain: n.contentPlain,
+          createdAt: n.createdAt,
+          articleTitle:
+            (await reportingArticleCard(ctx, n.articleId, userId))?.title ??
+            "Unavailable article",
+        };
+      }),
   );
 }
 

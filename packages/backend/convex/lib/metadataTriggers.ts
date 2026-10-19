@@ -9,6 +9,7 @@ import {
   highlightArticleIdentityTrigger,
   highlightIdentityTrigger,
 } from "./highlightIdentity";
+import { syncNoteReporting, syncReflectionReporting } from "./legacyReporting";
 import { syncResumeEligibility } from "./readingResume";
 import { invalidateReflectionProof } from "./reflectionProtection";
 import { membershipChanged } from "./shelfCounts";
@@ -17,6 +18,16 @@ import { syncTagVectors } from "./tagVectors";
 import { syncTagVocabulary } from "./tagVocabulary";
 
 export const metadataTriggers = new Triggers<DataModel>();
+metadataTriggers.register("userNotes", (ctx, change) =>
+  syncNoteReporting({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
+metadataTriggers.register("reflections", (ctx, change) =>
+  syncReflectionReporting(
+    { ...ctx, db: ctx.innerDb },
+    change.oldDoc,
+    change.newDoc,
+  ),
+);
 metadataTriggers.register("reflections", (ctx, change) =>
   invalidateReflectionProof(
     { ...ctx, db: ctx.innerDb },
