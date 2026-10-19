@@ -1,11 +1,21 @@
 import { Triggers } from "convex-helpers/server/triggers";
 import type { DataModel } from "../_generated/dataModel";
 import { syncArticleMetadata, syncBookPartCard } from "./articleMetadata";
+import { invalidateFeedPoll } from "./feedPollLifecycle";
 import { syncFingerprintSource } from "./fingerprintMetadata";
 import { syncResumeEligibility } from "./readingResume";
 import { membershipChanged } from "./shelfCounts";
 
 export const metadataTriggers = new Triggers<DataModel>();
+metadataTriggers.register("feeds", (ctx, change) =>
+  change.oldDoc
+    ? invalidateFeedPoll(
+        { ...ctx, db: ctx.innerDb },
+        change.oldDoc,
+        change.newDoc,
+      )
+    : Promise.resolve(),
+);
 for (const kind of [
   "articles",
   "userNotes",

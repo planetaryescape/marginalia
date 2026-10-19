@@ -8,11 +8,20 @@ import {
   query,
 } from "./functions";
 import {
+  feedEntry,
+  feedUrl,
+  OPML_BATCH_BYTES,
+  OPML_BATCH_COUNT,
+  utf8Bytes,
+  validFeedEntry,
+} from "./lib/feedPollProtocol";
+import {
   articleUse,
   deleteArticle,
   feedArticlesChoice,
   removes,
 } from "./lib/feedRemoval";
+import { metadataLibraryActive } from "./lib/shelfCounts";
 
 export const list = query({
   args: {},
@@ -32,13 +41,23 @@ export const add = mutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const error = validFeedEntry(args);
+    if (error) throw new Error(error);
+    const url = feedUrl(args.url);
     // Check for duplicate
-    const existing = await ctx.db
-      .query("feeds")
-      .withIndex("by_user_url", (q) =>
-        q.eq("userId", ctx.readerId).eq("url", args.url),
-      )
-      .first();
+    const existing =
+      (await ctx.db
+        .query("feeds")
+        .withIndex("by_user_url", (q) =>
+          q.eq("userId", ctx.readerId).eq("url", url),
+        )
+        .first()) ??
+      (await ctx.db
+        .query("feeds")
+        .withIndex("by_user_url", (q) =>
+          q.eq("userId", ctx.readerId).eq("url", args.url),
+        )
+        .first());
 
     if (existing) {
       throw new Error("Feed already exists");
@@ -46,7 +65,7 @@ export const add = mutation({
 
     return ctx.db.insert("feeds", {
       userId: ctx.readerId,
-      url: args.url,
+      url,
       title: args.title,
       siteUrl: args.siteUrl,
       description: args.description,
@@ -54,6 +73,60 @@ export const add = mutation({
       isActive: true,
       createdAt: Date.now(),
     });
+  },
+});
+
+/** One authorization/transaction per small, replay-safe OPML acknowledgement. */
+export const addBatch = mutation({
+  args: { entries: v.array(feedEntry) },
+  handler: async (ctx, { entries }) => {
+    if (
+      entries.length > OPML_BATCH_COUNT ||
+      utf8Bytes(entries) > OPML_BATCH_BYTES
+    )
+      throw new Error("Import at most 10 feeds and 32 KiB per batch");
+    const outcomes: Array<{
+      status: "created" | "duplicate" | "invalid";
+      url: string;
+      message?: string;
+    }> = [];
+    for (const entry of entries) {
+      const error = validFeedEntry(entry);
+      if (error) {
+        outcomes.push({ status: "invalid", url: entry.url, message: error });
+        continue;
+      }
+      const url = feedUrl(entry.url);
+      // Legacy single-add rows retain their exact URL; check both spellings.
+      const existing =
+        (await ctx.db
+          .query("feeds")
+          .withIndex("by_user_url", (q) =>
+            q.eq("userId", ctx.readerId).eq("url", url),
+          )
+          .first()) ??
+        (await ctx.db
+          .query("feeds")
+          .withIndex("by_user_url", (q) =>
+            q.eq("userId", ctx.readerId).eq("url", entry.url),
+          )
+          .first());
+      if (existing) {
+        outcomes.push({ status: "duplicate", url: entry.url });
+        continue;
+      }
+      await ctx.db.insert("feeds", {
+        ...entry,
+        url,
+        title: entry.title || new URL(url).hostname,
+        userId: ctx.readerId,
+        articleCount: 0,
+        isActive: true,
+        createdAt: Date.now(),
+      });
+      outcomes.push({ status: "created", url: entry.url });
+    }
+    return outcomes;
   },
 });
 
@@ -132,7 +205,10 @@ export const toggleActive = mutation({
   handler: async (ctx, args) => {
     const feed = await ctx.db.get(args.feedId);
     if (feed?.userId !== ctx.readerId) throw new Error("Feed not found");
-    await ctx.db.patch(args.feedId, { isActive: !feed.isActive });
+    await ctx.db.patch(args.feedId, {
+      isActive: !feed.isActive,
+      checkingSince: undefined,
+    });
   },
 });
 
@@ -141,10 +217,12 @@ export const toggleActive = mutation({
 export const listActive = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    if (!(await metadataLibraryActive(ctx, args.userId))) return [];
     const feeds = await ctx.db
       .query("feeds")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .collect();
+    // Legacy return semantics retained; the durable path never calls this scan.
     return feeds.filter((f) => f.isActive);
   },
 });
@@ -188,6 +266,17 @@ export const removeArticles = internalMutation({
 export const updateLastFetched = internalMutation({
   args: { feedId: v.id("feeds"), importAfter: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    const feed = await ctx.db.get(args.feedId);
+    const state = await ctx.db
+      .query("feedPollStates")
+      .withIndex("by_feedId", (q) => q.eq("feedId", args.feedId))
+      .unique();
+    if (
+      !feed?.isActive ||
+      state ||
+      !(await metadataLibraryActive(ctx, feed.userId))
+    )
+      return;
     await ctx.db.patch(args.feedId, {
       checkingSince: undefined,
       lastFetchedAt: Date.now(),
@@ -201,24 +290,15 @@ export const updateLastFetched = internalMutation({
 export const markChecking = internalMutation({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    const now = Date.now();
-    const feeds = await ctx.db
-      .query("feeds")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .collect();
-    for (const feed of feeds)
-      if (feed.isActive) await ctx.db.patch(feed._id, { checkingSince: now });
+    await ctx.runMutation(internal.feedPolling.begin, args);
   },
 });
 
 export const pollNow = action({
   args: {},
   handler: async (ctx) => {
-    // Flagged before the poll is queued, so the page shows it at once
+    // A durable run, not the browser's lifetime, owns checking and recovery.
     await ctx.runMutation(internal.feeds.markChecking, {
-      userId: ctx.readerId,
-    });
-    await ctx.scheduler.runAfter(0, internal.actions.pollFeeds.pollAllFeeds, {
       userId: ctx.readerId,
     });
   },
@@ -227,6 +307,17 @@ export const pollNow = action({
 export const updateError = internalMutation({
   args: { feedId: v.id("feeds"), error: v.string() },
   handler: async (ctx, args) => {
+    const feed = await ctx.db.get(args.feedId);
+    const state = await ctx.db
+      .query("feedPollStates")
+      .withIndex("by_feedId", (q) => q.eq("feedId", args.feedId))
+      .unique();
+    if (
+      !feed?.isActive ||
+      state ||
+      !(await metadataLibraryActive(ctx, feed.userId))
+    )
+      return;
     await ctx.db.patch(args.feedId, {
       checkingSince: undefined,
       lastError: args.error,

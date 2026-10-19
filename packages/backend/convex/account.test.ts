@@ -38,6 +38,25 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       isActive: true,
       createdAt: now,
     });
+    if (i === 0)
+      await ctx.db.insert("feedPollRuns", {
+        userId,
+        run: 1,
+        active: false,
+        scanned: 0,
+        exhausted: true,
+        deadline: 0,
+      });
+    await ctx.db.insert("feedPollStates", {
+      userId,
+      feedId,
+      url: `https://${userId}.example/feed/${i}`,
+      run: 1,
+      generation: 1,
+      attempts: 1,
+      nextBatch: 0,
+      started: false,
+    });
     const articleId = await ctx.db.insert("articles", {
       feedId,
       userId,
