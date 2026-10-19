@@ -396,6 +396,19 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       model: "fixture",
       createdAt: now,
     });
+    await ctx.db.insert("edgeExplanationState", {
+      userId,
+      pair: `fixture-${i}`,
+      a: "note:a",
+      b: "note:b",
+      aArticleId: articleId,
+      input: "fixture",
+      routing: "fixture",
+      run: 1,
+      status: "failed",
+      attempts: 1,
+      leaseUntil: 0,
+    });
     await ctx.db.insert("impressions", {
       userId,
       articleId,
@@ -532,6 +545,19 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     createdAt: now,
   });
   await ctx.db.delete(orphan);
+  await ctx.db.insert("edgeExplanationState", {
+    userId,
+    pair: "fixture-orphan",
+    a: "note:orphan-a",
+    b: "note:orphan-b",
+    aArticleId: orphan,
+    input: "fixture-orphan",
+    routing: "fixture-orphan",
+    run: 1,
+    status: "running",
+    attempts: 1,
+    leaseUntil: Date.now() + 1_200_000,
+  });
   await ctx.db.insert("fullSummaryState", {
     userId,
     articleId: orphan,
@@ -777,6 +803,13 @@ describe("account deletion", () => {
         paragraphs: ["Deleted library"],
       }),
     ).rejects.toThrow("Article not found");
+    await expect(
+      t.mutation(internal.ideaEdgeReasons.claim, {
+        userId: readerLibraryId,
+        a: "note:orphan-a",
+        b: "note:orphan-b",
+      }),
+    ).rejects.toThrow("Those ideas aren't in your notes");
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);

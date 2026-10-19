@@ -15,6 +15,7 @@ import { requireOwner, requireReader } from "./access";
 import { metadataTriggers as triggers } from "./lib/metadataTriggers";
 import "./lib/manualAnnotationTriggers";
 import "./lib/fullSummaryTriggers";
+import "./lib/edgeExplanationTriggers";
 
 export * from "./_generated/server";
 

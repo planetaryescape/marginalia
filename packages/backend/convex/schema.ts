@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
+import { edgeExplanationState } from "./lib/edgeExplanations";
 import { feedPollTables } from "./lib/feedPollProtocol";
 import { feedStatusTables } from "./lib/feedStatus";
 import { fingerprintTables } from "./lib/fingerprintSchema";
@@ -27,6 +28,7 @@ export default defineSchema({
   ...tagVocabularyTables,
   manualAnnotationState,
   fullSummaryState,
+  edgeExplanationState,
   // Exact displayed Ask paragraphs: one replaceable, <=950KB version per scope.
   preparedArticles: defineTable({
     userId: v.string(),
@@ -806,6 +808,7 @@ export default defineSchema({
     // The two node keys, sorted and joined (lib/ideaGraph.ts#pairKey)
     pair: v.string(),
     fingerprint: v.string(),
+    input: v.optional(v.string()),
     reason: v.string(),
     model: v.string(),
     createdAt: v.number(),

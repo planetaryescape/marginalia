@@ -85,6 +85,8 @@ import type * as lib_companionStream from "../lib/companionStream.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_cors from "../lib/cors.js";
 import type * as lib_dictionaryIndex from "../lib/dictionaryIndex.js";
+import type * as lib_edgeExplanationTriggers from "../lib/edgeExplanationTriggers.js";
+import type * as lib_edgeExplanations from "../lib/edgeExplanations.js";
 import type * as lib_embeddings from "../lib/embeddings.js";
 import type * as lib_externalApi from "../lib/externalApi.js";
 import type * as lib_feedArticleCount from "../lib/feedArticleCount.js";
@@ -274,6 +276,8 @@ declare const fullApi: ApiFromModules<{
   "lib/constants": typeof lib_constants;
   "lib/cors": typeof lib_cors;
   "lib/dictionaryIndex": typeof lib_dictionaryIndex;
+  "lib/edgeExplanationTriggers": typeof lib_edgeExplanationTriggers;
+  "lib/edgeExplanations": typeof lib_edgeExplanations;
   "lib/embeddings": typeof lib_embeddings;
   "lib/externalApi": typeof lib_externalApi;
   "lib/feedArticleCount": typeof lib_feedArticleCount;
