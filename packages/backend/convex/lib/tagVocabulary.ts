@@ -4,6 +4,7 @@ import { metadataLibraryRetained } from "./shelfCounts";
 import { MAX_VOCABULARY_IN_PROMPT } from "./tagMatching";
 
 type Node = Doc<"tagVocabulary">;
+type Payload = Doc<"tagVocabularyPayloads">;
 type NodeId = Id<"tagVocabulary"> | null;
 type ReadCtx = Pick<QueryCtx, "db">;
 export const TAG_METADATA_BYTES = 16_384;
@@ -188,6 +189,7 @@ export async function syncTagVocabulary(
   // Purge can already have removed arbitrary tree nodes. Never traverse or
   // resurrect that tree after the library is absent/deleting.
   if (prior && !(await metadataLibraryRetained(ctx, prior.userId))) {
+    await ctx.db.delete(prior.payloadId);
     await ctx.db.delete(prior._id);
     if (!after || after.userId === prior.userId) return;
     return syncTagVocabulary(ctx, null, after);
@@ -196,12 +198,37 @@ export async function syncTagVocabulary(
     after && (await metadataLibraryRetained(ctx, after.userId))
       ? tagProjection(after)
       : null;
+  // The trigger's canonical before/after pair is transaction-local evidence:
+  // count/status-only changes cannot have changed the already-published payload.
+  // Migration (no before row) and payload edits still validate persisted data.
+  const sameSourcePayload =
+    prior &&
+    before &&
+    projected &&
+    JSON.stringify(payloadFields(tagProjection(before))) ===
+      JSON.stringify(payloadFields(projected));
+  const payload =
+    prior && !sameSourcePayload ? await ctx.db.get(prior.payloadId) : null;
+  if (prior && !payload && !sameSourcePayload)
+    throw new Error("Missing tag vocabulary payload");
+  const reusePayload =
+    sameSourcePayload ||
+    (payload &&
+      projected &&
+      JSON.stringify(payloadFields(payload)) ===
+        JSON.stringify(payloadFields(projected)));
   if (
     prior &&
     projected &&
-    JSON.stringify(tagProjectionFields(prior)) === JSON.stringify(projected)
-  )
+    JSON.stringify(structureFields(prior)) ===
+      JSON.stringify(structureFields(projected))
+  ) {
+    if (!reusePayload)
+      await ctx.db.replace(prior.payloadId, payloadFields(projected));
     return;
+  }
+  // Count/status/tree updates do not rewrite or recreate the large payload.
+  // This comparison is local to this transaction, never a cross-tx cache.
   if (prior) {
     const state = await vocabularyState(ctx, prior.userId);
     if (!state) throw new Error("Missing tag vocabulary state");
@@ -213,6 +240,7 @@ export async function syncTagVocabulary(
       overflow: state.overflow - Number(prior.overflow),
     });
     await ctx.db.delete(prior._id);
+    if (!reusePayload) await ctx.db.delete(prior.payloadId);
   }
   if (!projected) return;
   let state = await vocabularyState(ctx, projected.userId);
@@ -234,8 +262,13 @@ export async function syncTagVocabulary(
     state = await ctx.db.get(id);
   }
   if (!state) throw new Error("Missing tag vocabulary state");
+  const payloadId =
+    reusePayload && prior
+      ? prior.payloadId
+      : await ctx.db.insert("tagVocabularyPayloads", payloadFields(projected));
   const id = await ctx.db.insert("tagVocabulary", {
-    ...projected,
+    ...structureFields(projected),
+    payloadId,
     left: null,
     right: null,
     height: 1,
@@ -251,20 +284,55 @@ export async function syncTagVocabulary(
   });
 }
 
-function tagProjectionFields(node: Node) {
+function payloadFields(
+  payload: Pick<
+    Payload,
+    | "userId"
+    | "tagId"
+    | "sourceCreationTime"
+    | "key"
+    | "missing"
+    | "name"
+    | "aliases"
+    | "text"
+  >,
+) {
   const {
     userId,
     tagId,
     sourceCreationTime,
     key,
-    count,
-    active,
     missing,
-    overflow,
     name,
     aliases,
     text,
-  } = node;
+  } = payload;
+  return {
+    userId,
+    tagId,
+    sourceCreationTime,
+    key,
+    missing,
+    name,
+    aliases,
+    text,
+  };
+}
+
+function structureFields(
+  node: Pick<
+    Node,
+    | "userId"
+    | "tagId"
+    | "sourceCreationTime"
+    | "key"
+    | "count"
+    | "active"
+    | "overflow"
+  >,
+) {
+  const { userId, tagId, sourceCreationTime, key, count, active, overflow } =
+    node;
   return {
     userId,
     tagId,
@@ -272,11 +340,7 @@ function tagProjectionFields(node: Node) {
     key,
     count,
     active,
-    missing,
     overflow,
-    name,
-    aliases,
-    text,
   };
 }
 
@@ -321,7 +385,19 @@ export async function promptVocabulary(ctx: ReadCtx, userId: string) {
     }
     const node = stack.pop();
     if (!node) break;
-    result.push({ name: node.name, key: node.key, aliases: node.aliases });
+    const payload = await ctx.db.get(node.payloadId);
+    if (
+      !payload ||
+      payload.userId !== userId ||
+      payload.tagId !== node.tagId ||
+      payload.key !== node.key
+    )
+      throw new Error("Invalid tag vocabulary payload");
+    result.push({
+      name: payload.name,
+      key: node.key,
+      aliases: payload.aliases,
+    });
     next = node.right;
   }
   return result;
@@ -333,7 +409,7 @@ export async function missingVocabularyEmbeddings(
 ) {
   if (!(await requireVocabulary(ctx, userId))) return [];
   const tags = await ctx.db
-    .query("tagVocabulary")
+    .query("tagVocabularyPayloads")
     .withIndex("by_userId_and_missing_and_key", (q) =>
       q.eq("userId", userId).eq("missing", true),
     )
@@ -388,8 +464,17 @@ export async function purgeTagVocabulary(
     .query("tagVocabulary")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .take(32);
-  for (const row of rows) await ctx.db.delete(row._id);
+  for (const row of rows) {
+    await ctx.db.delete(row.payloadId);
+    await ctx.db.delete(row._id);
+  }
   if (rows.length) return rows.length;
+  const payloads = await ctx.db
+    .query("tagVocabularyPayloads")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .take(32);
+  for (const row of payloads) await ctx.db.delete(row._id);
+  if (payloads.length) return payloads.length;
   const state = await vocabularyState(ctx, userId);
   if (state) {
     await ctx.db.delete(state._id);
