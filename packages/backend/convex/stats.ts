@@ -510,9 +510,10 @@ async function readingRoomVisits(
   periodName: RoomPeriod,
 ) {
   const period = roomPeriod(Date.now(), timeZone, periodName);
-  // The sole paginate in readingRoom, including for an empty library. There is
-  // no post-index filter: every physical visit read is present in page, including
-  // the 1501st sentinel and the row crossing maximumBytesRead (<= 1 MiB).
+  // This is an internal bounded scan, not a cursor exposed to the caller.
+  // paginate() journals survive reactive reruns: a moving period boundary or
+  // canonical->compact switch can make that old journal an InvalidCursor even
+  // when this function passes cursor:null. A cursor-free iterator avoids it.
   const compact = await currentReportingReady(ctx, userId, "visits");
   const source = compact
     ? currentVisitQuery(ctx, userId, period)
@@ -525,22 +526,26 @@ async function readingRoomVisits(
             .lt("startedAt", period.end),
         )
         .order("desc");
-  const visits = await source.paginate({
-    cursor: null,
-    numItems: ROOM_VISITS + 1,
-    maximumBytesRead: ROOM_VISIT_BYTES,
-  });
-  const visitBytes = visits.page.reduce(
-    (sum, row) => sum + getDocumentSize(row),
-    0,
-  );
+  const visits: (Doc<"readingActivity"> | Doc<"visitReportingMetadata">)[] = [];
+  let visitBytes = 0;
+  let partial = false;
+  for await (const row of source) {
+    // Include both physical sentinels: the 1501st row and at most one document
+    // crossing 8 MiB. No filtering or speculative whole-source take happens.
+    visits.push(row);
+    visitBytes += getDocumentSize(row);
+    if (visits.length > ROOM_VISITS || visitBytes > ROOM_VISIT_BYTES) {
+      partial = true;
+      break;
+    }
+  }
   // Both legacy article lengths and source titles use this SAME queued ledger.
   // Reserve a full document before dispatch, not a title DTO after a body read.
   limitLegacyReadBytes(ctx, 16 * 1024 * 1024 - visitBytes - ROOM_JOIN_BYTES);
   return {
     period,
-    rows: visits.page.slice(0, ROOM_VISITS),
-    partial: !visits.isDone || visits.page.length > ROOM_VISITS,
+    rows: visits.slice(0, ROOM_VISITS),
+    partial,
   };
 }
 
