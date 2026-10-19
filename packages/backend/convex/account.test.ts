@@ -553,6 +553,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     createdAt: now,
   });
   await ctx.db.delete(orphan);
+  await ctx.db.insert("discoveryEpochs", { userId, shard: 0, epoch: 1 });
   const orphanNote = await ctx.db.insert("userNotes", {
     userId,
     articleId: orphan,

@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   // SAFETY: mutable fixture slot includes logout; the initial value is a string.
   session: "session-a" as string | null,
   counts: { waiting: 2 },
+  // SAFETY: mutable server fixture covers pending, unsupported and valid epochs.
+  revision: "0" as string | null | undefined,
   post: vi.fn(),
   convex: { query: vi.fn(async () => []) },
 }));
@@ -26,7 +28,7 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 vi.mock("convex/react", () => ({
   useConvex: () => mocks.convex,
-  useQuery: () => mocks.counts,
+  useQuery: () => mocks.revision,
 }));
 vi.mock("@/lib/topic-search-request", () => ({ postTopicSearch: mocks.post }));
 
@@ -56,6 +58,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mocks.session = "session-a";
   mocks.counts = { waiting: 2 };
+  mocks.revision = "0";
   mocks.post.mockReset();
   window.dispatchEvent(new Event("pagehide"));
   tabs = discoveryTabs();
@@ -79,6 +82,28 @@ const tick = (ms = 250) =>
   });
 
 describe("topic search cache phases", () => {
+  it("reuses cards and explanations after remount only after the same initial epoch is confirmed", async () => {
+    mocks.post.mockImplementation((path) =>
+      Promise.resolve(
+        path === "find"
+          ? { matches: [match], more: false }
+          : { matches: [{ ...match, reason: "Fits" }] },
+      ),
+    );
+    await render();
+    await tick();
+    await act(async () => root.render(null));
+    mocks.revision = undefined;
+    await render();
+    await tick();
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+    mocks.revision = "0";
+    await render();
+    await tick();
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+    expect(result.reasons).toEqual({ a: "Fits" });
+  });
+
   it("does not start a legacy paid fallback when an invalidated find returns 404", async () => {
     let reject: (reason: Response) => void = () => {};
     mocks.post.mockImplementationOnce(
@@ -252,7 +277,7 @@ describe("topic search cache phases", () => {
     expect(mocks.post).toHaveBeenCalledTimes(2);
   });
 
-  it("caches empty finds and forgets them across sessions and queue revisions", async () => {
+  it("caches empty finds and evicts server revisions without provider auto-retry", async () => {
     mocks.post.mockResolvedValue({ matches: [], more: false });
     await render();
     await tick();
@@ -264,9 +289,35 @@ describe("topic search cache phases", () => {
     await render();
     await tick();
     expect(mocks.post).toHaveBeenCalledTimes(2);
-    mocks.counts = { waiting: 3 };
+    mocks.revision = "1";
+    await render();
+    await tick();
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+    await render({ enabled: false });
     await render();
     await tick();
     expect(mocks.post).toHaveBeenCalledTimes(3);
+  });
+
+  it("waits for initial revision registration and fences a revision racing with a late 404", async () => {
+    mocks.revision = undefined;
+    await render();
+    await tick();
+    expect(mocks.post).not.toHaveBeenCalled();
+    mocks.revision = "0";
+    let reject: (reason: Response) => void = () => {};
+    mocks.post.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    await render();
+    await tick();
+    mocks.revision = "1";
+    await render();
+    await act(async () => reject(new Response(null, { status: 404 })));
+    expect(mocks.post.mock.calls.map(([path]) => path)).toEqual(["find"]);
+    expect(topicSearchCache.get("attention")).toBeUndefined();
   });
 });

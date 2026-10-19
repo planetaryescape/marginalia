@@ -8,6 +8,7 @@ import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
+import { purgeDiscoveryRevision } from "./lib/discoveryRevision";
 import { purgeEdgeExplanations } from "./lib/edgeExplanations";
 import { purgeFeedPolls } from "./lib/feedPollLifecycle";
 import { purgeFeedArticleCleanup } from "./lib/feedRemovalState";
@@ -302,6 +303,8 @@ const STEPS: Step[] = [
     if (tags) return tags;
     const aliases = await purgeTagAliases(ctx, userId);
     if (aliases) return aliases;
+    const discovery = await purgeDiscoveryRevision(ctx, userId);
+    if (discovery) return discovery;
     const vectors = await purgeTagVectors(ctx, userId);
     if (vectors) return vectors;
     const fingerprints = await purgeFingerprintMetadata(ctx, userId);

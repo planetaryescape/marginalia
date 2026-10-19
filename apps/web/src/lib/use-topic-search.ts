@@ -4,7 +4,7 @@ import {
   libraryFindResponseSchema,
   librarySearchResponseSchema,
 } from "@marginalia/backend/library-search";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex } from "convex/react";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { ReaderRequestError, readerRequestError } from "@/lib/companion";
@@ -21,6 +21,7 @@ import {
   listenForTopicCacheInvalidation,
 } from "@/lib/topic-search-cache";
 import { postTopicSearch as post } from "@/lib/topic-search-request";
+import { useDiscoveryRevision } from "@/lib/use-discovery-revision";
 
 export { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 
@@ -55,6 +56,14 @@ async function failure(thrown: unknown) {
   return thrown instanceof Response ? readerRequestError(thrown) : thrown;
 }
 
+function settleInvalidated(current: TopicSearch): TopicSearch {
+  return current.status === "loading"
+    ? { ...current, status: "error", explained: true }
+    : current.explained
+      ? current
+      : { ...current, explained: true };
+}
+
 /**
  * A title query runs beside the first request and may show one card at once.
  * Two requests per query. `library/find` (embedding and vector search, no
@@ -72,43 +81,47 @@ export function useTopicSearch(
   const [stateScope, setStateScope] = useState<string | null>(null);
   const convex = useConvex();
   const { data: session } = authClient.useSession();
-  const counts = useQuery(api.home.counts, {});
   const sessionId = session?.session.id;
-  // Local/same-origin edits evict memory without rerunning this effect. Visible
-  // results remain a snapshot until explicit search/revisit. Background server
-  // imports/vault edits without a local signal still rely on TTL/counters.
-  const revision = counts === undefined ? "pending" : JSON.stringify(counts);
-  const scope = sessionId ? `${sessionId}:${revision}` : null;
+  const scope = sessionId ?? null;
   cache.forScope(scope);
+  const revision = useDiscoveryRevision(scope, (token) =>
+    cache.observeRevision(token),
+  );
+
+  useEffect(() => {
+    if (revision.token === undefined) return;
+    // Retire a fenced request without replacing its cards or starting another.
+    setState(settleInvalidated);
+  }, [revision.token]);
 
   useEffect(() => {
     listenForTopicCacheInvalidation();
     return discoveryInvalidation.subscribe(() => {
       // A discarded in-flight answer must not leave an endless loading state.
       // Keep existing cards/input; the existing Retry action is explicit work.
-      setState((current) =>
-        current.status === "loading"
-          ? { ...current, status: "error", explained: true }
-          : current.explained
-            ? current
-            : { ...current, explained: true },
-      );
+      setState(settleInvalidated);
     });
   }, []);
 
   useEffect(() => {
-    if (!enabled || !sessionId) return;
+    if (!enabled || !sessionId || !revision.settled) return;
+    // Bind the committed request too: an abandoned concurrent render must not
+    // leave the singleton cache scoped to another session at reservation time.
+    cache.forScope(scope);
     setStateScope(scope);
     const generation = cache.generation;
     const key = text.trim().toLowerCase();
     const remember = (entry: Omit<CacheEntry, "foundAt">) => {
-      if (scope && !signal.aborted)
+      if (scope && cache.revisionSupported && !signal.aborted)
         cache.set(key, { ...entry, foundAt }, generation);
     };
     const controller = new AbortController();
     const { signal } = controller;
     const current = () => !signal.aborted && generation === cache.generation;
-    const entry = retry === 0 && scope ? cache.get(key) : undefined;
+    const entry =
+      retry === 0 && scope && cache.revisionSupported
+        ? cache.get(key)
+        : undefined;
     const cached =
       entry && Date.now() - entry.foundAt < CACHE_TTL_MS ? entry : undefined;
     // Completing/retrying reasons must not renew the lifetime of old cards.
@@ -276,7 +289,9 @@ export function useTopicSearch(
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, text, retry, convex, mode, scope, sessionId]);
+    // A changed epoch is deliberately NOT an effect dependency. Only initial
+    // registration waits for the first signal; receipt never restarts providers.
+  }, [enabled, text, retry, convex, mode, scope, sessionId, revision.settled]);
 
   return enabled && sessionId && stateScope === scope ? state : idle;
 }

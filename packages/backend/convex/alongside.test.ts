@@ -8,6 +8,7 @@ import {
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { CLAIM_TTL_MS, MAX_PASSES_PER_ARTICLE } from "./alongside";
+import { discoveryShard } from "./lib/discoveryRevision";
 import {
   computeFingerprint,
   sameFingerprint,
@@ -1334,7 +1335,7 @@ describe("the embedding stamp", () => {
     expect(second.vaultIndexedMax).toBeGreaterThan(first.vaultIndexedMax);
   });
 
-  it("writes only its source and private stamp, so concurrent embeddings never contend", async () => {
+  it("writes only its source, private stamp and source-ID epoch shard, never one universal library counter", async () => {
     const f = await secondReaderTest(modules);
     const dump = async () =>
       new Map(
@@ -1403,7 +1404,18 @@ describe("the embedding stamp", () => {
           .unique(),
       );
       expect(stamp).not.toBeNull();
-      expect(ids).toEqual([sourceId, stamp?._id]);
+      const shard = await f.t.run((ctx) =>
+        ctx.db
+          .query("discoveryEpochs")
+          .withIndex("by_userId_and_shard", (q) =>
+            q
+              .eq("userId", f.readerLibraryId)
+              .eq("shard", discoveryShard(sourceId)),
+          )
+          .unique(),
+      );
+      expect(shard).not.toBeNull();
+      expect(new Set(ids)).toEqual(new Set([sourceId, stamp?._id, shard?._id]));
     };
     await independent(noteId, () => finishNoteEmbedding(f, noteId));
     await independent(highlightId, () =>

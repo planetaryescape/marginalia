@@ -6,10 +6,11 @@ import { Skeleton, SkeletonBar } from "@/components/in-place";
 import { Keycap } from "@/components/keycap";
 import { authClient } from "@/lib/auth-client";
 import { discoveryInvalidation } from "@/lib/discovery-invalidation";
-import type { GraphEdge, NodeKind } from "@/lib/idea-kinds";
+import type { Graph, GraphEdge, NodeKind } from "@/lib/idea-kinds";
 import { KIND_LABELS } from "@/lib/idea-kinds";
 import { SessionCache } from "@/lib/session-cache";
 import { useShortcuts } from "@/lib/shortcuts";
+import { useDiscoveryRevision } from "@/lib/use-discovery-revision";
 import { invalidateTopicSearchCache } from "@/lib/use-topic-search";
 import { IdeaGraphLegend, IdeaGraphView } from "./idea-graph-view";
 import { Composer, EdgePanel, NodePanel } from "./idea-panel";
@@ -19,6 +20,14 @@ type Panel =
   | { kind: "node" }
   | { kind: "edge"; edgeId: string }
   | { kind: "compose"; prompt?: string };
+
+type GraphRequest = {
+  key: string;
+  navigation: number;
+  generation: number;
+  revision: string | null;
+  cached?: Graph;
+};
 
 const SEARCH_DELAY_MS = 200;
 
@@ -57,16 +66,45 @@ function useWidth(fallback: number) {
 export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   const { data: session } = authClient.useSession();
   const sessionId = session?.session.id ?? null;
+  // The entire private map/panel/search draft is scoped, including the retained
+  // last graph during useQuery's undefined gap and late child action callbacks.
+  return sessionId ? (
+    <SessionNotesGraph key={sessionId} sessionId={sessionId} toggle={toggle} />
+  ) : (
+    <main aria-label="Your notes" />
+  );
+}
+
+function SessionNotesGraph({
+  toggle,
+  sessionId,
+}: {
+  toggle: ReactNode;
+  sessionId: string;
+}) {
   const [neighbours] = useState(
-    // Cross-tab edits evict hints, not the active map. Background server/vault
-    // edits without a local signal remain TTL-bound.
+    // Epoch/local/tab signals evict reuse, never refresh the active map.
     () => new SessionCache<{ key: string; via?: string }[]>(20, 60_000),
   );
   neighbours.forScope(sessionId);
-  useEffect(
-    () => discoveryInvalidation.subscribe(() => neighbours.invalidate()),
-    [neighbours],
-  );
+  const [snapshots] = useState(() => new SessionCache<Graph>(20, 60_000));
+  snapshots.forScope(sessionId);
+  const revision = useDiscoveryRevision(sessionId, (token) => {
+    neighbours.observeRevision(token);
+    snapshots.observeRevision(token);
+  });
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    const off = discoveryInvalidation.subscribe(() => {
+      neighbours.invalidate();
+      snapshots.invalidate();
+    });
+    return () => {
+      mounted.current = false;
+      off();
+    };
+  }, [neighbours, snapshots]);
   const [centre, setCentre] = useState<string | undefined>();
   const [navigation, setNavigation] = useState(0);
   // For a vault idea: the passage it was chosen by
@@ -77,31 +115,94 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     navigation: number;
     for: string;
     hints: { key: string; via?: string }[];
+    cacheable: boolean;
   } | null>(null);
   const [addedKey, setAddedKey] = useState<string | null>(null);
   // The note just written, asked to be on the map whatever else is near it
   const [pinned, setPinned] = useState<string | undefined>();
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [savedEpoch, setSavedEpoch] = useState<{ token: string } | null>(null);
   const [stageRef, stageWidth] = useWidth(770);
 
   const findSimilar = useAction(api.actions.ideaNeighbours.similar);
 
   // The map's own centre, as the server resolved it (the latest note until one is chosen)
   const [resolved, setResolved] = useState<string | undefined>();
-  const live = useQuery(api.ideaGraph.graph, {
-    centre,
-    centreVia,
-    similar:
-      similar &&
-      similar.sessionId === sessionId &&
-      similar.navigation === navigation &&
-      similar.for === (centre ?? resolved)
-        ? similar.hints
-        : undefined,
-    pin: pinned,
-  });
-  const graph = useLatest(live);
+  const requestKey = JSON.stringify([
+    centre ?? null,
+    centreVia ?? null,
+    pinned ?? null,
+  ]);
+  const [request, setRequest] = useState<GraphRequest | null>(null);
+  const [complete, setComplete] = useState<{
+    request: GraphRequest;
+    graph: Graph;
+  } | null>(null);
+  let ticket = request;
+  // A successful connected-note write necessarily advances an epoch. Its
+  // explicit pinned refresh waits for that signal rather than reserving the
+  // old epoch, being fenced, and falsely claiming the note is already drawn.
+  const waitingForSave =
+    savedEpoch !== null && revision.token === savedEpoch.token;
+  // Only the outstanding explicit save may advance its graph reservation as
+  // indexing commits overtake it. This ends at the first complete pinned map;
+  // ordinary receipt never refreshes a view or starts a semantic action.
+  const pinnedPending =
+    pinned &&
+    !(
+      complete?.request.key === requestKey &&
+      complete.request.navigation === navigation
+    );
+  // Capture the epoch BEFORE starting the graph query, not when it resolves.
+  // A changed epoch fences publication but does not restart the active view.
+  if (
+    revision.settled &&
+    !waitingForSave &&
+    (!ticket ||
+      ticket.key !== requestKey ||
+      ticket.navigation !== navigation ||
+      (pinnedPending && ticket.revision !== revision.token))
+  ) {
+    ticket = {
+      key: requestKey,
+      navigation,
+      generation: snapshots.generation,
+      revision: revision.token ?? null,
+      cached: revision.usable ? snapshots.get(requestKey) : undefined,
+    };
+    // Conditional render adjustment scopes the request before querying, without
+    // a mutable ref leaking a reservation from an abandoned concurrent render.
+    setRequest(ticket);
+  }
+  const snapshot =
+    ticket?.cached ??
+    (complete?.request === ticket ? complete?.graph : undefined);
+  const response = useQuery(
+    api.discoveryRevision.graph,
+    !revision.settled || waitingForSave || snapshot
+      ? "skip"
+      : {
+          session: sessionId,
+          revision: ticket?.revision ?? null,
+          centre,
+          centreVia,
+          similar:
+            similar &&
+            similar.sessionId === sessionId &&
+            similar.navigation === navigation &&
+            similar.for === (centre ?? resolved)
+              ? similar.hints
+              : undefined,
+          pin: pinned,
+        },
+  );
+  const live =
+    ticket?.generation === snapshots.generation &&
+    response?.revision === ticket?.revision
+      ? (response?.graph ?? undefined)
+      : undefined;
+  const graph = useLatest(snapshot ?? live);
   const graphCentre = graph?.centre ?? undefined;
   useEffect(() => setResolved(graphCentre), [graphCentre]);
   // The chosen idea was deleted: the server fell back to the latest note
@@ -118,7 +219,15 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     graph?.nodes.find((node) => node.key === graphCentre),
   );
   useEffect(() => {
-    if (!graphCentre || !sessionId) return;
+    if (
+      !graphCentre ||
+      !sessionId ||
+      snapshot ||
+      pinned ||
+      !revision.settled ||
+      ticket?.generation !== snapshots.generation
+    )
+      return;
     if (
       centre &&
       (centre !== graphCentre ||
@@ -126,9 +235,16 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     )
       return;
     const key = `${graphCentre}:${graphCentreVia ?? ""}:${centreRevision}`;
-    const cached = neighbours.get(key);
+    const cached =
+      ticket && ticket.revision !== null ? neighbours.get(key) : undefined;
     if (cached) {
-      setSimilar({ sessionId, navigation, for: graphCentre, hints: cached });
+      setSimilar({
+        sessionId,
+        navigation,
+        for: graphCentre,
+        hints: cached,
+        cacheable: true,
+      });
       return;
     }
     let current = true;
@@ -136,13 +252,26 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     findSimilar({ key: graphCentre, via: graphCentreVia })
       .then((hints) => {
         if (!current || generation !== neighbours.generation) return;
-        neighbours.set(key, hints, generation);
-        setSimilar({ sessionId, navigation, for: graphCentre, hints });
+        if (ticket && ticket.revision !== null)
+          neighbours.set(key, hints, generation);
+        setSimilar({
+          sessionId,
+          navigation,
+          for: graphCentre,
+          hints,
+          cacheable: true,
+        });
       })
       // Without neighbours by meaning the other connections still draw the map
       .catch(() => {
         if (current && generation === neighbours.generation)
-          setSimilar({ sessionId, navigation, for: graphCentre, hints: [] });
+          setSimilar({
+            sessionId,
+            navigation,
+            for: graphCentre,
+            hints: [],
+            cacheable: false,
+          });
       });
     return () => {
       current = false;
@@ -157,6 +286,50 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     centre,
     centreVia,
     navigation,
+    snapshot,
+    revision.settled,
+    snapshots,
+    ticket,
+    pinned,
+  ]);
+
+  useEffect(() => {
+    // Only a fully folded graph is reusable; a base graph remains progressive.
+    if (
+      !live ||
+      !ticket ||
+      ticket.generation !== snapshots.generation ||
+      (live.centre &&
+        !pinned &&
+        (!similar ||
+          similar.navigation !== navigation ||
+          similar.for !== live.centre))
+    )
+      return;
+    // The pinned refresh folds the active view's existing hints, not a new
+    // semantic action. They are server-rechecked but not a reusable new epoch.
+    if (!pinned && revision.usable && (!live.centre || similar?.cacheable)) {
+      snapshots.set(requestKey, live, ticket.generation);
+      // Alias the initially server-selected centre for A -> B -> A navigation.
+      if (!centre && live.centre)
+        snapshots.set(
+          JSON.stringify([live.centre, centreVia ?? null, pinned ?? null]),
+          live,
+          ticket.generation,
+        );
+    }
+    setComplete({ request: ticket, graph: live });
+  }, [
+    live,
+    similar,
+    navigation,
+    snapshots,
+    requestKey,
+    centre,
+    centreVia,
+    pinned,
+    revision.usable,
+    ticket,
   ]);
 
   const openKey = centre ?? graphCentre;
@@ -176,6 +349,7 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     setCentre(key);
     setCentreVia(via);
     setPinned(undefined);
+    setSavedEpoch(null);
     setPanel({ kind: "node" });
     setFocusKey(key);
     setSaved(false);
@@ -299,8 +473,14 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
                   prompt={panel.prompt}
                   onCancel={() => setPanel({ kind: "node" })}
                   onSaved={(key) => {
+                    if (!mounted.current) return;
                     invalidateTopicSearchCache();
                     neighbours.forScope(null);
+                    setSavedEpoch(
+                      revision.token !== null && revision.token !== undefined
+                        ? { token: revision.token }
+                        : null,
+                    );
                     setAddedKey(key);
                     setPinned(key);
                     setSaved(true);

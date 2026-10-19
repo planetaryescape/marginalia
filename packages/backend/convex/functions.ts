@@ -16,6 +16,7 @@ import { metadataTriggers as triggers } from "./lib/metadataTriggers";
 import "./lib/manualAnnotationTriggers";
 import "./lib/fullSummaryTriggers";
 import "./lib/edgeExplanationTriggers";
+import "./lib/discoveryRevisionTriggers";
 
 export * from "./_generated/server";
 

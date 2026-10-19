@@ -2,6 +2,7 @@
 export class SessionCache<T> {
   generation = 0;
   private scope: string | null = null;
+  private revision: string | null | undefined;
   private entries = new Map<string, { at: number; value: T }>();
 
   constructor(
@@ -18,8 +19,28 @@ export class SessionCache<T> {
     if (scope !== this.scope || scope === null) {
       this.entries.clear();
       this.scope = scope;
+      this.revision = undefined;
       this.generation++;
     }
+  }
+
+  observeRevision(revision: string | null | undefined) {
+    // An unmounted subscriber may return pending on remount. Do not discard a
+    // same-epoch entry just for registering a listener; callers wait for the
+    // initial complete signal before reading/publishing reusable work.
+    if (revision === undefined) return;
+    if (revision !== this.revision) {
+      this.invalidate();
+      this.revision = revision;
+    }
+  }
+
+  get revisionSupported() {
+    return (
+      this.scope !== null &&
+      this.revision !== null &&
+      this.revision !== undefined
+    );
   }
 
   get(key: string): T | undefined {
