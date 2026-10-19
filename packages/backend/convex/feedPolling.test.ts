@@ -15,6 +15,7 @@ const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -55,6 +56,389 @@ async function fixture(count = 1) {
 }
 
 describe("durable global feed pool", () => {
+  it.each([
+    "pause",
+    "remove",
+    "url",
+    "expired-run",
+  ])("holds the global network reservation through %s until its actual action settles", async (change) => {
+    const f = await fixture(8);
+    const releases: Array<() => void> = [];
+    let initialStarted = () => {};
+    let extraStarted = () => {};
+    let laterStarted = () => {};
+    const initial = new Promise<void>((resolve) => {
+      initialStarted = resolve;
+    });
+    const extra = new Promise<void>((resolve) => {
+      extraStarted = resolve;
+    });
+    const later = new Promise<void>((resolve) => {
+      laterStarted = resolve;
+    });
+    let active = 0;
+    let maximum = 0;
+    const network = vi.fn(async (url: string) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      const held = new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+      if (releases.length === 4) initialStarted();
+      if (releases.length > 4) extraStarted();
+      if (releases.length === 8) laterStarted();
+      await held;
+      active--;
+      return new Response(xml(new URL(url).hostname));
+    });
+    vi.stubGlobal("fetch", network);
+    const first = (await f.states()).map((s) => ({
+      stateId: s._id,
+      generation: s.generation,
+    }));
+    const pending = first.map((claim) =>
+      f.t.action(internal.actions.pollFeeds.pollClaimedFeed, claim),
+    );
+    try {
+      await initial;
+      // A duplicate delivery must not release the original delivery's slot.
+      await f.t.action(internal.actions.pollFeeds.pollClaimedFeed, first[0]);
+      for (const feedId of f.ids.slice(0, 4)) {
+        const before = await f.t.run((ctx) => ctx.db.get(feedId));
+        if (!before) throw new Error("Missing feed");
+        if (change === "pause")
+          await f.t.mutation(api.feeds.toggleActive, { feedId });
+        else if (change === "remove")
+          await f.t.mutation(api.feeds.remove, { feedId });
+        else if (change === "url")
+          await f.t.run(async (ctx) => {
+            if (!before) throw new Error("Missing feed");
+            const after = { ...before, url: "https://changed.example/rss" };
+            await ctx.db.patch(before._id, { url: after.url });
+            await invalidateFeedPoll(ctx, before, after);
+          });
+        else
+          await f.t.run(async (ctx) => {
+            const run = await ctx.db.query("feedPollRuns").first();
+            if (!run) throw new Error("Missing run");
+            await ctx.db.patch(run._id, { deadline: Date.now() - 1 });
+          });
+        // Public mutations explicitly invalidate today. Simulate the shared
+        // registry calling the hook again: neither call owns network settlement.
+        if (change !== "expired-run")
+          await f.t.run(async (ctx) => {
+            await invalidateFeedPoll(ctx, before, await ctx.db.get(feedId));
+          });
+        await f.dispatch();
+        const ready = (await f.states()).filter(
+          (s) => s.leaseUntil && !s.started,
+        );
+        pending.push(
+          ...ready.map((s) =>
+            f.t.action(internal.actions.pollFeeds.pollClaimedFeed, {
+              stateId: s._id,
+              generation: s.generation,
+            }),
+          ),
+        );
+        if (ready.length) await extra;
+        expect(maximum).toBe(4);
+        expect(active).toBe(4);
+        expect(network).toHaveBeenCalledTimes(4);
+      }
+    } finally {
+      for (const release of releases) release();
+      await Promise.all(pending);
+    }
+    expect(
+      await f.t.run((ctx) => ctx.db.query("articles").collect()),
+    ).toHaveLength(0);
+    if (change === "expired-run") await f.begin();
+    else await f.dispatch();
+    const ready = (await f.states()).filter((s) => s.leaseUntil && !s.started);
+    const finishing = ready.map((s) =>
+      f.t.action(internal.actions.pollFeeds.pollClaimedFeed, {
+        stateId: s._id,
+        generation: s.generation,
+      }),
+    );
+    try {
+      await later;
+      expect(active).toBe(4);
+      expect(maximum).toBe(4);
+    } finally {
+      for (const release of releases.slice(4)) release();
+      await Promise.all(finishing);
+    }
+    await f.dispatch();
+    expect(
+      await f.t.run((ctx) => ctx.db.query("articles").collect()),
+    ).toHaveLength(4);
+    expect(
+      (await f.t.run((ctx) => ctx.db.query("feedPollRuns").first()))?.active,
+    ).toBe(false);
+  });
+
+  it("bounds late-starting network work by the reservation expiry before a lost-claim retry", async () => {
+    const f = await fixture(8);
+    const claims = (await f.states()).map((s) => ({
+      stateId: s._id,
+      generation: s.generation,
+    }));
+    const until = (await f.states())[0].leaseUntil;
+    if (!until) throw new Error("Missing lease");
+    vi.setSystemTime(until - 20);
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((ms) => {
+        const controller = new AbortController();
+        setTimeout(
+          () => controller.abort(new Error("Fixture network deadline")),
+          ms,
+        );
+        return controller.signal;
+      });
+    let starting = () => {};
+    const started = new Promise<void>((resolve) => {
+      starting = resolve;
+    });
+    let active = 0;
+    const network = vi.fn(
+      (_url: string, options: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          active++;
+          options.signal?.addEventListener(
+            "abort",
+            () => {
+              active--;
+              reject(options.signal?.reason);
+            },
+            { once: true },
+          );
+          if (active === 4) starting();
+        }),
+    );
+    vi.stubGlobal("fetch", network);
+    const actions = claims.map((claim) =>
+      f.t.action(internal.actions.pollFeeds.pollClaimedFeed, claim),
+    );
+    await started;
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([20, 20, 20, 20]);
+    // Advance only the provider timers, not independently queued fixture jobs.
+    await f.t.run(async (ctx) => {
+      for (const job of await ctx.db.system
+        .query("_scheduled_functions")
+        .collect())
+        if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+    });
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.all(actions);
+    expect(active).toBe(0);
+    await f.dispatch();
+    expect((await f.states()).map((s) => s.attempts)).toEqual([2, 2, 2, 2]);
+    for (const claim of claims)
+      expect(await f.t.mutation(internal.feedPolling.settle, claim)).toBe(
+        false,
+      );
+    expect(
+      (await f.t.run((ctx) => ctx.db.query("feedPollPool").first()))?.slots,
+    ).toHaveLength(4);
+    expect(network).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps a deleted-state reservation bounded when its owning action is lost", async () => {
+    const f = await fixture(8);
+    expect(
+      await f.t.mutation(internal.feedPolling.takePayload, f.claim),
+    ).toBeTruthy();
+    await f.t.mutation(api.feeds.remove, { feedId: f.ids[0] });
+    await f.dispatch();
+    expect(
+      (await f.states()).filter((s) => s.leaseUntil && !s.started),
+    ).toHaveLength(3);
+    vi.setSystemTime(Date.now() + FEED_LEASE_MS + 1);
+    await f.dispatch();
+    const p = await f.t.run((ctx) => ctx.db.query("feedPollPool").first());
+    expect(p?.slots).toHaveLength(4);
+    expect(p?.slots.some((s) => s.stateId === f.claim.stateId)).toBe(false);
+    expect(await f.t.mutation(internal.feedPolling.settle, f.claim)).toBe(
+      false,
+    );
+  });
+
+  it("shares held network reservations with another library after the source library is invalidated", async () => {
+    const { t, owner, readerLibraryId } = await secondReaderTest(modules);
+    const ownerIds = await t.run(async (ctx) => {
+      const ids = [];
+      for (const userId of [OWNER, readerLibraryId])
+        for (let n = 0; n < 4; n++) {
+          const id = await ctx.db.insert("feeds", {
+            userId,
+            url: `https://${userId === OWNER ? "owner" : "reader"}${n}.example/rss`,
+            title: "Fixture",
+            isActive: true,
+            createdAt: Date.now(),
+          });
+          if (userId === OWNER) ids.push(id);
+        }
+      return ids;
+    });
+    await t.mutation(internal.feedPolling.begin, { userId: OWNER });
+    await t.mutation(internal.feedPolling.dispatch, {});
+    const claims = await t.run((ctx) =>
+      ctx.db.query("feedPollStates").collect(),
+    );
+    const releases: Array<() => void> = [];
+    let ownerStarting = () => {};
+    let readerStarting = () => {};
+    const ownerStarted = new Promise<void>((resolve) => {
+      ownerStarting = resolve;
+    });
+    const readerStarted = new Promise<void>((resolve) => {
+      readerStarting = resolve;
+    });
+    let active = 0;
+    let maximum = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        active++;
+        maximum = Math.max(maximum, active);
+        const held = new Promise<void>((resolve) => {
+          releases.push(resolve);
+        });
+        if (releases.length === 4) ownerStarting();
+        if (releases.length === 5) readerStarting();
+        await held;
+        active--;
+        return new Response(xml(new URL(url).hostname));
+      }),
+    );
+    const actions = claims.map((s) =>
+      t.action(internal.actions.pollFeeds.pollClaimedFeed, {
+        stateId: s._id,
+        generation: s.generation,
+      }),
+    );
+    try {
+      await ownerStarted;
+      for (const feedId of ownerIds)
+        await owner.mutation(api.feeds.remove, { feedId });
+      await t.mutation(internal.feedPolling.begin, { userId: readerLibraryId });
+      await t.mutation(internal.feedPolling.dispatch, {});
+      expect(
+        await t.run((ctx) => ctx.db.query("feedPollStates").collect()),
+      ).toHaveLength(0);
+      expect(active).toBe(4);
+      releases[0]();
+      await actions[0];
+      await t.mutation(internal.feedPolling.dispatch, {});
+      const [next] = await t.run((ctx) =>
+        ctx.db.query("feedPollStates").collect(),
+      );
+      expect(next.userId).toBe(readerLibraryId);
+      actions.push(
+        t.action(internal.actions.pollFeeds.pollClaimedFeed, {
+          stateId: next._id,
+          generation: next.generation,
+        }),
+      );
+      await readerStarted;
+      expect(active).toBe(4);
+      expect(maximum).toBe(4);
+    } finally {
+      for (const release of releases) release();
+      await Promise.all(actions);
+    }
+    expect(
+      (await t.run((ctx) => ctx.db.query("articles").collect())).map(
+        (a) => a.userId,
+      ),
+    ).toEqual([readerLibraryId]);
+  });
+
+  it("a settled older generation cannot release or publish into a newer reservation", async () => {
+    const f = await fixture(2);
+    const releases: Array<() => void> = [];
+    let oldStarting = () => {};
+    let newStarting = () => {};
+    const oldStarted = new Promise<void>((resolve) => {
+      oldStarting = resolve;
+    });
+    const newStarted = new Promise<void>((resolve) => {
+      newStarting = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const held = new Promise<void>((resolve) => {
+          releases.push(resolve);
+        });
+        if (releases.length === 1) oldStarting();
+        if (releases.length === 2) newStarting();
+        await held;
+        return new Response(
+          xml(url.includes("changed") ? "new-generation" : "old-generation"),
+        );
+      }),
+    );
+    const oldAction = f.t.action(
+      internal.actions.pollFeeds.pollClaimedFeed,
+      f.claim,
+    );
+    const actions = [oldAction];
+    try {
+      await oldStarted;
+      await f.t.run(async (ctx) => {
+        const before = await ctx.db.get(f.ids[0]);
+        const run = await ctx.db.query("feedPollRuns").first();
+        if (!before || !run) throw new Error("Missing fixture state");
+        const after = { ...before, url: "https://changed.example/rss" };
+        await ctx.db.patch(before._id, { url: after.url });
+        await invalidateFeedPoll(ctx, before, after);
+        await ctx.db.patch(run._id, { active: false, exhausted: true });
+      });
+      await f.begin();
+      const next = (await f.states()).find((s) => s.feedId === f.ids[0]);
+      if (!next) throw new Error("Missing newer claim");
+      actions.push(
+        f.t.action(internal.actions.pollFeeds.pollClaimedFeed, {
+          stateId: next._id,
+          generation: next.generation,
+        }),
+      );
+      await newStarted;
+      releases[0]();
+      await oldAction;
+      expect(await f.t.mutation(internal.feedPolling.settle, f.claim)).toBe(
+        false,
+      );
+      const p = await f.t.run((ctx) => ctx.db.query("feedPollPool").first());
+      expect(
+        p?.slots.some(
+          (s) =>
+            s.stateId === next._id &&
+            s.generation === next.generation &&
+            s.started,
+        ),
+      ).toBe(true);
+      expect((await f.t.run((ctx) => ctx.db.get(next._id)))?.leaseUntil).toBe(
+        next.leaseUntil,
+      );
+      expect(
+        await f.t.run((ctx) => ctx.db.query("articles").collect()),
+      ).toHaveLength(0);
+    } finally {
+      for (const release of releases) release();
+      await Promise.all(actions);
+    }
+    expect(
+      (await f.t.run((ctx) => ctx.db.query("articles").collect())).map(
+        (a) => a.guid,
+      ),
+    ).toEqual(["new-generation"]);
+  });
+
   it("invalidates URL-revision state and provides bounded, non-resurrecting purge hooks", async () => {
     const f = await fixture();
     await f.t.mutation(internal.feedPolling.finish, {

@@ -93,7 +93,11 @@ export const begin = internalMutation({
   },
 });
 
-async function launch(ctx: MutationCtx, state: Doc<"feedPollStates">) {
+async function launch(
+  ctx: MutationCtx,
+  state: Doc<"feedPollStates">,
+  run: Doc<"feedPollRuns">,
+) {
   const claim = { stateId: state._id, generation: state.generation };
   await ctx.scheduler.runAfter(
     0,
@@ -107,6 +111,9 @@ async function launch(ctx: MutationCtx, state: Doc<"feedPollStates">) {
   );
   return {
     ...claim,
+    runId: run._id,
+    run: run.run,
+    started: false,
     leaseUntil: state.leaseUntil ?? Date.now() + FEED_LEASE_MS,
   };
 }
@@ -120,15 +127,17 @@ export const dispatch = internalMutation({
     const slots: typeof p.slots = [];
     for (const slot of p.slots) {
       const state = await ctx.db.get(slot.stateId);
-      if (!state || state.generation !== slot.generation || !state.leaseUntil)
-        continue;
-      if (state.leaseUntil > Date.now()) {
-        // Invalidated feeds are fenced immediately, not held until lease expiry.
-        if (await current(ctx, slot)) {
+      if (slot.leaseUntil > Date.now()) {
+        // Publication revocation is NOT network settlement. An action which
+        // took this slot can still be fetching after its state was removed.
+        if (slot.started || (await current(ctx, slot))) {
           slots.push(slot);
           continue;
         }
-      } else {
+      }
+      if (!state || state.generation !== slot.generation || !state.leaseUntil)
+        continue;
+      if (slot.leaseUntil <= Date.now()) {
         const feed = await ctx.db.get(state.feedId);
         const run = await ctx.db
           .query("feedPollRuns")
@@ -160,7 +169,7 @@ export const dispatch = internalMutation({
             leaseUntil: next.leaseUntil,
           });
           await ctx.db.patch(state.feedId, { checkingSince: Date.now() });
-          slots.push(await launch(ctx, next));
+          slots.push(await launch(ctx, next, run));
           continue;
         }
       }
@@ -241,21 +250,22 @@ export const dispatch = internalMutation({
           if (prior) await ctx.db.replace(stateId, value);
           await ctx.db.patch(feed._id, { checkingSince: Date.now() });
           slots.push(
-            await launch(ctx, {
-              ...value,
-              _id: stateId,
-              _creationTime: prior?._creationTime ?? Date.now(),
-            }),
+            await launch(
+              ctx,
+              {
+                ...value,
+                _id: stateId,
+                _creationTime: prior?._creationTime ?? Date.now(),
+              },
+              run,
+            ),
           );
         }
       }
       // A run only retires after selection AND its claimed actions finish.
-      let ownSlots = false;
-      for (const slot of slots) {
-        const state = await ctx.db.get(slot.stateId);
-        if (state?.userId === run.userId && state.run === run.run)
-          ownSlots = true;
-      }
+      const ownSlots = slots.some(
+        (slot) => slot.runId === run._id && slot.run === run.run,
+      );
       await ctx.db.patch(run._id, {
         cursor,
         scanned,
@@ -272,11 +282,20 @@ export const dispatch = internalMutation({
 export const takePayload = internalMutation({
   args: pollClaim,
   handler: async (ctx, claim) => {
+    const p = await pool(ctx);
+    const slot = p?.slots.find(
+      (s) => s.stateId === claim.stateId && s.generation === claim.generation,
+    );
+    if (!p || !slot || slot.started || slot.leaseUntil <= Date.now())
+      return null;
     const value = await current(ctx, claim);
     if (!value || value.state.started) return null;
     const { feed, state } = value;
     if (feed.url.length > 4096) return null;
     await ctx.db.patch(state._id, { started: true });
+    await ctx.db.patch(p._id, {
+      slots: p.slots.map((s) => (s === slot ? { ...s, started: true } : s)),
+    });
     return {
       feedId: feed._id,
       url: feed.url,
@@ -285,7 +304,39 @@ export const takePayload = internalMutation({
       etag: feed.lastFetchedAt !== undefined ? state.etag : undefined,
       modified: feed.lastFetchedAt !== undefined ? state.modified : undefined,
       representationUrl: state.representationUrl,
+      reservationUntil: slot.leaseUntil,
     };
+  },
+});
+
+/** Called only by the delivery which atomically took the reservation, after
+ * its network/body work has settled. Duplicate deliveries never own this right. */
+export const settle = internalMutation({
+  args: pollClaim,
+  handler: async (ctx, claim) => {
+    const p = await pool(ctx);
+    const slot = p?.slots.find(
+      (s) => s.stateId === claim.stateId && s.generation === claim.generation,
+    );
+    if (!p || !slot?.started) return false;
+    const state = await ctx.db.get(claim.stateId);
+    if (
+      state?.generation === claim.generation &&
+      state.leaseUntil !== undefined
+    ) {
+      // An RPC failure/early exit before finish must retain bounded recovery,
+      // but the settled network no longer needs to occupy its original lease.
+      await ctx.db.patch(state._id, { leaseUntil: Date.now() });
+      await ctx.db.patch(p._id, {
+        slots: p.slots.map((s) =>
+          s === slot ? { ...s, leaseUntil: Date.now() } : s,
+        ),
+      });
+    } else {
+      await ctx.db.patch(p._id, { slots: p.slots.filter((s) => s !== slot) });
+    }
+    await ctx.scheduler.runAfter(0, internal.feedPolling.dispatch, {});
+    return true;
   },
 });
 
@@ -383,7 +434,10 @@ export const finish = internalMutation({
     if (p)
       await ctx.db.patch(p._id, {
         slots: p.slots.filter(
-          (s) => s.stateId !== state._id || s.generation !== args.generation,
+          (s) =>
+            s.stateId !== state._id ||
+            s.generation !== args.generation ||
+            s.started,
         ),
       });
     await ctx.scheduler.runAfter(0, internal.feedPolling.dispatch, {});

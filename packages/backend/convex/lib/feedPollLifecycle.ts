@@ -20,6 +20,8 @@ export async function invalidateFeedPoll(
     .query("feedPollStates")
     .withIndex("by_feedId", (q) => q.eq("feedId", before._id))
     .unique();
+  // Revoke publication only. A started pool reservation survives this state
+  // deletion/generation change until its action settles or its deadline expires.
   if (state && (!after || after.userId !== before.userId))
     await ctx.db.delete(state._id);
   else if (state) {

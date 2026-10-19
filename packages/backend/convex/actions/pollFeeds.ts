@@ -71,9 +71,13 @@ async function fetchFeed(
   url: string,
   validators: FeedValidators,
   signal: AbortSignal,
+  reservationUntil: number,
 ) {
   let representationUrl = url;
   for (let redirects = 0; redirects <= 3; redirects++) {
+    signal.throwIfAborted();
+    if (Date.now() >= reservationUntil)
+      throw new Error("Feed network reservation expired");
     const headers: Record<string, string> = { "User-Agent": "Marginalia/1.0" };
     // Redirects are not the representation whose validators were committed.
     if (representationUrl === (validators.representationUrl ?? url)) {
@@ -165,11 +169,16 @@ export const pollClaimedFeed = internalAction({
     if (!feed) return;
     const deadline = Date.now() + POLL_ACTION_MS;
     try {
-      const signal = AbortSignal.timeout(FEED_NETWORK_MS);
+      const remaining = feed.reservationUntil - Date.now();
+      if (remaining <= 0) throw new Error("Feed network reservation expired");
+      // A queued action may start late. Its network cannot outlive the durable
+      // reservation even when fewer than ten seconds remain on that lease.
+      const signal = AbortSignal.timeout(Math.min(FEED_NETWORK_MS, remaining));
       const { response, representationUrl } = await fetchFeed(
         feed.url,
         feed,
         signal,
+        feed.reservationUntil,
       );
       if (response.status === 304) {
         await response.body?.cancel();
@@ -227,6 +236,8 @@ export const pollClaimedFeed = internalAction({
         ...claim,
         error: message,
       });
+    } finally {
+      await ctx.runMutation(internal.feedPolling.settle, claim);
     }
   },
 });
