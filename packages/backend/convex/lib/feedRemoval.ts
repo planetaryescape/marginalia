@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { getConvexSize, type Value, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -19,6 +19,98 @@ export interface ArticleUse {
   marked: boolean;
   /** Opened, finished, saved or loved */
   opened: boolean;
+}
+
+/**
+ * Preview only: reserve room for auth/feed reads and one maximum-size source
+ * row beyond the cutoff. Reads are serial, so no outstanding join can spend
+ * that reserve again. This is not permission to delete an article.
+ */
+export class PreviewReadBudget {
+  private bytes = 0;
+  private reads = 0;
+
+  async read<T extends Value>(
+    load: () => Promise<T | null>,
+  ): Promise<T | null | undefined> {
+    if (this.bytes >= 8 * 1024 * 1024 || this.reads >= 3600) return undefined;
+    this.reads++;
+    const row = await load();
+    if (row !== null) this.bytes += getConvexSize(row);
+    return row;
+  }
+}
+
+/** Unknown means the article must not contribute to either removal count. */
+export async function previewArticleUse(
+  ctx: QueryCtx,
+  article: Doc<"articles">,
+  budget: PreviewReadBudget,
+): Promise<ArticleUse | null> {
+  for (const table of [
+    "highlights",
+    "userNotes",
+    "companionThreads",
+    "impressions",
+  ] as const) {
+    const mark = await budget.read(() =>
+      ctx.db
+        .query(table)
+        .withIndex("by_article", (q) => q.eq("articleId", article._id))
+        .first(),
+    );
+    if (mark === undefined) return null;
+    if (mark) return { marked: true, opened: false };
+  }
+
+  const reflections = ctx.db
+    .query("reflections")
+    .withIndex("by_article", (q) => q.eq("articleId", article._id))
+    [Symbol.asyncIterator]();
+  while (true) {
+    const reflection = await budget.read(async () => {
+      const next = await reflections.next();
+      return next.done ? null : next.value;
+    });
+    if (reflection === undefined) return null;
+    if (reflection === null) break;
+    if (reflection.userResponse !== undefined)
+      return { marked: true, opened: false };
+  }
+
+  if (article.finishedAt !== undefined) return { marked: false, opened: true };
+  for (const action of ["opened", "finished"] as const) {
+    const interaction = await budget.read(() =>
+      ctx.db
+        .query("articleInteractions")
+        .withIndex("by_user_article_action", (q) =>
+          q
+            .eq("userId", article.userId)
+            .eq("articleId", article._id)
+            .eq("action", action),
+        )
+        .first(),
+    );
+    if (interaction === undefined) return null;
+    if (interaction) return { marked: false, opened: true };
+  }
+  for (const table of [
+    "readingActivity",
+    "savedArticles",
+    "lovedArticles",
+  ] as const) {
+    const interaction = await budget.read(() =>
+      ctx.db
+        .query(table)
+        .withIndex("by_user_article", (q) =>
+          q.eq("userId", article.userId).eq("articleId", article._id),
+        )
+        .first(),
+    );
+    if (interaction === undefined) return null;
+    if (interaction) return { marked: false, opened: true };
+  }
+  return { marked: false, opened: false };
 }
 
 export async function articleUse(

@@ -19,6 +19,8 @@ import {
   articleUse,
   deleteArticle,
   feedArticlesChoice,
+  PreviewReadBudget,
+  previewArticleUse,
   removes,
 } from "./lib/feedRemoval";
 import { metadataLibraryActive } from "./lib/shelfCounts";
@@ -144,28 +146,46 @@ export const removalPreview = query({
   handler: async (ctx, args) => {
     const feed = await ctx.db.get(args.feedId);
     if (feed?.userId !== ctx.readerId) return null;
-    const articles = await ctx.db
+    const articles = ctx.db
       .query("articles")
       .withIndex("by_feed", (q) => q.eq("feedId", args.feedId))
-      .take(PREVIEW_LIMIT + 1);
-    const counted = articles
-      .slice(0, PREVIEW_LIMIT)
-      .filter((a) => a.userId === ctx.readerId);
-    const uses = await Promise.all(counted.map((a) => articleUse(ctx, a)));
-    const removed = (choice: "unread" | "all") =>
-      counted.filter((_, i) => removes(choice, uses[i]));
-    const unread = removed("unread");
-    const all = removed("all");
-    const inReader = (rows: typeof counted) =>
-      rows.filter((a) => a.readerDocumentId).length;
-    return {
-      total: counted.length,
-      unread: unread.length,
-      unreadInReader: inReader(unread),
-      all: all.length,
-      allInReader: inReader(all),
-      partial: articles.length > PREVIEW_LIMIT,
+      [Symbol.asyncIterator]();
+    const budget = new PreviewReadBudget();
+    const result = {
+      total: 0,
+      unread: 0,
+      unreadInReader: 0,
+      all: 0,
+      allInReader: 0,
+      partial: false,
     };
+    for (let scanned = 0; ; scanned++) {
+      const article = await budget.read(async () => {
+        const next = await articles.next();
+        return next.done ? null : next.value;
+      });
+      if (article === null) break;
+      if (article === undefined || scanned === PREVIEW_LIMIT) {
+        result.partial = true;
+        break;
+      }
+      if (article.userId !== ctx.readerId) continue;
+      result.total++;
+      const use = await previewArticleUse(ctx, article, budget);
+      if (use === null) {
+        result.partial = true;
+        break;
+      }
+      if (removes("all", use)) {
+        result.all++;
+        if (article.readerDocumentId) result.allInReader++;
+      }
+      if (removes("unread", use)) {
+        result.unread++;
+        if (article.readerDocumentId) result.unreadInReader++;
+      }
+    }
+    return result;
   },
 });
 
