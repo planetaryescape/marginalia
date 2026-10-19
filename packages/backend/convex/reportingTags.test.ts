@@ -6,11 +6,15 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import authSchema from "./betterAuth/schema";
 import { metadataTriggers } from "./lib/metadataTriggers";
+import * as reportingTagModule from "./lib/reportingTags";
 import { reportingTags } from "./lib/reportingTags";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 async function fixture(large = false) {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -221,11 +225,24 @@ it("physically bounds vector-free Topics and Linger with full visit arrays and l
     await f.t.run((ctx) => ctx.db.patch(f.state._id, { ready: false }));
     const legacy = await read();
     await f.t.run((ctx) => ctx.db.patch(f.state._id, { ready: true }));
+    const factory = reportingTags;
+    const serialized = vi
+      .spyOn(reportingTagModule, "reportingTags")
+      .mockImplementation(async (ctx, userId) => ({
+        ...(await factory(ctx, userId)),
+        prefetchNodes: async () => {},
+      }));
+    const previous = await read().finally(() => serialized.mockRestore());
     const measured = await read();
     expect(measured.result).toEqual(legacy.result);
+    expect(measured.result).toEqual(previous.result);
     console.log(
       "C06 native physical fixture",
-      JSON.stringify({ legacy: legacy.metrics, current: measured.metrics }),
+      JSON.stringify({
+        legacy: legacy.metrics,
+        serialized: previous.metrics,
+        current: measured.metrics,
+      }),
     );
     expect(measured.metrics.bytesRead.used).toBeLessThan(16 * 1024 * 1024);
     expect(measured.metrics.bytesRead.used).toBeLessThan(
@@ -296,4 +313,194 @@ it("physically bounds vector-free Topics and Linger with full visit arrays and l
     expect(measured.metrics.bytesRead.used).toBeLessThan(16 * 1024 * 1024);
     expect(measured.metrics.bytesWritten.used).toBe(0);
   }
+});
+
+it("overlaps only the public Linger query's first 40 small nodes and stops payloads at eight names", async () => {
+  const f = await fixture();
+  await f.t.run(async (ctx) => {
+    for (let i = 0; i < f.articles.length; i++)
+      for (let tag = 100 + i * 16; tag < 116 + i * 16; tag++)
+        await ctx.db.insert("articleTags", {
+          userId: f.userId,
+          articleId: f.articles[i],
+          tagId: f.tagIds[tag],
+          createdAt: 0,
+        });
+  });
+  const args = { timeZone: "America/New_York", period: "90days" } as const;
+  await f.t.run((ctx) => ctx.db.patch(f.state._id, { ready: false }));
+  let canonical = await f.client.query(api.readingHabits.readingLinger, args);
+  expect(canonical.topics).toHaveLength(8);
+  // Leave a top-ranked dangling link: a missing node must be cached too, not
+  // queried again by the lazy display loop after prefetch finishes.
+  const first = canonical.topics[0].name;
+  const deletedId = f.tagIds.find((_, i) => `Topic ${i}` === first);
+  if (!deletedId) throw new Error("Missing first-ranked fixture tag");
+  await f.t.run(async (ctx) => {
+    const { db } = metadataTriggers.wrapDB(ctx);
+    await db.delete(deletedId);
+  });
+  canonical = await f.client.query(api.readingHabits.readingLinger, args);
+  await f.t.run((ctx) => ctx.db.patch(f.state._id, { ready: true }));
+
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let firstStarted = () => {};
+  const started = new Promise<void>((resolve) => {
+    firstStarted = resolve;
+  });
+  let structures = 0;
+  let payloads = 0;
+  let canonicalGets = 0;
+  const factory = reportingTags;
+  vi.spyOn(reportingTagModule, "reportingTags").mockImplementation(
+    async (ctx, userId) => {
+      const query = ctx.db.query.bind(ctx.db);
+      vi.spyOn(ctx.db, "query").mockImplementation((table) => {
+        const result = query(table);
+        if (table === "tagVocabulary") {
+          const withIndex = result.withIndex.bind(result);
+          vi.spyOn(result, "withIndex").mockImplementation((...args) => {
+            const indexed = withIndex(...args);
+            const unique = indexed.unique.bind(indexed);
+            vi.spyOn(indexed, "unique").mockImplementation(async () => {
+              structures++;
+              if (structures === 1) firstStarted();
+              await held;
+              return unique();
+            });
+            return indexed;
+          });
+        }
+        return result;
+      });
+      const get = ctx.db.get.bind(ctx.db);
+      vi.spyOn(ctx.db, "get").mockImplementation((...args) => {
+        if (args[0] === "tags") canonicalGets++;
+        else payloads++;
+        return get(...args);
+      });
+      return factory(ctx, userId);
+    },
+  );
+  const pending = f.client.run(async (ctx) => {
+    const result = await ctx.runQuery(api.readingHabits.readingLinger, args);
+    return { result, metrics: await ctx.meta.getTransactionMetrics() };
+  });
+  await started;
+  const whileHeld = { structures, payloads, canonicalGets };
+  release();
+  const measured = await pending;
+  expect(whileHeld).toEqual({ structures: 40, payloads: 0, canonicalGets: 0 });
+  expect(measured.result).toEqual(canonical);
+  expect(structures).toBe(40);
+  expect(payloads).toBe(8);
+  expect(canonicalGets).toBe(0);
+  expect(measured.metrics.bytesWritten.used).toBe(0);
+  const dispatch = { structures, payloads, canonicalGets };
+  for (const state of [
+    { ready: false, overflow: 0 },
+    { ready: true, overflow: 1 },
+  ]) {
+    await f.t.run((ctx) => ctx.db.patch(f.state._id, state));
+    structures = payloads = canonicalGets = 0;
+    const fallback = await f.client.query(
+      api.readingHabits.readingLinger,
+      args,
+    );
+    expect(fallback).toEqual(canonical);
+    expect(structures).toBe(0);
+    expect(payloads).toBe(0);
+    // A missing tag and one candidate may be filtered; stop canonical bodies
+    // lazily too, rather than hydrating all 40 vectors on an unready library.
+    expect(canonicalGets).toBeGreaterThanOrEqual(8);
+    expect(canonicalGets).toBeLessThanOrEqual(10);
+  }
+  console.log(
+    "C06 held public Linger fixture",
+    JSON.stringify({ dispatch, metrics: measured.metrics }),
+  );
+});
+
+it("keeps public Linger names identical to serialized metadata and canonical fallbacks after edits", async () => {
+  const f = await fixture();
+  const args = { timeZone: "America/New_York", period: "90days" } as const;
+  const read = () => f.client.query(api.readingHabits.readingLinger, args);
+  const factory = reportingTags;
+  const parity = async () => {
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.state._id, { ready: true, overflow: 0 }),
+    );
+    const current = await read();
+    // The deployed pre-followup path performs exactly the same lazy name reads,
+    // without a preceding structure phase. Exercise that via the public query.
+    const serialized = vi
+      .spyOn(reportingTagModule, "reportingTags")
+      .mockImplementation(async (ctx, userId) => ({
+        ...(await factory(ctx, userId)),
+        prefetchNodes: async () => {},
+      }));
+    try {
+      expect(await read()).toEqual(current);
+    } finally {
+      serialized.mockRestore();
+    }
+    for (const state of [
+      { ready: false, overflow: 0 },
+      { ready: true, overflow: 1 },
+    ]) {
+      await f.t.run((ctx) => ctx.db.patch(f.state._id, state));
+      expect(await read()).toEqual(current);
+    }
+    return current;
+  };
+  await parity();
+  await f.t.run(async (ctx) => {
+    const { db } = metadataTriggers.wrapDB(ctx);
+    await db.patch(f.tagIds[0], { name: "Renamed Linger topic" });
+    await db.patch(f.tagIds[1], { status: "active" });
+    await db.patch(f.tagIds[2], { status: "candidate" });
+    await db.delete(f.tagIds[3]);
+    await db.patch(f.tagIds[4], { userId: "foreign-reader" });
+    // The foreign link itself must be discarded before ranking, independently
+    // of the foreign-tag name fence. A deleted tag leaves a dangling own link.
+    await db.insert("articleTags", {
+      userId: "foreign-reader",
+      articleId: f.articles[0],
+      tagId: f.tagIds[200],
+      createdAt: 0,
+    });
+  });
+  const edited = await parity();
+  expect(edited.topics.map((topic) => topic.name)).toContain(
+    "Renamed Linger topic",
+  );
+  expect(edited.topics.map((topic) => topic.name)).toContain("Topic 1");
+  for (const name of ["Topic 2", "Topic 3", "Topic 4", "Topic 200"])
+    expect(edited.topics.map((topic) => topic.name)).not.toContain(name);
+
+  // Incomplete/unsupported payloads must still take the old canonical fallback,
+  // rather than reading every later candidate or inventing an empty name.
+  await f.t.run(async (ctx) => {
+    for (const [index, tagId] of [
+      f.tagIds[0],
+      f.tagIds[1],
+      f.tagIds[299],
+    ].entries()) {
+      const node = await ctx.db
+        .query("tagVocabulary")
+        .withIndex("by_tagId", (q) => q.eq("tagId", tagId))
+        .unique();
+      if (!node) throw new Error("Missing fixture node");
+      if (index === 0) await ctx.db.delete(node.payloadId);
+      else if (index === 1)
+        await ctx.db.patch(node.payloadId, { userId: "foreign-reader" });
+      else await ctx.db.patch(node.payloadId, { tagId: f.tagIds[200] });
+    }
+  });
+  expect(await parity()).toEqual(edited);
+  await f.t.run((ctx) => ctx.db.delete(f.state._id));
+  expect(await read()).toEqual(edited);
 });
