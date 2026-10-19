@@ -12,6 +12,7 @@ import {
   skipsMostOf,
   splitReads,
 } from "./lib/readingRoom";
+import { reportingTags } from "./lib/reportingTags";
 import { dayKey, statsPeriod } from "./lib/statsPeriod";
 
 const args = {
@@ -516,13 +517,11 @@ export const readingRoom = query({
 // Articles whose tags are read, newest read first, and the most tags kept per article
 const TOPIC_ARTICLES = 200;
 const TAGS_PER_ARTICLE = 20;
-// Tag documents carry an embedding, so they are fetched in small batches and
-// only as far down the minutes ranking as 30 active topics need
+// Names are hydrated only for the final ranking, from vector-free metadata
+// when ready (otherwise the canonical active-tag query is retained).
 const TOPICS_SHOWN = 30;
-// Active tags loaded to rank against. A tag document is about 15 KB with its
-// embedding, so 300 is about 4.5 MB. Tag counts stay far below that because
-// new tags are resisted: a name is matched onto an existing tag or alias
-// before one is created (D-DES-059).
+// Preserve the first 300 active tags in canonical source-creation order,
+// independent of metadata node recreation, count and vocabulary-tree ranking.
 const ACTIVE_TAGS = 300;
 // Bytes of finish and skip rows read per period, newest first, each from its
 // own index range so routine browsing events can't crowd them out. Either kind
@@ -609,16 +608,8 @@ export const readingTopics = query({
 
     // Candidates and other readers' tags are dropped before ranking, so they
     // can't use up the places that active topics need
-    const active = new Map(
-      (
-        await ctx.db
-          .query("tags")
-          .withIndex("by_user_status", (q) =>
-            q.eq("userId", ctx.readerId).eq("status", "active"),
-          )
-          .take(ACTIVE_TAGS)
-      ).map((tag) => [tag._id, tag.name]),
-    );
+    const tags = await reportingTags(ctx, ctx.readerId);
+    const active = await tags.activeIds(ACTIVE_TAGS);
     const perTag = new Map<
       Id<"tags">,
       { ms: number; articles: number; finished: number; skipped: number }
@@ -651,20 +642,20 @@ export const readingTopics = query({
         }),
       );
 
-    return (
+    return Promise.all(
       [...perTag.entries()]
         // A topic is one the reader spent time on; outcomes alone don't make one
         .filter(([, total]) => total.articles > 0)
         .sort((a, b) => b[1].ms - a[1].ms || a[0].localeCompare(b[0]))
         .slice(0, TOPICS_SHOWN)
-        .map(([tagId, total]) => ({
-          name: active.get(tagId) ?? "",
+        .map(async ([tagId, total]) => ({
+          name: (await tags.name(tagId)) ?? "",
           minutes: Math.round((total.ms / 60_000) * 10) / 10,
           articles: total.articles,
           finished: total.finished,
           skipped: total.skipped,
           outcomesPartial,
-        }))
+        })),
     );
   },
 });
