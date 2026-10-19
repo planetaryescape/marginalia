@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { edgeExplanationState } from "./lib/edgeExplanations";
 import { feedPollTables } from "./lib/feedPollProtocol";
+import { feedRemovalJob } from "./lib/feedRemovalState";
 import { feedStatusTables } from "./lib/feedStatus";
 import { fingerprintTables } from "./lib/fingerprintSchema";
 import { fullSummaryState } from "./lib/fullSummaries";
@@ -840,6 +841,11 @@ export default defineSchema({
     updatedAt: v.number(),
     finishedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"]),
+
+  feedArticleCleanup: defineTable(feedRemovalJob)
+    .index("by_articleId", ["articleId"])
+    .index("by_feedId_phase", ["feedId", "phase"])
+    .index("by_userId", ["userId"]),
 
   reflections: defineTable({
     articleId: v.id("articles"),

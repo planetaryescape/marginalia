@@ -13,6 +13,24 @@ import type { MarkColor } from "./markColours";
 
 export type Db = Pick<QueryCtx, "db">;
 
+/** A source-first removal's children are not live graph inputs. If the graph
+ * cannot afford this compact authority read, fail closed rather than infer
+ * absence. The claim disappears only after all generated children are gone. */
+export async function articleCleanupPending(
+  ctx: Db,
+  articleId: Id<"articles">,
+  budget: ReadBudget = UNLIMITED,
+) {
+  if (budget.allow(1) === 0) return true;
+  const [job] = await budget.take(1, (limit) =>
+    ctx.db
+      .query("feedArticleCleanup")
+      .withIndex("by_articleId", (q) => q.eq("articleId", articleId))
+      .take(limit),
+  );
+  return !!job && job.phase !== "checking" && job.phase !== "feed";
+}
+
 export interface LoadedNode {
   key: string;
   kind: NodeKind;
@@ -164,6 +182,7 @@ async function articleFromSummary(
   budget: ReadBudget,
   trusted: boolean,
 ): Promise<LoadedNode | null> {
+  if (await articleCleanupPending(ctx, articleId, budget)) return null;
   const [summary] = await budget.take(1, (limit) =>
     ctx.db
       .query("summaries")
@@ -224,5 +243,10 @@ export async function articleFor(ctx: Db, userId: string, from: LoadedNode) {
     )
     .order("desc")
     .take(5);
-  return rows.find((row) => row.userId === userId)?.articleId ?? null;
+  for (const row of rows) {
+    if (row.userId !== userId) continue;
+    if (!(await articleCleanupPending(ctx, row.articleId)))
+      return row.articleId;
+  }
+  return null;
 }
