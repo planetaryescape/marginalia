@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { ownedArticle } from "./access";
+import { ownedArticle, ownedArticleCard } from "./access";
 import { unitSummaries } from "./bookIndex";
 import { query } from "./functions";
 import { nextUnitIndex } from "./lib/bookPicks";
@@ -82,7 +82,7 @@ export const outline = query({
 export const progress = query({
   args: { articleId: v.id("articles") },
   handler: async (ctx, { articleId }) => {
-    if (!(await ownedArticle(ctx, articleId, ctx.readerId))) return null;
+    if (!(await ownedArticleCard(ctx, articleId, ctx.readerId))) return null;
     const book = await ctx.db
       .query("books")
       .withIndex("by_userId_and_articleId", (q) =>

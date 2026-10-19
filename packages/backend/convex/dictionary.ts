@@ -2,7 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { ownedArticle } from "./access";
+import { ownedArticleCard } from "./access";
 import { internalMutation, mutation, query } from "./functions";
 import {
   boundedDictionaryText,
@@ -15,9 +15,8 @@ import {
 
 /** Lookups per page. */
 export const DICTIONARY_PAGE = 40;
-// Lookups recorded before `articleTitle` was copied onto them read their
-// article, whose document can be close to a megabyte. This many per page; the
-// backfill removes the need.
+// Older lookups need title cards. Cap joins, including guarded near-limit
+// source fallbacks for libraries whose metadata has not been backfilled.
 const TITLE_FALLBACKS = 8;
 
 function pageSize(requested: number, max: number) {
@@ -53,7 +52,7 @@ export const page = query({
         if (!fetched.has(row.articleId) && fetched.size < TITLE_FALLBACKS)
           fetched.set(
             row.articleId,
-            (await ownedArticle(ctx, row.articleId, ctx.readerId))?.title ??
+            (await ownedArticleCard(ctx, row.articleId, ctx.readerId))?.title ??
               null,
           );
         const looked = fetched.get(row.articleId);
@@ -308,15 +307,18 @@ export const senses = query({
         numItems: pageSize(paginationOpts.numItems, SENSES),
         maximumBytesRead: READ_BYTES,
       });
-    const articles = new Map<Id<"articles">, Doc<"articles"> | null>();
+    const articles = new Map<
+      Id<"articles">,
+      Awaited<ReturnType<typeof ownedArticleCard>>
+    >();
     const page = [];
     for (const row of result.page) {
-      // A chosen page has at most four article reads (<4 MiB even for legacy
-      // near-limit bodies). Nothing in alphabet/search joins articles.
+      // At most four card joins; unmigrated/deferred sources retain their
+      // guarded full-document fallback. Alphabet/search do not join articles.
       if (!row.articleGone && !articles.has(row.articleId))
         articles.set(
           row.articleId,
-          await ownedArticle(ctx, row.articleId, ctx.readerId),
+          await ownedArticleCard(ctx, row.articleId, ctx.readerId),
         );
       const article = articles.get(row.articleId);
       page.push({
