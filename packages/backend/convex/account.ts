@@ -17,6 +17,7 @@ import { purgeFullSummaries } from "./lib/fullSummaries";
 import { purgeHighlightIdentities } from "./lib/highlightIdentity";
 import { purgeManualAnnotations } from "./lib/manualAnnotations";
 import { purgeTagAliases } from "./lib/tagAliases";
+import { purgeTagVectors } from "./lib/tagVectors";
 import { purgeTagVocabulary } from "./lib/tagVocabulary";
 import { purgePreparedPage } from "./preparedArticles";
 import { purgeReadingResumes } from "./readingResume";
@@ -300,6 +301,8 @@ const STEPS: Step[] = [
     if (tags) return tags;
     const aliases = await purgeTagAliases(ctx, userId);
     if (aliases) return aliases;
+    const vectors = await purgeTagVectors(ctx, userId);
+    if (vectors) return vectors;
     const fingerprints = await purgeFingerprintMetadata(ctx, userId);
     if (fingerprints) return fingerprints;
     const resumes = await purgeReadingResumes(ctx, userId);

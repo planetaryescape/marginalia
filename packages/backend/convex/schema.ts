@@ -13,6 +13,7 @@ import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
 import { tagAliasTables } from "./lib/tagAliasSchema";
+import { tagVectorTables } from "./lib/tagVectorSchema";
 import { tagVocabularyTables } from "./lib/tagVocabularySchema";
 
 const tasteEntry = v.object({
@@ -29,6 +30,7 @@ export default defineSchema({
   ...highlightIdentityTables,
   ...tagVocabularyTables,
   ...tagAliasTables,
+  ...tagVectorTables,
   manualAnnotationState,
   fullSummaryState,
   edgeExplanationState,

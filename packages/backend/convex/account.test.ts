@@ -19,6 +19,7 @@ import {
 } from "./lib/highlightIdentity";
 import { metadataTriggers } from "./lib/metadataTriggers";
 import { syncTagAliases } from "./lib/tagAliases";
+import { syncTagVectors } from "./lib/tagVectors";
 import { syncTagVocabulary } from "./lib/tagVocabulary";
 import schema from "./schema";
 
@@ -467,6 +468,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     if (!row) throw new Error("Missing seeded tag");
     await syncTagVocabulary(ctx, null, row);
     await syncTagAliases(ctx, null, row);
+    await syncTagVectors(ctx, null, row);
   }
   await ctx.db.insert("tagMergeSuggestions", {
     userId,
@@ -819,6 +821,16 @@ describe("account deletion", () => {
     ).toEqual({ done: true, migrated: 0 });
     expect(
       await t.mutation(internal.tags.verifyAndActivateAliases, {
+        userId: readerLibraryId,
+      }),
+    ).toBe(false);
+    expect(
+      await t.mutation(internal.tags.migrateVectors, {
+        userId: readerLibraryId,
+      }),
+    ).toEqual({ done: true, migrated: 0 });
+    expect(
+      await t.mutation(internal.tags.verifyAndActivateVectors, {
         userId: readerLibraryId,
       }),
     ).toBe(false);

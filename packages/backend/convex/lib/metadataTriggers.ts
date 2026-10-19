@@ -13,6 +13,7 @@ import { syncResumeEligibility } from "./readingResume";
 import { invalidateReflectionProof } from "./reflectionProtection";
 import { membershipChanged } from "./shelfCounts";
 import { syncTagAliases } from "./tagAliases";
+import { syncTagVectors } from "./tagVectors";
 import { syncTagVocabulary } from "./tagVocabulary";
 
 export const metadataTriggers = new Triggers<DataModel>();
@@ -38,6 +39,9 @@ metadataTriggers.register("tags", (ctx, change) =>
 );
 metadataTriggers.register("tags", (ctx, change) =>
   syncTagAliases({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
+metadataTriggers.register("tags", (ctx, change) =>
+  syncTagVectors({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
 );
 metadataTriggers.register("highlights", highlightIdentityTrigger);
 metadataTriggers.register("articles", highlightArticleIdentityTrigger);
