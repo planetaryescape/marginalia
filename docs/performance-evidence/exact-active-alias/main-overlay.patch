@@ -1,0 +1,27 @@
+diff --git a/packages/backend/convex/account.ts b/packages/backend/convex/account.ts
+index e27bd47..ce043f9 100644
+--- a/packages/backend/convex/account.ts
++++ b/packages/backend/convex/account.ts
+@@ -17,0 +18 @@ import { purgeManualAnnotations } from "./lib/manualAnnotations";
++import { purgeTagAliases } from "./lib/tagAliases";
+@@ -298,0 +300,2 @@ const STEPS: Step[] = [
++    const aliases = await purgeTagAliases(ctx, userId);
++    if (aliases) return aliases;
+diff --git a/packages/backend/convex/lib/metadataTriggers.ts b/packages/backend/convex/lib/metadataTriggers.ts
+index 1b6af6a..ff86e5a 100644
+--- a/packages/backend/convex/lib/metadataTriggers.ts
++++ b/packages/backend/convex/lib/metadataTriggers.ts
+@@ -12,0 +13 @@ import { membershipChanged } from "./shelfCounts";
++import { syncTagAliases } from "./tagAliases";
+@@ -21,0 +23,3 @@ metadataTriggers.register("tags", (ctx, change) =>
++metadataTriggers.register("tags", (ctx, change) =>
++  syncTagAliases({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
++);
+diff --git a/packages/backend/convex/schema.ts b/packages/backend/convex/schema.ts
+index ceb4840..558404a 100644
+--- a/packages/backend/convex/schema.ts
++++ b/packages/backend/convex/schema.ts
+@@ -13,0 +14 @@ import { noteIndexState } from "./lib/noteIndex";
++import { tagAliasTables } from "./lib/tagAliasSchema";
+@@ -28,0 +30 @@ export default defineSchema({
++  ...tagAliasTables,
