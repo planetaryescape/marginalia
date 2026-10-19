@@ -10,6 +10,7 @@ import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
 import { purgeEdgeExplanations } from "./lib/edgeExplanations";
 import { purgeFeedPolls } from "./lib/feedPollLifecycle";
+import { purgeFeedArticleCleanup } from "./lib/feedRemovalState";
 import { purgeFeedStatus } from "./lib/feedStatus";
 import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
 import { purgeFullSummaries } from "./lib/fullSummaries";
@@ -315,6 +316,8 @@ const STEPS: Step[] = [
     if (sources) return sources;
     const edges = await purgeEdgeExplanations(ctx, userId);
     if (edges) return edges;
+    const feedArticles = await purgeFeedArticleCleanup(ctx, userId);
+    if (feedArticles) return feedArticles;
     return (await purgeMetadata(ctx, userId)) || PAGE_EMPTY;
   },
   rows((ctx, u) =>
