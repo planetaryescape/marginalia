@@ -1,5 +1,6 @@
 import type { Id } from "./_generated/dataModel";
 import { query } from "./functions";
+import { currentDwellReader } from "./lib/currentReporting";
 import { roomPeriod } from "./lib/readingRoom";
 import { reportingTags } from "./lib/reportingTags";
 import { periodVisits, roomArgs } from "./stats";
@@ -98,11 +99,10 @@ export const readingHabits = query({
   },
 });
 
-// Distinct articles whose dwell is read, newest read first. Each paragraphDwell
-// row holds up to 300 entries (about 4.5 KB). Every visit in the period counts;
-// the rows read are bounded in total, and `partial` says when that cut it short.
-// The last batch can overshoot by one batch, so the worst case is about
-// (500 + 20 x 21) rows, 4 MB, beside the 7 MB of visits `periodVisits` reads.
+// Distinct articles whose dwell is read, newest read first. Ready per-source
+// records contain ordered values, not visit/day/map keys. Preserve physical
+// first-21 rows BEFORE date filtering, and let the whole dispatched article
+// batch settle before checking the global row budget (including its overshoot).
 const LINGER_ARTICLES = 100;
 const DWELL_VISITS_PER_ARTICLE = 20;
 const DWELL_ROWS_TOTAL = 500;
@@ -138,6 +138,7 @@ export const readingLinger = query({
       if (articleIds.length === LINGER_ARTICLES) break;
     }
 
+    const dwellFor = await currentDwellReader(ctx, ctx.readerId);
     let partial = visitsPartial;
     let dwellRowsRead = 0;
     const perTag = new Map<
@@ -152,13 +153,7 @@ export const readingLinger = query({
       await Promise.all(
         articleIds.slice(i, i + ARTICLE_BATCH).map(async (articleId) => {
           const [dwellRows, links] = await Promise.all([
-            ctx.db
-              .query("paragraphDwell")
-              .withIndex("by_user_article", (q) =>
-                q.eq("userId", ctx.readerId).eq("articleId", articleId),
-              )
-              .order("desc")
-              .take(DWELL_VISITS_PER_ARTICLE + 1),
+            dwellFor(articleId, DWELL_VISITS_PER_ARTICLE + 1),
             ctx.db
               .query("articleTags")
               .withIndex("by_article", (q) => q.eq("articleId", articleId))
@@ -171,7 +166,7 @@ export const readingLinger = query({
           for (const row of dwellRows.slice(0, DWELL_VISITS_PER_ARTICLE)) {
             if (row.updatedAt < period.start || row.updatedAt >= period.end)
               continue;
-            for (const held of Object.values(row.dwell)) {
+            for (const held of row.values) {
               ms += held;
               paragraphs++;
             }
