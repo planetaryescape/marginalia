@@ -4,6 +4,10 @@ import type { QueryCtx } from "./_generated/server";
 import { ownedArticleCard } from "./access";
 import { query } from "./functions";
 import { limitLegacyReadBytes } from "./lib/articleMetadata";
+import {
+  currentReportingReady,
+  currentVisitQuery,
+} from "./lib/currentReporting";
 import { reportingFeedTitles } from "./lib/feedStatus";
 import {
   type ReportingNote,
@@ -482,11 +486,9 @@ export const roomArgs = {
   today: v.optional(v.string()),
   period: v.union(v.literal("month"), v.literal("30days"), v.literal("90days")),
 };
-// Visits read for the room, newest first. A row can carry up to 128
-// annotation ids: 4,001 such rows measured 18.9 MB, about 4.7 KB each. At 1,500
-// the worst case is 1,500 x 4.7 KB = 7.1 MB, leaving room under Convex's 16 MiB
-// read limit for the articles, tags and feeds the same query reads. Past it the
-// room says it is partial.
+// Visits read newest first, with a physical 1501st sentinel. Ready per-source
+// records omit visitId/annotations; unready libraries keep the canonical read
+// and Room's explicit byte-partial contract (valid source IDs can be large).
 const ROOM_VISITS = 1500;
 // Older visits need an estimated-minutes card. Keep the existing join cap for
 // metadata-unready/deferred sources that still require guarded body fallback.
@@ -511,20 +513,23 @@ async function readingRoomVisits(
   // The sole paginate in readingRoom, including for an empty library. There is
   // no post-index filter: every physical visit read is present in page, including
   // the 1501st sentinel and the row crossing maximumBytesRead (<= 1 MiB).
-  const visits = await ctx.db
-    .query("readingActivity")
-    .withIndex("by_user_started", (q) =>
-      q
-        .eq("userId", userId)
-        .gte("startedAt", period.start)
-        .lt("startedAt", period.end),
-    )
-    .order("desc")
-    .paginate({
-      cursor: null,
-      numItems: ROOM_VISITS + 1,
-      maximumBytesRead: ROOM_VISIT_BYTES,
-    });
+  const compact = await currentReportingReady(ctx, userId, "visits");
+  const source = compact
+    ? currentVisitQuery(ctx, userId, period)
+    : ctx.db
+        .query("readingActivity")
+        .withIndex("by_user_started", (q) =>
+          q
+            .eq("userId", userId)
+            .gte("startedAt", period.start)
+            .lt("startedAt", period.end),
+        )
+        .order("desc");
+  const visits = await source.paginate({
+    cursor: null,
+    numItems: ROOM_VISITS + 1,
+    maximumBytesRead: ROOM_VISIT_BYTES,
+  });
   const visitBytes = visits.page.reduce(
     (sum, row) => sum + getDocumentSize(row),
     0,
@@ -547,16 +552,19 @@ export async function periodVisits(
   periodName: RoomPeriod,
 ) {
   const period = roomPeriod(Date.now(), timeZone, periodName);
-  const visits = await ctx.db
-    .query("readingActivity")
-    .withIndex("by_user_started", (q) =>
-      q
-        .eq("userId", userId)
-        .gte("startedAt", period.start)
-        .lt("startedAt", period.end),
-    )
-    .order("desc")
-    .take(ROOM_VISITS + 1);
+  const compact = await currentReportingReady(ctx, userId, "visits");
+  const source = compact
+    ? currentVisitQuery(ctx, userId, period)
+    : ctx.db
+        .query("readingActivity")
+        .withIndex("by_user_started", (q) =>
+          q
+            .eq("userId", userId)
+            .gte("startedAt", period.start)
+            .lt("startedAt", period.end),
+        )
+        .order("desc");
+  const visits = await source.take(ROOM_VISITS + 1);
   return {
     period,
     rows: visits.slice(0, ROOM_VISITS),
