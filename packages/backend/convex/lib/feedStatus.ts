@@ -1,7 +1,8 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { readLegacyDocument } from "./articleMetadata";
 import { metadataLibraryActive, metadataLibraryRetained } from "./shelfCounts";
 
 // Private projections, never feed credentials, descriptions, URLs or errors.
@@ -64,6 +65,27 @@ export function statusTitle(title: string) {
     prefix += scalar;
   }
   return prefix;
+}
+
+/** Historical headings include paused feeds. Ready projections are authoritative:
+ * absence or another owner must never trigger a canonical-body fallback. */
+export async function reportingFeedTitles(
+  ctx: Pick<QueryCtx, "db">,
+  userId: string,
+) {
+  const ready = (await feedStatusCounts(ctx, userId))?.ready === true;
+  return async (feedId: Id<"feeds">) => {
+    const entry = await ctx.db
+      .query("feedStatusEntries")
+      .withIndex("by_feedId", (q) => q.eq("feedId", feedId))
+      .unique();
+    if (entry) return entry.userId === userId ? entry.title : null;
+    if (ready) return null;
+    const feed = await readLegacyDocument(ctx, () =>
+      ctx.db.get("feeds", feedId),
+    );
+    return feed?.userId === userId ? statusTitle(feed.title) : null;
+  };
 }
 
 async function bump(
