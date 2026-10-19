@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { feedPollTables } from "./lib/feedPollProtocol";
 import { fingerprintTables } from "./lib/fingerprintSchema";
+import { fullSummaryState } from "./lib/fullSummaries";
 import { highlightIdentityTables } from "./lib/highlightIdentitySchema";
 import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
@@ -21,6 +22,7 @@ export default defineSchema({
   ...fingerprintTables,
   ...highlightIdentityTables,
   manualAnnotationState,
+  fullSummaryState,
   // Exact displayed Ask paragraphs: one replaceable, <=950KB version per scope.
   preparedArticles: defineTable({
     userId: v.string(),

@@ -85,6 +85,16 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       leaseUntil: 0,
       published: true,
     });
+    await ctx.db.insert("fullSummaryState", {
+      userId,
+      articleId,
+      run: 1,
+      input: "fixture",
+      source: "fixture",
+      status: "failed",
+      attempts: 1,
+      leaseUntil: 0,
+    });
     await ctx.db.insert("articleImportKeys", {
       userId,
       articleId,
@@ -512,6 +522,16 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     createdAt: now,
   });
   await ctx.db.delete(orphan);
+  await ctx.db.insert("fullSummaryState", {
+    userId,
+    articleId: orphan,
+    run: 1,
+    input: "fixture-orphan",
+    source: "fixture-orphan",
+    status: "failed",
+    attempts: 1,
+    leaseUntil: 0,
+  });
   await ctx.db.insert("highlightIdentityState", {
     userId,
     articleId: orphan,
@@ -739,6 +759,14 @@ describe("account deletion", () => {
         articleId: highlightState.articleId,
       }),
     ).toEqual({ ready: false, unavailable: true });
+    await expect(
+      t.mutation(internal.summaries.claimFull, {
+        userId: readerLibraryId,
+        articleId: highlightState.articleId,
+        title: "Late summary",
+        paragraphs: ["Deleted library"],
+      }),
+    ).rejects.toThrow("Article not found");
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);
