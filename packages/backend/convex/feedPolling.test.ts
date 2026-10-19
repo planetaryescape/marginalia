@@ -477,11 +477,24 @@ describe("durable global feed pool", () => {
         userId: "retained-other",
       });
     });
-    expect(await f.t.run((ctx) => purgeFeedPolls(ctx, OWNER))).toBe(false);
-    expect((await f.states()).filter((s) => s.userId === OWNER)).toHaveLength(
+    await expect(f.t.run((ctx) => purgeFeedPolls(ctx, OWNER))).rejects.toThrow(
+      "retained",
+    );
+    const removed = "removed-library";
+    await f.t.run(async (ctx) => {
+      for (const row of await ctx.db.query("feedPollStates").collect())
+        if (row.userId === OWNER)
+          await ctx.db.patch(row._id, { userId: removed });
+      const run = await ctx.db.query("feedPollRuns").first();
+      if (run) await ctx.db.patch(run._id, { userId: removed });
+    });
+    expect(await f.t.run((ctx) => purgeFeedPolls(ctx, removed))).toBe(25);
+    expect((await f.states()).filter((s) => s.userId === removed)).toHaveLength(
       6,
     );
-    expect(await f.t.run((ctx) => purgeFeedPolls(ctx, OWNER))).toBe(true);
+    expect(await f.t.run((ctx) => purgeFeedPolls(ctx, removed))).toBe(6);
+    expect(await f.t.run((ctx) => purgeFeedPolls(ctx, removed))).toBe(1);
+    expect(await f.t.run((ctx) => purgeFeedPolls(ctx, removed))).toBe(0);
     expect((await f.states()).map((s) => s.userId)).toEqual(["retained-other"]);
     expect(
       await f.t.mutation(internal.feedPolling.commitItems, {
@@ -850,6 +863,24 @@ describe("durable global feed pool", () => {
 });
 
 describe("conditional representation commits", () => {
+  it("retains valid DOCTYPE feeds without requesting their external DTD", async () => {
+    const f = await fixture();
+    const network = vi.fn(
+      async () =>
+        new Response(
+          `<!DOCTYPE rss SYSTEM "https://unused.invalid/rss.dtd">${xml()}`,
+        ),
+    );
+    vi.stubGlobal("fetch", network);
+    await f.t.action(internal.actions.pollFeeds.pollClaimedFeed, f.claim);
+    expect(network).toHaveBeenCalledTimes(1);
+    expect(
+      await f.t.run((ctx) => ctx.db.query("articles").collect()),
+    ).toHaveLength(1);
+    expect(
+      (await f.t.run((ctx) => ctx.db.get(f.ids[0])))?.lastError,
+    ).toBeUndefined();
+  });
   it("binds validators to the final representation URL, not a redirect or its replacement", async () => {
     const f = await fixture();
     const network = vi

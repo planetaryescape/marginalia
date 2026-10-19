@@ -8,6 +8,7 @@ import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
+import { purgeFeedPolls } from "./lib/feedPollLifecycle";
 import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
 import { purgePreparedPage } from "./preparedArticles";
 import { purgeReadingResumes } from "./readingResume";
@@ -285,6 +286,8 @@ const STEPS: Step[] = [
   async (ctx, { userId }) => {
     const prepared = await purgePreparedPage(ctx, userId);
     if (prepared) return prepared;
+    const polls = await purgeFeedPolls(ctx, userId);
+    if (polls) return polls;
     const fingerprints = await purgeFingerprintMetadata(ctx, userId);
     if (fingerprints) return fingerprints;
     const resumes = await purgeReadingResumes(ctx, userId);

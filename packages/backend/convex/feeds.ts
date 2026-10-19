@@ -7,7 +7,6 @@ import {
   mutation,
   query,
 } from "./functions";
-import { invalidateFeedPoll } from "./lib/feedPollLifecycle";
 import {
   feedEntry,
   feedUrl,
@@ -179,7 +178,6 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const feed = await ctx.db.get(args.feedId);
     if (feed?.userId !== ctx.readerId) throw new Error("Feed not found");
-    await invalidateFeedPoll(ctx, feed, null);
     await ctx.db.delete(args.feedId);
     // A kept suggestion is about this feed alone
     const kept = await ctx.db
@@ -207,7 +205,6 @@ export const toggleActive = mutation({
   handler: async (ctx, args) => {
     const feed = await ctx.db.get(args.feedId);
     if (feed?.userId !== ctx.readerId) throw new Error("Feed not found");
-    await invalidateFeedPoll(ctx, feed, { ...feed, isActive: !feed.isActive });
     await ctx.db.patch(args.feedId, {
       isActive: !feed.isActive,
       checkingSince: undefined,

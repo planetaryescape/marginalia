@@ -52,8 +52,10 @@ export async function readFeedBody(response: Response, signal: AbortSignal) {
       bytes += value.byteLength;
     }
     const xml = new TextDecoder().decode(body.subarray(0, bytes));
-    if (/<!\s*(DOCTYPE|ENTITY)\b/i.test(xml))
-      throw new Error("Feed XML declarations are not supported");
+    // A plain DOCTYPE is accepted by the existing parser without resolving an
+    // external DTD. Keep valid legacy feeds; reject custom entity declarations.
+    if (/<!\s*ENTITY\b/i.test(xml))
+      throw new Error("Feed XML entity declarations are not supported");
     return xml;
   } finally {
     signal.removeEventListener("abort", abort);
