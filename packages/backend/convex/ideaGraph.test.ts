@@ -1195,13 +1195,15 @@ describe("edge reasons", () => {
       await secondReaderTest(modules);
     void owner;
     await reader.mutation(api.account.deleteMine, { confirmation: "DELETE" });
-    await t.mutation(internal.ideaEdgeReasons.saveReason, {
-      userId: readerLibraryId,
-      pair: "note:a|note:b",
-      fingerprint: "f",
-      reason: "late",
-      model: "m",
-    });
+    await expect(
+      t.mutation(internal.ideaEdgeReasons.saveReason, {
+        userId: readerLibraryId,
+        pair: "note:a|note:b",
+        fingerprint: "f",
+        reason: "late",
+        model: "m",
+      }),
+    ).rejects.toThrow("older request");
     expect(await t.run((ctx) => ctx.db.query("edgeReasons").collect())).toEqual(
       [],
     );
@@ -1234,13 +1236,15 @@ describe("edge reasons", () => {
 
   it("won't write a reason for a library with no reader row left, as after a purge", async () => {
     const { t } = await secondReaderTest(modules);
-    await t.mutation(internal.ideaEdgeReasons.saveReason, {
-      userId: "purged_library",
-      pair: "note:a|note:b",
-      fingerprint: "f",
-      reason: "late",
-      model: "m",
-    });
+    await expect(
+      t.mutation(internal.ideaEdgeReasons.saveReason, {
+        userId: "purged_library",
+        pair: "note:a|note:b",
+        fingerprint: "f",
+        reason: "late",
+        model: "m",
+      }),
+    ).rejects.toThrow("older request");
     expect(await t.run((ctx) => ctx.db.query("edgeReasons").collect())).toEqual(
       [],
     );
@@ -1248,13 +1252,15 @@ describe("edge reasons", () => {
 
   it("keeps the cache per reader", async () => {
     const { t, a, b } = await twoFarNotes();
-    await t.mutation(internal.ideaEdgeReasons.saveReason, {
-      userId: "someone_else",
-      pair: "x|y",
-      fingerprint: "f",
-      reason: "r",
-      model: "m",
-    });
+    await expect(
+      t.mutation(internal.ideaEdgeReasons.saveReason, {
+        userId: "someone_else",
+        pair: "x|y",
+        fingerprint: "f",
+        reason: "r",
+        model: "m",
+      }),
+    ).rejects.toThrow("older request");
     const context = await t.query(internal.ideaEdgeReasons.edgeContext, {
       userId: OWNER,
       a,
