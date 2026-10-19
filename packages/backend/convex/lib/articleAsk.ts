@@ -15,6 +15,7 @@ import { representationHash } from "./preparedRepresentation";
 import { requestAttempt } from "./requestControl";
 
 type PassageRunner = Pick<ActionCtx, "runQuery" | "runMutation">;
+type Publication = { publish(start: () => Promise<void>): void };
 
 /** The most article text a retrieved question carries. */
 export const ASK_BUDGET_CHARS = 16_000;
@@ -337,6 +338,7 @@ async function rankForQuestion(
     question: string;
     history: readonly { role: "user" | "assistant"; content: string }[];
     embedder: EmbeddingTarget | null;
+    publication?: Publication;
   },
 ): Promise<RankedPassage[] | null> {
   try {
@@ -416,31 +418,37 @@ async function rankForQuestion(
         }
         work.signal.throwIfAborted();
         const ranked = rankPassages(spans, vectors, query);
-        try {
-          for (let offset = 0; offset < spans.length; offset += 32) {
-            work.signal.throwIfAborted();
-            const accepted = await ctx.runMutation(
-              internal.articlePassages.append,
-              {
-                userId: input.userId,
-                articleId: cache.articleId,
-                generation: cache.generation,
-                offset,
-                passages: spans.slice(offset, offset + 32).map((span, i) => ({
-                  startParagraph: span.start,
-                  endParagraph: span.end,
-                  fromOffset: span.from,
-                  toOffset: span.to,
-                  embedding: vectors[offset + i],
-                })),
-              },
-            );
-            if (!accepted) break;
+        const publish = async () => {
+          try {
+            for (let offset = 0; offset < spans.length; offset += 32) {
+              input.embedder?.signal?.throwIfAborted();
+              const accepted = await ctx.runMutation(
+                internal.articlePassages.append,
+                {
+                  userId: input.userId,
+                  articleId: cache.articleId,
+                  generation: cache.generation,
+                  offset,
+                  passages: spans.slice(offset, offset + 32).map((span, i) => ({
+                    startParagraph: span.start,
+                    endParagraph: span.end,
+                    fromOffset: span.from,
+                    toOffset: span.to,
+                    embedding: vectors[offset + i],
+                  })),
+                },
+              );
+              if (!accepted) break;
+            }
+          } catch (error) {
+            input.embedder?.signal?.throwIfAborted();
+            console.error("Caching the article's passages failed:", error);
           }
-        } catch (error) {
-          work.signal.throwIfAborted();
-          console.error("Caching the article's passages failed:", error);
-        }
+        };
+        // The HTTP owner exists before dispatch and transfers this work to its
+        // answer stream. Standalone callers keep the synchronous publication contract.
+        if (input.publication) input.publication.publish(publish);
+        else await publish();
         return ranked;
       } finally {
         work.abort();
@@ -474,6 +482,7 @@ export async function retrieveArticleContext(
     question: string;
     history: readonly { role: "user" | "assistant"; content: string }[];
     embedder: EmbeddingTarget | null;
+    publication?: Publication;
   },
 ): Promise<ArticleAskContext> {
   const charsBefore = input.paragraphs.reduce((sum, p) => sum + p.length, 0);
@@ -553,6 +562,7 @@ export async function retrievePassageContext(
     question: string;
     history: readonly { role: "user" | "assistant"; content: string }[];
     embedder: EmbeddingTarget | null;
+    publication?: Publication;
   },
 ): Promise<PassageAskContext> {
   const window = new Set(input.window);

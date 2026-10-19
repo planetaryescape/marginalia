@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { libraryIsActive, ownedArticle } from "./access";
+import { libraryIsActive, ownedArticleCard } from "./access";
 import { rankPassages } from "./lib/articleAsk";
 import { PREPARED_PURGE_BATCH, purgePreparedPage } from "./preparedArticles";
 
@@ -11,7 +11,7 @@ export const authorized = internalQuery({
     const id = ctx.db.normalizeId("articles", args.articleId);
     return Boolean(
       id &&
-        (await ownedArticle(ctx, id, args.userId)) &&
+        (await ownedArticleCard(ctx, id, args.userId)) &&
         (await libraryIsActive(ctx, args.userId)),
     );
   },
@@ -31,7 +31,7 @@ export const prepare = internalMutation({
     const articleId = ctx.db.normalizeId("articles", args.articleId);
     if (
       !articleId ||
-      !(await ownedArticle(ctx, articleId, args.userId)) ||
+      !(await ownedArticleCard(ctx, articleId, args.userId)) ||
       !(await libraryIsActive(ctx, args.userId))
     )
       return null;
@@ -92,7 +92,7 @@ export const append = internalMutation({
   },
   handler: async (ctx, args) => {
     if (
-      !(await ownedArticle(ctx, args.articleId, args.userId)) ||
+      !(await ownedArticleCard(ctx, args.articleId, args.userId)) ||
       !(await libraryIsActive(ctx, args.userId))
     )
       return false;
@@ -144,7 +144,11 @@ export const rankPage = internalQuery({
     cursor: v.union(v.null(), v.string()),
   },
   handler: async (ctx, args) => {
-    if (!(await ownedArticle(ctx, args.articleId, args.userId))) return null;
+    if (
+      !(await ownedArticleCard(ctx, args.articleId, args.userId)) ||
+      !(await libraryIsActive(ctx, args.userId))
+    )
+      return null;
     const state = await ctx.db
       .query("articlePassageState")
       .withIndex("by_userId_and_articleId", (q) =>
@@ -225,7 +229,11 @@ export const cached = internalQuery({
   },
   handler: async (ctx, args) => {
     const articleId = ctx.db.normalizeId("articles", args.articleId);
-    if (!articleId || !(await ownedArticle(ctx, articleId, args.userId)))
+    if (
+      !articleId ||
+      !(await ownedArticleCard(ctx, articleId, args.userId)) ||
+      !(await libraryIsActive(ctx, args.userId))
+    )
       return null;
     const rows = await ctx.db
       .query("articlePassages")
@@ -282,7 +290,7 @@ export const replace = internalMutation({
     // A reader being deleted gets nothing new written for them
     if (
       !(await libraryIsActive(ctx, args.userId)) ||
-      !(await ownedArticle(ctx, args.articleId, args.userId))
+      !(await ownedArticleCard(ctx, args.articleId, args.userId))
     )
       return;
     const old = await ctx.db

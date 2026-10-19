@@ -53,6 +53,73 @@ export function cancellablePreparation(
   };
 }
 
+/** Request-private preparation/publication only. Never register shared token refresh.
+ * Registration precedes dispatch; joining also drains children registered by a
+ * running task. An aborted owner cannot dispatch another transaction.
+ */
+export function ownedPreparation(ctx: ActionCtx, parent: AbortSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(parent.reason);
+  if (parent.aborted) abort();
+  else parent.addEventListener("abort", abort, { once: true });
+  const pending = new Set<Promise<void>>();
+  let response: Response | undefined;
+  const run = <T>(start: () => Promise<T>): Promise<T> => {
+    const result = Promise.resolve().then(() => {
+      controller.signal.throwIfAborted();
+      return start();
+    });
+    const settled = result.then(
+      () => {
+        pending.delete(settled);
+      },
+      () => {
+        pending.delete(settled);
+      },
+    );
+    pending.add(settled);
+    return result;
+  };
+  const preparation = cancellablePreparation(
+    {
+      ...ctx,
+      runQuery: (query, ...args) => run(() => ctx.runQuery(query, ...args)),
+      runMutation: (mutation, ...args) =>
+        run(() => ctx.runMutation(mutation, ...args)),
+      vectorSearch: (table, index, search) =>
+        run(() => ctx.vectorSearch(table, index, search)),
+    },
+    controller.signal,
+  );
+  return {
+    ctx: preparation,
+    signal: controller.signal,
+    run,
+    // The promise remains owned by pending even when ranking returns first.
+    publish(start: () => Promise<void>) {
+      run(start);
+    },
+    abort(reason?: unknown) {
+      controller.abort(reason);
+    },
+    async settle() {
+      while (pending.size) await Promise.all([...pending]);
+    },
+    dispose() {
+      parent.removeEventListener("abort", abort);
+    },
+    handoff(value: Response) {
+      response = value;
+      return value;
+    },
+    get response() {
+      return response;
+    },
+  };
+}
+
+export type PreparationOwner = ReturnType<typeof ownedPreparation>;
+
 /** Owns a deadline and a parent-abort listener; dispose on every exit path. */
 export function requestAttempt(
   parent: AbortSignal | undefined,

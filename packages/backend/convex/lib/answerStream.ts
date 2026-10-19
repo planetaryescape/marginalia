@@ -9,6 +9,7 @@ import { resolveTarget } from "./providerTarget";
 import {
   ANSWER_DEADLINES,
   interruptible,
+  type PreparationOwner,
   requestAttempt,
 } from "./requestControl";
 import type { ProviderTarget } from "./router";
@@ -41,6 +42,7 @@ export async function streamWithFallback(
     depth?: "quick" | "deep";
     timings?: Timings;
     deadlines?: { firstTokenMs: number; idleMs: number; totalMs: number };
+    publication?: PreparationOwner;
   } = {},
 ): Promise<Response> {
   const deadlines =
@@ -98,15 +100,35 @@ export async function streamWithFallback(
     let finished = false;
     let cleanup: Promise<void> | undefined;
     const encoder = new TextEncoder();
-    const finish = () => {
+    let removeAbort = () => {};
+    const finish = (cancelPublication = false) => {
+      if (cancelPublication) options.publication?.abort(attempt.signal.reason);
       if (cleanup) return cleanup;
       finished = true;
+      removeAbort();
       attempt.abort();
-      cleanup = closeEvents(activeEvents).finally(() => attempt.dispose());
+      cleanup = (async () => {
+        await closeEvents(activeEvents);
+        await options.publication?.settle();
+      })().finally(() => {
+        attempt.dispose();
+        options.publication?.dispose();
+      });
       return cleanup;
     };
     const body = new ReadableStream<Uint8Array>(
       {
+        start(controller) {
+          const aborted = () => {
+            const reason = attempt.signal.reason;
+            // The stream owns this cleanup even without another downstream pull.
+            finish(true).then(() => controller.error(reason));
+          };
+          attempt.signal.addEventListener("abort", aborted, { once: true });
+          removeAbort = () =>
+            attempt.signal.removeEventListener("abort", aborted);
+          if (attempt.signal.aborted) aborted();
+        },
         async pull(controller) {
           if (finished) return;
           try {
@@ -127,8 +149,9 @@ export async function streamWithFallback(
                 if (next.done) {
                   const footer = sourcesFooter(answer, citations);
                   if (footer) controller.enqueue(encoder.encode(footer));
-                  controller.close();
                   await finish();
+                  signal.throwIfAborted();
+                  controller.close();
                   return;
                 }
                 const event = next.value;
@@ -148,13 +171,14 @@ export async function streamWithFallback(
               idle.dispose();
             }
           } catch (error) {
-            if (!finished) controller.error(error);
-            await finish();
+            await finish(true);
+            controller.error(error);
           }
         },
         async cancel(reason) {
+          removeAbort();
           attempt.abort(reason);
-          await finish();
+          await finish(true);
         },
       },
       { highWaterMark: 0 },
