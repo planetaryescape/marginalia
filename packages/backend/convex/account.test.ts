@@ -18,6 +18,7 @@ import {
   highlightIdentityTrigger,
 } from "./lib/highlightIdentity";
 import { metadataTriggers } from "./lib/metadataTriggers";
+import { syncTagAliases } from "./lib/tagAliases";
 import { syncTagVocabulary } from "./lib/tagVocabulary";
 import schema from "./schema";
 
@@ -449,7 +450,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     key: "llm",
     status: "active",
     count: 1,
-    aliases: [],
+    aliases: ["retained-alias"],
     createdAt: now,
   });
   const drop = await ctx.db.insert("tags", {
@@ -465,6 +466,7 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     const row = await ctx.db.get(id);
     if (!row) throw new Error("Missing seeded tag");
     await syncTagVocabulary(ctx, null, row);
+    await syncTagAliases(ctx, null, row);
   }
   await ctx.db.insert("tagMergeSuggestions", {
     userId,
@@ -810,6 +812,16 @@ describe("account deletion", () => {
         b: "note:orphan-b",
       }),
     ).rejects.toThrow("Those ideas aren't in your notes");
+    expect(
+      await t.mutation(internal.tags.migrateAliases, {
+        userId: readerLibraryId,
+      }),
+    ).toEqual({ done: true, migrated: 0 });
+    expect(
+      await t.mutation(internal.tags.verifyAndActivateAliases, {
+        userId: readerLibraryId,
+      }),
+    ).toBe(false);
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     expect(await counts(t)).toEqual(ownerBefore);
     expect(await owner.query(api.feeds.list, {})).toHaveLength(2);

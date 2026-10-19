@@ -15,6 +15,10 @@ import {
 } from "./lib/manualAnnotations";
 import { isReading } from "./lib/shelfArticle";
 import { metadataLibraryRetained } from "./lib/shelfCounts";
+import {
+  migrateTagAliases,
+  verifyAndActivateTagAliases,
+} from "./lib/tagAliases";
 import { exactActiveAssignmentTags } from "./lib/tagAssignment";
 import {
   isTopicKey,
@@ -359,6 +363,17 @@ export const seedFromVault = internalMutation({
 export const migrateVocabulary = internalMutation({
   args: { userId: v.string() },
   handler: (ctx, args) => migrateTagVocabulary(ctx, args.userId),
+});
+
+/** Additive alias projection only; activation is a separate same-snapshot gate. */
+export const migrateAliases = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => migrateTagAliases(ctx, args.userId),
+});
+
+export const verifyAndActivateAliases = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => verifyAndActivateTagAliases(ctx, args.userId),
 });
 
 /** Tags still without an embedding, for the embedding action. */
