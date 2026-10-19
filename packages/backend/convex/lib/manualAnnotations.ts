@@ -109,12 +109,10 @@ export async function annotationSourceActive(
   ctx: Db,
   article: Doc<"articles">,
 ) {
-  if (!(await libraryIsActive(ctx, article.userId))) return false;
-  if (article.feedId) {
-    const feed = await ctx.db.get("feeds", article.feedId);
-    if (!feed || feed.userId !== article.userId || !feed.isActive) return false;
-  }
-  return true;
+  // Subscription lifetime controls polling, not access to retained articles.
+  // The caller loads the current article; deletion/transfer and exact source
+  // changes are fenced separately from this library-lifetime check.
+  return libraryIsActive(ctx, article.userId);
 }
 
 /** Tokenless pre-upgrade writers are rejected once this article is adopted. */

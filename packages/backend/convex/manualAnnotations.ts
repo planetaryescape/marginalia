@@ -71,18 +71,49 @@ export const request = internalMutation({
   },
 });
 
-/** One delivery wins before retrieval/embedding/model work starts. Old action
- * payloads remain accepted, but cannot run over an adopted manual article. */
+/** Old queued payloads acquire their effective token in new action code, never
+ * by trusting a tokenless result at a publication mutation. */
 export const begin = internalMutation({
   args: {
     articleId: v.id("articles"),
     generation: v.optional(annotationGeneration),
+    claim: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const article = await ctx.db.get("articles", args.articleId);
     if (!article || !(await annotationSourceActive(ctx, article))) return null;
+    if (
+      args.claim !== undefined &&
+      (article.reannotateClaimedAt !== args.claim ||
+        Date.now() - args.claim >= CLAIM_TTL_MS)
+    )
+      return null;
     const row = await manualState(ctx, args.articleId);
-    if (!args.generation) return row ? null : article;
+    if (row && row.userId !== article.userId) return null;
+    if (!args.generation) {
+      // Do not alter the pre-existing retry policy of never-adopted import
+      // jobs. Previously adopted sources must always publish with a token.
+      if (!row) return { article, generation: null };
+      if (
+        (row.status === "queued" || row.status === "running") &&
+        row.leaseUntil > Date.now()
+      )
+        return null;
+      const input = await annotationInput(ctx, article);
+      // Neither a duplicate success nor a failed/lost unchanged generation
+      // authorizes automatic paid recovery. Only a genuinely new input does.
+      if (row.input === input) return null;
+      const generation = { run: row.run + 1 };
+      await ctx.db.patch(row._id, {
+        input,
+        run: generation.run,
+        status: "running",
+        attempts: 1,
+        leaseUntil: Date.now() + MANUAL_ANNOTATION_LEASE_MS,
+        published: false,
+      });
+      return { article, generation };
+    }
     if (
       !row ||
       row.run !== args.generation.run ||
@@ -92,7 +123,7 @@ export const begin = internalMutation({
     )
       return null;
     await ctx.db.patch(row._id, { status: "running" });
-    return article;
+    return { article, generation: args.generation };
   },
 });
 
@@ -121,8 +152,9 @@ export const canDispatch = internalQuery({
   },
 });
 
-// Check and call the existing tag mutation within one outer transaction. Its
-// matching/vocabulary behavior is unchanged; no check→action publication gap.
+// The main-owned tags.assign seam checks publication atomically with matching
+// and count updates. Forward the effective token; do not duplicate rich source
+// and fingerprint reads in an outer check.
 export const assignTags = internalMutation({
   args: {
     userId: v.string(),
@@ -136,16 +168,7 @@ export const assignTags = internalMutation({
       }),
     ),
   },
-  handler: async (
-    ctx,
-    { generation, ...args },
-  ): Promise<Id<"tags">[] | null> => {
-    const article = await ownedArticle(ctx, args.articleId, args.userId);
-    if (
-      !article ||
-      !(await annotationPublicationAllowed(ctx, article, generation))
-    )
-      return null;
-    return await ctx.runMutation(internal.tags.assign, args);
+  handler: async (ctx, { generation, ...args }): Promise<Id<"tags">[]> => {
+    return await ctx.runMutation(internal.tags.assign, { ...args, generation });
   },
 });

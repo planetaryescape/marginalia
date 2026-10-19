@@ -295,20 +295,25 @@ export const generateForArticle = internalAction({
     generation: v.optional(annotationGeneration),
   },
   handler: async (ctx, args) => {
-    let started = false;
+    let generation: { run: number } | undefined;
     try {
-      const article = await ctx.runMutation(internal.manualAnnotations.begin, {
+      const begun = await ctx.runMutation(internal.manualAnnotations.begin, {
         articleId: args.articleId,
         generation: args.generation,
+        claim: args.claim,
       });
-      if (!article) return;
-      started = true;
-      await annotateArticle(ctx, args, article);
+      if (!begun) return;
+      generation = begun.generation ?? undefined;
+      await annotateArticle(
+        ctx,
+        { articleId: args.articleId, generation },
+        begun.article,
+      );
     } finally {
-      if (started && args.generation)
+      if (generation)
         await ctx.runMutation(internal.manualAnnotations.finish, {
           articleId: args.articleId,
-          generation: args.generation,
+          generation,
         });
       // Ends this run's own backfill claim however it ended, never a newer
       // one; a crash leaves it to expire

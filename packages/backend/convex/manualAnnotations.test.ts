@@ -2,6 +2,7 @@
 
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { metadataContext } from "../test/metadata";
 import {
   saveTestCredential,
   secondReaderTest,
@@ -11,7 +12,13 @@ import { api, internal } from "./_generated/api";
 import { MANUAL_ANNOTATION_LEASE_MS } from "./lib/manualAnnotations";
 import schema from "./schema";
 
-const model = vi.hoisted(() => ({ generate: vi.fn() }));
+const model = vi.hoisted(() => ({ generate: vi.fn(), version: 3 }));
+vi.mock("./lib/annotationGate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./lib/annotationGate")>()),
+  get CURRENT_ANNOTATION_VERSION() {
+    return model.version;
+  },
+}));
 vi.mock("./lib/aiModels", () => ({
   generateObjectWithFallback: model.generate,
 }));
@@ -55,6 +62,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("PROVIDER_KEYS_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
   model.generate.mockReset();
+  model.version = 3;
   model.generate.mockResolvedValue(result);
 });
 afterEach(() => {
@@ -128,7 +136,7 @@ async function fixture(key = true) {
   return { ...f, articleId, request, state, margin, run };
 }
 
-function holdModel() {
+function holdModel(value = result) {
   let release!: (value: typeof result) => void;
   let entered!: () => void;
   const started = new Promise<void>((resolve) => {
@@ -140,10 +148,350 @@ function holdModel() {
       release = resolve;
     });
   });
-  return { started, release: () => release(result) };
+  return { started, release: () => release(value) };
 }
 
 describe("manual reannotation consuming lifecycle", () => {
+  it.each([
+    ["keep", "before"],
+    ["paused", "before"],
+    ["keep", "during"],
+    ["paused", "during"],
+  ] as const)("retains generation access when a feed is %s %s generation", async (operation, when) => {
+    const f = await fixture();
+    const feedId = await f.reader.mutation(api.feeds.add, {
+      url: "https://example.com/feed",
+      title: "Feed",
+    });
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, { feedId }),
+    );
+    const changeSubscription = () =>
+      operation === "keep"
+        ? f.reader.mutation(api.feeds.remove, { feedId, articles: "keep" })
+        : f.reader.mutation(api.feeds.toggleActive, { feedId });
+    if (when === "before") await changeSubscription();
+    await f.request();
+    const hold = holdModel();
+    const running = f.run();
+    await hold.started;
+    if (when === "during") await changeSubscription();
+    await f.request();
+    hold.release();
+    await running;
+    expect(model.generate).toHaveBeenCalledTimes(1);
+    expect((await f.margin()).reflections[0].strongestPoint).toBe(
+      "New strength",
+    );
+    expect(await f.state()).toMatchObject({ run: 1, status: "complete" });
+    expect(
+      await f.reader.query(api.articles.getById, { articleId: f.articleId }),
+    ).not.toBeNull();
+  });
+
+  it("does reject a held completion when removing the actual feed article", async () => {
+    const f = await fixture();
+    const feedId = await f.reader.mutation(api.feeds.add, {
+      url: "https://example.com/feed",
+      title: "Feed",
+    });
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, { feedId }),
+    );
+    await f.request();
+    const hold = holdModel();
+    const running = f.run();
+    await hold.started;
+    await f.reader.mutation(api.feeds.remove, { feedId, articles: "all" });
+    // Deliver the public mutation's queued removal page without advancing paid jobs.
+    await f.t.mutation(internal.feeds.removeArticles, {
+      userId: f.readerLibraryId,
+      feedId,
+      choice: "all",
+    });
+    hold.release();
+    await running;
+    expect(
+      await f.reader.query(api.articles.getById, { articleId: f.articleId }),
+    ).toBeNull();
+    expect(await f.margin()).toEqual({
+      notes: [],
+      reflections: [],
+      summaries: [],
+    });
+    expect(await f.state()).toBeNull();
+  });
+
+  it.each([
+    "source",
+    "fingerprint",
+    "version",
+  ])("lets a fresh queued legacy payload acquire a current token after %s changes", async (change) => {
+    const f = await fixture();
+    if (change === "fingerprint") {
+      // Exercise the deployed ready-stamp path as well as legacy fixtures.
+      for (let page = 0; page < 8; page++) {
+        if (
+          (
+            await f.t.mutation(internal.fingerprintMetadata.backfill, {
+              userId: f.readerLibraryId,
+            })
+          ).complete
+        )
+          break;
+      }
+      expect(
+        await f.t.query(internal.fingerprintMetadata.verify, {
+          userId: f.readerLibraryId,
+        }),
+      ).toEqual({ ready: true, matches: true });
+    }
+    await f.request();
+    await f.run();
+    if (change === "source")
+      await f.t.mutation(internal.articles.updateExtracted, {
+        articleId: f.articleId,
+        content: `${content} Changed.`,
+        contentHtml: "",
+        excerpt: "",
+        wordCount: 700,
+        estimatedReadMinutes: 4,
+      });
+    if (change === "fingerprint")
+      await f.t.run((ctx) =>
+        metadataContext(ctx).db.insert("userNotes", {
+          userId: f.readerLibraryId,
+          articleId: f.articleId,
+          selectedText: "Claim",
+          content: "New context",
+          contentPlain: "New context",
+          createdAt: Date.now(),
+          updatedAt: Date.now() + 1,
+        }),
+      );
+    let claim: number | undefined;
+    if (change === "version") {
+      model.version = 4;
+      expect(
+        await f.t.mutation(internal.reannotateBackfill.start, {
+          userId: f.readerLibraryId,
+        }),
+      ).toBe("started");
+      await f.t.mutation(internal.reannotateBackfill.step, {
+        userId: f.readerLibraryId,
+        runId: 1,
+      });
+      claim = (await f.t.run((ctx) => ctx.db.get(f.articleId)))!
+        .reannotateClaimedAt;
+      expect(claim).toBe(Date.now());
+    }
+    const fresh = {
+      ...result,
+      object: {
+        ...result.object,
+        reflection: {
+          ...result.object.reflection,
+          strongestPoint: "Fresh automatic generation",
+        },
+      },
+    };
+    const hold = holdModel(fresh);
+    const payload = { articleId: f.articleId, claim };
+    const running = f.t.action(
+      internal.actions.generateAnnotations.generateForArticle,
+      payload,
+    );
+    await hold.started;
+    await f.t.action(
+      internal.actions.generateAnnotations.generateForArticle,
+      payload,
+    );
+    expect(
+      await f.t.mutation(internal.annotations.replaceForArticle, {
+        articleId: f.articleId,
+        userId: f.readerLibraryId,
+        notes: [],
+        reflection: {
+          ...result.object.reflection,
+          strongestPoint: "Stale tokenless writer",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      await f.t.mutation(internal.annotations.replaceForArticle, {
+        articleId: f.articleId,
+        userId: f.readerLibraryId,
+        generation: { run: 1 },
+        notes: [],
+        reflection: result.object.reflection,
+      }),
+    ).toBe(false);
+    expect(await f.state()).toMatchObject({
+      run: 2,
+      status: "running",
+      published: false,
+    });
+    hold.release();
+    await running;
+    expect(model.generate).toHaveBeenCalledTimes(2);
+    expect((await f.margin()).reflections[0].strongestPoint).toBe(
+      "Fresh automatic generation",
+    );
+    expect((await f.margin()).notes).toHaveLength(1);
+    expect(await f.state()).toMatchObject({
+      run: 2,
+      status: "complete",
+      published: true,
+    });
+    expect(
+      (await f.t.run((ctx) => ctx.db.get(f.articleId)))!.reannotateClaimedAt,
+    ).toBeUndefined();
+    await f.t.action(internal.actions.generateAnnotations.generateForArticle, {
+      articleId: f.articleId,
+    });
+    expect(model.generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("never lets a tokenless automatic job steal an active manual claim, even after source changes", async () => {
+    const f = await fixture();
+    await f.request();
+    const hold = holdModel();
+    const running = f.run();
+    await hold.started;
+    await f.t.mutation(internal.articles.updateExtracted, {
+      articleId: f.articleId,
+      content: `${content} Changed.`,
+      contentHtml: "",
+      excerpt: "",
+      wordCount: 700,
+      estimatedReadMinutes: 4,
+    });
+    await f.t.action(internal.actions.generateAnnotations.generateForArticle, {
+      articleId: f.articleId,
+    });
+    expect(model.generate).toHaveBeenCalledTimes(1);
+    expect(await f.state()).toMatchObject({ run: 1, status: "running" });
+    hold.release();
+    await running;
+    expect((await f.margin()).notes[0].content).toBe("Successful old note");
+  });
+
+  it("does not adopt another library's generation through an old queued article payload", async () => {
+    const f = await fixture();
+    await f.request();
+    await f.run();
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, { userId: "default_user" }),
+    );
+    await f.t.action(internal.actions.generateAnnotations.generateForArticle, {
+      articleId: f.articleId,
+    });
+    expect(model.generate).toHaveBeenCalledTimes(1);
+    expect(await f.state()).toMatchObject({
+      userId: f.readerLibraryId,
+      run: 1,
+      status: "complete",
+    });
+  });
+
+  it("does not automatically rebuy completed or retry failed/lost unchanged input", async () => {
+    const f = await fixture();
+    await f.request();
+    await f.run();
+    await f.t.action(internal.actions.generateAnnotations.generateForArticle, {
+      articleId: f.articleId,
+    });
+    expect(model.generate).toHaveBeenCalledTimes(1);
+    const failed = await fixture();
+    model.generate.mockRejectedValueOnce(new Error("Fixture failure"));
+    await failed.request();
+    await failed.run();
+    await failed.t.action(
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId: failed.articleId },
+    );
+    vi.setSystemTime(Date.now() + MANUAL_ANNOTATION_LEASE_MS);
+    await failed.t.action(
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId: failed.articleId },
+    );
+    expect(model.generate).toHaveBeenCalledTimes(2);
+    expect(await failed.state()).toMatchObject({
+      run: 1,
+      status: "failed",
+      attempts: 1,
+    });
+    await failed.request();
+    await failed.run();
+    expect(model.generate).toHaveBeenCalledTimes(3);
+    expect(await failed.state()).toMatchObject({ run: 2, status: "complete" });
+    const lost = await fixture();
+    await lost.request();
+    vi.setSystemTime(Date.now() + MANUAL_ANNOTATION_LEASE_MS);
+    await lost.t.action(
+      internal.actions.generateAnnotations.generateForArticle,
+      { articleId: lost.articleId },
+    );
+    expect(model.generate).toHaveBeenCalledTimes(3);
+    expect(await lost.state()).toMatchObject({ run: 1, status: "queued" });
+  });
+
+  it("rejects direct tokenless tag publication after adoption while accepting a current token (main-owned guard overlay)", async () => {
+    const f = await fixture();
+    const [astronomy, geology] = await f.t.run(async (ctx) =>
+      Promise.all(
+        ["Astronomy", "Geology"].map((name) =>
+          ctx.db.insert("tags", {
+            userId: f.readerLibraryId,
+            name,
+            key: name.toLowerCase(),
+            status: "active",
+            count: 0,
+            aliases: [],
+            createdAt: Date.now(),
+          }),
+        ),
+      ),
+    );
+    await f.t.mutation(internal.tags.assign, {
+      userId: f.readerLibraryId,
+      articleId: f.articleId,
+      proposals: [{ name: "Astronomy" }],
+    });
+    await f.request();
+    await f.t.mutation(internal.manualAnnotations.begin, {
+      articleId: f.articleId,
+      generation: { run: 1 },
+    });
+    await f.t.mutation(internal.tags.assign, {
+      userId: f.readerLibraryId,
+      articleId: f.articleId,
+      proposals: [{ name: "Geology" }],
+    });
+    expect(
+      (await f.t.run((ctx) => ctx.db.query("articleTags").collect())).map(
+        (row) => row.tagId,
+      ),
+    ).toEqual([astronomy]);
+    await f.t.mutation(internal.manualAnnotations.assignTags, {
+      userId: f.readerLibraryId,
+      articleId: f.articleId,
+      generation: { run: 1 },
+      proposals: [{ name: "Geology" }],
+    });
+    expect(
+      (await f.t.run((ctx) => ctx.db.query("articleTags").collect())).map(
+        (row) => row.tagId,
+      ),
+    ).toEqual([geology]);
+    expect(await f.t.run((ctx) => ctx.db.get(astronomy))).toMatchObject({
+      count: 0,
+    });
+    expect(await f.t.run((ctx) => ctx.db.get(geology))).toMatchObject({
+      count: 1,
+    });
+  });
+
   it("coalesces two clients and duplicate delivery before model dispatch; atomically replaces once", async () => {
     const f = await fixture();
     await Promise.all([f.request(), f.request()]);
@@ -184,7 +532,7 @@ describe("manual reannotation consuming lifecycle", () => {
     "deleted",
     "disabled",
     "deleting",
-    "feedRemoved",
+    "ownerChanged",
   ])("rejects a held completion after %s changes, including extras", async (change) => {
     const f = await fixture();
     const models = await f.reader.query(api.userSettings.getModels, {});
@@ -192,17 +540,6 @@ describe("manual reannotation consuming lifecycle", () => {
       await f.reader.mutation(api.userSettings.setModel, {
         role: "annotations",
         model: models.available[0].id,
-      });
-    if (change === "feedRemoved")
-      await f.t.run(async (ctx) => {
-        const feedId = await ctx.db.insert("feeds", {
-          userId: f.readerLibraryId,
-          url: "https://example.com/feed",
-          title: "Feed",
-          isActive: true,
-          createdAt: Date.now(),
-        });
-        await ctx.db.patch(f.articleId, { feedId });
       });
     await f.request();
     const hold = holdModel();
@@ -270,11 +607,10 @@ describe("manual reannotation consuming lifecycle", () => {
             : { deletingAt: Date.now() },
         );
       });
-    if (change === "feedRemoved")
-      await f.t.run(async (ctx) => {
-        const article = await ctx.db.get(f.articleId);
-        await ctx.db.delete(article!.feedId!);
-      });
+    if (change === "ownerChanged")
+      await f.t.run((ctx) =>
+        metadataContext(ctx).db.patch(f.articleId, { userId: "default_user" }),
+      );
     hold.release();
     await running;
     expect((await f.margin()).notes[0].content).toBe("Successful old note");
