@@ -41,11 +41,18 @@ vi.mock("convex/react", () => ({
   useAction: () => addByUrl,
   useConvex: () => convexClient,
   useQuery: (fn: string, args: unknown) =>
-    fn === "counts" ? null : args === "skip" ? undefined : noteHits.current,
+    fn === "revision"
+      ? "0"
+      : fn === "counts"
+        ? null
+        : args === "skip"
+          ? undefined
+          : noteHits.current,
   useMutation: (fn: string) => (fn === "record" ? record : save),
 }));
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
+    discoveryRevision: { current: "revision" },
     actions: { addArticleByUrl: { add: "add" } },
     savedArticles: { save: "save" },
     sessions: { recordInteraction: "record" },
