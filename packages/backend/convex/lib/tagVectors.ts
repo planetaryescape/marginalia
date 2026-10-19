@@ -24,7 +24,7 @@ export function vectorState(ctx: ReadCtx, userId: string) {
     .unique();
 }
 
-function projection(tag: Doc<"tags">) {
+export function vectorProjection(tag: Doc<"tags">) {
   return {
     userId: tag.userId,
     tagId: tag._id,
@@ -34,14 +34,17 @@ function projection(tag: Doc<"tags">) {
   };
 }
 
-function overflow(tag: Doc<"tags">) {
+export function vectorOverflow(tag: Doc<"tags">) {
   // Reserve room for status/nearest identity changes and eight added query keys.
   // The vocabulary payload must stay complete throughout the proposal loop.
+  // The predicate itself must be invariant under zero-IO operational writes.
+  // 256 bytes covers these three omitted fields at their maximum physical size.
+  const { count, status, nearestTagId, ...stable } = tag;
   const reserved = TAG_ASSIGN_PROPOSALS * (TAG_ASSIGN_KEY_BYTES + 4);
   const text = tag.description ? `${tag.name}: ${tag.description}` : tag.name;
   const aliases = aliasProjection(tag);
   return (
-    getConvexSize(tag) + 256 + reserved > TAG_SOURCE_BYTES ||
+    getConvexSize(stable) + 256 + reserved > TAG_SOURCE_BYTES ||
     aliases.overflow ||
     aliases.aliases.length + TAG_ASSIGN_PROPOSALS > MAX_TAG_ALIASES ||
     tagProjection(tag).overflow ||
@@ -51,6 +54,17 @@ function overflow(tag: Doc<"tags">) {
     bytes(tag.key) > TAG_KEY_BYTES ||
     bytes(tag.userId) > TAG_KEY_BYTES
   );
+}
+
+function nextEpoch(state: Doc<"tagVectorState">) {
+  const epoch = state.epoch ?? 0;
+  if (
+    !Number.isSafeInteger(epoch) ||
+    epoch < 0 ||
+    epoch >= Number.MAX_SAFE_INTEGER
+  )
+    throw new Error("Tag vector epoch exhausted");
+  return epoch + 1;
 }
 
 async function ensureState(ctx: MutationCtx, userId: string) {
@@ -97,14 +111,15 @@ export async function syncTagVectors(
     .withIndex("by_tagId", (q) => q.eq("tagId", source._id))
     .unique();
   const retained = after && (await metadataLibraryRetained(ctx, after.userId));
-  const next = retained ? projection(after) : null;
+  const next = retained ? vectorProjection(after) : null;
   const nextBytes = next ? getConvexSize(next) + 256 : 0;
-  const nextOverflow = !!(retained && overflow(after));
+  const nextOverflow = !!(retained && vectorOverflow(after));
   if (sameVector && prior && retained) {
     if (prior.overflow !== nextOverflow) {
       await ctx.db.patch(prior._id, { overflow: nextOverflow });
       const state = await ensureState(ctx, after.userId);
       await ctx.db.patch(state._id, {
+        epoch: nextEpoch(state),
         overflow:
           state.overflow + Number(nextOverflow) - Number(prior.overflow),
       });
@@ -121,6 +136,7 @@ export async function syncTagVectors(
     if (await metadataLibraryRetained(ctx, prior.userId)) {
       const state = await ensureState(ctx, prior.userId);
       await ctx.db.patch(state._id, {
+        epoch: nextEpoch(state),
         count: state.count - 1,
         vectorBytes: state.vectorBytes - prior.vectorBytes,
         overflow: state.overflow - Number(prior.overflow),
@@ -137,6 +153,7 @@ export async function syncTagVectors(
     overflow: nextOverflow,
   });
   await ctx.db.patch(state._id, {
+    epoch: nextEpoch(state),
     count: state.count + 1,
     vectorBytes: state.vectorBytes + nextBytes,
     overflow: state.overflow + Number(nextOverflow),
@@ -188,6 +205,13 @@ export async function verifyAndActivateTagVectors(
 ) {
   if (!(await metadataLibraryRetained(ctx, userId))) return false;
   const state = await vectorState(ctx, userId);
+  // A legacy client must not replace or bypass a token-owned paged proof.
+  if (state?.proof)
+    return (
+      state.ready &&
+      state.proof.phase === "complete" &&
+      state.proof.epoch === (state.epoch ?? 0)
+    );
   if (
     !state?.backfilled ||
     state.overflow ||
@@ -215,7 +239,7 @@ export async function verifyAndActivateTagVectors(
       .query("tagVectorSources")
       .withIndex("by_tagId", (q) => q.eq("tagId", tag._id))
       .unique();
-    const size = getConvexSize(projection(tag)) + 256;
+    const size = getConvexSize(vectorProjection(tag)) + 256;
     if (
       !row ||
       row.userId !== userId ||
@@ -225,7 +249,7 @@ export async function verifyAndActivateTagVectors(
       !source ||
       source.userId !== userId ||
       source.overflow ||
-      overflow(tag) ||
+      vectorOverflow(tag) ||
       source.vectorBytes !== size
     )
       throw new Error("Tag vector equality verification failed");
