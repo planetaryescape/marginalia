@@ -1,6 +1,7 @@
 import type { Id } from "./_generated/dataModel";
 import { query } from "./functions";
 import { roomPeriod } from "./lib/readingRoom";
+import { reportingTags } from "./lib/reportingTags";
 import { periodVisits, roomArgs } from "./stats";
 
 // Interaction rows read for the period, newest first. A finish or abandon row
@@ -109,8 +110,8 @@ const ARTICLE_BATCH = 20;
 const TAGS_PER_ARTICLE = 20;
 // A topic needs this many held paragraphs before its average means anything
 const MIN_PARAGRAPHS = 8;
-// Tag documents carry an embedding (about 15 KB), so only the topics at the
-// top of the ranking are fetched, and only this many
+// Preserve the candidate cutoff before active/owner filtering. Ready metadata
+// avoids embeddings; unsupported libraries retain canonical tag hydration.
 const TAG_CANDIDATES = 40;
 const LINGER_SHOWN = 8;
 
@@ -203,11 +204,12 @@ export const readingLinger = query({
       )
       .slice(0, TAG_CANDIDATES);
     const topics = [];
+    const tags = await reportingTags(ctx, ctx.readerId);
     for (const [tagId, total] of ranked) {
-      const tag = await ctx.db.get("tags", tagId);
-      if (tag?.userId !== ctx.readerId || tag.status !== "active") continue;
+      const name = await tags.name(tagId);
+      if (name === null) continue;
       topics.push({
-        name: tag.name,
+        name,
         secondsPerParagraph:
           Math.round((total.ms / total.paragraphs / 1000) * 10) / 10,
         paragraphs: total.paragraphs,
