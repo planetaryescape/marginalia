@@ -2,6 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { discoveryTabs } from "./test/discovery-tabs";
+import { topicSearchCache } from "./topic-search-cache";
 import {
   invalidateTopicSearchCache,
   type TopicSearch,
@@ -9,14 +11,17 @@ import {
 } from "./use-topic-search";
 
 const mocks = vi.hoisted(() => ({
-  session: "session-a",
+  // SAFETY: mutable fixture slot includes logout; the initial value is a string.
+  session: "session-a" as string | null,
   counts: { waiting: 2 },
   post: vi.fn(),
   convex: { query: vi.fn(async () => []) },
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => ({ data: { session: { id: mocks.session } } }),
+    useSession: () => ({
+      data: mocks.session ? { session: { id: mocks.session } } : null,
+    }),
   },
 }));
 vi.mock("convex/react", () => ({
@@ -45,17 +50,23 @@ const match = {
   status: "Up next",
 };
 let root: Root;
+let tabs: ReturnType<typeof discoveryTabs>;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mocks.session = "session-a";
   mocks.counts = { waiting: 2 };
   mocks.post.mockReset();
+  window.dispatchEvent(new Event("pagehide"));
+  tabs = discoveryTabs();
+  window.dispatchEvent(new Event("pageshow"));
   invalidateTopicSearchCache();
   root = createRoot(document.body.appendChild(document.createElement("div")));
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  window.dispatchEvent(new Event("pagehide"));
+  tabs.close();
   document.body.innerHTML = "";
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -68,6 +79,95 @@ const tick = (ms = 250) =>
   });
 
 describe("topic search cache phases", () => {
+  it("does not start a legacy paid fallback when an invalidated find returns 404", async () => {
+    let reject: (reason: Response) => void = () => {};
+    mocks.post.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    await render();
+    await tick();
+    await act(async () => tabs.remote.publish());
+    await act(async () => reject(new Response(null, { status: 404 })));
+    expect(mocks.post.mock.calls.map(([path]) => path)).toEqual(["find"]);
+  });
+  it("a remote successful edit evicts cards/reasons without refreshing unchanged input", async () => {
+    mocks.post.mockImplementation((path) =>
+      Promise.resolve(
+        path === "find"
+          ? { matches: [match], more: false }
+          : { matches: [{ ...match, reason: "Fits" }] },
+      ),
+    );
+    await render();
+    await tick();
+    expect(result.reasons).toEqual({ a: "Fits" });
+    const snapshot = result;
+    await act(async () => tabs.remote.publish());
+    await render(); // unrelated rerender with exactly the same input
+    await tick(500);
+    expect(mocks.post.mock.calls.map(([path]) => path)).toEqual([
+      "find",
+      "search",
+    ]);
+    expect(result).toBe(snapshot);
+    expect(topicSearchCache.get("attention")).toBeUndefined();
+    await render({ enabled: false });
+    await render({ mode: "list" });
+    await tick(0);
+    expect(mocks.post.mock.calls.map(([path]) => path)).toEqual([
+      "find",
+      "search",
+      "find",
+    ]);
+  });
+
+  it("rejects a late in-flight remote-invalidated result even while still mounted", async () => {
+    let resolve: (value: { matches: (typeof match)[]; more: boolean }) => void =
+      () => {};
+    mocks.post.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    await render();
+    await tick();
+    await act(async () => tabs.remote.publish());
+    await act(async () => resolve({ matches: [match], more: false }));
+    expect(mocks.post).toHaveBeenCalledTimes(1); // no downstream explanation
+    expect(result.status).toBe("error"); // existing explicit Retry, never stuck loading
+    expect(topicSearchCache.get("attention")).toBeUndefined();
+    expect(result.matches).toEqual([]);
+    mocks.post.mockResolvedValue({ matches: [], more: false });
+    await render({ enabled: false });
+    await render();
+    await tick();
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    null,
+    "session-b",
+  ])("fences a delayed result across logout/switch to %s", async (session) => {
+    let resolve: (value: { matches: (typeof match)[]; more: boolean }) => void =
+      () => {};
+    mocks.post.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    await render();
+    await tick();
+    mocks.session = session;
+    await render();
+    await act(async () => resolve({ matches: [match], more: false }));
+    expect(topicSearchCache.get("attention")).toBeUndefined();
+    expect(result.matches).toEqual([]);
+  });
   it("never requests explanations for a disabled or invalidated list-only search", async () => {
     mocks.post.mockResolvedValue({ matches: [match], more: false });
     await render({ mode: "list", enabled: false });

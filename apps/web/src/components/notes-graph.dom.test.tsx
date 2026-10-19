@@ -2,19 +2,26 @@
 import { act, type PropsWithChildren } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { discoveryInvalidation } from "@/lib/discovery-invalidation";
+import { SessionCache } from "@/lib/session-cache";
+import { discoveryTabs } from "@/lib/test/discovery-tabs";
 import { NotesGraph } from "./notes-graph";
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => ({ data: { session: { id: "graph-test" } } }),
+    useSession: () => ({
+      data: mocks.session ? { session: { id: mocks.session } } : null,
+    }),
   },
 }));
 
 const mocks = vi.hoisted(() => ({
+  // SAFETY: mutable fixture slot includes logout; the initial value is a string.
+  session: "graph-test" as string | null,
   graph: undefined as unknown,
   node: undefined as unknown,
   search: [] as unknown[],
-  similar: vi.fn(async () => [] as string[]),
+  similar: vi.fn(async (): Promise<{ key: string; via?: string }[]> => []),
   write: vi.fn(),
   graphArgs: [] as unknown[],
 }));
@@ -71,24 +78,212 @@ const detail = {
 
 let root: Root;
 let host: HTMLElement;
+let tabs: ReturnType<typeof discoveryTabs>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   host = document.body.appendChild(document.createElement("div"));
   root = createRoot(host);
+  window.dispatchEvent(new Event("pagehide"));
+  tabs = discoveryTabs();
+  window.dispatchEvent(new Event("pageshow"));
+  mocks.session = "graph-test";
+  mocks.similar.mockReset().mockResolvedValue([]);
   mocks.graph = { centre: "note:c", nodes: [note], edges: [] };
   mocks.node = detail;
   mocks.write.mockReset();
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  window.dispatchEvent(new Event("pagehide"));
   host.remove();
+  tabs.close();
   vi.unstubAllGlobals();
 });
 
 const render = () =>
   act(async () => root.render(<NotesGraph toggle={<span>toggle</span>} />));
 
+async function saveConnectedNote() {
+  const open = [...host.querySelectorAll("button")].find((b) =>
+    b.textContent?.includes("New connected note"),
+  );
+  await act(async () => open?.click());
+  const field = host.querySelector("textarea");
+  if (!field) throw new Error("Missing connected-note input");
+  expect(document.activeElement).toBe(field);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set?.call(field, "If the schedule does the work");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const save = [...host.querySelectorAll("button")].find(
+    (b) => b.textContent === "Save",
+  );
+  if (!save) throw new Error("Missing save action");
+  await act(async () => save.click());
+}
+
 describe("Notes as a map", () => {
+  it("waits for the selected vault passage instead of searching the previous passage again", async () => {
+    vi.useFakeTimers();
+    try {
+      const vault = {
+        ...note,
+        key: "vault:v/x.md",
+        kind: "vault",
+        via: "old-passage",
+      };
+      mocks.graph = { centre: vault.key, nodes: [vault], edges: [] };
+      await render();
+      mocks.search = [
+        {
+          key: vault.key,
+          kind: "vault",
+          label: "New passage",
+          via: "selected-passage",
+        },
+      ];
+      const input = host.querySelector("input");
+      if (!input) throw new Error("Missing search input");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(input, "passage");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(210);
+      });
+      // The new live query is pending; useLatest still holds the old passage.
+      mocks.graph = undefined;
+      await act(async () =>
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        ),
+      );
+      expect(mocks.similar.mock.calls).toEqual([
+        [{ key: vault.key, via: "old-passage" }],
+      ]);
+      mocks.graph = {
+        centre: vault.key,
+        nodes: [{ ...vault, via: "selected-passage" }],
+        edges: [],
+      };
+      await render();
+      expect(mocks.similar.mock.calls).toEqual([
+        [{ key: vault.key, via: "old-passage" }],
+        [{ key: vault.key, via: "selected-passage" }],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("reselecting the same centre is explicit revalidation, but reuses fresh hints", async () => {
+    await render();
+    await act(async () => tabs.remote.publish());
+    expect(mocks.similar).toHaveBeenCalledTimes(1);
+    const node = host.querySelector("[data-node]");
+    if (!node) throw new Error("Missing graph centre");
+    await act(async () =>
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(mocks.similar).toHaveBeenCalledTimes(2);
+    await act(async () =>
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(mocks.similar).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reuse already-visible hints under a different session", async () => {
+    mocks.similar.mockResolvedValueOnce([{ key: "reader-a-only" }]);
+    await render();
+    expect(mocks.graphArgs.at(-1)).toMatchObject({
+      similar: [{ key: "reader-a-only" }],
+    });
+    mocks.similar.mockImplementationOnce(() => new Promise(() => {}));
+    mocks.session = "reader-b";
+    await render();
+    expect(mocks.graphArgs.at(-1)).toMatchObject({ similar: undefined });
+  });
+  it("evicts remote hints without an action or resetting active input/panel, then misses on revisit", async () => {
+    await render();
+    const input = host.querySelector("input");
+    if (!input) throw new Error("Missing search input");
+    input.focus();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "unsent text");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const before = mocks.graphArgs.at(-1);
+    await act(async () => tabs.remote.publish());
+    await render();
+    expect(mocks.similar).toHaveBeenCalledTimes(1);
+    expect(mocks.graphArgs.at(-1)).toEqual(before);
+    expect(input.value).toBe("unsent text");
+    expect(document.activeElement).toBe(input);
+    expect(host.querySelector("aside")).not.toBeNull();
+    mocks.graph = {
+      centre: "note:b",
+      nodes: [{ ...note, key: "note:b" }],
+      edges: [],
+    };
+    await render();
+    mocks.graph = { centre: "note:c", nodes: [note], edges: [] };
+    await render();
+    expect(mocks.similar).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not publish late hints after remote invalidation while the graph is active", async () => {
+    let finish: (hints: { key: string }[]) => void = () => {};
+    mocks.similar.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render();
+    await act(async () => tabs.remote.publish());
+    await act(async () => finish([{ key: "stale-hint" }]));
+    expect(mocks.graphArgs.at(-1)).not.toMatchObject({
+      similar: [{ key: "stale-hint" }],
+    });
+    expect(mocks.similar).toHaveBeenCalledTimes(1);
+    mocks.graph = {
+      centre: "note:b",
+      nodes: [{ ...note, key: "note:b" }],
+      edges: [],
+    };
+    await render();
+    mocks.graph = { centre: "note:c", nodes: [note], edges: [] };
+    await render();
+    expect(mocks.similar).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    null,
+    "other-reader",
+  ])("rejects delayed hints after logout/session change to %s", async (session) => {
+    let finish: (hints: { key: string }[]) => void = () => {};
+    mocks.similar.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render();
+    mocks.session = session;
+    await render();
+    await act(async () => finish([{ key: "old-reader-hint" }]));
+    expect(mocks.graphArgs.at(-1)).not.toMatchObject({
+      similar: [{ key: "old-reader-hint" }],
+    });
+  });
   it("never activates results for the previous debounced term", async () => {
     vi.useFakeTimers();
     try {
@@ -173,26 +368,13 @@ describe("Notes as a map", () => {
   });
 
   it("saves a connected note from the panel and says it is on the map", async () => {
+    const remoteCache = new SessionCache<number>(20, 60_000);
+    remoteCache.forScope("remote-reader");
+    remoteCache.set("centre", 1);
+    const off = tabs.remote.subscribe(() => remoteCache.invalidate());
     mocks.write.mockResolvedValue("note:new");
     await render();
-    const open = [...host.querySelectorAll("button")].find((b) =>
-      b.textContent?.includes("New connected note"),
-    );
-    await act(async () => open?.click());
-    const field = host.querySelector("textarea") as HTMLTextAreaElement;
-    expect(document.activeElement).toBe(field);
-    await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )?.set;
-      set?.call(field, "If the schedule does the work");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    const save = [...host.querySelectorAll("button")].find(
-      (b) => b.textContent === "Save",
-    );
-    await act(async () => save?.click());
+    await saveConnectedNote();
     expect(mocks.write).toHaveBeenCalledWith({
       from: "note:c",
       content: "<p>If the schedule does the work</p>",
@@ -200,8 +382,42 @@ describe("Notes as a map", () => {
       prompt: undefined,
     });
     expect(host.textContent).toContain("Saved. Your note is on the map.");
+    expect(tabs.sent).toHaveLength(1);
+    expect(remoteCache.get("centre")).toBeUndefined();
+    off();
     // The map is asked to keep the new note on it
     expect(mocks.graphArgs.at(-1)).toMatchObject({ pin: "note:new" });
+  });
+
+  it("does not send invalidation after a failed connected-note save", async () => {
+    mocks.write.mockRejectedValue(new Error("fixture save failed"));
+    await render();
+    await saveConnectedNote();
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(tabs.sent).toHaveLength(0);
+    expect(host.querySelector("textarea")?.value).toBe(
+      "If the schedule does the work",
+    );
+  });
+
+  it("removes the graph invalidation listener on unmount", async () => {
+    const subscribe = discoveryInvalidation.subscribe;
+    const cleanup = vi.fn();
+    const spy = vi
+      .spyOn(discoveryInvalidation, "subscribe")
+      .mockImplementationOnce((listener) => {
+        const off = subscribe(listener);
+        return () => {
+          off();
+          cleanup();
+        };
+      });
+    await render();
+    await act(async () => root.render(null));
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    await act(async () => tabs.remote.publish());
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 
   it("opens an article as its title and one point, with a link to read it", async () => {
