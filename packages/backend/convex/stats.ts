@@ -58,9 +58,16 @@ function legacyReadings(events: Doc<"articleInteractions">[]) {
   return [...sessions.values()];
 }
 
-async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
-  const period = statsPeriod(Date.now(), options.timeZone, options.range);
-  const [activity, interactions, notes, reflections] = await Promise.all([
+type LegacyPeriod = ReturnType<typeof statsPeriod>;
+
+// Keep the previous-period window and the 5,001st row even for small reports:
+// changing either would change which records a capped retained client counts.
+async function legacyVisits(
+  ctx: QueryCtx,
+  period: LegacyPeriod,
+  userId: string,
+) {
+  const [activity, interactions] = await Promise.all([
     ctx.db
       .query("readingActivity")
       .withIndex("by_user_started", (q) =>
@@ -79,112 +86,143 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
           .lt("createdAt", period.end),
       )
       .take(LIMIT + 1),
-    ctx.db
-      .query("userNotes")
-      .withIndex("by_user_created", (q) =>
-        q
-          .eq("userId", userId)
-          .gte("createdAt", period.previousStart)
-          .lt("createdAt", period.end),
-      )
-      .take(LIMIT + 1),
-    ctx.db
-      .query("reflections")
-      .withIndex("by_user_responded", (q) =>
-        q
-          .eq("userId", userId)
-          .gte("respondedAt", period.previousStart)
-          .lt("respondedAt", period.end),
-      )
-      .take(LIMIT + 1),
   ]);
-  const partial = [activity, interactions, notes, reflections].some(
-    (rows) => rows.length > LIMIT,
+  return {
+    activity,
+    interactions,
+    legacySessions: legacyReadings(interactions),
+  };
+}
+
+function legacyNotes(ctx: QueryCtx, period: LegacyPeriod, userId: string) {
+  return ctx.db
+    .query("userNotes")
+    .withIndex("by_user_created", (q) =>
+      q
+        .eq("userId", userId)
+        .gte("createdAt", period.previousStart)
+        .lt("createdAt", period.end),
+    )
+    .take(LIMIT + 1);
+}
+
+function legacyReflections(
+  ctx: QueryCtx,
+  period: LegacyPeriod,
+  userId: string,
+) {
+  return ctx.db
+    .query("reflections")
+    .withIndex("by_user_responded", (q) =>
+      q
+        .eq("userId", userId)
+        .gte("respondedAt", period.previousStart)
+        .lt("respondedAt", period.end),
+    )
+    .take(LIMIT + 1);
+}
+
+type LegacyVisits = Awaited<ReturnType<typeof legacyVisits>>;
+
+function legacyReadingTotals(
+  measured: Doc<"readingActivity">[],
+  events: Doc<"articleInteractions">[],
+  legacy: Doc<"articleInteractions">[],
+) {
+  const finishes = new Set(
+    events.filter((s) => s.action === "finished").map((s) => s.articleId),
   );
+  const annotationIds = new Set([
+    ...measured.flatMap((s) => s.annotationsOpened),
+    ...events.flatMap((s) => s.annotationsOpened ?? []),
+  ]);
+  const scrolls = measured
+    .map((s) => s.maxScrollPercent)
+    .concat(
+      legacy.flatMap((s) =>
+        s.maxScrollPercent === undefined
+          ? []
+          : [Math.min(100, finite(s.maxScrollPercent))],
+      ),
+    );
+  return {
+    articlesFinished: finishes.size,
+    totalActiveTimeMs:
+      measured.reduce((n, s) => n + s.activeTimeMs, 0) +
+      legacy.reduce((n, s) => n + finite(s.activeTimeMs), 0),
+    avgScrollDepth: scrolls.length
+      ? Math.round(scrolls.reduce((a, b) => a + b, 0) / scrolls.length)
+      : null,
+    annotationsOpenedCount: annotationIds.size,
+  };
+}
+
+function legacyMetrics(
+  { activity, interactions, legacySessions }: LegacyVisits,
+  notes: Doc<"userNotes">[],
+  reflections: Doc<"reflections">[],
+  period: LegacyPeriod,
+  start: number,
+  end: number,
+) {
   const within = (at: number, start: number, end: number) =>
     at >= start && at < end;
-  const legacySessions = legacyReadings(interactions);
-  function metrics(start: number, end: number) {
-    const measured = activity.filter((s) => within(s.startedAt, start, end));
-    const events = interactions.filter((s) => within(s.createdAt, start, end));
-    const legacy = legacySessions.filter((s) =>
-      within(s.createdAt, start, end),
-    );
-    const finishes = new Set(
-      events.filter((s) => s.action === "finished").map((s) => s.articleId),
-    );
-    const started = new Set([
-      ...measured.filter((s) => s.activeTimeMs > 0).map((s) => s.articleId),
-      ...events.filter((s) => s.action === "opened").map((s) => s.articleId),
-      ...legacy.map((s) => s.articleId),
-    ]);
-    const annotationIds = new Set([
-      ...measured.flatMap((s) => s.annotationsOpened),
-      ...events.flatMap((s) => s.annotationsOpened ?? []),
-    ]);
-    const totalActiveTimeMs =
-      measured.reduce((n, s) => n + s.activeTimeMs, 0) +
-      legacy.reduce((n, s) => n + finite(s.activeTimeMs), 0);
-    const visibleTimeMs = measured.reduce((n, s) => n + s.visibleTimeMs, 0);
-    const measuredActiveTimeMs = measured.reduce(
-      (n, s) => n + s.activeTimeMs,
-      0,
-    );
-    const scrolls = measured
-      .map((s) => s.maxScrollPercent)
-      .concat(
-        legacy.flatMap((s) =>
-          s.maxScrollPercent === undefined
-            ? []
-            : [Math.min(100, finite(s.maxScrollPercent))],
-        ),
-      );
-    const days = new Set(
-      measured
-        .filter((s) => s.activeTimeMs > 0)
-        .map((s) => dayKey(s.startedAt, period.timeZone)),
-    );
-    for (const s of legacy)
-      if (finite(s.activeTimeMs) > 0)
-        days.add(dayKey(s.createdAt, period.timeZone));
-    const periodNotes = notes.filter(
-      (n) => within(n.createdAt, start, end) && n.contentPlain.trim(),
-    );
-    return {
-      articlesFinished: finishes.size,
-      articlesStarted: started.size,
-      totalActiveTimeMs,
-      visibleTimeMs,
-      totalWallTimeMs: measured.reduce((n, s) => n + s.timeSpentMs, 0),
-      avgScrollDepth: scrolls.length
-        ? Math.round(scrolls.reduce((a, b) => a + b, 0) / scrolls.length)
-        : null,
-      annotationsOpenedCount: annotationIds.size,
-      focusRatio: visibleTimeMs
-        ? Math.round((measuredActiveTimeMs / visibleTimeMs) * 100)
-        : null,
-      notesTaken: periodNotes.length,
-      reflectionsWritten:
-        periodNotes.filter((n) => n.annotationId).length +
-        reflections.filter(
-          (r) =>
-            within(r.respondedAt ?? 0, start, end) && r.userResponse?.trim(),
-        ).length,
-      readingDays: days.size,
-      visitsCount: new Set(
-        measured.filter((s) => s.activeTimeMs > 0).map((s) => s.visitId),
-      ).size,
-      skippedCount: events.filter((s) => s.action === "skipped").length,
-      untrackedOpens: events.filter(
-        (s) =>
-          s.action === "opened" &&
-          (!s.visitId || !measured.some((m) => m.visitId === s.visitId)),
+  const measured = activity.filter((s) => within(s.startedAt, start, end));
+  const measuredVisits = new Set(measured.map((s) => s.visitId));
+  const events = interactions.filter((s) => within(s.createdAt, start, end));
+  const legacy = legacySessions.filter((s) => within(s.createdAt, start, end));
+  const started = new Set([
+    ...measured.filter((s) => s.activeTimeMs > 0).map((s) => s.articleId),
+    ...events.filter((s) => s.action === "opened").map((s) => s.articleId),
+    ...legacy.map((s) => s.articleId),
+  ]);
+  const visibleTimeMs = measured.reduce((n, s) => n + s.visibleTimeMs, 0);
+  const measuredActiveTimeMs = measured.reduce((n, s) => n + s.activeTimeMs, 0);
+  const days = new Set(
+    measured
+      .filter((s) => s.activeTimeMs > 0)
+      .map((s) => dayKey(s.startedAt, period.timeZone)),
+  );
+  for (const s of legacy)
+    if (finite(s.activeTimeMs) > 0)
+      days.add(dayKey(s.createdAt, period.timeZone));
+  const periodNotes = notes.filter(
+    (n) => within(n.createdAt, start, end) && n.contentPlain.trim(),
+  );
+  return {
+    ...legacyReadingTotals(measured, events, legacy),
+    articlesStarted: started.size,
+    visibleTimeMs,
+    totalWallTimeMs: measured.reduce((n, s) => n + s.timeSpentMs, 0),
+    focusRatio: visibleTimeMs
+      ? Math.round((measuredActiveTimeMs / visibleTimeMs) * 100)
+      : null,
+    notesTaken: periodNotes.length,
+    reflectionsWritten:
+      periodNotes.filter((n) => n.annotationId).length +
+      reflections.filter(
+        (r) => within(r.respondedAt ?? 0, start, end) && r.userResponse?.trim(),
       ).length,
-      legacyReadings: legacy.length,
-    };
-  }
-  const thisWeek = metrics(period.start, period.end);
-  const lastWeek = metrics(period.previousStart, period.previousEnd);
+    readingDays: days.size,
+    visitsCount: new Set(
+      measured.filter((s) => s.activeTimeMs > 0).map((s) => s.visitId),
+    ).size,
+    skippedCount: events.filter((s) => s.action === "skipped").length,
+    untrackedOpens: events.filter(
+      (s) =>
+        s.action === "opened" && (!s.visitId || !measuredVisits.has(s.visitId)),
+    ).length,
+    legacyReadings: legacy.length,
+  };
+}
+
+async function legacyArticleDetails(
+  ctx: QueryCtx,
+  { activity, interactions, legacySessions }: LegacyVisits,
+  notes: Doc<"userNotes">[],
+  period: LegacyPeriod,
+  userId: string,
+) {
   const weekActivity = activity.filter((s) => s.startedAt >= period.start);
   const weekEvents = interactions.filter((s) => s.createdAt >= period.start);
   const detailMap = new Map<
@@ -232,13 +270,18 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
   }
   for (const s of legacySessions.filter((s) => s.createdAt >= period.start))
     detail(s.articleId, s.createdAt).activeTimeMs += finite(s.activeTimeMs);
-  const articleDetails = (
+  const noteCounts = new Map<Id<"articles">, number>();
+  for (const note of notes) {
+    if (note.createdAt >= period.start && note.contentPlain.trim())
+      noteCounts.set(note.articleId, (noteCounts.get(note.articleId) ?? 0) + 1);
+  }
+  return (
     await Promise.all(
       [...detailMap.entries()]
         .sort((a, b) => b[1].readAt - a[1].readAt)
         .slice(0, 25)
         .map(async ([articleId, d]) => {
-          const article = await ownedArticle(ctx, articleId, userId);
+          const article = await ownedArticleCard(ctx, articleId, userId);
           if (!article) return null;
           return {
             articleId,
@@ -249,16 +292,32 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
             maxScrollPercent: d.maxScrollPercent,
             finished: d.finished,
             annotationsOpened: d.annotations.size,
-            notesCount: notes.filter(
-              (n) =>
-                n.articleId === articleId &&
-                n.createdAt >= period.start &&
-                n.contentPlain.trim(),
-            ).length,
+            notesCount: noteCounts.get(articleId) ?? 0,
           };
         }),
     )
   ).filter((a) => a !== null);
+}
+
+function legacyDaily(
+  { activity, legacySessions }: LegacyVisits,
+  period: LegacyPeriod,
+) {
+  const measuredTotals = new Map<string, number>();
+  const legacyTotals = new Map<string, number>();
+  for (const s of activity) {
+    if (s.startedAt < period.start) continue;
+    const date = dayKey(s.startedAt, period.timeZone);
+    measuredTotals.set(date, (measuredTotals.get(date) ?? 0) + s.activeTimeMs);
+  }
+  for (const s of legacySessions) {
+    if (s.createdAt < period.start) continue;
+    const date = dayKey(s.createdAt, period.timeZone);
+    legacyTotals.set(
+      date,
+      (legacyTotals.get(date) ?? 0) + finite(s.activeTimeMs),
+    );
+  }
   const daily = [];
   const todayKey = dayKey(period.end - 1, period.timeZone);
   const firstKey = dayKey(period.start, period.timeZone);
@@ -271,19 +330,19 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
     daily.push({
       date,
       activeTimeMs:
-        weekActivity
-          .filter((s) => dayKey(s.startedAt, period.timeZone) === date)
-          .reduce((n, s) => n + s.activeTimeMs, 0) +
-        legacySessions
-          .filter(
-            (s) =>
-              s.createdAt >= period.start &&
-              dayKey(s.createdAt, period.timeZone) === date,
-          )
-          .reduce((n, s) => n + finite(s.activeTimeMs), 0),
+        (measuredTotals.get(date) ?? 0) + (legacyTotals.get(date) ?? 0),
     });
   }
-  const recentNotes = await Promise.all(
+  return daily;
+}
+
+function legacyRecentNotes(
+  ctx: QueryCtx,
+  notes: Doc<"userNotes">[],
+  period: LegacyPeriod,
+  userId: string,
+) {
+  return Promise.all(
     notes
       .filter((n) => n.createdAt >= period.start && n.contentPlain.trim())
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -294,18 +353,47 @@ async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
         contentPlain: n.contentPlain,
         createdAt: n.createdAt,
         articleTitle:
-          (await ownedArticle(ctx, n.articleId, userId))?.title ??
+          (await ownedArticleCard(ctx, n.articleId, userId))?.title ??
           "Unavailable article",
       })),
   );
+}
+
+async function dashboard(ctx: QueryCtx, options: PeriodArgs, userId: string) {
+  const period = statsPeriod(Date.now(), options.timeZone, options.range);
+  const [visits, notes, reflections] = await Promise.all([
+    legacyVisits(ctx, period, userId),
+    legacyNotes(ctx, period, userId),
+    legacyReflections(ctx, period, userId),
+  ]);
+  const [articleDetails, recentNotes] = await Promise.all([
+    legacyArticleDetails(ctx, visits, notes, period, userId),
+    legacyRecentNotes(ctx, notes, period, userId),
+  ]);
   return {
     period,
-    thisWeek,
-    lastWeek,
-    daily,
+    thisWeek: legacyMetrics(
+      visits,
+      notes,
+      reflections,
+      period,
+      period.start,
+      period.end,
+    ),
+    lastWeek: legacyMetrics(
+      visits,
+      notes,
+      reflections,
+      period,
+      period.previousStart,
+      period.previousEnd,
+    ),
+    daily: legacyDaily(visits, period),
     articles: articleDetails,
     recentNotes,
-    partial,
+    partial: [visits.activity, visits.interactions, notes, reflections].some(
+      (rows) => rows.length > LIMIT,
+    ),
     engagementScore: null,
   };
 }
@@ -321,20 +409,34 @@ export const getDashboardOverview = query({
 });
 export const getArticleDetails = query({
   args,
-  handler: async (ctx, options) =>
-    (await dashboard(ctx, options, ctx.readerId)).articles,
+  handler: async (ctx, options) => {
+    const period = statsPeriod(Date.now(), options.timeZone, options.range);
+    const [visits, notes] = await Promise.all([
+      legacyVisits(ctx, period, ctx.readerId),
+      legacyNotes(ctx, period, ctx.readerId),
+    ]);
+    return legacyArticleDetails(ctx, visits, notes, period, ctx.readerId);
+  },
 });
 export const getRecentNotes = query({
   args,
-  handler: async (ctx, options) =>
-    (await dashboard(ctx, options, ctx.readerId)).recentNotes,
+  handler: async (ctx, options) => {
+    const period = statsPeriod(Date.now(), options.timeZone, options.range);
+    return legacyRecentNotes(
+      ctx,
+      await legacyNotes(ctx, period, ctx.readerId),
+      period,
+      ctx.readerId,
+    );
+  },
 });
 export const getReadingPatterns = query({
   args,
   handler: async (ctx, options) => {
-    const data = await dashboard(ctx, options, ctx.readerId);
+    const period = statsPeriod(Date.now(), options.timeZone, options.range);
+    const visits = await legacyVisits(ctx, period, ctx.readerId);
     return {
-      daily: data.daily,
+      daily: legacyDaily(visits, period),
       hourlyHeatmap: [],
       sessionDurations: [],
       scrollDepthDistribution: {
@@ -351,7 +453,13 @@ export const getReadingPatterns = query({
 export const getWeeklyStats = query({
   args,
   handler: async (ctx, options) => {
-    const { thisWeek: s } = await dashboard(ctx, options, ctx.readerId);
+    const period = statsPeriod(Date.now(), options.timeZone, options.range);
+    const visits = await legacyVisits(ctx, period, ctx.readerId);
+    const s = legacyReadingTotals(
+      visits.activity.filter((s) => s.startedAt >= period.start),
+      visits.interactions.filter((s) => s.createdAt >= period.start),
+      visits.legacySessions.filter((s) => s.createdAt >= period.start),
+    );
     return {
       articlesReadCount: s.articlesFinished,
       totalActiveTimeMinutes: Math.round(s.totalActiveTimeMs / 60000),
