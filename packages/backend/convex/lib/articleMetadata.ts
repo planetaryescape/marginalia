@@ -206,19 +206,29 @@ export async function initializeEmptyMetadata(
 // document before every read, then charge its actual Convex storage size.
 const MAX_DOCUMENT_BYTES = 1024 * 1024;
 const LEGACY_BYTES = 10 * MAX_DOCUMENT_BYTES;
-type LegacyBudget = { used: number; reserved: number; tail: Promise<void> };
+type LegacyBudget = {
+  used: number;
+  reserved: number;
+  limit: number;
+  tail: Promise<void>;
+};
 const legacyReads = new WeakMap<QueryCtx["db"], LegacyBudget>();
 function legacyBudget(ctx: Pick<QueryCtx, "db">) {
   let budget = legacyReads.get(ctx.db);
   if (!budget) {
-    budget = { used: 0, reserved: 0, tail: Promise.resolve() };
+    budget = {
+      used: 0,
+      reserved: 0,
+      limit: LEGACY_BYTES,
+      tail: Promise.resolve(),
+    };
     legacyReads.set(ctx.db, budget);
   }
   return budget;
 }
 function reserveLegacyBytes(ctx: Pick<QueryCtx, "db">, bytes: number) {
   const budget = legacyBudget(ctx);
-  if (budget.used + budget.reserved + bytes > LEGACY_BYTES)
+  if (budget.used + budget.reserved + bytes > budget.limit)
     throw new ConvexError(
       "Article headers exceed this request's read budget. Request fewer articles.",
     );
@@ -227,6 +237,13 @@ function reserveLegacyBytes(ctx: Pick<QueryCtx, "db">, bytes: number) {
     budget.reserved -= bytes;
     budget.used += actual;
   };
+}
+
+/** A body-reading caller may leave less headroom after its other physical reads.
+ * Tighten the same queued authority; never increase the default legacy policy. */
+export function limitLegacyReadBytes(ctx: Pick<QueryCtx, "db">, bytes: number) {
+  const budget = legacyBudget(ctx);
+  budget.limit = Math.min(budget.limit, Math.max(0, bytes));
 }
 
 export function readLegacyDocument<T extends GenericDocument>(

@@ -3,6 +3,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { ownedArticleCard } from "./access";
 import { query } from "./functions";
+import { limitLegacyReadBytes } from "./lib/articleMetadata";
+import { reportingFeedTitles } from "./lib/feedStatus";
 import {
   bucketActiveMinutes,
   localDayKeyer,
@@ -490,6 +492,50 @@ const ARTICLE_FALLBACKS = 8;
 const ARTICLE_BATCH = 20;
 const ROOM_FEEDS = 200;
 const FEEDS_SHOWN = 30;
+const ROOM_VISIT_BYTES = 8 * 1024 * 1024;
+// Auth, 200 feedStats, 30 bounded status titles and eight bounded article cards
+// (including readiness lookups). Kept outside the shared legacy-body allowance.
+const ROOM_JOIN_BYTES = 1024 * 1024;
+
+/** Only Your reading has a byte-partial contract. Other periodVisits consumers
+ * keep their existing row-only behavior and do not gain a hidden paginator. */
+async function readingRoomVisits(
+  ctx: QueryCtx,
+  userId: string,
+  timeZone: string,
+  periodName: RoomPeriod,
+) {
+  const period = roomPeriod(Date.now(), timeZone, periodName);
+  // The sole paginate in readingRoom, including for an empty library. There is
+  // no post-index filter: every physical visit read is present in page, including
+  // the 1501st sentinel and the row crossing maximumBytesRead (<= 1 MiB).
+  const visits = await ctx.db
+    .query("readingActivity")
+    .withIndex("by_user_started", (q) =>
+      q
+        .eq("userId", userId)
+        .gte("startedAt", period.start)
+        .lt("startedAt", period.end),
+    )
+    .order("desc")
+    .paginate({
+      cursor: null,
+      numItems: ROOM_VISITS + 1,
+      maximumBytesRead: ROOM_VISIT_BYTES,
+    });
+  const visitBytes = visits.page.reduce(
+    (sum, row) => sum + getDocumentSize(row),
+    0,
+  );
+  // Both legacy article lengths and source titles use this SAME queued ledger.
+  // Reserve a full document before dispatch, not a title DTO after a body read.
+  limitLegacyReadBytes(ctx, 16 * 1024 * 1024 - visitBytes - ROOM_JOIN_BYTES);
+  return {
+    period,
+    rows: visits.page.slice(0, ROOM_VISITS),
+    partial: !visits.isDone || visits.page.length > ROOM_VISITS,
+  };
+}
 
 /** The reader's newest visits in the period, capped; `partial` when more exist. */
 export async function periodVisits(
@@ -525,7 +571,7 @@ export async function periodVisits(
 export const readingRoom = query({
   args: roomArgs,
   handler: async (ctx, { timeZone, period: periodName }) => {
-    const { period, rows, partial } = await periodVisits(
+    const { period, rows, partial } = await readingRoomVisits(
       ctx,
       ctx.readerId,
       timeZone,
@@ -586,26 +632,23 @@ export const readingRoom = query({
       .query("feedStats")
       .withIndex("by_user_feed", (q) => q.eq("userId", ctx.readerId))
       .take(ROOM_FEEDS);
-    const feeds = (
-      await Promise.all(
-        counted
-          .filter((f) => f.offered > 0)
-          .sort((a, b) => b.offered - a.offered)
-          .slice(0, FEEDS_SHOWN)
-          .map(async (f) => {
-            const feed = await ctx.db.get("feeds", f.feedId);
-            if (feed?.userId !== ctx.readerId) return null;
-            return {
-              feedId: f.feedId,
-              title: feed.title,
-              offered: f.offered,
-              opened: f.opened,
-              finished: f.finished,
-              skipsMost: skipsMostOf(f.offered, f.opened),
-            };
-          }),
-      )
-    ).filter((f) => f !== null);
+    const titleOf = await reportingFeedTitles(ctx, ctx.readerId);
+    const feeds = [];
+    for (const f of counted
+      .filter((f) => f.offered > 0)
+      .sort((a, b) => b.offered - a.offered)
+      .slice(0, FEEDS_SHOWN)) {
+      const title = await titleOf(f.feedId);
+      if (title === null) continue;
+      feeds.push({
+        feedId: f.feedId,
+        title,
+        offered: f.offered,
+        opened: f.opened,
+        finished: f.finished,
+        skipsMost: skipsMostOf(f.offered, f.opened),
+      });
+    }
 
     return {
       period,
