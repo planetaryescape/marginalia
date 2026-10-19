@@ -17,6 +17,7 @@ import {
   highlightIdentityTrigger,
 } from "./lib/highlightIdentity";
 import { metadataTriggers } from "./lib/metadataTriggers";
+import { syncTagVocabulary } from "./lib/tagVocabulary";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -443,6 +444,11 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     aliases: [],
     createdAt: now,
   });
+  for (const id of [keep, drop]) {
+    const row = await ctx.db.get(id);
+    if (!row) throw new Error("Missing seeded tag");
+    await syncTagVocabulary(ctx, null, row);
+  }
   await ctx.db.insert("tagMergeSuggestions", {
     userId,
     into: keep,

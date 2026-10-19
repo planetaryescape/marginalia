@@ -14,6 +14,7 @@ import {
   annotationPublicationAllowed,
 } from "./lib/manualAnnotations";
 import { isReading } from "./lib/shelfArticle";
+import { metadataLibraryRetained } from "./lib/shelfCounts";
 import {
   isTopicKey,
   MAX_TAGS_PER_ARTICLE,
@@ -23,6 +24,13 @@ import {
   TAG_PROMOTE_AFTER,
   tagDisplayName,
 } from "./lib/tagMatching";
+import {
+  migrateTagVocabulary,
+  missingVocabularyEmbeddings,
+  promptVocabulary,
+  TAG_EMBED_BATCH,
+  vocabularyState,
+} from "./lib/tagVocabulary";
 
 /** Active tags on an article, for the pencil chips under its title. */
 export const forArticle = query({
@@ -110,20 +118,22 @@ export const articlesForTopic = query({
 export const vocabulary = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    const active = await ctx.db
+    if (!(await metadataLibraryRetained(ctx, args.userId))) return [];
+    const state = await vocabularyState(ctx, args.userId);
+    if (state?.ready && !state.overflow)
+      return promptVocabulary(ctx, args.userId);
+    // Preserve exact pre-upgrade reads during additive backfill or overflow.
+    // This is deliberately the legacy cost, never a fabricated ready baseline.
+    const tags = await ctx.db
       .query("tags")
       .withIndex("by_user_status", (q) =>
         q.eq("userId", args.userId).eq("status", "active"),
       )
       .collect();
-    return active
+    return tags
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
       .slice(0, MAX_VOCABULARY_IN_PROMPT)
-      .map((tag) => ({
-        name: tag.name,
-        key: tag.key,
-        aliases: tag.aliases,
-      }));
+      .map(({ name, key, aliases }) => ({ name, key, aliases }));
   },
 });
 
@@ -343,19 +353,26 @@ export const seedFromVault = internalMutation({
   },
 });
 
-const EMBED_BATCH = 50;
+export const migrateVocabulary = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => migrateTagVocabulary(ctx, args.userId),
+});
 
 /** Tags still without an embedding, for the embedding action. */
 export const missingEmbeddings = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    if (!(await metadataLibraryRetained(ctx, args.userId))) return [];
+    const state = await vocabularyState(ctx, args.userId);
+    if (state?.ready && !state.overflow)
+      return missingVocabularyEmbeddings(ctx, args.userId);
     const tags = await ctx.db
       .query("tags")
       .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
       .collect();
     return tags
       .filter((tag) => !tag.embedding)
-      .slice(0, EMBED_BATCH)
+      .slice(0, TAG_EMBED_BATCH)
       .map((tag) => ({
         id: tag._id,
         text: tag.description ? `${tag.name}: ${tag.description}` : tag.name,
@@ -363,17 +380,97 @@ export const missingEmbeddings = internalQuery({
   },
 });
 
+/** One-snapshot rollout gate, not a production reader. Refuse an incomplete
+ * canonical page rather than claiming equality for a truncated vocabulary. */
+export const verifyVocabulary = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const state = await vocabularyState(ctx, userId);
+    if (
+      !(await metadataLibraryRetained(ctx, userId)) ||
+      !state?.ready ||
+      state.overflow
+    )
+      return {
+        ready: false,
+        matches: false,
+        complete: false,
+        checked: 0,
+        overflow: state?.overflow ?? 0,
+      };
+    const page = await ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) => q.eq("userId", userId))
+      .paginate({
+        cursor: null,
+        numItems: 512,
+        maximumBytesRead: 8 * 1024 * 1024,
+      });
+    if (!page.isDone)
+      return {
+        ready: true,
+        matches: false,
+        complete: false,
+        checked: page.page.length,
+        overflow: 0,
+      };
+    // The legacy active-status index breaks comparator ties by creation/id;
+    // missing-embedding order is already the canonical key index page order.
+    const active = [...page.page]
+      .sort(
+        (a, b) =>
+          a._creationTime - b._creationTime ||
+          (a._id < b._id ? -1 : a._id === b._id ? 0 : 1),
+      )
+      .filter((tag) => tag.status === "active")
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+      .slice(0, MAX_VOCABULARY_IN_PROMPT)
+      .map(({ name, key, aliases }) => ({ name, key, aliases }));
+    const missing = page.page
+      .filter((tag) => !tag.embedding)
+      .slice(0, TAG_EMBED_BATCH)
+      .map((tag) => ({
+        id: tag._id,
+        text: tag.description ? `${tag.name}: ${tag.description}` : tag.name,
+      }));
+    const prompt = await promptVocabulary(ctx, userId);
+    const batch = await missingVocabularyEmbeddings(ctx, userId);
+    return {
+      ready: true,
+      complete: true,
+      checked: page.page.length,
+      overflow: 0,
+      matches:
+        JSON.stringify(active) === JSON.stringify(prompt) &&
+        JSON.stringify(missing) === JSON.stringify(batch),
+    };
+  },
+});
+
 export const setEmbeddings = internalMutation({
   args: {
     userId: v.string(),
     items: v.array(
-      v.object({ id: v.id("tags"), embedding: v.array(v.float64()) }),
+      v.object({
+        id: v.id("tags"),
+        embedding: v.array(v.float64()),
+        text: v.optional(v.string()),
+      }),
     ),
   },
   handler: async (ctx, args) => {
+    if (!(await metadataLibraryRetained(ctx, args.userId))) return;
+    if (args.items.length > TAG_EMBED_BATCH)
+      throw new Error("Tag embedding batch exceeds limit");
     for (const item of args.items) {
       const tag = await ctx.db.get("tags", item.id);
-      if (tag?.userId === args.userId && !tag.embedding)
+      const text =
+        tag && (tag.description ? `${tag.name}: ${tag.description}` : tag.name);
+      if (
+        tag?.userId === args.userId &&
+        !tag.embedding &&
+        (item.text === undefined || item.text === text)
+      )
         await ctx.db.patch("tags", item.id, { embedding: item.embedding });
     }
   },

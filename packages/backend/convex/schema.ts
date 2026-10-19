@@ -9,6 +9,7 @@ import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
+import { tagVocabularyTables } from "./lib/tagVocabularySchema";
 
 const tasteEntry = v.object({
   key: v.string(),
@@ -21,6 +22,7 @@ export default defineSchema({
   ...feedPollTables,
   ...fingerprintTables,
   ...highlightIdentityTables,
+  ...tagVocabularyTables,
   manualAnnotationState,
   fullSummaryState,
   // Exact displayed Ask paragraphs: one replaceable, <=950KB version per scope.

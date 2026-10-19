@@ -13,6 +13,7 @@ import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
 import { purgeFullSummaries } from "./lib/fullSummaries";
 import { purgeHighlightIdentities } from "./lib/highlightIdentity";
 import { purgeManualAnnotations } from "./lib/manualAnnotations";
+import { purgeTagVocabulary } from "./lib/tagVocabulary";
 import { purgePreparedPage } from "./preparedArticles";
 import { purgeReadingResumes } from "./readingResume";
 import { purgeMetadata } from "./vaultFiles";
@@ -291,6 +292,8 @@ const STEPS: Step[] = [
     if (prepared) return prepared;
     const polls = await purgeFeedPolls(ctx, userId);
     if (polls) return polls;
+    const tags = await purgeTagVocabulary(ctx, userId);
+    if (tags) return tags;
     const fingerprints = await purgeFingerprintMetadata(ctx, userId);
     if (fingerprints) return fingerprints;
     const resumes = await purgeReadingResumes(ctx, userId);
