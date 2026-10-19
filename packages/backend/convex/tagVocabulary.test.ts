@@ -98,17 +98,22 @@ describe("bounded private tag metadata", () => {
     );
     const physical = await f.t.run(async (ctx) => {
       const metadata = await ctx.db.query("tagVocabulary").collect();
+      const payloads = await ctx.db.query("tagVocabularyPayloads").collect();
       const allowed = metadata.map((row) => row._id);
-      let reads = 0;
+      const allowedPayloads = payloads.map((row) => row._id);
+      let nodeReads = 0;
+      let payloadReads = 0;
       let bytes = 0;
       const db = new Proxy(ctx.db, {
         get(target, property, receiver) {
           if (property === "get")
             return async (...args: Parameters<typeof ctx.db.get>) => {
               const row = await target.get(...args);
-              if (!row || !allowed.some((id) => id === row._id))
-                throw new Error("Non-metadata hydration");
-              reads++;
+              if (!row) throw new Error("Non-metadata hydration");
+              if (allowed.some((id) => id === row._id)) nodeReads++;
+              else if (allowedPayloads.some((id) => id === row._id))
+                payloadReads++;
+              else throw new Error("Non-metadata hydration");
               bytes += new TextEncoder().encode(JSON.stringify(row)).byteLength;
               return row;
             };
@@ -117,7 +122,8 @@ describe("bounded private tag metadata", () => {
       });
       const result = await promptVocabulary({ db }, userId);
       return {
-        reads,
+        nodeReads,
+        payloadReads,
         bytes,
         count: result.length,
         maxNodeBytes: Math.max(
@@ -125,14 +131,22 @@ describe("bounded private tag metadata", () => {
             (row) => new TextEncoder().encode(JSON.stringify(row)).byteLength,
           ),
         ),
+        maxPayloadBytes: Math.max(
+          ...payloads.map(
+            (row) => new TextEncoder().encode(JSON.stringify(row)).byteLength,
+          ),
+        ),
       };
     });
     expect(physical.count).toBe(150);
-    expect(physical.reads).toBeLessThanOrEqual(214);
+    expect(physical.nodeReads).toBeLessThanOrEqual(214);
+    expect(physical.payloadReads).toBe(150);
     expect(physical.bytes).toBeLessThan(
-      214 * (TAG_METADATA_BYTES + TAG_KEY_BYTES + 1024),
+      214 * (TAG_KEY_BYTES + 1024) +
+        150 * (TAG_METADATA_BYTES + TAG_KEY_BYTES + 1024),
     );
-    expect(physical.maxNodeBytes).toBeLessThan(
+    expect(physical.maxNodeBytes).toBeLessThan(TAG_KEY_BYTES + 1024);
+    expect(physical.maxPayloadBytes).toBeLessThan(
       TAG_METADATA_BYTES + TAG_KEY_BYTES + 1024,
     );
     console.log("B12 physical prompt fixture", JSON.stringify(physical));
