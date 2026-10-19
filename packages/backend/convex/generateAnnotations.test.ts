@@ -411,6 +411,13 @@ describe("generateForArticle", () => {
               createdAt: 1,
             }),
           );
+          await f.t.mutation(internal.tags.migrateVocabulary, {
+            userId: f.readerLibraryId,
+          });
+          // Confirm the end cursor after the one-row legacy page.
+          await f.t.mutation(internal.tags.migrateVocabulary, {
+            userId: f.readerLibraryId,
+          });
         },
       },
     );
