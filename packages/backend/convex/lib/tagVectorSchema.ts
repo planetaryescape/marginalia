@@ -34,5 +34,26 @@ export const tagVectorTables = {
     count: v.number(),
     vectorBytes: v.number(),
     overflow: v.number(),
+    // Missing is the initial observer epoch for already-populated deployments.
+    epoch: v.optional(v.number()),
+    proof: v.optional(
+      v.object({
+        run: v.number(),
+        epoch: v.number(),
+        step: v.number(),
+        phase: v.union(
+          v.literal("canonical"),
+          v.literal("vectors"),
+          v.literal("sources"),
+          v.literal("complete"),
+          v.literal("failed"),
+        ),
+        cursor: v.union(v.string(), v.null()),
+        count: v.number(),
+        vectorBytes: v.number(),
+        checkedCount: v.number(),
+        checkedBytes: v.number(),
+      }),
+    ),
   }).index("by_userId", ["userId"]),
 };
