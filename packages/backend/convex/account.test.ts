@@ -12,6 +12,7 @@ import type { MutationCtx } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
 import { sealTokens } from "./lib/chatgptTokens";
 import { indexDictionaryLookup } from "./lib/dictionaryIndex";
+import { syncFeedStatus } from "./lib/feedStatus";
 import {
   highlightArticleIdentityTrigger,
   highlightIdentityTrigger,
@@ -44,6 +45,9 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       isActive: true,
       createdAt: now,
     });
+    const feed = await ctx.db.get(feedId);
+    if (!feed) throw new Error("Missing seeded feed");
+    await syncFeedStatus(ctx, null, feed);
     if (i === 0)
       await ctx.db.insert("feedPollRuns", {
         userId,

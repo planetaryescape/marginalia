@@ -14,6 +14,7 @@ import {
 } from "./functions";
 import { initializeEmptyMetadata } from "./lib/articleMetadata";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { initializeEmptyFeedStatus } from "./lib/feedStatus";
 import {
   EMAIL_PATTERN,
   newToken,
@@ -330,5 +331,6 @@ export async function claimInvite(
     createdAt: now,
   });
   await initializeEmptyMetadata(ctx, user._id);
+  await initializeEmptyFeedStatus(ctx, user._id);
   return true;
 }

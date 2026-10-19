@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { feedPollTables } from "./lib/feedPollProtocol";
+import { feedStatusTables } from "./lib/feedStatus";
 import { fingerprintTables } from "./lib/fingerprintSchema";
 import { fullSummaryState } from "./lib/fullSummaries";
 import { highlightIdentityTables } from "./lib/highlightIdentitySchema";
@@ -20,6 +21,7 @@ const tasteEntry = v.object({
 
 export default defineSchema({
   ...feedPollTables,
+  ...feedStatusTables,
   ...fingerprintTables,
   ...highlightIdentityTables,
   ...tagVocabularyTables,

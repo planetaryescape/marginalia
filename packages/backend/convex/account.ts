@@ -9,6 +9,7 @@ import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
 import { purgeFeedPolls } from "./lib/feedPollLifecycle";
+import { purgeFeedStatus } from "./lib/feedStatus";
 import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
 import { purgeFullSummaries } from "./lib/fullSummaries";
 import { purgeHighlightIdentities } from "./lib/highlightIdentity";
@@ -306,6 +307,8 @@ const STEPS: Step[] = [
     if (identities) return identities;
     const summaries = await purgeFullSummaries(ctx, userId);
     if (summaries) return summaries;
+    const sources = await purgeFeedStatus(ctx, userId);
+    if (sources) return sources;
     return (await purgeMetadata(ctx, userId)) || PAGE_EMPTY;
   },
   rows((ctx, u) =>
@@ -414,11 +417,15 @@ const STEPS: Step[] = [
     for (const row of articles) await ctx.db.delete(row._id);
     return articles.length || PAGE_EMPTY;
   },
-  rows((ctx, u) =>
-    ctx.db
-      .query("feeds")
-      .withIndex("by_user", (q) => q.eq("userId", u))
-      .take(BATCH),
+  rows(
+    async (ctx, u) =>
+      (
+        await ctx.db
+          .query("feeds")
+          .withIndex("by_user", (q) => q.eq("userId", u))
+          .paginate(BODY_PAGE)
+      ).page,
+    PAGE_EMPTY,
   ),
   rows((ctx, u) =>
     ctx.db

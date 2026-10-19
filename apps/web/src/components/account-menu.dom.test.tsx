@@ -17,31 +17,56 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-const data = vi.hoisted(() => ({
-  reader: { isOwner: true, email: "bk@example.com", name: "BK" } as
-    | { isOwner: boolean; email: string; name: string }
-    | undefined,
+interface MenuFixture {
+  reader: { isOwner: boolean; email: string; name: string } | undefined;
   readwise: {
-    connected: true,
-    syncedAt: Date.now() - 12 * 60_000,
-    error: null,
-  } as { connected: boolean; syncedAt: number | null; error: string | null },
-  feeds: [{ title: "Example", lastError: undefined }] as {
-    title: string;
-    lastError?: string;
-  }[],
-  waiting: 2,
-}));
+    connected: boolean;
+    syncedAt: number | null;
+    error: string | null;
+  };
+  feeds:
+    | {
+        ready: boolean;
+        total: number | null;
+        failed: number | null;
+        failingTitle: string | null;
+      }
+    | undefined;
+  queryError: boolean;
+  subscriptions: string[];
+  waiting: number;
+}
+
+const data = vi.hoisted(
+  (): MenuFixture => ({
+    reader: { isOwner: true, email: "bk@example.com", name: "BK" },
+    readwise: {
+      connected: true,
+      syncedAt: Date.now() - 12 * 60_000,
+      error: null,
+    },
+    feeds: { ready: true, total: 1, failed: 0, failingTitle: null },
+    queryError: false,
+    subscriptions: [],
+    waiting: 2,
+  }),
+);
 
 vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown) => {
-    switch (getFunctionName(ref as Parameters<typeof getFunctionName>[0])) {
+  useQuery: (ref: Parameters<typeof getFunctionName>[0]) => {
+    const name = getFunctionName(ref);
+    data.subscriptions.push(name);
+    switch (name) {
       case "auth:currentReader":
         return data.reader;
       case "readwise:status":
         return data.readwise;
-      case "feeds:list":
+      case "feedStatus:status":
+        if (data.queryError) throw new Error("Fixture status unavailable");
         return data.feeds;
+      case "feeds:list":
+      case "waitlist:pending":
+        throw new Error("Avatar must not subscribe to full lists");
       case "waitlist:pendingCount":
         return data.reader?.isOwner ? data.waiting : undefined;
       default:
@@ -77,7 +102,9 @@ beforeEach(() => {
     syncedAt: Date.now() - 12 * 60_000,
     error: null,
   };
-  data.feeds = [{ title: "Example" }];
+  data.feeds = { ready: true, total: 1, failed: 0, failingTitle: null };
+  data.queryError = false;
+  data.subscriptions = [];
   data.waiting = 2;
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -114,7 +141,7 @@ describe("sourceStatus", () => {
     expect(
       sourceStatus(
         { connected: true, syncedAt: now - 12 * 60_000, error: null },
-        [{ title: "a" }, { title: "b" }],
+        { ready: true, total: 2, failed: 0, failingTitle: null },
       ),
     ).toEqual({
       line: "Readwise synced 12 min ago · 2 sources",
@@ -124,24 +151,172 @@ describe("sourceStatus", () => {
 
   it("names a failed Readwise sync in one sentence", () => {
     expect(
-      sourceStatus({ connected: true, syncedAt: null, error: "outage" }, []),
+      sourceStatus(
+        { connected: true, syncedAt: null, error: "outage" },
+        { ready: true, total: 2, failed: 2, failingTitle: null },
+      ),
     ).toEqual({ line: "Readwise sync failed.", failed: true });
   });
 
   it("names one failed feed, or counts several", () => {
     expect(
-      sourceStatus(null, [{ title: "Example", lastError: "404" }]).line,
+      sourceStatus(null, {
+        ready: true,
+        total: 5,
+        failed: 1,
+        failingTitle: "Example",
+      }).line,
     ).toBe("“Example” couldn’t be fetched.");
     expect(
-      sourceStatus(null, [
-        { title: "a", lastError: "x" },
-        { title: "b", lastError: "y" },
-      ]).line,
+      sourceStatus(null, {
+        ready: true,
+        total: 5,
+        failed: 2,
+        failingTitle: null,
+      }).line,
     ).toBe("2 sources couldn’t be fetched.");
+  });
+
+  it("preserves empty/singular counts, disconnected and first-pending wording", () => {
+    expect(
+      sourceStatus(
+        { connected: false, syncedAt: null, error: null },
+        {
+          ready: true,
+          total: 0,
+          failed: 0,
+          failingTitle: null,
+        },
+      ),
+    ).toEqual({
+      line: "Readwise not connected · No sources yet",
+      failed: false,
+    });
+    expect(
+      sourceStatus(
+        { connected: true, syncedAt: null, error: null },
+        {
+          ready: true,
+          total: 1,
+          failed: 0,
+          failingTitle: null,
+        },
+      ),
+    ).toEqual({
+      line: "Readwise first sync pending · 1 source",
+      failed: false,
+    });
+    expect(
+      sourceStatus(
+        { connected: true, syncedAt: null, error: "known failure" },
+        undefined,
+      ),
+    ).toEqual({ line: "Readwise sync failed.", failed: true });
+    expect(
+      sourceStatus(undefined, {
+        ready: true,
+        total: 0,
+        failed: 0,
+        failingTitle: null,
+      }),
+    ).toMatchObject({ unknown: true });
   });
 });
 
 describe("AccountMenu", () => {
+  it("subscribes to compact status while closed, never full feed or request lists", async () => {
+    await render();
+    expect(document.querySelector("[role=menu]")).toBeNull();
+    expect(data.subscriptions).toContain("feedStatus:status");
+    expect(data.subscriptions).not.toContain("feeds:list");
+    expect(data.subscriptions).not.toContain("waitlist:pending");
+  });
+
+  it("does not disguise loading or migration as healthy and recovers to exact status", async () => {
+    data.feeds = undefined;
+    await render();
+    expect(trigger().getAttribute("aria-label")).toBe(
+      "Account, source status unavailable",
+    );
+    expect(
+      container.querySelector("[data-source-status=unknown]"),
+    ).not.toBeNull();
+    data.feeds = {
+      ready: false,
+      total: null,
+      failed: null,
+      failingTitle: null,
+    };
+    await render();
+    await key(trigger(), "Enter");
+    expect(document.querySelector("[role=menu]")?.textContent).toContain(
+      "Checking source status…",
+    );
+    expect(document.querySelector("[role=menu]")?.textContent).not.toContain(
+      "No sources yet",
+    );
+    data.feeds = {
+      ready: true,
+      total: 18,
+      failed: 1,
+      failingTitle: "Paused example",
+    };
+    await render();
+    expect(trigger().getAttribute("aria-label")).toBe(
+      "Account, a source needs attention",
+    );
+    expect(document.querySelector("[role=menu]")?.textContent).toContain(
+      "“Paused example” couldn’t be fetched.",
+    );
+    data.readwise.error = "Readwise fixture error";
+    await render();
+    expect(document.querySelector("[role=menu]")?.textContent).toContain(
+      "Readwise sync failed.",
+    );
+    data.readwise.error = null;
+    data.feeds = { ready: true, total: 18, failed: 0, failingTitle: null };
+    await render();
+    expect(trigger().getAttribute("aria-label")).toBe("Account");
+    expect(document.querySelector("[role=menu]")?.textContent).toContain(
+      "18 sources",
+    );
+  });
+
+  it.each([
+    false,
+    true,
+  ])("keeps Sources reachable and an attention marker when the compact query throws (Readwise failure=%s)", async (readwiseFailed) => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      data.queryError = true;
+      data.readwise.error = readwiseFailed ? "Readwise fixture failure" : null;
+      await render();
+      expect(trigger().getAttribute("aria-label")).toBe(
+        readwiseFailed
+          ? "Account, a source needs attention"
+          : "Account, source status unavailable",
+      );
+      await key(trigger(), "Enter");
+      expect(document.querySelector("[role=menu]")?.textContent).toContain(
+        readwiseFailed
+          ? "Readwise sync failed."
+          : "Source status unavailable. Open Sources to check.",
+      );
+      expect(labels()).toContain("Sources");
+      data.queryError = false;
+      data.readwise.error = null;
+      const retry = menuItems().find(
+        (item) => item.textContent === "Retry source status",
+      );
+      if (!retry) throw new Error("Missing status retry action");
+      await key(retry, "Enter");
+      expect(trigger().getAttribute("aria-label")).toBe("Account");
+      expect(container.querySelector("[data-source-status]")).toBeNull();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   it("shows Readers with the waiting count to the owner only", async () => {
     await render();
     await key(trigger(), "Enter");
@@ -183,7 +358,7 @@ describe("AccountMenu", () => {
   it("marks the avatar when a source fails, and clears when it recovers", async () => {
     await render();
     expect(container.querySelector("[data-source-status=failed]")).toBeNull();
-    data.feeds = [{ title: "Example", lastError: "404" }];
+    data.feeds = { ready: true, total: 1, failed: 1, failingTitle: "Example" };
     await render();
     expect(
       container.querySelector("[data-source-status=failed]"),
@@ -191,7 +366,7 @@ describe("AccountMenu", () => {
     expect(trigger().getAttribute("aria-label")).toBe(
       "Account, a source needs attention",
     );
-    data.feeds = [{ title: "Example" }];
+    data.feeds = { ready: true, total: 1, failed: 0, failingTitle: null };
     await render();
     expect(container.querySelector("[data-source-status=failed]")).toBeNull();
   });
