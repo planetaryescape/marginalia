@@ -7,8 +7,24 @@ export async function reportingTags(ctx: QueryCtx, userId: string) {
   const state = await vocabularyState(ctx, userId);
   const ready = state?.ready && state.overflow === 0;
   const names = new Map<Id<"tags">, string>();
-  const nodes = new Map<Id<"tags">, Doc<"tagVocabulary">>();
+  const nodes = new Map<Id<"tags">, Doc<"tagVocabulary"> | null>();
+  async function nodeFor(tagId: Id<"tags">) {
+    if (!nodes.has(tagId)) {
+      const node = await ctx.db
+        .query("tagVocabulary")
+        .withIndex("by_tagId", (q) => q.eq("tagId", tagId))
+        .unique();
+      nodes.set(tagId, node);
+    }
+    return nodes.get(tagId);
+  }
   return {
+    async prefetchNodes(tagIds: Id<"tags">[]): Promise<void> {
+      if (!ready) return;
+      // Linger ranks at most 40 candidates. Only overlap small structure reads;
+      // names (and canonical fallbacks) must remain lazy until eight are shown.
+      await Promise.all([...new Set(tagIds)].slice(0, 40).map(nodeFor));
+    },
     async activeIds(limit: number): Promise<Set<Id<"tags">>> {
       if (ready) {
         // Canonical by_user_status uses source _creationTime, NOT the metadata
@@ -36,12 +52,7 @@ export async function reportingTags(ctx: QueryCtx, userId: string) {
       const cached = names.get(tagId);
       if (cached !== undefined) return cached;
       if (ready) {
-        const node =
-          nodes.get(tagId) ??
-          (await ctx.db
-            .query("tagVocabulary")
-            .withIndex("by_tagId", (q) => q.eq("tagId", tagId))
-            .unique());
+        const node = await nodeFor(tagId);
         if (!node || node.userId !== userId || !node.active) return null;
         const payload = await ctx.db.get(node.payloadId);
         if (payload?.userId === userId && payload.tagId === tagId)

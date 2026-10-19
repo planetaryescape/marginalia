@@ -205,6 +205,7 @@ export const readingLinger = query({
       .slice(0, TAG_CANDIDATES);
     const topics = [];
     const tags = await reportingTags(ctx, ctx.readerId);
+    await tags.prefetchNodes(ranked.map(([tagId]) => tagId));
     for (const [tagId, total] of ranked) {
       const name = await tags.name(tagId);
       if (name === null) continue;
