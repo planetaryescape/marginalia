@@ -100,6 +100,7 @@ import type * as lib_marginaliaFingerprint from "../lib/marginaliaFingerprint.js
 import type * as lib_marginaliaRecallBudget from "../lib/marginaliaRecallBudget.js";
 import type * as lib_markColours from "../lib/markColours.js";
 import type * as lib_metadataTriggers from "../lib/metadataTriggers.js";
+import type * as lib_noteIndex from "../lib/noteIndex.js";
 import type * as lib_ownerTransition from "../lib/ownerTransition.js";
 import type * as lib_pdf_extract from "../lib/pdf/extract.js";
 import type * as lib_pdf_sections from "../lib/pdf/sections.js";
@@ -270,6 +271,7 @@ declare const fullApi: ApiFromModules<{
   "lib/marginaliaRecallBudget": typeof lib_marginaliaRecallBudget;
   "lib/markColours": typeof lib_markColours;
   "lib/metadataTriggers": typeof lib_metadataTriggers;
+  "lib/noteIndex": typeof lib_noteIndex;
   "lib/ownerTransition": typeof lib_ownerTransition;
   "lib/pdf/extract": typeof lib_pdf_extract;
   "lib/pdf/sections": typeof lib_pdf_sections;

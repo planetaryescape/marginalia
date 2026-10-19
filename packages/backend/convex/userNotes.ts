@@ -250,8 +250,7 @@ async function cancelIndexWake(ctx: MutationCtx, note: Doc<"userNotes">) {
 
 async function activeNote(ctx: MutationCtx, note: Doc<"userNotes">) {
   if (!(await importLibraryActive(ctx, note.userId))) return false;
-  const article = await ctx.db.get(note.articleId);
-  return article?.userId === note.userId;
+  return Boolean(await ownedArticle(ctx, note.articleId, note.userId));
 }
 
 /** A semantic edit/recovery replaces one wake, not the persisted draft. */

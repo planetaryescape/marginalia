@@ -227,7 +227,9 @@ async function scan(
             )
             .take(1),
         (row) =>
-          !row.embedding && row.contentPlain
+          !row.embedding &&
+          row.contentPlain &&
+          row.noteIndex?.status !== "failed"
             ? { kind: "note", id: row._id }
             : null,
         cursor,
