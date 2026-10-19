@@ -1,16 +1,32 @@
 /// <reference types="vite/client" />
+import { appendFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { expect, it, onTestFailed } from "vitest";
 import { internal } from "./_generated/api";
 import { metadataTriggers } from "./lib/metadataTriggers";
+import {
+  aliasState,
+  migrateTagAliases,
+  verifyAndActivateTagAliases,
+} from "./lib/tagAliases";
 import { purgeTagVocabulary } from "./lib/tagVocabulary";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const userId = "default_user";
 const names = ["alpha", "beta", "gamma"];
+function evidence(label: string, value: string) {
+  const line = `${label} ${value}`;
+  console.log(line);
+  if (process.env.TAG_ASSIGNMENT_EVIDENCE)
+    appendFileSync(process.env.TAG_ASSIGNMENT_EVIDENCE, `${line}\n`);
+}
 
-async function fixture(ready: boolean, maxReadBytes?: number) {
+async function fixture(
+  ready: boolean,
+  maxReadBytes?: number,
+  shortAliases = false,
+) {
   const t = convexTest({
     schema,
     modules,
@@ -35,7 +51,10 @@ async function fixture(ready: boolean, maxReadBytes?: number) {
           userId,
           name,
           key: name,
-          aliases: [`alias-${"x".repeat(15_500)}-${i}`],
+          aliases: [
+            `alias-${"x".repeat(15_500)}-${i}`,
+            ...(shortAliases && i < 3 ? [`known${i}`] : []),
+          ],
           count: 0,
           status: "active",
           createdAt: i,
@@ -61,11 +80,67 @@ async function fixture(ready: boolean, maxReadBytes?: number) {
         measured.metrics.bytesWritten.used,
       );
     }
-    console.log(
+    evidence(
       "B12 installed migration maxima",
       JSON.stringify({ maxReadBytes, maxWriteBytes }),
     );
     expect(done).toBe(true);
+  }
+  if (shortAliases) {
+    let done = false;
+    for (let page = 0; page < 600 && !done; page++)
+      done = (
+        await t.run(async (ctx) => {
+          const result = await migrateTagAliases(ctx, userId);
+          const metrics = await ctx.meta.getTransactionMetrics();
+          expect(metrics.bytesRead.used).toBeLessThan(1_000_000);
+          return result;
+        })
+      ).done;
+    expect(done).toBe(true);
+    // Physical stress fixture, not the production activation endpoint: validate
+    // all 540 sources one bounded transaction at a time under the same 1MB cap.
+    // No concurrent writers run during fixture construction. Production's two
+    // retained small libraries use verifyAndActivateTagAliases in ONE snapshot.
+    const sources = await t.run((ctx) =>
+      ctx.db.query("tagAliasSources").collect(),
+    );
+    expect(sources).toHaveLength(540);
+    for (const source of sources)
+      await t.run(async (ctx) => {
+        const tag = await ctx.db.get(source.tagId);
+        if (!tag) throw new Error("Missing canonical fixture tag");
+        const rows = await ctx.db
+          .query("tagAliases")
+          .withIndex("by_tagId", (q) => q.eq("tagId", tag._id))
+          .collect();
+        const index = names.indexOf(tag.key);
+        expect(rows.map((r) => r.alias)).toEqual(
+          index < 0 ? [] : [`known${index}`],
+        );
+        for (const row of rows)
+          expect(row).toMatchObject({
+            key: tag.key,
+            userId: tag.userId,
+            sourceCreationTime: tag._creationTime,
+          });
+      });
+    if (!maxReadBytes) {
+      await t.run(async (ctx) => {
+        expect(await verifyAndActivateTagAliases(ctx, userId)).toBe(true);
+        evidence(
+          "B12 alias production activation metrics",
+          JSON.stringify(await ctx.meta.getTransactionMetrics()),
+        );
+      });
+    } else
+      await t.run(async (ctx) => {
+        const state = await aliasState(ctx, userId);
+        if (!state?.backfilled || state.overflow)
+          throw new Error("Incomplete stress projection");
+        expect(await ctx.db.query("tagAliases").collect()).toHaveLength(3);
+        await ctx.db.patch(state._id, { ready: true });
+      });
   }
   return { t, articleId };
 }
@@ -86,7 +161,7 @@ async function measuredAssignment(
     if (bounded) {
       expect(metrics.bytesRead.used).toBeLessThan(1_000_000);
     }
-    console.log(
+    evidence(
       "B12 installed writer metrics",
       JSON.stringify({ phase, ...metrics }),
     );
@@ -111,6 +186,54 @@ it("assigns and replaces three existing active names under a native 1MB read lim
       true,
     ),
   ).toEqual(assigned);
+});
+
+it("assigns/relinks three exact aliases with the SAME 540 vectors and 15.5KB raw alias payloads under native 1MB", async () => {
+  const current = await fixture(true, 1_000_000, true);
+  const proposals = names.map((_, i) => ({ name: `known${i}` }));
+  const assigned = await measuredAssignment(
+    current,
+    "native 1MB exact aliases",
+    proposals,
+    true,
+  );
+  expect(assigned).toHaveLength(3);
+  expect(
+    await measuredAssignment(
+      current,
+      "native 1MB alias unlink/relinks",
+      proposals,
+      true,
+    ),
+  ).toEqual(assigned);
+  expect(
+    await measuredAssignment(
+      current,
+      "native 1MB alias to direct relink",
+      undefined,
+      true,
+    ),
+  ).toEqual(assigned);
+});
+
+it("activates the full 540-tag alias projection with bounded same-snapshot winner proof, then preserves near-limit unsupported fallback", async () => {
+  const current = await fixture(true, undefined, true);
+  const proposals = names.map((_, i) => ({ name: `known${i}` }));
+  expect(
+    await measuredAssignment(
+      current,
+      "production-gated alias exact",
+      proposals,
+      true,
+    ),
+  ).toHaveLength(3);
+  expect(
+    await measuredAssignment(
+      current,
+      "alias unsupported final proposal: no speculative vectors",
+      [{ name: "known0" }, { name: "known1" }, { name: "absent" }],
+    ),
+  ).toHaveLength(2);
 });
 
 it("keeps a previously valid near-limit assignment valid with installed vocabulary maintenance", async () => {
@@ -183,7 +306,7 @@ it("keeps a previously valid near-limit assignment valid with installed vocabula
   ).toEqual([]);
   await current.t.run(async (ctx) => {
     const prompt = await ctx.runQuery(internal.tags.vocabulary, { userId });
-    console.log(
+    evidence(
       "B12 installed prompt metrics",
       JSON.stringify({
         count: prompt.length,
@@ -216,7 +339,7 @@ it("keeps a previously valid near-limit assignment valid with installed vocabula
     });
     await db.delete(beta._id);
     await db.patch(gamma._id, { userId: "budget-other-library" });
-    console.log(
+    evidence(
       "B12 installed generic writer metrics",
       JSON.stringify(await raw.meta.getTransactionMetrics()),
     );
@@ -266,7 +389,7 @@ it("keeps a previously valid near-limit assignment valid with installed vocabula
     expect(await purgeTagVocabulary(raw, "budget-other-library")).toBe(1);
     const { db } = metadataTriggers.wrapDB(raw);
     await db.patch(gamma._id, { count: 2 });
-    console.log(
+    evidence(
       "B12 installed purge/late-write metrics",
       JSON.stringify(await raw.meta.getTransactionMetrics()),
     );
