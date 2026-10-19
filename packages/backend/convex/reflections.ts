@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { ownedArticle } from "./access";
 import { internalMutation, mutation, query } from "./functions";
+import { manualState } from "./lib/manualAnnotations";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
@@ -32,6 +33,8 @@ export const saveResponse = mutation({
 export const deleteByArticle = internalMutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    // The matching legacy manual clear must not erase an adopted margin.
+    if (await manualState(ctx, args.articleId)) return;
     const reflections = await ctx.db
       .query("reflections")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
