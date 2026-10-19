@@ -28,6 +28,7 @@ export const embedMissing = internalAction({
         userId: args.userId,
         items: batch.map((item, i) => ({
           id: item.id,
+          text: item.text,
           embedding: vectors[i],
         })),
       });

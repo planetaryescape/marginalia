@@ -10,6 +10,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { deleteArticle } from "./lib/feedRemoval";
+import { metadataTriggers } from "./lib/metadataTriggers";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -53,7 +54,7 @@ function addTag(
     embedding: number[];
   }> = {},
 ) {
-  return ctx.db.insert("tags", {
+  return metadataTriggers.wrapDB(ctx).db.insert("tags", {
     userId,
     name: key,
     key,
@@ -67,6 +68,7 @@ function addTag(
 
 async function setup() {
   const fixture = await secondReaderTest(modules);
+  await fixture.t.mutation(internal.tags.migrateVocabulary, { userId: OWNER });
   const articleId = await fixture.t.run((ctx) => addArticle(ctx, OWNER, "one"));
   return { ...fixture, articleId };
 }
@@ -185,6 +187,9 @@ describe("tags.assign", () => {
     await assign(f, c, [{ name: "gardening" }]);
     expect(await statusAfter()).toBe("active");
     expect(await allTags(f)).toHaveLength(1);
+    expect(
+      await f.t.query(internal.tags.vocabulary, { userId: OWNER }),
+    ).toEqual([{ name: "gardening", key: "gardening", aliases: [] }]);
     expect(
       await f.owner.query(api.tags.forArticle, { articleId: c }),
     ).toMatchObject([{ name: "gardening" }]);

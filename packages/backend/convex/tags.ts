@@ -14,15 +14,21 @@ import {
   annotationPublicationAllowed,
 } from "./lib/manualAnnotations";
 import { isReading } from "./lib/shelfArticle";
+import { metadataLibraryRetained } from "./lib/shelfCounts";
 import {
   isTopicKey,
   MAX_TAGS_PER_ARTICLE,
-  MAX_VOCABULARY_IN_PROMPT,
   matchTag,
   normaliseTag,
   TAG_PROMOTE_AFTER,
   tagDisplayName,
 } from "./lib/tagMatching";
+import {
+  migrateTagVocabulary,
+  missingVocabularyEmbeddings,
+  promptVocabulary,
+  TAG_EMBED_BATCH,
+} from "./lib/tagVocabulary";
 
 /** Active tags on an article, for the pencil chips under its title. */
 export const forArticle = query({
@@ -110,20 +116,7 @@ export const articlesForTopic = query({
 export const vocabulary = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    const active = await ctx.db
-      .query("tags")
-      .withIndex("by_user_status", (q) =>
-        q.eq("userId", args.userId).eq("status", "active"),
-      )
-      .collect();
-    return active
-      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
-      .slice(0, MAX_VOCABULARY_IN_PROMPT)
-      .map((tag) => ({
-        name: tag.name,
-        key: tag.key,
-        aliases: tag.aliases,
-      }));
+    return promptVocabulary(ctx, args.userId);
   },
 });
 
@@ -343,23 +336,16 @@ export const seedFromVault = internalMutation({
   },
 });
 
-const EMBED_BATCH = 50;
+export const migrateVocabulary = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => migrateTagVocabulary(ctx, args.userId),
+});
 
 /** Tags still without an embedding, for the embedding action. */
 export const missingEmbeddings = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    const tags = await ctx.db
-      .query("tags")
-      .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
-      .collect();
-    return tags
-      .filter((tag) => !tag.embedding)
-      .slice(0, EMBED_BATCH)
-      .map((tag) => ({
-        id: tag._id,
-        text: tag.description ? `${tag.name}: ${tag.description}` : tag.name,
-      }));
+    return missingVocabularyEmbeddings(ctx, args.userId);
   },
 });
 
@@ -367,13 +353,26 @@ export const setEmbeddings = internalMutation({
   args: {
     userId: v.string(),
     items: v.array(
-      v.object({ id: v.id("tags"), embedding: v.array(v.float64()) }),
+      v.object({
+        id: v.id("tags"),
+        embedding: v.array(v.float64()),
+        text: v.optional(v.string()),
+      }),
     ),
   },
   handler: async (ctx, args) => {
+    if (!(await metadataLibraryRetained(ctx, args.userId))) return;
+    if (args.items.length > TAG_EMBED_BATCH)
+      throw new Error("Tag embedding batch exceeds limit");
     for (const item of args.items) {
       const tag = await ctx.db.get("tags", item.id);
-      if (tag?.userId === args.userId && !tag.embedding)
+      const text =
+        tag && (tag.description ? `${tag.name}: ${tag.description}` : tag.name);
+      if (
+        tag?.userId === args.userId &&
+        !tag.embedding &&
+        (item.text === undefined || item.text === text)
+      )
         await ctx.db.patch("tags", item.id, { embedding: item.embedding });
     }
   },
