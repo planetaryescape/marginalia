@@ -1,3 +1,4 @@
+import { discoveryInvalidation } from "@/lib/discovery-invalidation";
 import { SessionCache } from "@/lib/session-cache";
 import type { TopicMatch } from "@/lib/topic-card";
 
@@ -16,6 +17,16 @@ export const topicSearchCache = new SessionCache<TopicCacheEntry>(
   TOPIC_CACHE_TTL_MS,
 );
 
+let listening = false;
+/** The singleton cache and its single listener live for this browser page. */
+export function listenForTopicCacheInvalidation() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
+  discoveryInvalidation.subscribe(() => topicSearchCache.invalidate());
+}
+
 export function invalidateTopicSearchCache() {
-  topicSearchCache.forScope(null);
+  listenForTopicCacheInvalidation();
+  if (!listening) topicSearchCache.invalidate();
+  discoveryInvalidation.publish();
 }

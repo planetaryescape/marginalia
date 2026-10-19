@@ -8,6 +8,7 @@ import { useConvex, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { ReaderRequestError, readerRequestError } from "@/lib/companion";
+import { discoveryInvalidation } from "@/lib/discovery-invalidation";
 import {
   strongTitleMatch,
   type TopicMatch,
@@ -17,6 +18,7 @@ import {
   TOPIC_CACHE_TTL_MS as CACHE_TTL_MS,
   type TopicCacheEntry as CacheEntry,
   topicSearchCache as cache,
+  listenForTopicCacheInvalidation,
 } from "@/lib/topic-search-cache";
 import { postTopicSearch as post } from "@/lib/topic-search-request";
 
@@ -72,12 +74,27 @@ export function useTopicSearch(
   const { data: session } = authClient.useSession();
   const counts = useQuery(api.home.counts, {});
   const sessionId = session?.session.id;
-  // Partial revision coverage: counters and local successful writes invalidate.
-  // Other-tab/background content edits still rely on TTL until a global library
-  // revision contract exists; this is not a globally coherent query cache.
+  // Local/same-origin edits evict memory without rerunning this effect. Visible
+  // results remain a snapshot until explicit search/revisit. Background server
+  // imports/vault edits without a local signal still rely on TTL/counters.
   const revision = counts === undefined ? "pending" : JSON.stringify(counts);
   const scope = sessionId ? `${sessionId}:${revision}` : null;
   cache.forScope(scope);
+
+  useEffect(() => {
+    listenForTopicCacheInvalidation();
+    return discoveryInvalidation.subscribe(() => {
+      // A discarded in-flight answer must not leave an endless loading state.
+      // Keep existing cards/input; the existing Retry action is explicit work.
+      setState((current) =>
+        current.status === "loading"
+          ? { ...current, status: "error", explained: true }
+          : current.explained
+            ? current
+            : { ...current, explained: true },
+      );
+    });
+  }, []);
 
   useEffect(() => {
     if (!enabled || !sessionId) return;
@@ -90,6 +107,7 @@ export function useTopicSearch(
     };
     const controller = new AbortController();
     const { signal } = controller;
+    const current = () => !signal.aborted && generation === cache.generation;
     const entry = retry === 0 && scope ? cache.get(key) : undefined;
     const cached =
       entry && Date.now() - entry.foundAt < CACHE_TTL_MS ? entry : undefined;
@@ -144,7 +162,7 @@ export function useTopicSearch(
           query: text,
         });
         const strong = strongTitleMatch(text, hits);
-        if (!strong || signal.aborted || findLanded) return;
+        if (!strong || !current() || findLanded) return;
         titleCard = strong;
         setState((current) =>
           current.query === text && current.status === "loading"
@@ -165,6 +183,7 @@ export function useTopicSearch(
 
     const timer = window.setTimeout(
       async () => {
+        if (!current()) return;
         if (!cached) void showTitle();
         try {
           let find: CacheEntry["find"];
@@ -183,9 +202,10 @@ export function useTopicSearch(
           } catch (thrown) {
             if (!(thrown instanceof Response && thrown.status === 404))
               throw thrown;
+            if (!current()) return;
             // A backend without the fast path: the explained search gives the cards.
             const ranked = await search();
-            if (signal.aborted) return;
+            if (!current()) return;
             find = {
               matches: land(
                 ranked.map(({ reason, ...match }) => ({
@@ -206,7 +226,7 @@ export function useTopicSearch(
             });
             return;
           }
-          if (signal.aborted) return;
+          if (!current()) return;
           remember({
             find,
             reasons: cached?.reasons ?? {},
@@ -227,7 +247,7 @@ export function useTopicSearch(
           } catch {
             // The cards stand without a reason; a failed explanation isn't an error to show.
           }
-          if (signal.aborted) return;
+          if (!current()) return;
           if (reasons) remember({ find, reasons, explained: true });
           setState((current) =>
             current.query === text
@@ -235,10 +255,10 @@ export function useTopicSearch(
               : current,
           );
         } catch (thrown) {
-          if (signal.aborted) return;
+          if (!current()) return;
           const error = await failure(thrown);
           // Reading the error body takes time; a newer query may have started meanwhile
-          if (signal.aborted) return;
+          if (!current()) return;
           setState({
             ...idle,
             query: text,

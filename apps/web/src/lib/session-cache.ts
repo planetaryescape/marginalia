@@ -9,6 +9,11 @@ export class SessionCache<T> {
     private ttl: number,
   ) {}
 
+  invalidate() {
+    this.entries.clear();
+    this.generation++;
+  }
+
   forScope(scope: string | null) {
     if (scope !== this.scope || scope === null) {
       this.entries.clear();

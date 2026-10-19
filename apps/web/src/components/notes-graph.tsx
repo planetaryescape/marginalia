@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton, SkeletonBar } from "@/components/in-place";
 import { Keycap } from "@/components/keycap";
 import { authClient } from "@/lib/auth-client";
+import { discoveryInvalidation } from "@/lib/discovery-invalidation";
 import type { GraphEdge, NodeKind } from "@/lib/idea-kinds";
 import { KIND_LABELS } from "@/lib/idea-kinds";
 import { SessionCache } from "@/lib/session-cache";
@@ -57,16 +58,23 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   const { data: session } = authClient.useSession();
   const sessionId = session?.session.id ?? null;
   const [neighbours] = useState(
-    // Centre-view revision + local compose + TTL only. A global library/vault
-    // revision is still needed for surrounding edits and cross-tab coherence.
+    // Cross-tab edits evict hints, not the active map. Background server/vault
+    // edits without a local signal remain TTL-bound.
     () => new SessionCache<{ key: string; via?: string }[]>(20, 60_000),
   );
   neighbours.forScope(sessionId);
+  useEffect(
+    () => discoveryInvalidation.subscribe(() => neighbours.invalidate()),
+    [neighbours],
+  );
   const [centre, setCentre] = useState<string | undefined>();
+  const [navigation, setNavigation] = useState(0);
   // For a vault idea: the passage it was chosen by
   const [centreVia, setCentreVia] = useState<string | undefined>();
   const [panel, setPanel] = useState<Panel>({ kind: "node" });
   const [similar, setSimilar] = useState<{
+    sessionId: string;
+    navigation: number;
     for: string;
     hints: { key: string; via?: string }[];
   } | null>(null);
@@ -85,7 +93,10 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     centre,
     centreVia,
     similar:
-      similar && similar.for === (centre ?? resolved)
+      similar &&
+      similar.sessionId === sessionId &&
+      similar.navigation === navigation &&
+      similar.for === (centre ?? resolved)
         ? similar.hints
         : undefined,
     pin: pinned,
@@ -108,22 +119,31 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
   );
   useEffect(() => {
     if (!graphCentre || !sessionId) return;
+    if (
+      centre &&
+      (centre !== graphCentre ||
+        (centreVia !== undefined && centreVia !== graphCentreVia))
+    )
+      return;
     const key = `${graphCentre}:${graphCentreVia ?? ""}:${centreRevision}`;
     const cached = neighbours.get(key);
     if (cached) {
-      setSimilar({ for: graphCentre, hints: cached });
+      setSimilar({ sessionId, navigation, for: graphCentre, hints: cached });
       return;
     }
     let current = true;
     const generation = neighbours.generation;
     findSimilar({ key: graphCentre, via: graphCentreVia })
       .then((hints) => {
-        if (!current) return;
+        if (!current || generation !== neighbours.generation) return;
         neighbours.set(key, hints, generation);
-        setSimilar({ for: graphCentre, hints });
+        setSimilar({ sessionId, navigation, for: graphCentre, hints });
       })
       // Without neighbours by meaning the other connections still draw the map
-      .catch(() => current && setSimilar({ for: graphCentre, hints: [] }));
+      .catch(() => {
+        if (current && generation === neighbours.generation)
+          setSimilar({ sessionId, navigation, for: graphCentre, hints: [] });
+      });
     return () => {
       current = false;
     };
@@ -134,6 +154,9 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
     findSimilar,
     neighbours,
     sessionId,
+    centre,
+    centreVia,
+    navigation,
   ]);
 
   const openKey = centre ?? graphCentre;
@@ -147,6 +170,9 @@ export function NotesGraph({ toggle }: { toggle: ReactNode }) {
       : undefined;
 
   function open(key: string, via = viaOf(key)) {
+    // Even reselecting the current centre is an explicit lookup, unlike a
+    // received invalidation. It may now miss the evicted neighbour cache.
+    setNavigation((current) => current + 1);
     setCentre(key);
     setCentreVia(via);
     setPinned(undefined);
