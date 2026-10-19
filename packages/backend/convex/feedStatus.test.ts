@@ -35,6 +35,32 @@ async function migrate(
 }
 
 describe("compact source status", () => {
+  it("verifies actual sources, counters and contributions without trusting readiness alone", async () => {
+    const t = await ownerTest(modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("feeds", {
+        ...feed(),
+        lastError: "failure",
+        isActive: false,
+      });
+      await ctx.db.insert("feeds", feed("default_user", "Healthy"));
+    });
+    expect(
+      await t.query(internal.feedStatus.verify, { userId: "default_user" }),
+    ).toMatchObject({ ready: false, matches: false });
+    await migrate(t);
+    expect(
+      await t.query(internal.feedStatus.verify, { userId: "default_user" }),
+    ).toEqual({ ready: true, complete: true, matches: true, checked: 2 });
+    await t.run(async (ctx) => {
+      const counts = await ctx.db.query("feedStatusCounts").first();
+      if (!counts) throw new Error("Missing fixture counts");
+      await ctx.db.patch(counts._id, { total: 0 });
+    });
+    expect(
+      await t.query(internal.feedStatus.verify, { userId: "default_user" }),
+    ).toMatchObject({ ready: true, matches: false, checked: 2 });
+  });
   it("initializes only proven-empty active registrations, not populated, disabled, absent or unready libraries", async () => {
     const f = await secondReaderTest(modules);
     expect(
@@ -430,6 +456,9 @@ describe("compact source status", () => {
     expect(
       await t.run((ctx) => ctx.db.query("feedStatusCounts").first()),
     ).toMatchObject({ ready: true, total: 18, failed: 1 });
+    expect(
+      await t.query(internal.feedStatus.verify, { userId: "default_user" }),
+    ).toMatchObject({ ready: true, complete: false, matches: false });
     expect(
       await t.run((ctx) =>
         ctx.db

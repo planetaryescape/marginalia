@@ -2,6 +2,7 @@ import { Triggers } from "convex-helpers/server/triggers";
 import type { DataModel } from "../_generated/dataModel";
 import { syncArticleMetadata, syncBookPartCard } from "./articleMetadata";
 import { invalidateFeedPoll } from "./feedPollLifecycle";
+import { syncFeedStatus } from "./feedStatus";
 import { syncFingerprintSource } from "./fingerprintMetadata";
 import {
   highlightArticleIdentityTrigger,
@@ -12,6 +13,9 @@ import { membershipChanged } from "./shelfCounts";
 import { syncTagVocabulary } from "./tagVocabulary";
 
 export const metadataTriggers = new Triggers<DataModel>();
+metadataTriggers.register("feeds", (ctx, change) =>
+  syncFeedStatus({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
 metadataTriggers.register("tags", (ctx, change) =>
   syncTagVocabulary({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
 );

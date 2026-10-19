@@ -1,6 +1,10 @@
 import { v } from "convex/values";
-import { internalMutation, query } from "./functions";
-import { feedStatusCounts, syncFeedStatus } from "./lib/feedStatus";
+import { internalMutation, internalQuery, query } from "./functions";
+import {
+  feedStatusCounts,
+  statusTitle,
+  syncFeedStatus,
+} from "./lib/feedStatus";
 import { metadataLibraryRetained } from "./lib/shelfCounts";
 
 export const status = query({
@@ -69,5 +73,50 @@ export const backfill = internalMutation({
       cursor: page.isDone ? null : page.continueCursor,
     });
     return { complete: page.isDone, inactive: false };
+  },
+});
+
+/** Operator-only cutover gate. Compare the complete bounded library in one
+ * snapshot; a large/incomplete source page is never reported as exact. */
+export const verify = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const counts = await feedStatusCounts(ctx, userId);
+    if (!(await metadataLibraryRetained(ctx, userId)) || !counts?.ready)
+      return { ready: false, complete: false, matches: false, checked: 0 };
+    const page = await ctx.db
+      .query("feeds")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .paginate({
+        cursor: null,
+        numItems: 64,
+        maximumBytesRead: 8 * 1024 * 1024,
+      });
+    if (!page.isDone)
+      return {
+        ready: true,
+        complete: false,
+        matches: false,
+        checked: page.page.length,
+      };
+    const entries = await ctx.db
+      .query("feedStatusEntries")
+      .withIndex("by_userId_and_failed", (q) => q.eq("userId", userId))
+      .take(65);
+    const byId = new Map(entries.map((entry) => [entry.feedId, entry]));
+    const matches =
+      entries.length === page.page.length &&
+      counts.total === page.page.length &&
+      counts.failed ===
+        page.page.filter((feed) => Boolean(feed.lastError)).length &&
+      page.page.every((feed) => {
+        const entry = byId.get(feed._id);
+        return (
+          entry?.userId === userId &&
+          entry.failed === Boolean(feed.lastError) &&
+          entry.title === statusTitle(feed.title)
+        );
+      });
+    return { ready: true, complete: true, matches, checked: page.page.length };
   },
 });
