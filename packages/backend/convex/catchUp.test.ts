@@ -181,6 +181,51 @@ function scheduled(t: Fixture["t"]) {
 }
 
 describe("catching up after a key is saved", () => {
+  it("does not charge or dispatch terminal note jobs when credentials are saved", async () => {
+    const { t, reader, readerLibraryId } = await secondReaderTest(modules);
+    const noteId = await t.run(async (ctx) => {
+      const articleId = await addArticle(ctx, readerLibraryId, "failed-note", {
+        embedded: true,
+        annotationStatus: "annotated",
+      });
+      return ctx.db.insert("userNotes", {
+        userId: readerLibraryId,
+        articleId,
+        selectedText: "Words",
+        content: "<p>My thought</p>",
+        contentPlain: "My thought",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        noteIndex: {
+          revision: 1,
+          input: "Words\n\nMy thought",
+          status: "failed",
+          attempt: 3,
+        },
+      });
+    });
+    const provider = mockProviders();
+    await reader.action(api.providerCredentials.save, {
+      provider: "openrouter",
+      apiKey: READER_OPENROUTER,
+    });
+    await runScheduled(t);
+    expect(provider.embeds()).toHaveLength(0);
+    const state = await t.run((ctx) =>
+      ctx.db
+        .query("catchUpState")
+        .withIndex("by_userId", (q) => q.eq("userId", readerLibraryId))
+        .unique(),
+    );
+    expect(state).toMatchObject({
+      running: false,
+      itemsQueued: 0,
+      articlesQueued: 0,
+    });
+    expect(await t.run((ctx) => ctx.db.get(noteId))).toMatchObject({
+      noteIndex: { status: "failed", attempt: 3 },
+    });
+  });
   it("merges legacy articles and unavailable books without revisiting failed or claimed jobs", async () => {
     const { t, reader, readerLibraryId } = await secondReaderTest(modules);
     const { ids, failed, claimed } = await t.run(async (ctx) => {
