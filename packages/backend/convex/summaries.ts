@@ -2,6 +2,10 @@ import { v } from "convex/values";
 import { libraryIsActive, ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, query } from "./functions";
 import { legacyOverviewClaim } from "./lib/bookIndex";
+import {
+  annotationGeneration,
+  annotationPublicationAllowed,
+} from "./lib/manualAnnotations";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
@@ -80,9 +84,13 @@ export const saveOverview = internalMutation({
     thesis: v.string(),
     gist: v.string(),
     model: v.string(),
+    generation: v.optional(annotationGeneration),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, args.userId);
+    const article = await ownedArticle(ctx, args.articleId, args.userId);
+    if (!article) throw new Error("Article not found");
+    if (!(await annotationPublicationAllowed(ctx, article, args.generation)))
+      return null;
     const thesis = args.thesis.trim();
     const gist = args.gist.trim();
     if (!thesis || !gist) return null;

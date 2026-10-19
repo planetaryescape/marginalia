@@ -26,6 +26,10 @@ import { EXTRACT_PAGE } from "./lib/constants";
 import { bumpFeedArticleCount } from "./lib/feedArticleCount";
 import { validateArticleSize } from "./lib/importContent";
 import { importLibraryActive } from "./lib/importJobs";
+import {
+  annotationGeneration,
+  annotationPublicationAllowed,
+} from "./lib/manualAnnotations";
 import { unreadQueue } from "./lib/unreadQueue";
 import { queueLibraryIndex } from "./libraryIndex";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
@@ -382,40 +386,10 @@ export const findByUrl = query({
 export const requestReannotate = action({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    const article: Doc<"articles"> | null = await ctx.runQuery(
-      internal.articles.getForReaderInternal,
-      { articleId: args.articleId, userId: ctx.readerId },
-    );
-    if (!article) throw new Error("Article not found");
-    // A book's notes belong to its parts; clearing the article would delete them all
-    if (article.bookUnitCount !== undefined)
-      throw new ConvexError("A book is annotated a part at a time.");
-    // The bulk re-annotation already has this article; a second job would race it
-    if (
-      article.reannotateClaimedAt !== undefined &&
-      Date.now() - article.reannotateClaimedAt < CLAIM_TTL_MS
-    )
-      throw new ConvexError(
-        "Marginalia is already re-reading this article. Its new notes arrive shortly.",
-      );
-    // Delete existing annotations and reflection
-    await ctx.runMutation(internal.annotations.deleteByArticle, {
+    await ctx.runMutation(internal.manualAnnotations.request, {
       articleId: args.articleId,
+      userId: ctx.readerId,
     });
-    await ctx.runMutation(internal.reflections.deleteByArticle, {
-      articleId: args.articleId,
-    });
-    // Reset annotation status
-    await ctx.runMutation(internal.articles.updateAnnotationStatus, {
-      articleId: args.articleId,
-      status: "pending",
-    });
-    // Schedule re-annotation
-    await ctx.scheduler.runAfter(
-      500,
-      internal.actions.generateAnnotations.generateForArticle,
-      { articleId: args.articleId },
-    );
   },
 });
 
@@ -603,9 +577,22 @@ export const updateAnnotationStatus = internalMutation({
       v.literal("skipped"),
     ),
     skipReason: v.optional(v.literal("no_provider")),
+    generation: v.optional(annotationGeneration),
   },
-  handler: (ctx, args) =>
-    setAnnotationStatus(ctx, args.articleId, args.status, args.skipReason),
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get("articles", args.articleId);
+    if (
+      !article ||
+      !(await annotationPublicationAllowed(ctx, article, args.generation))
+    )
+      return;
+    await setAnnotationStatus(
+      ctx,
+      args.articleId,
+      args.status,
+      args.skipReason,
+    );
+  },
 });
 
 /** Changes an article's annotation status and keeps the queue counters in step. */

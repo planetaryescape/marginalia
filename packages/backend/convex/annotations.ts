@@ -6,6 +6,11 @@ import { syncUnitMetadata } from "./books";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { CURRENT_ANNOTATION_VERSION } from "./lib/annotationGate";
 import { annotationType } from "./lib/annotationKinds";
+import {
+  annotationGeneration,
+  annotationPublicationAllowed,
+  manualState,
+} from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 
 export const listByArticle = query({
@@ -97,6 +102,9 @@ export const markDismissed = mutation({
 export const deleteByArticle = internalMutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
+    // A pre-upgrade manual action may still be between its clear RPCs. It
+    // cannot erase the retained/current margin after this source is adopted.
+    if (await manualState(ctx, args.articleId)) return;
     const annotations = await ctx.db
       .query("annotations")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
@@ -203,10 +211,18 @@ export const replaceForArticle = internalMutation({
     fingerprint: v.optional(marginaliaFingerprint),
     // The items the pass drew on, so a section's first reading pass can tell what is new since
     sources: v.optional(v.array(v.string())),
+    generation: v.optional(annotationGeneration),
   },
   handler: async (ctx, args) => {
     const article = await ownedArticle(ctx, args.articleId, args.userId);
-    if (!article) throw new Error("Article not found");
+    if (!article && !args.generation) throw new Error("Article not found");
+    if (
+      !article ||
+      !(await annotationPublicationAllowed(ctx, article, args.generation))
+    )
+      return false;
+    const claim = await manualState(ctx, args.articleId);
+    if (claim?.published) return false;
 
     const existing = await ctx.db
       .query("annotations")
@@ -298,6 +314,8 @@ export const replaceForArticle = internalMutation({
     for (const pass of passes)
       await ctx.db.delete("marginaliaPasses", pass._id);
     await setAnnotationStatus(ctx, args.articleId, "annotated");
+    if (claim) await ctx.db.patch(claim._id, { published: true });
+    return true;
   },
 });
 
