@@ -58,6 +58,32 @@ async function fixture() {
 }
 
 describe("bounded exact aliases", () => {
+  it("exposes separate bounded migration and equality activation through the installed internal contracts", async () => {
+    const f = await fixture();
+    const id = await f.add("alpha", ["alias"]);
+    expect(
+      await f.t.mutation(internal.tags.verifyAndActivateAliases, { userId }),
+    ).toBe(false);
+    let complete = false;
+    for (let page = 0; page < 10 && !complete; page++)
+      complete = (await f.t.mutation(internal.tags.migrateAliases, { userId }))
+        .done;
+    expect(complete).toBe(true);
+    expect(await f.t.run((ctx) => aliasState(ctx, userId))).toMatchObject({
+      ready: false,
+      backfilled: true,
+    });
+    expect(
+      await f.t.mutation(internal.tags.verifyAndActivateAliases, { userId }),
+    ).toBe(true);
+    expect(
+      await f.t.mutation(internal.tags.assign, {
+        userId,
+        articleId: f.articleId,
+        proposals: [{ name: "alias" }],
+      }),
+    ).toEqual([id]);
+  });
   it("serializes concurrent alias assignments and does not lose or double their counts", async () => {
     const f = await fixture();
     const id = await f.add("alpha", ["alias"]);

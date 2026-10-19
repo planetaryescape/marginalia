@@ -11,6 +11,7 @@ import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
+import { tagAliasTables } from "./lib/tagAliasSchema";
 import { tagVocabularyTables } from "./lib/tagVocabularySchema";
 
 const tasteEntry = v.object({
@@ -26,6 +27,7 @@ export default defineSchema({
   ...fingerprintTables,
   ...highlightIdentityTables,
   ...tagVocabularyTables,
+  ...tagAliasTables,
   manualAnnotationState,
   fullSummaryState,
   edgeExplanationState,

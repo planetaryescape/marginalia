@@ -10,6 +10,7 @@ import {
 } from "./highlightIdentity";
 import { syncResumeEligibility } from "./readingResume";
 import { membershipChanged } from "./shelfCounts";
+import { syncTagAliases } from "./tagAliases";
 import { syncTagVocabulary } from "./tagVocabulary";
 
 export const metadataTriggers = new Triggers<DataModel>();
@@ -18,6 +19,9 @@ metadataTriggers.register("feeds", (ctx, change) =>
 );
 metadataTriggers.register("tags", (ctx, change) =>
   syncTagVocabulary({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
+metadataTriggers.register("tags", (ctx, change) =>
+  syncTagAliases({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
 );
 metadataTriggers.register("highlights", highlightIdentityTrigger);
 metadataTriggers.register("articles", highlightArticleIdentityTrigger);
