@@ -8,6 +8,7 @@ import { internalMutation, type MutationCtx, mutation } from "./functions";
 import { purgeLegacyMarkDefaults } from "./highlights";
 import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
+import { purgeEdgeExplanations } from "./lib/edgeExplanations";
 import { purgeFeedPolls } from "./lib/feedPollLifecycle";
 import { purgeFeedStatus } from "./lib/feedStatus";
 import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
@@ -309,6 +310,8 @@ const STEPS: Step[] = [
     if (summaries) return summaries;
     const sources = await purgeFeedStatus(ctx, userId);
     if (sources) return sources;
+    const edges = await purgeEdgeExplanations(ctx, userId);
+    if (edges) return edges;
     return (await purgeMetadata(ctx, userId)) || PAGE_EMPTY;
   },
   rows((ctx, u) =>
