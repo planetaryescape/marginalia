@@ -908,6 +908,9 @@ describe("answering with a ChatGPT plan", () => {
       articleId,
       title: "Plan article",
       paragraphs: ["Rest supports clear thinking."],
+      sourceHash: await (
+        await import("./lib/preparedRepresentation")
+      ).sourceHash(),
     });
     const [call] = mock.calls;
     expect(call.url).toBe(RESPONSES_URL);

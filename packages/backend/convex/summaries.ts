@@ -3,9 +3,18 @@ import { libraryIsActive, ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, query } from "./functions";
 import { legacyOverviewClaim } from "./lib/bookIndex";
 import {
+  SUMMARY_ATTEMPTS,
+  SUMMARY_LEASE_MS,
+  summaryGeneration,
+  summarySource,
+  summaryState,
+} from "./lib/fullSummaries";
+import {
   annotationGeneration,
   annotationPublicationAllowed,
 } from "./lib/manualAnnotations";
+import { representationHash, sourceHash } from "./lib/preparedRepresentation";
+import { sha256Hex } from "./lib/tokens";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
@@ -18,7 +27,116 @@ export const getByArticle = query({
   },
 });
 
-/** Replaces any existing summary for the article. */
+/** Private atomic admission. Only an explicit application request can recover. */
+export const claimFull = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    title: v.string(),
+    paragraphs: v.array(v.string()),
+    sourceHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const article = await requireArticle(ctx, args.articleId, args.userId);
+    if (!(await libraryIsActive(ctx, args.userId)))
+      throw new Error("Library unavailable");
+    if (
+      article.bookUnitCount ||
+      !args.sourceHash ||
+      args.sourceHash !==
+        (await sourceHash(article.content, article.contentHtml)) ||
+      args.title !== article.title
+    )
+      throw new Error("Reload the article before generating its summary");
+    if (
+      !args.paragraphs.length ||
+      args.paragraphs.length > 4000 ||
+      new TextEncoder().encode(JSON.stringify(args.paragraphs)).byteLength >
+        950_000
+    )
+      throw new Error("Summary representation too large or empty");
+    const source = await summarySource(ctx, article);
+    const input = await sha256Hex(
+      JSON.stringify([
+        source,
+        args.title,
+        await representationHash(args.paragraphs),
+      ]),
+    );
+    const old = await summaryState(ctx, args.articleId);
+    if (
+      old?.userId === args.userId &&
+      old.input === input &&
+      old.status === "complete" &&
+      old.resultId &&
+      (await ctx.db.get(old.resultId))
+    )
+      return { kind: "complete" as const, run: old.run };
+    if (old?.status === "running" && old.leaseUntil > Date.now()) {
+      if (old.userId !== args.userId || old.input !== input)
+        throw new Error(
+          "Another summary is running. Try again after it settles",
+        );
+      return { kind: "join" as const, run: old.run };
+    }
+    const attempts =
+      old?.userId === args.userId && old.input === input ? old.attempts + 1 : 1;
+    if (attempts > SUMMARY_ATTEMPTS)
+      throw new Error("Summary attempt limit reached for this input");
+    const row = {
+      userId: args.userId,
+      articleId: args.articleId,
+      input,
+      source,
+      run: (old?.run ?? 0) + 1,
+      attempts,
+      status: "running" as const,
+      leaseUntil: Date.now() + SUMMARY_LEASE_MS,
+    };
+    if (old) await ctx.db.replace(old._id, row);
+    else await ctx.db.insert("fullSummaryState", row);
+    return { kind: "claimed" as const, run: row.run };
+  },
+});
+
+export const fullStatus = internalQuery({
+  args: { userId: v.string(), articleId: v.id("articles"), run: v.number() },
+  handler: async (ctx, args) => {
+    const article = await ownedArticle(ctx, args.articleId, args.userId);
+    if (!article || !(await libraryIsActive(ctx, args.userId)))
+      return "unavailable";
+    const row = await summaryState(ctx, args.articleId);
+    if (!row || row.userId !== args.userId || row.run !== args.run)
+      return "superseded";
+    if (row.status === "complete") {
+      if (
+        row.source !== (await summarySource(ctx, article)) ||
+        !row.resultId ||
+        !(await ctx.db.get(row.resultId))
+      )
+        return "superseded";
+      return "complete";
+    }
+    return row.status === "running" && row.leaseUntil <= Date.now()
+      ? "expired"
+      : row.status;
+  },
+});
+
+export const failFull = internalMutation({
+  args: { userId: v.string(), articleId: v.id("articles"), run: v.number() },
+  handler: async (ctx, args) => {
+    const row = await summaryState(ctx, args.articleId);
+    if (
+      row?.userId === args.userId &&
+      row.run === args.run &&
+      row.status === "running"
+    )
+      await ctx.db.patch(row._id, { status: "failed" });
+  },
+});
+
+/** Replaces any existing summary only after validating publication authority. */
 export const save = internalMutation({
   args: {
     userId: v.string(),
@@ -54,18 +172,36 @@ export const save = internalMutation({
     ),
     flow: v.string(),
     model: v.string(),
+    generation: v.optional(summaryGeneration),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, args.userId);
+    const article = await ownedArticle(ctx, args.articleId, args.userId);
+    if (!article || !(await libraryIsActive(ctx, args.userId))) return null;
+    const claim = await summaryState(ctx, args.articleId);
+    if (claim) {
+      if (
+        !args.generation ||
+        claim.userId !== args.userId ||
+        claim.run !== args.generation.run
+      )
+        return null;
+      if (claim.source !== (await summarySource(ctx, article))) return null;
+      if (claim.status === "complete") return claim.resultId ?? null;
+      if (claim.status !== "running" || claim.leaseUntil <= Date.now())
+        return null;
+    } else if (args.generation) return null;
     const existing = await ctx.db
       .query("summaries")
       .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
       .take(10);
     for (const row of existing) await ctx.db.delete("summaries", row._id);
-    return ctx.db.insert("summaries", {
-      ...args,
+    const { generation: _generation, ...data } = args;
+    const resultId = await ctx.db.insert("summaries", {
+      ...data,
       createdAt: Date.now(),
     });
+    if (claim) await ctx.db.patch(claim._id, { status: "complete", resultId });
+    return resultId;
   },
 });
 
