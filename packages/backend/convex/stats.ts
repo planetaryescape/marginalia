@@ -1,7 +1,7 @@
 import { getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { ownedArticle, ownedArticleCard } from "./access";
+import { ownedArticleCard } from "./access";
 import { query } from "./functions";
 import {
   bucketActiveMinutes,
@@ -402,7 +402,7 @@ export const getDashboard = query({
   args,
   handler: (ctx, options) => dashboard(ctx, options, ctx.readerId),
 });
-// Compatibility for already-loaded older clients. New UI uses one coherent query.
+// Compatibility for already-loaded older clients; current Stats uses room queries.
 export const getDashboardOverview = query({
   args,
   handler: (ctx, options) => dashboard(ctx, options, ctx.readerId),
