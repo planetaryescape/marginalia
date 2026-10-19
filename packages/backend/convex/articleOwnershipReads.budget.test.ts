@@ -133,6 +133,63 @@ async function fixture() {
 }
 
 describe("ownership-only physical article reads", () => {
+  it("reads companion background under 64 KB and cannot expose a previous owner's summary", async () => {
+    const f = await fixture();
+    expect(
+      await f.t.run((ctx) =>
+        ctx.runQuery(
+          internal.summaries.forCompanion,
+          { articleId: f.articleId, userId: f.libraryId },
+          smallRead,
+        ),
+      ),
+    ).toEqual({ thesis: "A small thesis", gist: "A small requested gist" });
+    await f.t.run((ctx) =>
+      metadataContext(ctx).db.patch(f.articleId, { userId: f.other.libraryId }),
+    );
+    expect(
+      await f.t.query(internal.summaries.forCompanion, {
+        articleId: f.articleId,
+        userId: f.other.libraryId,
+      }),
+    ).toBeNull();
+    expect((await f.t.run((ctx) => ctx.db.get(f.summaryId)))?.gist).toBe(
+      "A small requested gist",
+    );
+  });
+  it("uses the existing small estimated-minutes card for legacy visits in readingRoom", async () => {
+    const f = await fixture();
+    await f.t.run(async (ctx) => {
+      await metadataContext(ctx).db.patch(f.articleId, {
+        estimatedReadMinutes: 5,
+      });
+      const at = Date.now() - 1000;
+      await ctx.db.insert("readingActivity", {
+        userId: f.libraryId,
+        articleId: f.articleId,
+        visitId: "current-legacy-visit",
+        day: "ignored",
+        startedAt: at,
+        updatedAt: at,
+        activeTimeMs: 60_000,
+        visibleTimeMs: 60_000,
+        timeSpentMs: 60_000,
+        maxScrollPercent: 50,
+        annotationsOpened: [],
+      });
+    });
+    const result = await f.client.run((ctx) =>
+      ctx.runQuery(
+        api.stats.readingRoom,
+        { timeZone: "UTC", period: "month" },
+        smallRead,
+      ),
+    );
+    expect(result.shortSlots.reduce((sum, count) => sum + count, 0)).toBe(1);
+    expect(result.longSlots.every((count) => count === 0)).toBe(true);
+    expect(result.activeTimeMs).toBe(60_000);
+    expect(result.readsPartial).toBe(false);
+  });
   it.each([
     "summary",
     "reflection",

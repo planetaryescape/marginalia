@@ -384,12 +384,14 @@ export const forCompanion = internalQuery({
   args: { articleId: v.string(), userId: v.string() },
   handler: async (ctx, args) => {
     const articleId = ctx.db.normalizeId("articles", args.articleId);
-    if (!articleId || !(await ownedArticle(ctx, articleId, args.userId)))
+    if (!articleId || !(await ownedArticleCard(ctx, articleId, args.userId)))
       return null;
     const row = await ctx.db
       .query("summaries")
       .withIndex("by_article", (q) => q.eq("articleId", articleId))
       .first();
-    return row ? { thesis: row.thesis, gist: row.gist } : null;
+    return row?.userId === args.userId
+      ? { thesis: row.thesis, gist: row.gist }
+      : null;
   },
 });
