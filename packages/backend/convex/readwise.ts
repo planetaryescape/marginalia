@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { libraryIsActive, requireArticle } from "./access";
+import { libraryIsActive, ownedArticleCard, requireArticle } from "./access";
 import {
   action,
   internalMutation,
@@ -12,13 +12,21 @@ import {
   query,
 } from "./functions";
 import { findImportArticle } from "./lib/articleIdentity";
+import {
+  hasHighlightText,
+  highlightIdentityState,
+  normalizeHighlightText,
+  syncHighlightIdentity,
+} from "./lib/highlightIdentity";
 import { ownerDeploymentReadwiseToken } from "./lib/ownerTransition";
 import { encryptProviderKey } from "./lib/providerKeys";
+import { assertBytes } from "./lib/readerBodies";
 import {
   cleanReadwiseToken,
   readwiseTokenFor,
   validateReadwiseToken,
 } from "./lib/readwise";
+import { metadataLibraryRetained } from "./lib/shelfCounts";
 import { requireReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
 
@@ -284,17 +292,106 @@ export const getArticleReaderId = internalQuery({
   },
 });
 
-/** Imports a Reader highlight unless it (or the same passage) is already marked. */
+/** Explicit/lazy migration, one source page per transaction. A missing state is
+ * never an empty baseline. Live writers must publish identities atomically. */
+export const prepareHighlightIdentities = internalMutation({
+  args: { userId: v.string(), articleId: v.id("articles") },
+  handler: async (ctx, { userId, articleId }) => {
+    if (
+      !(await metadataLibraryRetained(ctx, userId)) ||
+      !(await ownedArticleCard(ctx, articleId, userId))
+    )
+      return { ready: false, unavailable: true };
+    let state = await highlightIdentityState(ctx, articleId);
+    if (state && state.userId !== userId) {
+      // The parent was authorized in this same transaction. Never adopt a
+      // previous owner's cursor/readiness, even if stale derived state exists.
+      await ctx.db.delete(state._id);
+      state = null;
+    }
+    if (state?.ready) return { ready: true, unavailable: false };
+    const page = await ctx.db
+      .query("highlights")
+      .withIndex("by_userId_and_articleId", (q) =>
+        q.eq("userId", userId).eq("articleId", articleId),
+      )
+      .paginate({
+        cursor: state?.cursor ?? null,
+        numItems: 32,
+        maximumBytesRead: 512 * 1024,
+      });
+    for (const row of page.page) await syncHighlightIdentity(ctx, null, row);
+    const fields = {
+      userId,
+      articleId,
+      cursor: page.isDone ? null : page.continueCursor,
+      ready: page.isDone,
+    };
+    if (state) await ctx.db.replace(state._id, fields);
+    else await ctx.db.insert("highlightIdentityState", fields);
+    return { ready: page.isDone, unavailable: false };
+  },
+});
+
+/** Old queued callers keep the same arguments and boolean result. Until the
+ * explicit migration finishes, throw rather than falsely acknowledge a mark. */
 export const importHighlight = internalMutation({
   args: {
     userId: v.string(),
     articleId: v.id("articles"),
     readerHighlightId: v.string(),
     text: v.string(),
+    syncToken: v.optional(v.string()),
+    readerDocumentId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, args.userId);
+    if (!(await libraryIsActive(ctx, args.userId)))
+      throw new Error("Article not found");
+    const parent = await ownedArticleCard(ctx, args.articleId, args.userId);
+    if (!parent) throw new Error("Article not found");
+    if (args.readerDocumentId !== undefined) {
+      // Ordinary IDs are exact in deployed small cards. Only legacy oversized
+      // IDs need the full source; never compare against a truncated identity.
+      const readerDocumentId =
+        args.readerDocumentId.length > 512
+          ? (await ctx.db.get("articles", args.articleId))?.readerDocumentId
+          : parent.readerDocumentId;
+      if (readerDocumentId !== args.readerDocumentId)
+        throw new Error("Reader highlight parent changed");
+    }
+    assertBytes(args.text, 1024 * 1024, "Reader passage");
+    if (args.syncToken !== undefined) {
+      const sync = await ctx.db
+        .query("readwiseSyncState")
+        .withIndex("by_user", (q) => q.eq("userId", args.userId))
+        .unique();
+      if (
+        !sync?.active ||
+        sync.phase !== 3 ||
+        sync.token !== args.syncToken ||
+        sync.leaseUntil <= Date.now()
+      )
+        throw new Error("Readwise highlight lease expired");
+      if (sync.pageProcessedIds.includes(args.readerHighlightId)) return false;
+    }
+    const finish = async (added: boolean) => {
+      if (args.syncToken !== undefined)
+        await ctx.runMutation(internal.readwiseSyncState.recordDocument, {
+          userId: args.userId,
+          token: args.syncToken,
+          documentId: args.readerHighlightId,
+          outcome: added ? "highlight" : "ignored",
+        });
+      return added;
+    };
+    const normalized = normalizeHighlightText(args.text);
+    if (!normalized) return finish(false);
+    const state = await highlightIdentityState(ctx, args.articleId);
+    if (!state?.ready || state.userId !== args.userId)
+      throw new Error("Highlight identities are not ready; prepare and resume");
     const byId = await ctx.db
+      // This identity is library-wide, whereas text readiness is per article.
+      // Preserve the authoritative source index even before other articles migrate.
       .query("highlights")
       .withIndex("by_userId_and_readerHighlightId", (q) =>
         q
@@ -302,18 +399,11 @@ export const importHighlight = internalMutation({
           .eq("readerHighlightId", args.readerHighlightId),
       )
       .first();
-    if (byId) return false;
-    const normalized = args.text.replace(/\s+/g, " ").trim();
-    const onArticle = await ctx.db
-      .query("highlights")
-      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
-      .take(500);
+    if (byId) return finish(false);
     // A highlight pushed from Marginalia comes back from Reader on the next
     // sync, possibly before its Reader id was stored
-    if (
-      onArticle.some((h) => h.text.replace(/\s+/g, " ").trim() === normalized)
-    ) {
-      return false;
+    if (await hasHighlightText(ctx, args.userId, args.articleId, normalized)) {
+      return finish(false);
     }
     const highlightId = await ctx.db.insert("highlights", {
       userId: args.userId,
@@ -331,7 +421,7 @@ export const importHighlight = internalMutation({
         highlightId,
       },
     );
-    return true;
+    return finish(true);
   },
 });
 
