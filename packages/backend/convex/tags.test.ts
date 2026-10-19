@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { finishArticleRemoval } from "../test/feedRemoval";
 import {
   runScheduled,
   saveTestCredential,
@@ -330,6 +331,7 @@ describe("removing an article", () => {
       const article = await ctx.db.get(f.articleId);
       if (article) await deleteArticle(ctx, article);
     });
+    await finishArticleRemoval(f.t, f.articleId);
     expect((await f.t.run((ctx) => ctx.db.get(tagId)))?.count).toBe(0);
     expect(
       await f.t.run((ctx) => ctx.db.query("articleTags").collect()),

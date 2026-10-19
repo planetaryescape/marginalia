@@ -16,14 +16,21 @@ import {
   validFeedEntry,
 } from "./lib/feedPollProtocol";
 import {
-  articleUse,
-  deleteArticle,
+  articleUseWithoutReflections,
   feedArticlesChoice,
+  finishFeedArticleProof,
   PreviewReadBudget,
   previewArticleUse,
   removes,
 } from "./lib/feedRemoval";
-import { metadataLibraryActive } from "./lib/shelfCounts";
+import {
+  advanceFeedRemovalRun,
+  resumeFeedRemoval,
+} from "./lib/feedRemovalState";
+import {
+  metadataLibraryActive,
+  metadataLibraryRetained,
+} from "./lib/shelfCounts";
 
 export const list = query({
   args: {},
@@ -137,8 +144,6 @@ const PREVIEW_LIMIT = 300;
 // Source scan + trigger pre-delete + deletion's own read, plus protected
 // user material checks. Keep one near-limit article per transaction.
 const REMOVAL_PAGE = 1;
-// Reader allows 20 deletes a minute per token
-const READER_DELETE_SPACING_MS = 3_500;
 
 /** How many of a feed's articles each removal choice would delete. */
 export const removalPreview = query({
@@ -258,28 +263,105 @@ export const removeArticles = internalMutation({
     readerDeletes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    let readerDeletes = args.readerDeletes ?? 0;
+    if (
+      args.choice === "keep" ||
+      !(await metadataLibraryRetained(ctx, args.userId))
+    )
+      return;
+    let run = await ctx.db
+      .query("feedArticleCleanup")
+      .withIndex("by_feedId_phase", (q) =>
+        q.eq("feedId", args.feedId).eq("phase", "feed"),
+      )
+      .unique();
+    if (!run) {
+      const id = await ctx.db.insert("feedArticleCleanup", {
+        userId: args.userId,
+        feedId: args.feedId,
+        phase: "feed",
+        choice: args.choice,
+        cursor: args.cursor,
+        readerDeletes: args.readerDeletes ?? 0,
+      });
+      run = await ctx.db.get(id);
+    }
+    if (
+      run?.phase !== "feed" ||
+      run.userId !== args.userId ||
+      run.choice !== args.choice
+    )
+      return;
+    if (run.currentJobId) {
+      const pending = await ctx.db.get(run.currentJobId);
+      if (pending?.phase !== "checking" || pending.runId !== run._id)
+        throw new Error("Removal run lost its checking proof");
+      await ctx.scheduler.runAfter(0, internal.feedRemovalCleanup.prepare, {
+        jobId: pending._id,
+      });
+      return;
+    }
+    const readerDeletes = run.readerDeletes;
     const page = await ctx.db
       .query("articles")
       .withIndex("by_feed", (q) => q.eq("feedId", args.feedId))
-      .paginate({ cursor: args.cursor ?? null, numItems: REMOVAL_PAGE });
+      .paginate({ cursor: run.cursor ?? null, numItems: REMOVAL_PAGE });
     for (const article of page.page) {
       if (article.userId !== args.userId) continue;
-      if (!removes(args.choice, await articleUse(ctx, article))) continue;
-      await deleteArticle(ctx, article);
-      if (article.readerDocumentId)
-        await ctx.scheduler.runAfter(
-          readerDeletes++ * READER_DELETE_SPACING_MS,
-          internal.actions.readwiseSync.deleteReaderDocument,
-          { userId: args.userId, readerDocumentId: article.readerDocumentId },
-        );
+      let job = await ctx.db
+        .query("feedArticleCleanup")
+        .withIndex("by_articleId", (q) => q.eq("articleId", article._id))
+        .unique();
+      if (!job) {
+        const id = await ctx.db.insert("feedArticleCleanup", {
+          userId: args.userId,
+          articleId: article._id,
+          phase: "checking",
+          runId: run._id,
+          feedId: args.feedId,
+          choice: args.choice,
+          revision: 0,
+          resumeCursor: page.continueCursor,
+          sourceDone: page.isDone,
+          readerDeletes,
+        });
+        job = await ctx.db.get(id);
+      }
+      if (job?.phase !== "checking" || job.runId !== run._id)
+        throw new Error("Source already has a different removal owner");
+      await ctx.db.patch(run._id, { currentJobId: job._id });
+      if (
+        job?.phase === "checking" &&
+        job.userId === args.userId &&
+        job.feedId === args.feedId &&
+        job.choice === args.choice
+      ) {
+        // A genuinely empty indexed range proves complete absence atomically;
+        // this is not a bounded partial scan treated as absence. Nonempty
+        // fanout always goes through the separate byte-bounded proof scan.
+        const first = await ctx.db
+          .query("reflections")
+          .withIndex("by_article", (q) => q.eq("articleId", article._id))
+          .first();
+        if (!first) {
+          if (
+            removes(
+              job.choice,
+              await articleUseWithoutReflections(ctx, article),
+            )
+          )
+            await finishFeedArticleProof(ctx, job, article);
+          else {
+            await ctx.db.delete(job._id);
+            await resumeFeedRemoval(ctx, job);
+          }
+        } else
+          await ctx.scheduler.runAfter(0, internal.feedRemovalCleanup.prepare, {
+            jobId: job._id,
+          });
+      }
+      return;
     }
-    if (!page.isDone)
-      await ctx.scheduler.runAfter(0, internal.feeds.removeArticles, {
-        ...args,
-        cursor: page.continueCursor,
-        readerDeletes,
-      });
+    await advanceFeedRemovalRun(ctx, run, page.continueCursor, page.isDone);
   },
 });
 
