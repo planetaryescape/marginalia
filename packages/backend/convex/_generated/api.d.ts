@@ -143,6 +143,7 @@ import type * as lib_shelfCounts from "../lib/shelfCounts.js";
 import type * as lib_spacedRepetition from "../lib/spacedRepetition.js";
 import type * as lib_sse from "../lib/sse.js";
 import type * as lib_statsPeriod from "../lib/statsPeriod.js";
+import type * as lib_tagAssignment from "../lib/tagAssignment.js";
 import type * as lib_tagMatching from "../lib/tagMatching.js";
 import type * as lib_tagVocabulary from "../lib/tagVocabulary.js";
 import type * as lib_tagVocabularySchema from "../lib/tagVocabularySchema.js";
@@ -331,6 +332,7 @@ declare const fullApi: ApiFromModules<{
   "lib/spacedRepetition": typeof lib_spacedRepetition;
   "lib/sse": typeof lib_sse;
   "lib/statsPeriod": typeof lib_statsPeriod;
+  "lib/tagAssignment": typeof lib_tagAssignment;
   "lib/tagMatching": typeof lib_tagMatching;
   "lib/tagVocabulary": typeof lib_tagVocabulary;
   "lib/tagVocabularySchema": typeof lib_tagVocabularySchema;
