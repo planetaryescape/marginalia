@@ -3,10 +3,16 @@ import type { DataModel } from "../_generated/dataModel";
 import { syncArticleMetadata, syncBookPartCard } from "./articleMetadata";
 import { invalidateFeedPoll } from "./feedPollLifecycle";
 import { syncFingerprintSource } from "./fingerprintMetadata";
+import {
+  highlightArticleIdentityTrigger,
+  highlightIdentityTrigger,
+} from "./highlightIdentity";
 import { syncResumeEligibility } from "./readingResume";
 import { membershipChanged } from "./shelfCounts";
 
 export const metadataTriggers = new Triggers<DataModel>();
+metadataTriggers.register("highlights", highlightIdentityTrigger);
+metadataTriggers.register("articles", highlightArticleIdentityTrigger);
 metadataTriggers.register("feeds", (ctx, change) =>
   change.oldDoc
     ? invalidateFeedPoll(

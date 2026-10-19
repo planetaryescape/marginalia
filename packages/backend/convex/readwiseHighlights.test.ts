@@ -583,6 +583,54 @@ describe("exact private Reader highlight identities", () => {
     ).toHaveLength(2);
   });
 
+  it.each([
+    ["p".repeat(512), "tail"],
+    ["p".repeat(511), "😀tail"],
+  ])("rejects a stale parent ID matching the truncated current card boundary", async (prefix, tail) => {
+    const t = await ownerTest(modules);
+    const articleId = await parent(t, userId, prefix);
+    await prepare(t, articleId);
+    await t.run((raw) =>
+      metadataContext(raw).db.patch(articleId, {
+        readerDocumentId: prefix + tail,
+      }),
+    );
+    await expect(
+      t.mutation(internal.readwise.importHighlight, {
+        ...passage(articleId, "Stale truncated parent", "truncated-parent"),
+        readerDocumentId: prefix,
+      }),
+    ).rejects.toThrow("parent changed");
+    expect(await t.run((ctx) => ctx.db.query("highlights").take(1))).toEqual(
+      [],
+    );
+  });
+
+  it("verifies readiness and exact identity hashes without trusting a stale baseline", async () => {
+    const t = await ownerTest(modules);
+    const articleId = await parent(t);
+    const args = { userId, articleId };
+    expect(
+      await t.query(internal.readwise.verifyHighlightIdentities, args),
+    ).toMatchObject({ ready: false, matches: false });
+    await prepare(t, articleId);
+    await t.mutation(
+      internal.readwise.importHighlight,
+      passage(articleId, "Exact\ntext"),
+    );
+    expect(
+      await t.query(internal.readwise.verifyHighlightIdentities, args),
+    ).toMatchObject({ ready: true, matches: true, checked: 1, complete: true });
+    await t.run(async (ctx) => {
+      const identity = await ctx.db.query("highlightIdentities").first();
+      if (!identity) throw new Error("Missing fixture identity");
+      await ctx.db.patch(identity._id, { textHash: "wrong" });
+    });
+    expect(
+      await t.query(internal.readwise.verifyHighlightIdentities, args),
+    ).toMatchObject({ ready: true, matches: false, checked: 1 });
+  });
+
   it("preserves library-wide Reader-ID dedup before another article's text identities migrate", async () => {
     const t = await ownerTest(modules);
     const a = await parent(t);

@@ -27,6 +27,7 @@ import {
   validateReadwiseToken,
 } from "./lib/readwise";
 import { metadataLibraryRetained } from "./lib/shelfCounts";
+import { sha256Hex } from "./lib/tokens";
 import { requireReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
 
@@ -333,6 +334,72 @@ export const prepareHighlightIdentities = internalMutation({
   },
 });
 
+/** Explicit rollout verification only: compare one bounded source page and its
+ * exact derived identities in the same snapshot, without touching any mark. */
+export const verifyHighlightIdentities = internalQuery({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, articleId, cursor }) => {
+    if (
+      !(await metadataLibraryRetained(ctx, userId)) ||
+      !(await ownedArticleCard(ctx, articleId, userId))
+    )
+      return {
+        ready: false,
+        unavailable: true,
+        matches: false,
+        checked: 0,
+        complete: true,
+        cursor: null,
+      };
+    const state = await highlightIdentityState(ctx, articleId);
+    if (!state?.ready || state.userId !== userId)
+      return {
+        ready: false,
+        unavailable: false,
+        matches: false,
+        checked: 0,
+        complete: true,
+        cursor: null,
+      };
+    const page = await ctx.db
+      .query("highlights")
+      .withIndex("by_userId_and_articleId", (q) =>
+        q.eq("userId", userId).eq("articleId", articleId),
+      )
+      .paginate({
+        cursor: cursor ?? null,
+        numItems: 32,
+        maximumBytesRead: 512 * 1024,
+      });
+    let matches = true;
+    for (const mark of page.page) {
+      const identity = await ctx.db
+        .query("highlightIdentities")
+        .withIndex("by_highlightId", (q) => q.eq("highlightId", mark._id))
+        .unique();
+      if (
+        identity?.userId !== userId ||
+        identity.articleId !== articleId ||
+        identity.textHash !==
+          (await sha256Hex(normalizeHighlightText(mark.text)))
+      )
+        matches = false;
+    }
+    return {
+      ready: true,
+      unavailable: false,
+      matches,
+      checked: page.page.length,
+      complete: page.isDone,
+      cursor: page.isDone ? null : page.continueCursor,
+    };
+  },
+});
+
 /** Old queued callers keep the same arguments and boolean result. Until the
  * explicit migration finishes, throw rather than falsely acknowledge a mark. */
 export const importHighlight = internalMutation({
@@ -350,10 +417,11 @@ export const importHighlight = internalMutation({
     const parent = await ownedArticleCard(ctx, args.articleId, args.userId);
     if (!parent) throw new Error("Article not found");
     if (args.readerDocumentId !== undefined) {
-      // Ordinary IDs are exact in deployed small cards. Only legacy oversized
-      // IDs need the full source; never compare against a truncated identity.
+      // Cards cap this ID at 512 code units, or 511 after dropping a split
+      // surrogate. A short incoming ID can match that truncated prefix too.
       const readerDocumentId =
-        args.readerDocumentId.length > 512
+        args.readerDocumentId.length > 512 ||
+        (parent.readerDocumentId?.length ?? 0) >= 511
           ? (await ctx.db.get("articles", args.articleId))?.readerDocumentId
           : parent.readerDocumentId;
       if (readerDocumentId !== args.readerDocumentId)
