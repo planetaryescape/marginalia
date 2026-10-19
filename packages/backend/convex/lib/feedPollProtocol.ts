@@ -17,7 +17,14 @@ export const pollClaim = {
   stateId: v.id("feedPollStates"),
   generation: v.number(),
 };
-const slot = v.object({ ...pollClaim, leaseUntil: v.number() });
+const slot = v.object({
+  ...pollClaim,
+  runId: v.id("feedPollRuns"),
+  run: v.number(),
+  // Reservation identity/lifetime outlives mutable or deleted publication state.
+  started: v.boolean(),
+  leaseUntil: v.number(),
+});
 
 // Main wires this additive schema into schema.ts. One row/library, one row/feed,
 // and one global four-slot row; no history or unbounded payload is retained.
