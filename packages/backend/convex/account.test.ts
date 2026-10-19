@@ -70,6 +70,16 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       createdAt: now,
     });
     lastArticle = articleId;
+    await ctx.db.insert("manualAnnotationState", {
+      userId,
+      articleId,
+      run: 1,
+      input: "fixture",
+      status: "complete",
+      attempts: 1,
+      leaseUntil: 0,
+      published: true,
+    });
     await ctx.db.insert("articleImportKeys", {
       userId,
       articleId,
@@ -471,6 +481,28 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     itemsQueued: 0,
     startedAt: now,
     updatedAt: now,
+  });
+  // A legacy/raw source removal can leave an orphan claim. This row proves the
+  // account metadata hook runs, rather than passing via article-delete triggers.
+  const orphan = await ctx.db.insert("articles", {
+    userId,
+    guid: "orphan",
+    url: "https://example.com/orphan",
+    title: "Orphan",
+    extractionStatus: "extracted",
+    annotationStatus: "annotated",
+    createdAt: now,
+  });
+  await ctx.db.delete(orphan);
+  await ctx.db.insert("manualAnnotationState", {
+    userId,
+    articleId: orphan,
+    run: 1,
+    input: "fixture-orphan",
+    status: "failed",
+    attempts: 1,
+    leaseUntil: 0,
+    published: false,
   });
 }
 

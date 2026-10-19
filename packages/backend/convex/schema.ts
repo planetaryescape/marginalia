@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { annotationType } from "./lib/annotationKinds";
 import { feedPollTables } from "./lib/feedPollProtocol";
 import { fingerprintTables } from "./lib/fingerprintSchema";
+import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
@@ -17,6 +18,7 @@ const tasteEntry = v.object({
 export default defineSchema({
   ...feedPollTables,
   ...fingerprintTables,
+  manualAnnotationState,
   // Exact displayed Ask paragraphs: one replaceable, <=950KB version per scope.
   preparedArticles: defineTable({
     userId: v.string(),
@@ -129,6 +131,7 @@ export default defineSchema({
     .index("by_user_url", ["userId", "url"]),
 
   articles: defineTable({
+    manualAnnotationRevision: v.optional(v.number()),
     feedId: v.optional(v.id("feeds")),
     userId: v.string(),
     guid: v.string(),
@@ -1494,6 +1497,7 @@ export default defineSchema({
   // One row per user. Model IDs are validated against the reader's available
   // models in lib/providers.ts; older rows hold bare OpenRouter IDs.
   userSettings: defineTable({
+    manualAnnotationModelRevision: v.optional(v.number()),
     userId: v.string(),
     annotationModel: v.optional(v.string()),
     quickModel: v.optional(v.string()),

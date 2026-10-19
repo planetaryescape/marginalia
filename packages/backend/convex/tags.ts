@@ -9,6 +9,10 @@ import {
   type MutationCtx,
   query,
 } from "./functions";
+import {
+  annotationGeneration,
+  annotationPublicationAllowed,
+} from "./lib/manualAnnotations";
 import { isReading } from "./lib/shelfArticle";
 import {
   isTopicKey,
@@ -152,6 +156,7 @@ export const assign = internalMutation({
   args: {
     userId: v.string(),
     articleId: v.id("articles"),
+    generation: v.optional(annotationGeneration),
     proposals: v.array(
       v.object({
         name: v.string(),
@@ -162,7 +167,9 @@ export const assign = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, args.userId);
+    const article = await requireArticle(ctx, args.articleId, args.userId);
+    if (!(await annotationPublicationAllowed(ctx, article, args.generation)))
+      return [];
     await unlinkArticleTags(ctx, args.articleId);
 
     const known = await ctx.db

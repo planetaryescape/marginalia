@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { z } from "zod";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { type ActionCtx, internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
 import { annotationBudget, gateNotes } from "../lib/annotationGate";
@@ -10,6 +10,7 @@ import { KIND_FAMILIES } from "../lib/annotationKinds";
 import { annotationOutputTokens } from "../lib/annotationOutputBudget";
 import { outlineAfterWindow } from "../lib/articleOutline";
 import { type EmbeddingTarget, embedTexts } from "../lib/embeddings";
+import { annotationGeneration } from "../lib/manualAnnotations";
 import {
   buildMarginaliaContext,
   MAX_ARTICLE_CHARS,
@@ -288,11 +289,32 @@ export function proposedTags(
 
 export const generateForArticle = internalAction({
   // `claim` is set only by the backfill: the claim this run was scheduled under
-  args: { articleId: v.id("articles"), claim: v.optional(v.number()) },
+  args: {
+    articleId: v.id("articles"),
+    claim: v.optional(v.number()),
+    generation: v.optional(annotationGeneration),
+  },
   handler: async (ctx, args) => {
+    let generation: { run: number } | undefined;
     try {
-      await annotateArticle(ctx, { articleId: args.articleId });
+      const begun = await ctx.runMutation(internal.manualAnnotations.begin, {
+        articleId: args.articleId,
+        generation: args.generation,
+        claim: args.claim,
+      });
+      if (!begun) return;
+      generation = begun.generation ?? undefined;
+      await annotateArticle(
+        ctx,
+        { articleId: args.articleId, generation },
+        begun.article,
+      );
     } finally {
+      if (generation)
+        await ctx.runMutation(internal.manualAnnotations.finish, {
+          articleId: args.articleId,
+          generation,
+        });
       // Ends this run's own backfill claim however it ended, never a newer
       // one; a crash leaves it to expire
       if (args.claim !== undefined)
@@ -306,12 +328,9 @@ export const generateForArticle = internalAction({
 
 async function annotateArticle(
   ctx: ActionCtx,
-  args: { articleId: Id<"articles"> },
+  args: { articleId: Id<"articles">; generation?: { run: number } },
+  article: Doc<"articles">,
 ) {
-  const article = await ctx.runQuery(internal.articles.getByIdInternal, {
-    articleId: args.articleId,
-  });
-
   // A re-annotation (the backfill) keeps the notes it has when it can't run
   const reannotating = article?.annotationStatus === "annotated";
 
@@ -320,6 +339,7 @@ async function annotateArticle(
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "skipped",
+        generation: args.generation,
       });
     return;
   }
@@ -330,6 +350,7 @@ async function annotateArticle(
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "skipped",
+        generation: args.generation,
       });
     return;
   }
@@ -348,11 +369,13 @@ async function annotateArticle(
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "skipped",
+        generation: args.generation,
         skipReason: "no_provider",
       });
     return;
   }
 
+  let marginPublished = false;
   try {
     // Taken before the context is built, so anything added while the model
     // works is seen by reading alongside as a change
@@ -376,6 +399,16 @@ async function annotateArticle(
     const wordCount = article.wordCount ?? 0;
     // The same cut buildMarginaliaContext makes to the text it shows
     const truncated = article.content.length > MAX_ARTICLE_CHARS;
+
+    // Retrieval can outlive an input change or an explicit recovery. Check
+    // again at the provider seam, not just when the scheduled action starts.
+    if (
+      !(await ctx.runQuery(internal.manualAnnotations.canDispatch, {
+        articleId: args.articleId,
+        generation: args.generation,
+      }))
+    )
+      return;
 
     // Step 3: Generate annotations via LLM
     const { object, modelId } =
@@ -410,27 +443,33 @@ async function annotateArticle(
     });
 
     // Step 5: Persist notes and reflection together, so a half-written margin can't exist
-    await ctx.runMutation(internal.annotations.replaceForArticle, {
-      articleId: args.articleId,
-      userId: article.userId,
-      notes: notes.map((a) => ({
-        type: a.type,
-        fallacyName: a.fallacyName,
-        // Checked against the offered candidates by the gate, and again in the mutation
-        // SAFETY: gateNotes kept it only because it is the id of a library article offered in this prompt (an Id<"articles"> from the context query).
-        articleRefId: a.articleRefId as Id<"articles"> | undefined,
-        anchorText: a.anchorText,
-        anchorStartOffset: a.startOffset,
-        anchorEndOffset: a.startOffset + a.anchorText.length,
-        content: a.content,
-        notePath: resolveNotePath(a.notePath, vaultPaths),
-        noteExcerpt: a.noteExcerpt,
-        relevanceScore: a.relevanceScore,
-      })),
-      reflection: object.reflection,
-      fingerprint,
-      sources,
-    });
+    const published = await ctx.runMutation(
+      internal.annotations.replaceForArticle,
+      {
+        articleId: args.articleId,
+        userId: article.userId,
+        notes: notes.map((a) => ({
+          type: a.type,
+          fallacyName: a.fallacyName,
+          // Checked against the offered candidates by the gate, and again in the mutation
+          // SAFETY: gateNotes kept it only because it is the id of a library article offered in this prompt (an Id<"articles"> from the context query).
+          articleRefId: a.articleRefId as Id<"articles"> | undefined,
+          anchorText: a.anchorText,
+          anchorStartOffset: a.startOffset,
+          anchorEndOffset: a.startOffset + a.anchorText.length,
+          content: a.content,
+          notePath: resolveNotePath(a.notePath, vaultPaths),
+          noteExcerpt: a.noteExcerpt,
+          relevanceScore: a.relevanceScore,
+        })),
+        reflection: object.reflection,
+        fingerprint,
+        sources,
+        generation: args.generation,
+      },
+    );
+    if (!published) return;
+    marginPublished = true;
 
     // The one point and short summary, and the tags, are extras: failing at
     // either must not undo the margin that was just written
@@ -441,6 +480,7 @@ async function annotateArticle(
         thesis: object.thesis,
         gist: object.gist,
         model: modelId,
+        generation: args.generation,
       });
     await assignTags(ctx, {
       userId: article.userId,
@@ -448,6 +488,7 @@ async function annotateArticle(
       tags: object.tags,
       vocabulary,
       embedder: ai.embedder(),
+      generation: args.generation,
     });
 
     const pushback = notes.filter((n) =>
@@ -459,10 +500,11 @@ async function annotateArticle(
     );
   } catch (error) {
     console.error(`Annotation generation failed for ${article.title}:`, error);
-    if (!reannotating)
+    if (!reannotating && !marginPublished)
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "failed",
+        generation: args.generation,
       });
   }
 }
@@ -475,6 +517,7 @@ export async function assignTags(
     tags: AnnotationResult["tags"];
     vocabulary: { key: string; aliases: string[] }[];
     embedder: EmbeddingTarget | null;
+    generation?: { run: number };
   },
 ) {
   try {
@@ -493,9 +536,10 @@ export async function assignTags(
             ),
           )
         : [];
-    await ctx.runMutation(internal.tags.assign, {
+    await ctx.runMutation(internal.manualAnnotations.assignTags, {
       userId: input.userId,
       articleId: input.articleId,
+      generation: input.generation,
       proposals: proposals.map((p) => {
         const at = unknown.indexOf(p);
         return {

@@ -10,6 +10,7 @@ import { DEFAULT_USER_ID } from "./lib/constants";
 import { purgeDictionary } from "./lib/dictionaryIndex";
 import { purgeFeedPolls } from "./lib/feedPollLifecycle";
 import { purgeFingerprintMetadata } from "./lib/fingerprintMetadata";
+import { purgeManualAnnotations } from "./lib/manualAnnotations";
 import { purgePreparedPage } from "./preparedArticles";
 import { purgeReadingResumes } from "./readingResume";
 import { purgeMetadata } from "./vaultFiles";
@@ -294,6 +295,8 @@ const STEPS: Step[] = [
     if (resumes) return resumes;
     const removed = await purgeArticleMetadata(ctx, userId);
     if (removed) return removed;
+    const manual = await purgeManualAnnotations(ctx, userId);
+    if (manual) return manual;
     return (await purgeMetadata(ctx, userId)) || PAGE_EMPTY;
   },
   rows((ctx, u) =>
