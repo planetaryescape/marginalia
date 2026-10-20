@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation } from "./functions";
+import { internalMutation, query } from "./functions";
 import {
   FEED_BATCH_BYTES,
   FEED_FETCH_SLOTS,
@@ -51,19 +51,45 @@ async function current(ctx: Pick<QueryCtx, "db">, claim: Claim) {
   return { state, feed };
 }
 
+/** Two small rows, not a scan of feed bodies or articles. Totals are unknown
+ * until the dispatcher has selected the last page (including paused sources). */
+export const status = query({
+  args: {},
+  handler: async (ctx) => {
+    const run = await ctx.db
+      .query("feedPollRuns")
+      .withIndex("by_userId", (q) => q.eq("userId", ctx.readerId))
+      .unique();
+    if (!run) return null;
+    const p = await pool(ctx);
+    const pending =
+      p?.slots.filter((slot) => slot.runId === run._id && slot.run === run.run)
+        .length ?? 0;
+    return {
+      run: run.run,
+      active: run.active && run.deadline > Date.now(),
+      processed: Math.max(0, run.scanned - pending),
+      total: run.exhausted ? run.scanned : null,
+      deadline: run.deadline,
+    };
+  },
+});
+
 /** Compatible entry point for both old cron payloads and the manual action. */
 export const begin = internalMutation({
   args: { userId: v.string() },
-  handler: async (ctx, { userId }) => {
-    if (!(await metadataLibraryActive(ctx, userId))) return;
+  handler: async (ctx, { userId }): Promise<number | null> => {
+    if (!(await metadataLibraryActive(ctx, userId))) return null;
     const old = await ctx.db
       .query("feedPollRuns")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .unique();
+    let run = old?.run ?? 0;
     if (!old?.active || old.deadline <= Date.now()) {
+      run++;
       const value = {
         userId,
-        run: (old?.run ?? 0) + 1,
+        run,
         active: true,
         // A time-bounded run resumes its unvisited tail at the next request.
         cursor: old && !old.exhausted ? old.cursor : undefined,
@@ -90,6 +116,7 @@ export const begin = internalMutation({
     if (!(await pool(ctx)))
       await ctx.db.insert("feedPollPool", { key: "global", slots: [] });
     await ctx.scheduler.runAfter(0, internal.feedPolling.dispatch, {});
+    return run;
   },
 });
 
@@ -168,7 +195,11 @@ export const dispatch = internalMutation({
             started: false,
             leaseUntil: next.leaseUntil,
           });
-          await ctx.db.patch(state.feedId, { checkingSince: Date.now() });
+          await ctx.db.patch(state.feedId, {
+            checkingSince: Date.now(),
+            checkRun: run.run,
+            lastError: undefined,
+          });
           slots.push(await launch(ctx, next, run));
           continue;
         }
@@ -222,6 +253,7 @@ export const dispatch = internalMutation({
           if (invalid) {
             await ctx.db.patch(feed._id, {
               checkingSince: undefined,
+              checkRun: run.run,
               lastError: invalid,
             });
             continue;
@@ -248,7 +280,11 @@ export const dispatch = internalMutation({
           const stateId =
             prior?._id ?? (await ctx.db.insert("feedPollStates", value));
           if (prior) await ctx.db.replace(stateId, value);
-          await ctx.db.patch(feed._id, { checkingSince: Date.now() });
+          await ctx.db.patch(feed._id, {
+            checkingSince: Date.now(),
+            checkRun: run.run,
+            lastError: undefined,
+          });
           slots.push(
             await launch(
               ctx,

@@ -23,6 +23,7 @@ import {
   textControl,
 } from "@/components/settings-controls";
 import { SettingsPage, SettingsSection } from "@/components/settings-section";
+import { SyncBar } from "@/components/sync-bar";
 import { useListKeys } from "@/lib/list-nav";
 import {
   importOpmlBatches,
@@ -36,6 +37,7 @@ const OPML_NAME = /\.(opml|xml)$/i;
 
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
+  const pollStatus = useQuery(api.feedPolling.status);
   const suggestions = useQuery(api.feedSuggestions.list);
   const suggestionsByFeed = useMemo(() => {
     const grouped = new Map<Id<"feeds">, NonNullable<typeof suggestions>>();
@@ -51,6 +53,7 @@ export default function FeedsPage() {
   const toggleActive = useMutation(api.feeds.toggleActive);
   const pollNow = useAction(api.feeds.pollNow);
   const [polling, setPolling] = useState(false);
+  const [requestedRun, setRequestedRun] = useState<number | null>(null);
   const [pollFailed, setPollFailed] = useState(false);
   // The server flags feeds while they are checked, so a scheduled check and a
   // reload show it too. A check that died leaves the flag behind: ignore it
@@ -60,17 +63,25 @@ export default function FeedsPage() {
     0,
     ...(feeds ?? []).map((f) => f.checkingSince ?? 0),
   );
-  const serverChecking =
-    checkingSince > 0 && Date.now() - checkingSince < CHECK_FLAG_TTL_MS;
+  const checkingUntil = pollStatus?.active
+    ? pollStatus.deadline
+    : checkingSince + CHECK_FLAG_TTL_MS;
+  const serverChecking = pollStatus
+    ? pollStatus.active && Date.now() < checkingUntil
+    : checkingSince > 0 && Date.now() < checkingUntil;
   useEffect(() => {
     if (!serverChecking) return;
     const timer = setTimeout(
       () => expire((n) => n + 1),
-      checkingSince + CHECK_FLAG_TTL_MS - Date.now(),
+      checkingUntil - Date.now(),
     );
     return () => clearTimeout(timer);
-  }, [serverChecking, checkingSince]);
-  const checking = polling || serverChecking;
+  }, [serverChecking, checkingUntil]);
+  // The action acknowledgement can arrive before the live query. Keep waiting
+  // for that exact run instead of flashing the old error back onto the page.
+  const awaitingRun =
+    requestedRun !== null && requestedRun > (pollStatus?.run ?? 0);
+  const checking = polling || awaitingRun || serverChecking;
 
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
@@ -112,8 +123,10 @@ export default function FeedsPage() {
     setPolling(true);
     setPollFailed(false);
     try {
-      await pollNow({});
+      const run = await pollNow({});
+      setRequestedRun(run);
     } catch {
+      setRequestedRun(null);
       setPollFailed(true);
     }
     setPolling(false);
@@ -233,7 +246,6 @@ export default function FeedsPage() {
 
       <SettingsSection
         title="Feeds"
-        syncing={checking}
         description="Add a feed URL, or import an OPML file from another reader. New posts arrive in your library."
         action={
           <button
@@ -246,6 +258,35 @@ export default function FeedsPage() {
           </button>
         }
       >
+        {checking ? (
+          <div className="sticky top-0 z-10 bg-[var(--reader-bg)] py-3">
+            <SyncBar
+              label="Checking feeds"
+              value={
+                !polling && !awaitingRun && pollStatus?.total
+                  ? (pollStatus.processed / pollStatus.total) * 100
+                  : undefined
+              }
+              text={
+                polling || awaitingRun
+                  ? "Starting feed check…"
+                  : pollStatus?.total !== null &&
+                      pollStatus?.total !== undefined
+                    ? `${pollStatus.processed} of ${pollStatus.total} sources processed`
+                    : `Checking feeds… ${pollStatus?.processed ?? 0} sources processed`
+              }
+            />
+          </div>
+        ) : (
+          pollStatus && (
+            <p role="status" className="text-[13px] text-[var(--reader-muted)]">
+              {pollStatus.total !== null &&
+              pollStatus.processed === pollStatus.total
+                ? `Check complete · ${pollStatus.processed} sources processed`
+                : "Check stopped. Check now to continue."}
+            </p>
+          )
+        )}
         {pollFailed && (
           <InlineError
             message="Couldn't check your feeds."
@@ -359,95 +400,127 @@ export default function FeedsPage() {
           </p>
         )}
         <div>
-          {feeds?.map((feed) => (
-            <div key={feed._id} data-nav-row>
-              <ChangeWash
-                value={feed.lastFetchedAt}
-                className="change-wash group flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-[var(--reader-border)] py-3"
-              >
-                <div
-                  className="min-w-0 flex-1 text-sm"
-                  data-nav-item
-                  tabIndex={-1}
+          {feeds?.map((feed) => {
+            const queued =
+              feed.isActive &&
+              (polling ||
+                awaitingRun ||
+                (serverChecking && feed.checkRun !== pollStatus?.run));
+            const running =
+              feed.isActive &&
+              !queued &&
+              serverChecking &&
+              feed.checkingSince !== undefined;
+            return (
+              <div key={feed._id} data-nav-row>
+                <ChangeWash
+                  value={feed.lastFetchedAt}
+                  className="change-wash group flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-[var(--reader-border)] py-3"
                 >
-                  <p className="truncate font-medium">{feed.title}</p>
-                  <p className="truncate text-[13px] text-[var(--reader-muted)]">
-                    {feed.url}
-                  </p>
-                  {(feed.lastFetchedAt || feed.articleCount !== undefined) && (
-                    <p className="text-[13px] text-[var(--reader-muted)]">
-                      {[
-                        feed.lastFetchedAt &&
-                          `Fetched ${formatDate(feed.lastFetchedAt)}`,
-                        feed.articleCount !== undefined &&
-                          `${feed.articleCount} in your library`,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  )}
-                  {!feed.isActive && (
-                    <p className="text-[13px] text-[var(--reader-muted)]">
-                      Paused
-                    </p>
-                  )}
-                  {feed.lastError && (
-                    <p className="text-[13px] text-[var(--danger)]">
-                      Error: {feed.lastError}
-                    </p>
-                  )}
-                </div>
-                {/* Shown on hover and focus, and always on touch screens */}
-                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                  <button
-                    type="button"
-                    data-nav-action="toggle"
-                    aria-pressed={feed.isActive}
-                    aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
-                    onClick={() => {
-                      setRemovingId(null);
-                      void toggle(feed._id);
-                    }}
-                    className={textControl}
+                  <div
+                    className="min-w-0 flex-1 text-sm"
+                    data-nav-item
+                    tabIndex={-1}
                   >
-                    {feed.isActive ? "Pause" : "Resume"}
-                  </button>
-                  <button
-                    type="button"
-                    data-nav-action="remove"
-                    aria-label={`Remove ${feed.title}`}
-                    onClick={() => setRemovingId(feed._id)}
-                    className={destructiveControl}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </ChangeWash>
-              {rowFailure?.feedId === feed._id && (
-                <InlineError
-                  message="Couldn't update the feed."
-                  onRetry={rowFailure.retry}
-                />
-              )}
-              {removingId === feed._id && (
-                <RemoveFeedConfirm
-                  feed={feed}
-                  onClose={() => setRemovingId(null)}
-                />
-              )}
-              {removingId !== feed._id &&
-                suggestionsByFeed
-                  .get(feed._id)
-                  ?.map((s) => (
-                    <FeedSuggestion
-                      key={s.feedId}
-                      feed={feed}
-                      offered={s.offered}
-                      opened={s.opened}
-                    />
-                  ))}
-            </div>
-          ))}
+                    <p className="truncate font-medium">{feed.title}</p>
+                    <p className="truncate text-[13px] text-[var(--reader-muted)]">
+                      {feed.url}
+                    </p>
+                    {(feed.lastFetchedAt ||
+                      feed.articleCount !== undefined) && (
+                      <p className="text-[13px] text-[var(--reader-muted)]">
+                        {[
+                          feed.lastFetchedAt &&
+                            `Fetched ${formatDate(feed.lastFetchedAt)}`,
+                          feed.articleCount !== undefined &&
+                            `${feed.articleCount} in your library`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {!feed.isActive && (
+                      <p className="text-[13px] text-[var(--reader-muted)]">
+                        Paused
+                      </p>
+                    )}
+                    {queued && (
+                      <p
+                        role="status"
+                        className="mt-1 text-[13px] text-[var(--reader-muted)]"
+                      >
+                        Waiting to check…
+                      </p>
+                    )}
+                    {running && (
+                      <div className="mt-2">
+                        <SyncBar
+                          label={`Checking ${feed.title}`}
+                          text="Checking…"
+                        />
+                      </div>
+                    )}
+                    {!queued && !running && feed.lastError && (
+                      <p
+                        role="alert"
+                        className="text-[13px] text-[var(--danger)]"
+                      >
+                        Error: {feed.lastError}
+                      </p>
+                    )}
+                  </div>
+                  {/* Shown on hover and focus, and always on touch screens */}
+                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                    <button
+                      type="button"
+                      data-nav-action="toggle"
+                      aria-pressed={feed.isActive}
+                      aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
+                      onClick={() => {
+                        setRemovingId(null);
+                        void toggle(feed._id);
+                      }}
+                      className={textControl}
+                    >
+                      {feed.isActive ? "Pause" : "Resume"}
+                    </button>
+                    <button
+                      type="button"
+                      data-nav-action="remove"
+                      aria-label={`Remove ${feed.title}`}
+                      onClick={() => setRemovingId(feed._id)}
+                      className={destructiveControl}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </ChangeWash>
+                {rowFailure?.feedId === feed._id && (
+                  <InlineError
+                    message="Couldn't update the feed."
+                    onRetry={rowFailure.retry}
+                  />
+                )}
+                {removingId === feed._id && (
+                  <RemoveFeedConfirm
+                    feed={feed}
+                    onClose={() => setRemovingId(null)}
+                  />
+                )}
+                {removingId !== feed._id &&
+                  suggestionsByFeed
+                    .get(feed._id)
+                    ?.map((s) => (
+                      <FeedSuggestion
+                        key={s.feedId}
+                        feed={feed}
+                        offered={s.offered}
+                        opened={s.opened}
+                      />
+                    ))}
+              </div>
+            );
+          })}
         </div>
       </SettingsSection>
 

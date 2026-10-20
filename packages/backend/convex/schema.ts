@@ -145,6 +145,8 @@ export default defineSchema({
     // Set when a check starts and cleared when this feed finishes, so the page
     // can show a check in progress after a reload or a scheduled poll
     checkingSince: v.optional(v.number()),
+    // Distinguishes this run's result from an older error, including repeats.
+    checkRun: v.optional(v.number()),
     isActive: v.boolean(),
     createdAt: v.number(),
   })

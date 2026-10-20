@@ -1087,7 +1087,7 @@ html ::highlight(user-underline) {
   position: relative;
   overflow: hidden;
   /* Clearly visible while work runs; a hairline read as nothing happening */
-  height: 3px;
+  height: 4px;
   margin-bottom: 0.75rem;
   border-radius: 2px;
   background: color-mix(in srgb, var(--ink) 18%, transparent);
@@ -1110,16 +1110,24 @@ html ::highlight(user-underline) {
   from { background-position: -100% 0; }
   to { background-position: 200% 0; }
 }
-.sync-bar-text { display: none; }
+.sync-bar[data-determinate]::after { display: none; animation: none; }
+.sync-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  transform-origin: left;
+  transition: transform var(--motion-move);
+}
+.sync-bar-text {
+  display: block;
+  margin: -0.25rem 0 0.75rem;
+  font-size: 13px;
+  color: var(--reader-muted);
+}
 @media (prefers-reduced-motion: reduce) {
   .sync-bar { background: color-mix(in srgb, var(--ink) 40%, transparent); }
   .sync-bar::after { display: none; animation: none; }
-  .sync-bar-text {
-    display: block;
-    margin: -0.25rem 0 0.75rem;
-    font-size: 13px;
-    color: var(--reader-muted);
-  }
+  .sync-bar-fill { transition: none; }
 }
 
 /* ───────────────────────── Reader: controls ───────────────────────── */

@@ -55,6 +55,76 @@ async function fixture(count = 1) {
   return { t, ids, dispatch, begin, states, claim };
 }
 
+describe("feed check feedback", () => {
+  it("clears the old failure when a retry starts, even when it fails with the same message", async () => {
+    const f = await fixture();
+    await f.t.mutation(internal.feedPolling.finish, {
+      ...f.claim,
+      error: "Feed returned 503",
+    });
+    await f.dispatch();
+    await f.begin();
+    const [state] = await f.states();
+    const feed = await f.t.run((ctx) => ctx.db.get(f.ids[0]));
+    expect(feed?.lastError).toBeUndefined();
+    expect(feed?.checkingSince).toBeDefined();
+    expect(feed?.checkRun).toBe(state.run);
+
+    await f.t.mutation(internal.feedPolling.finish, {
+      stateId: state._id,
+      generation: state.generation,
+      error: "Feed returned 503",
+    });
+    expect((await f.t.run((ctx) => ctx.db.get(f.ids[0])))?.lastError).toBe(
+      "Feed returned 503",
+    );
+  });
+
+  it("reports real completed work, revealing a total only after selection finishes", async () => {
+    const f = await fixture(6);
+    expect(await f.t.query(api.feedPolling.status, {})).toMatchObject({
+      active: true,
+      processed: 0,
+      total: null,
+    });
+    // Finish the first page without issuing any network requests.
+    for (const state of await f.states())
+      await f.t.mutation(internal.feedPolling.finish, {
+        stateId: state._id,
+        generation: state.generation,
+        batches: 0,
+      });
+    await f.dispatch();
+    expect(await f.t.query(api.feedPolling.status, {})).toMatchObject({
+      active: true,
+      processed: 4,
+      total: 6,
+    });
+    for (const state of (await f.states()).filter((s) => s.leaseUntil))
+      await f.t.mutation(internal.feedPolling.finish, {
+        stateId: state._id,
+        generation: state.generation,
+        error: "Feed returned 503",
+      });
+    await f.dispatch();
+    expect(await f.t.query(api.feedPolling.status, {})).toMatchObject({
+      active: false,
+      processed: 6,
+      total: 6,
+    });
+  });
+
+  it("does not expose another reader's run or allow anonymous progress queries", async () => {
+    const { t, owner, reader } = await secondReaderTest(modules);
+    await t.mutation(internal.feedPolling.begin, { userId: OWNER });
+    expect(await owner.query(api.feedPolling.status, {})).toMatchObject({
+      active: true,
+    });
+    expect(await reader.query(api.feedPolling.status, {})).toBeNull();
+    await expect(t.query(api.feedPolling.status, {})).rejects.toThrow();
+  });
+});
+
 describe("durable global feed pool", () => {
   it.each([
     "pause",

@@ -73,6 +73,12 @@ describe("reduced motion has a form for every moment", () => {
     expect(css).toMatch(/@keyframes change-wash-reduced \{\s*0%, 83\.333%/);
   });
 
+  it("keeps sync progress legible without sweeping or moving the fill", () => {
+    expect(reduced).toMatch(/\.sync-bar::after\s*\{[^}]*animation: none/);
+    expect(reduced).toMatch(/\.sync-bar-fill\s*\{[^}]*transition: none/);
+    expect(css).toMatch(/\.sync-bar-text\s*\{[^}]*display: block/);
+  });
+
   it("does not run motion outside the no-preference or reduced branches", () => {
     // The pen tick and the pick's slide are only defined for users who allow motion
     expect(css).toMatch(
