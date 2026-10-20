@@ -114,6 +114,8 @@ function ProviderRow({
             <input
               id={id}
               type="password"
+              name={`${provider.id}-api-key`}
+              data-1p-ignore="true"
               autoComplete="off"
               spellCheck={false}
               placeholder={`${provider.name} API key`}
