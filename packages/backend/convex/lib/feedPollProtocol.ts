@@ -5,6 +5,7 @@ export const FEED_FETCH_SLOTS = 4;
 export const FEED_LEASE_MS = 90_000;
 export const FEED_RUN_MS = 15 * 60_000;
 export const FEED_BODY_BYTES = 1_048_576;
+// Maximum selected entries per check, not a limit on the feed's archive.
 export const FEED_ITEMS = 200;
 // Existing URL/GUID alias reconciliation can read a near-1MiB article several
 // times. Two entries leave room under Convex's transaction read-byte ceiling.

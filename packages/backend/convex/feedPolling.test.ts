@@ -991,7 +991,6 @@ describe("conditional representation commits", () => {
     "malformed",
     "oversized",
     "declarations",
-    "too-many",
   ])("reports %s feeds without publishing validators", async (kind) => {
     const f = await fixture();
     const body =
@@ -999,9 +998,7 @@ describe("conditional representation commits", () => {
         ? "<rss><broken>"
         : kind === "oversized"
           ? "x".repeat(FEED_BODY_BYTES + 1)
-          : kind === "declarations"
-            ? '<!DOCTYPE rss [<!ENTITY x "boom">]><rss/>'
-            : `<rss version="2.0"><channel><title>x</title>${"<item><title>x</title></item>".repeat(201)}</channel></rss>`;
+          : '<!DOCTYPE rss [<!ENTITY x "boom">]><rss/>';
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -1036,6 +1033,73 @@ describe("conditional representation commits", () => {
     expect(
       await readFeedBody(new Response(body), new AbortController().signal),
     ).toHaveLength(FEED_BODY_BYTES);
+  });
+
+  it("bounds selected imports, not the input count, and sorts before limiting", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const items = Array.from({ length: 432 }, (_, n) => ({
+      guid: `${n}`,
+      pubDate: new Date(now - n * 60_000).toISOString(),
+    })).reverse();
+    const { entries } = selectFeedItems(items, { lastFetchedAt: now - 1 }, now);
+    expect(entries.map((i) => i.guid)).toEqual(
+      Array.from({ length: 200 }, (_, n) => `${n}`),
+    );
+  });
+
+  it("applies the rolling cutoff and preserves a stricter subscription floor", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const day = 86_400_000;
+    const items = [31, 30, 29, 20, 1].map((age) => ({
+      guid: `${age}`,
+      pubDate: new Date(now - age * day).toISOString(),
+    }));
+    expect(
+      selectFeedItems(items, { lastFetchedAt: 1 }, now).entries.map(
+        (i) => i.guid,
+      ),
+    ).toEqual(["1", "20", "29", "30"]);
+    expect(
+      selectFeedItems(
+        items,
+        { lastFetchedAt: 1, importAfter: now - 20 * day },
+        now,
+      ).entries.map((i) => i.guid),
+    ).toEqual(["1", "20"]);
+  });
+
+  it("keeps a quiet feed's import floor at the recent cutoff", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const { importAfter } = selectFeedItems(
+      [{ guid: "archive", pubDate: "2020-01-01" }],
+      {},
+      now,
+    );
+    expect(importAfter).toBe(now - 30 * 86_400_000);
+    expect(
+      selectFeedItems(
+        [{ guid: "added-to-archive", pubDate: "2021-01-01" }],
+        { lastFetchedAt: now, importAfter },
+        now,
+      ).entries,
+    ).toEqual([]);
+  });
+
+  it("does not let an invalid date poison later dated imports", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const initial = selectFeedItems(
+      [{ guid: "invalid", pubDate: "not a date" }],
+      {},
+      now,
+    );
+    expect(Number.isFinite(initial.importAfter)).toBe(true);
+    expect(
+      selectFeedItems(
+        [{ guid: "valid", pubDate: "2026-10-20T11:00:00Z" }],
+        { lastFetchedAt: now, importAfter: initial.importAfter },
+        now,
+      ).entries.map((i) => i.guid),
+    ).toEqual(["valid"]);
   });
 
   it("retains undated first-poll bounds and importAfter cutoff", () => {
