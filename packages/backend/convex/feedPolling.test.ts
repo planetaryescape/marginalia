@@ -55,6 +55,76 @@ async function fixture(count = 1) {
   return { t, ids, dispatch, begin, states, claim };
 }
 
+describe("feed check feedback", () => {
+  it("clears the old failure when a retry starts, even when it fails with the same message", async () => {
+    const f = await fixture();
+    await f.t.mutation(internal.feedPolling.finish, {
+      ...f.claim,
+      error: "Feed returned 503",
+    });
+    await f.dispatch();
+    await f.begin();
+    const [state] = await f.states();
+    const feed = await f.t.run((ctx) => ctx.db.get(f.ids[0]));
+    expect(feed?.lastError).toBeUndefined();
+    expect(feed?.checkingSince).toBeDefined();
+    expect(feed?.checkRun).toBe(state.run);
+
+    await f.t.mutation(internal.feedPolling.finish, {
+      stateId: state._id,
+      generation: state.generation,
+      error: "Feed returned 503",
+    });
+    expect((await f.t.run((ctx) => ctx.db.get(f.ids[0])))?.lastError).toBe(
+      "Feed returned 503",
+    );
+  });
+
+  it("reports real completed work, revealing a total only after selection finishes", async () => {
+    const f = await fixture(6);
+    expect(await f.t.query(api.feedPolling.status, {})).toMatchObject({
+      active: true,
+      processed: 0,
+      total: null,
+    });
+    // Finish the first page without issuing any network requests.
+    for (const state of await f.states())
+      await f.t.mutation(internal.feedPolling.finish, {
+        stateId: state._id,
+        generation: state.generation,
+        batches: 0,
+      });
+    await f.dispatch();
+    expect(await f.t.query(api.feedPolling.status, {})).toMatchObject({
+      active: true,
+      processed: 4,
+      total: 6,
+    });
+    for (const state of (await f.states()).filter((s) => s.leaseUntil))
+      await f.t.mutation(internal.feedPolling.finish, {
+        stateId: state._id,
+        generation: state.generation,
+        error: "Feed returned 503",
+      });
+    await f.dispatch();
+    expect(await f.t.query(api.feedPolling.status, {})).toMatchObject({
+      active: false,
+      processed: 6,
+      total: 6,
+    });
+  });
+
+  it("does not expose another reader's run or allow anonymous progress queries", async () => {
+    const { t, owner, reader } = await secondReaderTest(modules);
+    await t.mutation(internal.feedPolling.begin, { userId: OWNER });
+    expect(await owner.query(api.feedPolling.status, {})).toMatchObject({
+      active: true,
+    });
+    expect(await reader.query(api.feedPolling.status, {})).toBeNull();
+    await expect(t.query(api.feedPolling.status, {})).rejects.toThrow();
+  });
+});
+
 describe("durable global feed pool", () => {
   it.each([
     "pause",
@@ -991,7 +1061,6 @@ describe("conditional representation commits", () => {
     "malformed",
     "oversized",
     "declarations",
-    "too-many",
   ])("reports %s feeds without publishing validators", async (kind) => {
     const f = await fixture();
     const body =
@@ -999,9 +1068,7 @@ describe("conditional representation commits", () => {
         ? "<rss><broken>"
         : kind === "oversized"
           ? "x".repeat(FEED_BODY_BYTES + 1)
-          : kind === "declarations"
-            ? '<!DOCTYPE rss [<!ENTITY x "boom">]><rss/>'
-            : `<rss version="2.0"><channel><title>x</title>${"<item><title>x</title></item>".repeat(201)}</channel></rss>`;
+          : '<!DOCTYPE rss [<!ENTITY x "boom">]><rss/>';
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -1036,6 +1103,73 @@ describe("conditional representation commits", () => {
     expect(
       await readFeedBody(new Response(body), new AbortController().signal),
     ).toHaveLength(FEED_BODY_BYTES);
+  });
+
+  it("bounds selected imports, not the input count, and sorts before limiting", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const items = Array.from({ length: 432 }, (_, n) => ({
+      guid: `${n}`,
+      pubDate: new Date(now - n * 60_000).toISOString(),
+    })).reverse();
+    const { entries } = selectFeedItems(items, { lastFetchedAt: now - 1 }, now);
+    expect(entries.map((i) => i.guid)).toEqual(
+      Array.from({ length: 200 }, (_, n) => `${n}`),
+    );
+  });
+
+  it("applies the rolling cutoff and preserves a stricter subscription floor", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const day = 86_400_000;
+    const items = [31, 30, 29, 20, 1].map((age) => ({
+      guid: `${age}`,
+      pubDate: new Date(now - age * day).toISOString(),
+    }));
+    expect(
+      selectFeedItems(items, { lastFetchedAt: 1 }, now).entries.map(
+        (i) => i.guid,
+      ),
+    ).toEqual(["1", "20", "29", "30"]);
+    expect(
+      selectFeedItems(
+        items,
+        { lastFetchedAt: 1, importAfter: now - 20 * day },
+        now,
+      ).entries.map((i) => i.guid),
+    ).toEqual(["1", "20"]);
+  });
+
+  it("keeps a quiet feed's import floor at the recent cutoff", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const { importAfter } = selectFeedItems(
+      [{ guid: "archive", pubDate: "2020-01-01" }],
+      {},
+      now,
+    );
+    expect(importAfter).toBe(now - 30 * 86_400_000);
+    expect(
+      selectFeedItems(
+        [{ guid: "added-to-archive", pubDate: "2021-01-01" }],
+        { lastFetchedAt: now, importAfter },
+        now,
+      ).entries,
+    ).toEqual([]);
+  });
+
+  it("does not let an invalid date poison later dated imports", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const initial = selectFeedItems(
+      [{ guid: "invalid", pubDate: "not a date" }],
+      {},
+      now,
+    );
+    expect(Number.isFinite(initial.importAfter)).toBe(true);
+    expect(
+      selectFeedItems(
+        [{ guid: "valid", pubDate: "2026-10-20T11:00:00Z" }],
+        { lastFetchedAt: now, importAfter: initial.importAfter },
+        now,
+      ).entries.map((i) => i.guid),
+    ).toEqual(["valid"]);
   });
 
   it("retains undated first-poll bounds and importAfter cutoff", () => {

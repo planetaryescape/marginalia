@@ -53,7 +53,7 @@ A new feature reuses these.
 - **Saved:** saving is silent and immediate. `SavedMark` (`src/components/in-place.tsx`) fades in at the control that changed, holds 1.6 s and fades away, with no toast. Where the result stays true (a saved article) it holds.
 - **This changed:** `ChangeWash` gives a changed row a `--reader-chip` tint for 600 ms (`useChangeWash` in `src/lib/use-timed-flag.ts`). A value present on first render does not wash.
 - **Errors:** `InlineError` puts one sentence and Retry where the action was, with a `--danger` dot. The page around it keeps working. Toasts are for background work with no place on screen, and for Undo.
-- **Waiting:** a skeleton in the shape of the real layout, never a centred spinner. The pick's skeleton appears after 150 ms.
+- **Waiting:** a skeleton in the shape of the real layout, never a centred spinner. The pick's skeleton appears after 150 ms. Background checks use `SyncBar` with visible status text: shimmer for an unknown total, solid fill for a measured percentage, and no movement under reduced motion. Sources keeps the overall bar visible while scrolling and shows waiting/checking states beside each feed.
 - **Destructive:** a quiet button that turns into a confirmation in place.
 
 ## Motion

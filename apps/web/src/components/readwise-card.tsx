@@ -223,6 +223,8 @@ function ConnectReadwise({ deployment }: { deployment: boolean }) {
         <input
           id={id}
           type="password"
+          name="readwise-access-token"
+          data-1p-ignore="true"
           autoComplete="off"
           spellCheck={false}
           placeholder="Readwise access token"

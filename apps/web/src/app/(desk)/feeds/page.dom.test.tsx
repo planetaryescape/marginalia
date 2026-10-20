@@ -10,6 +10,13 @@ import FeedsPage from "./page";
 
 const state = vi.hoisted(() => ({
   readwise: null as unknown,
+  pollStatus: null as null | {
+    run: number;
+    active: boolean;
+    processed: number;
+    total: number | null;
+    deadline: number;
+  },
   feeds: [] as unknown[],
   suggestions: [] as unknown[],
   removeFeed: vi.fn(),
@@ -32,6 +39,7 @@ vi.mock("convex/react", () => ({
   useQuery: (ref: unknown) => {
     if (ref === "readwise.status") return state.readwise;
     if (ref === "feeds.list") return state.feeds;
+    if (ref === "feedPolling.status") return state.pollStatus;
     if (ref === "feedSuggestions.list") return state.suggestions;
     if (ref === "feeds.removalPreview")
       return {
@@ -115,6 +123,7 @@ beforeEach(() => {
   state.feeds = [feed("f1", "alpha"), feed("f2", "beta")];
   state.removeFeed.mockReset().mockResolvedValue(null);
   state.toggleActive.mockReset().mockResolvedValue(null);
+  state.pollStatus = null;
   state.pollNow.mockReset().mockResolvedValue(null);
   state.addBatch
     .mockReset()
@@ -178,6 +187,77 @@ describe("removing a feed in place", () => {
 });
 
 describe("checking feeds in place", () => {
+  it("immediately hides an old error and keeps progress visible until the acknowledged run arrives", async () => {
+    state.feeds = [{ ...feed("f1", "alpha"), lastError: "Feed returned 503" }];
+    let finishRequest = (_run: number) => {};
+    state.pollNow.mockImplementation(
+      () =>
+        new Promise<number>((resolve) => {
+          finishRequest = resolve;
+        }),
+    );
+    await act(async () => root.render(<FeedsPage />));
+    expect(document.body.textContent).toContain("Feed returned 503");
+    await act(async () => button("Check now")?.click());
+    expect(document.body.textContent).not.toContain("Feed returned 503");
+    expect(document.querySelector('[role="progressbar"]')).not.toBeNull();
+
+    await act(async () => finishRequest(1));
+    expect(document.querySelector('[role="progressbar"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Feed returned 503");
+    state.pollStatus = {
+      run: 1,
+      active: true,
+      processed: 0,
+      total: null,
+      deadline: Date.now() + 900_000,
+    };
+    await act(async () => root.render(<FeedsPage />));
+    expect(document.body.textContent).toContain("Waiting to check");
+    expect(document.body.textContent).not.toContain("Feed returned 503");
+
+    state.feeds = [
+      { ...feed("f1", "alpha"), checkRun: 1, checkingSince: Date.now() },
+    ];
+    await act(async () => root.render(<FeedsPage />));
+    expect(
+      document.querySelector('[aria-label="Checking alpha"]'),
+    ).not.toBeNull();
+    // An identical message from this attempt is still a NEW error.
+    state.feeds = [
+      { ...feed("f1", "alpha"), checkRun: 1, lastError: "Feed returned 503" },
+    ];
+    state.pollStatus = {
+      ...state.pollStatus,
+      active: false,
+      processed: 1,
+      total: 1,
+    };
+    await act(async () => root.render(<FeedsPage />));
+    expect(document.body.textContent).toContain("Feed returned 503");
+    expect(document.body.textContent).toContain("Check complete");
+    expect(document.querySelector('[role="progressbar"]')).toBeNull();
+  });
+
+  it("uses determinate progress only for a real total and restores it after reload", async () => {
+    state.pollStatus = {
+      run: 4,
+      active: true,
+      processed: 2,
+      total: null,
+      deadline: Date.now() + 900_000,
+    };
+    await act(async () => root.render(<FeedsPage />));
+    let bar = document.querySelector('[aria-label="Checking feeds"]');
+    expect(bar).not.toBeNull();
+    expect(bar?.hasAttribute("aria-valuenow")).toBe(false);
+    state.pollStatus = { ...state.pollStatus, processed: 3, total: 6 };
+    await act(async () => root.render(<FeedsPage />));
+    bar = document.querySelector('[aria-label="Checking feeds"]');
+    expect(bar?.getAttribute("aria-valuenow")).toBe("50");
+    expect(document.body.textContent).toContain("3 of 6 sources processed");
+  });
+
   it("a changed feed takes the 600 ms wash, with no toast", async () => {
     vi.useFakeTimers();
     try {

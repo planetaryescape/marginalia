@@ -91,6 +91,57 @@ describe("polling a newly added feed", () => {
     expect(await titles()).toEqual(["Post 0", "Post 1", "Post 2", "Post 3"]);
   });
 
+  it("imports recent posts from a large archive without rejecting the feed", async () => {
+    const { t, poll, titles } = await fixture();
+    // Recent entries are at the end, not in the first 200 XML items.
+    serve([
+      ...Array.from({ length: 432 }, (_, n) => ({
+        id: n + 10,
+        daysAgo: n + 40,
+      })),
+      ...sixPosts,
+    ]);
+    await poll();
+    expect(await titles()).toEqual(["Post 1", "Post 2", "Post 3"]);
+    const [feed] = await t.run((ctx) => ctx.db.query("feeds").collect());
+    expect(feed.lastError).toBeUndefined();
+    expect(feed.lastFetchedAt).toBeDefined();
+
+    await poll();
+    expect(await titles()).toEqual(["Post 1", "Post 2", "Post 3"]);
+  });
+
+  it("keeps a rolling month cutoff when an existing feed has no import floor", async () => {
+    const { t, poll, titles } = await fixture();
+    await t.run(async (ctx) => {
+      const feed = await ctx.db.query("feeds").first();
+      if (!feed) throw new Error("Missing feed");
+      await ctx.db.patch(feed._id, { lastFetchedAt: Date.now() - DAY });
+    });
+    serve([
+      { id: 1, daysAgo: 1 },
+      { id: 2, daysAgo: 40 },
+    ]);
+    await poll();
+    expect(await titles()).toEqual(["Post 1"]);
+  });
+
+  it("does not backfill undated archives on subsequent polls", async () => {
+    const { poll, titles } = await fixture();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            `<rss version="2.0"><channel><title>Undated</title>${Array.from({ length: 20 }, (_, n) => `<item><guid>post-${n}</guid><title>Post ${n}</title></item>`).join("")}</channel></rss>`,
+          ),
+      ),
+    );
+    await poll();
+    await poll();
+    expect(await titles()).toEqual(["Post 0", "Post 1", "Post 2"]);
+  });
+
   it("leaves out posts older than a month, so a quiet feed adds nothing", async () => {
     const { poll, titles } = await fixture();
     serve([

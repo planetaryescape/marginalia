@@ -391,18 +391,26 @@ export const updateLastFetched = internalMutation({
 /** Flags the reader's active feeds as being checked, until each finishes. */
 export const markChecking = internalMutation({
   args: { userId: v.string() },
-  handler: async (ctx, args) => {
-    await ctx.runMutation(internal.feedPolling.begin, args);
+  handler: async (ctx, args): Promise<number | null> => {
+    const run: number | null = await ctx.runMutation(
+      internal.feedPolling.begin,
+      args,
+    );
+    return run;
   },
 });
 
 export const pollNow = action({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<number | null> => {
     // A durable run, not the browser's lifetime, owns checking and recovery.
-    await ctx.runMutation(internal.feeds.markChecking, {
-      userId: ctx.readerId,
-    });
+    const run: number | null = await ctx.runMutation(
+      internal.feeds.markChecking,
+      {
+        userId: ctx.readerId,
+      },
+    );
+    return run;
   },
 });
 

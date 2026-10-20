@@ -22,7 +22,7 @@ export const pollAllFeeds = internalAction({
 });
 
 export const FIRST_POLL_POSTS = 3;
-const FIRST_POLL_MAX_AGE_MS = 30 * 86_400_000;
+const IMPORT_MAX_AGE_MS = 30 * 86_400_000;
 export const FEED_NETWORK_MS = 10_000;
 const POLL_ACTION_MS = 45_000;
 
@@ -116,35 +116,35 @@ export function selectFeedItems(
   feed: FeedPosition,
   now: number,
 ) {
-  if (items.length > FEED_ITEMS) throw new Error("Feed exceeds 200 items");
+  // The body-byte limit bounds parsing. The item limit bounds imports, not
+  // the publisher's archive: recent posts may appear anywhere in the XML.
   const datedItems = items.map((item) => ({
     item,
     publishedAt: item.pubDate ? Date.parse(item.pubDate) : undefined,
   }));
-  let candidates = datedItems;
-  let importAfter = feed.importAfter;
+  const cutoff = Math.max(now - IMPORT_MAX_AGE_MS, feed.importAfter ?? 0);
+  const dated = datedItems.filter(
+    (i): i is typeof i & { publishedAt: number } =>
+      Number.isFinite(i.publishedAt),
+  );
+  const recent = dated
+    .filter((i) => i.publishedAt >= cutoff)
+    .sort((a, b) => b.publishedAt - a.publishedAt);
+  // Undated/invalid dates cannot establish recency. Keep only the first few
+  // on EVERY poll, rather than pulling the whole archive on the second one.
+  const undated = datedItems
+    .filter((i) => !Number.isFinite(i.publishedAt))
+    .slice(0, FIRST_POLL_POSTS);
+  let candidates = [...recent, ...undated].slice(0, FEED_ITEMS);
+  let importAfter = cutoff;
   if (feed.lastFetchedAt === undefined) {
-    const dated = datedItems.filter(
-      (i): i is typeof i & { publishedAt: number } =>
-        Number.isFinite(i.publishedAt),
-    );
     if (dated.length) {
-      candidates = dated
-        .filter((i) => i.publishedAt >= now - FIRST_POLL_MAX_AGE_MS)
-        .sort((a, b) => b.publishedAt - a.publishedAt)
-        .slice(0, FIRST_POLL_POSTS);
-      importAfter = candidates.length
-        ? Math.min(...candidates.map((i) => i.publishedAt ?? 0))
-        : Math.max(...dated.map((i) => i.publishedAt)) + 1;
+      const initial = recent.slice(0, FIRST_POLL_POSTS);
+      candidates = initial;
+      importAfter = initial.at(-1)?.publishedAt ?? cutoff;
     } else {
-      candidates = datedItems.slice(0, FIRST_POLL_POSTS);
-      importAfter = undefined;
+      candidates = undated;
     }
-  } else if (importAfter !== undefined) {
-    const cutoff = importAfter;
-    candidates = datedItems.filter(
-      (i) => !Number.isFinite(i.publishedAt) || (i.publishedAt ?? 0) >= cutoff,
-    );
   }
   const entries = candidates.flatMap(({ item, publishedAt }) => {
     const guid = item.guid || item.link || item.title || "";

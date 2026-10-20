@@ -68,6 +68,10 @@ describe("Reader progress", () => {
     const html = renderToStaticMarkup(<ReadwiseCard />);
     expect(html).toContain("Not connected");
     expect(html).toContain("Readwise access token");
+    // Mask the integration secret without advertising a Marginalia password
+    // field to 1Password on an already authenticated page.
+    expect(html).toMatch(/<input[^>]*data-1p-ignore="true"/);
+    expect(html).toContain('autoComplete="off"');
     expect(html).not.toContain("READWISE_TOKEN");
   });
 });
