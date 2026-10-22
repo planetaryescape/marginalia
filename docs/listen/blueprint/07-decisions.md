@@ -1,0 +1,106 @@
+# 07: Decisions
+
+Every decision from the planning session on 2026-10-22, including the options we rejected, so a later agent doesn't argue its way back into one. BK is the decision-maker. The session was one request from BK, followed by research. He asked for a natural voice and delegated the design, so most entries are "Claude, delegated by BK". Where a choice is his to confirm, the entry says "blueprint assumes" and names its question in [08](08-open-questions.md). Change a decision only by adding a new entry that replaces it.
+
+## The arc, briefly
+
+1. BK: "the text to speech on this app is a joke, it's some wacky robotic voice. there's lots of great and cheap and even free sometimes services that can do some brilliant text to speech when i want to listen to an article. Do some research and create a /blueprint for a more sensible TTS please"
+2. We read Listen at origin/main `a1c3b87`. It uses the Web Speech API and picks a voice by name pattern, so the voice depends entirely on the device ([01](01-current-state.md)).
+3. We looked first at dedicated TTS vendors (ElevenLabs, Google Cloud, Azure, Polly, Cartesia, Inworld). Each would need readers to get a new key.
+4. Then we found OpenRouter's speech endpoint, which serves 36 speech models on the key most readers have already saved. That moved the design from "add a TTS vendor" to "use the key we have".
+5. OpenAI's own TTS models turned out to shut down on 2027-01-06, so OpenAI-direct speech was dropped.
+6. The in-browser Kokoro model was the only truly free option. It is the same voice OpenRouter sells at about three cents an hour, behind an 86 MB or larger download, so it was deferred.
+7. We designed playback around one audio element, paragraph-sized clips and a cache, to keep today's follow-along and gain lock-screen controls and speed.
+8. We proposed Gemini 3.8 Flash-Lite as the default. BK chose Kokoro instead: "if we use kokoro we'll be paying pennies basicaly. I think we should use that." (D-TTS-021)
+9. At Kokoro's price a replay costs a fraction of a cent, so the clip cache no longer pays for itself in rung 1. It moved to rung 3, where the pricier voices arrive (D-TTS-022).
+
+## Decisions
+
+### D-TTS-001: Listen speaks with a natural synthesized voice, not the device's speech engine. (BK)
+- **BK said:** "the text to speech on this app is a joke, it's some wacky robotic voice."
+- **Why:** the Web Speech voice varies by device and is often the robotic one. Current models score far above it, for under a dollar an hour ([research](../../research/text-to-speech.md)).
+
+### D-TTS-002: Speech goes through the reader's own saved OpenRouter key. (Claude, delegated by BK)
+- **Options rejected:** (a) an app-owned vendor key, because BK would pay for every reader's listening and become the processor for their article text under his own vendor contract; (b) new key slots for ElevenLabs, Google Cloud or Azure, because readers would have to sign up somewhere new for one feature, and OpenRouter already reaches ElevenLabs and Google's best voices.
+- **Why:** keys already come "only from that library's own saved credentials" (`convex/lib/router.ts`), and OpenRouter is the provider most readers have. No new account, no new secret, no new billing.
+- **Revisit only if:** a reader without OpenRouter asks for natural speech often enough to justify a second path (Q6).
+
+### D-TTS-003: ~~The default voice is Gemini 3.8 Flash-Lite TTS.~~ (Blueprint assumed; Q1)
+- **Replaced by D-TTS-021.**
+- **Why:** Elo 1251, eighth on the leaderboard, at about $0.59 an hour. That's 84 points below Eleven v4 Turbo, the leader, at about a quarter of its price.
+- **Risk:** OpenRouter warns that some models treat the input as a prompt. A narrator that paraphrases is broken. S1 tests verbatim reading; if Flash-Lite fails it, the default moves to Voxtral 3.
+
+### D-TTS-004: The voice catalog is short and curated, like `MODEL_CATALOG`. (Claude, delegated by BK)
+- **Decision:** four models: Kokoro (default, D-TTS-021), Gemini 3.8 Flash-Lite (better), Gemini 3.8 Flash (richer), Eleven v4 Turbo (best). Each offers two or three narrator voices chosen in S1.
+- **Options rejected:** listing all 36 speech models, because a reader picking a voice wants to hear a few good ones, not compare a catalog; Fish Drama 3, because it is built for directed performances, not narration.
+
+### D-TTS-005: No OpenAI-direct speech. (Claude, delegated by BK)
+- **Why:** OpenAI's TTS guide says `gpt-4o-mini-tts`, `tts-1` and `tts-1-hd` shut down on 2027-01-06. Its replacement runs over the Realtime API, a session protocol, which is a lot of machinery for reading paragraphs aloud.
+- **Way back:** if OpenAI ships a successor on the plain speech endpoint, add it as another catalog entry behind the same interface.
+
+### D-TTS-006: Speech is synthesized one block at a time, with long blocks split at sentence ends. (Claude, delegated by BK)
+- **Decision:** a block is one numbered paragraph (`p`, `li`, heading, `blockquote`, `figcaption`). A block over 2,000 characters is split at sentence boundaries with `Intl.Segmenter`.
+- **Options rejected:** (a) one file for the whole article, because the reader would wait minutes for the first word, it breaks paragraph follow-along and skip, and Kokoro and Voxtral take at most 4,096 tokens per request; (b) word-level timing, because OpenRouter returns bare audio with no timestamps.
+- **Why:** it keeps today's paragraph highlight and skip, starts in seconds, and a failure costs one paragraph, not the article.
+
+### D-TTS-007: Clips are cached in Convex file storage per reader, article, voice and text. (Claude, delegated by BK)
+- **Options rejected:** (a) no cache, because the reader would pay again for every replay and every resumed article; (b) the browser's Cache Storage only, because it doesn't follow the reader from desktop to phone.
+- **Retention:** a clip is deleted 30 days after it was last played, and with its article (Q5).
+- **When:** rung 3, not rung 1 (D-TTS-022).
+
+### D-TTS-008: Synthesis runs at most three clips ahead of the voice. (Claude, delegated by BK)
+- **Option rejected:** synthesizing the whole article when Listen starts, because a reader who stops after a minute would pay for an hour.
+- **Why:** three clips is a minute or two of lead, enough to cover a slow request (S3) and make skip forward instant.
+
+### D-TTS-009: Playback uses one `HTMLAudioElement` and the Media Session API. (Claude, delegated by BK)
+- **Option rejected:** Web Audio buffer scheduling. It gives gapless joins, which narration doesn't need (a short pause between paragraphs is natural), and it doesn't give the lock-screen, headphone and car controls an audio element gets.
+- **Why:** an audio element can keep playing with the phone locked, which the Web Speech API can't (S4 verifies the installed PWA).
+
+### D-TTS-010: Speed runs from 0.8× to 2× through `playbackRate`, kept per browser. (Claude, delegated by BK)
+- **Why:** changing speed on the element is instant and costs nothing; resynthesizing at a new speed would cost money and wait. It's an appearance-like preference, so it lives beside the reader settings in browser storage.
+
+### D-TTS-011: The voice reads the print: title and byline, then the prose. Code, tables and Marginalia's notes are never read. (Claude, delegated by BK; Q4)
+- **Why:** in "Print, pencil and pen", the narrator lends its voice to the author. Margin notes are pencil and would turn listening into an interruption. Code and tables don't survive being spoken. Footnote markers and bare URLs are cleaned so the voice never says "bracket twelve" or a query string.
+
+### D-TTS-012: The page follows the voice until the reader scrolls; then the bar offers Follow. (Claude, delegated by BK)
+- **Replaces:** today's behaviour, which scrolls the speaking paragraph into view every time and pulls a reader who scrolled ahead back down.
+
+### D-TTS-013: The device voice remains only as a named fallback, never a silent switch. (Blueprint assumes; Q3)
+- **Why:** with no OpenRouter key, the device voice is better than nothing. Switching to it silently after a failure would bring back exactly the voice BK called a joke, without telling him.
+
+### D-TTS-014: The voice picker shows each voice's cost per hour of listening. (Claude, delegated by BK)
+- **Why:** the reader pays on their own key, and "$0.59 an hour" means more to a listener than a price per million characters.
+
+### D-TTS-015: Speech requests ask OpenRouter for providers that don't collect data. (Claude, delegated by BK)
+- **Decision:** send `provider: { data_collection: "deny" }`. If no provider for the chosen model qualifies, show that in the picker rather than drop the setting.
+- **Why:** articles can be private documents (PDF imports, Reader saves). The setting costs nothing when a provider complies.
+
+### D-TTS-016: Speech gets its own per-reader rate budget. (Claude, delegated by BK)
+- **Decision:** a `speech` entry in `READER_LIMITS`, 60 clips a minute.
+- **Why:** the `ai` budget (30 a minute) is shared with annotations and answers. Fast skipping at 2× could otherwise starve them, or be starved.
+
+### D-TTS-017: In-browser Kokoro is deferred, not rejected. (Claude, delegated by BK)
+- **Why:** it's free and private, but it means a first download of 86 MB or more, uneven WebGPU on phones, and the same voice OpenRouter sells for about three cents an hour.
+- **Revisit only if:** readers without a key need natural speech, or offline listening becomes a goal.
+
+### D-TTS-018: The scope stops at listening to the open article. (Claude, delegated by BK)
+- **Out:** a listening queue across articles, podcast feeds, downloading for offline, voice cloning, word-by-word highlighting, reading Marginalia's notes aloud. Each is deferred, not rejected. None has a validated problem yet.
+
+### D-TTS-019: Listening keeps counting as reading time. (Kept from the current code.)
+- **Why:** `reading-clock.ts` already treats speech as active reading. The new player reports the same `listening` flag.
+
+### D-TTS-020: The feature concept is "Read to you", inside "Print, pencil and pen". (Blueprint assumes; Q2)
+- **Why:** it adds no new hand to the page. The narrator lends a voice to the print, the highlighter shows where the voice is, and everything else stays quiet. See [02](02-design-concept.md).
+
+### D-TTS-021: The default voice is Kokoro. (BK; replaces D-TTS-003)
+- **BK said:** "if we use kokoro we'll be paying pennies basicaly. I think we should use that."
+- **Why:** about $0.03 an hour of listening ($0.62 per million characters on OpenRouter), against about $0.59 for Gemini 3.8 Flash-Lite. Ten hours a month costs about 30 cents.
+- **Trade-off accepted:** Kokoro is 57th on the leaderboard (Elo 1065, against 1251 for Flash-Lite). It's a natural voice, a long way from the device voice, but plainer than the top models. Readers who want more pick a richer voice in rung 3.
+- **Gained:** Kokoro is a plain text-to-speech model, not a prompted one, so the risk of it paraphrasing the article is much lower. It takes no `instructions`.
+- **Way back:** if S1 shows no Kokoro voice BK would listen to for an hour, raise it with him before rung 1 rather than switching the default.
+
+### D-TTS-022: Rung 1 has no clip cache; the action returns the audio directly. (Claude, delegated by BK; follows from D-TTS-021)
+- **Decision:** in rung 1, `speech.clip` returns the MP3 bytes (`v.bytes()`) and stores nothing. The `speechClips` table, its storage, the cache query and the retention job (D-TTS-007) arrive in rung 3 with the pricier voices.
+- **Why:** with Kokoro, a cached replay saves a fraction of a cent. The cache is a table, stored files, a cron, deletion paths and storage budgeting, which costs more to build and run than it saves. For voices at $0.59–$2.16 an hour it pays for itself again.
+- **Limit that makes it safe:** a 2,000-character clip is about two minutes of audio, roughly 1 MB at 64 kbps, well under Convex's 16 MiB return limit.
+
