@@ -383,8 +383,13 @@ describe("the title", () => {
     await start(0);
     expect(calls[0].text).toBe("Why now?");
     await start(1);
-    expect(calls.at(-2)?.text).not.toBe("Why now?");
-    expect(calls.at(-1)?.text).toBe(paragraphText(2));
+    // The first run's two requests are still out, so the new run waits for them
+    await settle(0);
+    await settle(1);
+    expect(calls.slice(2).map((c) => c.text)).toEqual([
+      paragraphText(1),
+      paragraphText(2),
+    ]);
   });
 
   it("previous from the first paragraph goes back to the title", async () => {
@@ -563,6 +568,230 @@ describe("pausing and moving", () => {
     expect(listen.status).toBe("finished");
     expect(listen.active).toBe(false);
     expect(revoked.sort()).toEqual(created.sort());
+  });
+});
+
+describe("pausing while a clip is loading", () => {
+  /** Makes the next play() behave like a browser's: the element is playing at once, the promise settles later. */
+  function deferPlay() {
+    let started = () => {};
+    const element = audio();
+    element.play.mockImplementationOnce(() => {
+      element.paused = false;
+      return new Promise<void>((resolve) => {
+        started = resolve;
+      });
+    });
+    return () => started();
+  }
+
+  it("pauses the element itself when Pause is pressed before play() has resolved, and Resume carries on with the same clip", async () => {
+    mountArticle(plain(3));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    const started = deferPlay();
+    await settle(0);
+    const src = audio().src;
+    expect(src).toBe("blob:clip-1");
+    expect(listen.status).toBe("preparing");
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("paused");
+    expect(audio().paused).toBe(true);
+    await act(async () => started());
+    expect(listen.status).toBe("paused");
+    expect(audio().paused).toBe(true);
+    expect(speaking()).toBeNull();
+
+    await act(async () => listen.togglePause());
+    expect(audio().paused).toBe(false);
+    expect(audio().src).toBe(src);
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(0));
+  });
+
+  it("does the same for a clip that began after a gap", async () => {
+    mountArticle(plain(3));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    await settle(1);
+    await ended();
+    expect(listen.status).toBe("gap");
+    const started = deferPlay();
+    await elapse(351);
+    // The timer has started clip 2, whose play() hasn't resolved; the bar still says gap
+    expect(audio().src).toBe("blob:clip-2");
+    await act(async () => listen.togglePause());
+    expect(audio().paused).toBe(true);
+    await act(async () => started());
+    expect(listen.status).toBe("paused");
+    expect(audio().paused).toBe(true);
+    await act(async () => listen.togglePause());
+    expect(audio().src).toBe("blob:clip-2");
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(1));
+  });
+
+  it("never leaves an element playing under a paused bar after a pause in the wait for a gap", async () => {
+    mountArticle(plain(3));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    await settle(1);
+    await ended();
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("paused");
+    await elapse(2000);
+    expect(audio().src).toBe("blob:clip-1");
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("playing");
+    expect(audio().src).toBe("blob:clip-2");
+  });
+});
+
+describe("going back", () => {
+  const sentences = Array.from(
+    { length: 130 },
+    (_v, i) => `This is sentence ${i} of one long opening paragraph.`,
+  ).join(" ");
+
+  it("reuses the clips of the paragraph before instead of asking for them again", async () => {
+    mountArticle([
+      sentences,
+      paragraphText(1),
+      paragraphText(2),
+      paragraphText(3),
+    ]);
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    const settleAll = async () => {
+      for (let round = 0; round < 6; round++)
+        for (const [k, call] of calls.entries())
+          if (!call.settled) await settle(k);
+    };
+    await settleAll();
+    // The long paragraph is several clips: play through them to block 1
+    for (let n = 0; n < 6 && listen.index === 0; n++) {
+      await ended();
+      await elapse(400);
+      await settleAll();
+    }
+    expect(listen.index).toBe(1);
+    const firstClip = created[0];
+    audio().currentTime = 1;
+    await act(async () => listen.previous());
+    expect(listen.index).toBe(0);
+    await settleAll();
+    expect(audio().src).toBe(firstClip);
+    expect(revoked).not.toContain(firstClip);
+    expect(new Set(calls.map((c) => c.text)).size).toBe(calls.length);
+    expect(listen.status).toBe("playing");
+  });
+
+  it("measures the 3 s only against the playing item's own clip", async () => {
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    audio().currentTime = 8;
+    // Item 1's clip isn't ready, so the voice is preparing it while the old clip sits at 8 s
+    await act(async () => listen.next());
+    expect(listen.status).toBe("preparing");
+    expect(listen.index).toBe(1);
+    await act(async () => listen.previous());
+    expect(listen.index).toBe(0);
+  });
+});
+
+describe("requests across a restart", () => {
+  it("holds a new run's requests until the old run's two settle, and never has more than two unsettled", async () => {
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    expect(calls).toHaveLength(2);
+    await start(4);
+    expect(calls).toHaveLength(2);
+    expect(listen.status).toBe("preparing");
+    await settle(0);
+    expect(calls).toHaveLength(3);
+    expect(calls[2].text).toBe(paragraphText(4));
+    await settle(1);
+    expect(calls).toHaveLength(4);
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+    // The old run's late clips made no object URL; the new run's clip plays
+    expect(created).toEqual([]);
+    await settle(2);
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(4));
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+
+  it("holds them across Stop and a fresh start as well", async () => {
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await act(async () => listen.stop());
+    await start(2);
+    expect(calls).toHaveLength(2);
+    await settle(1);
+    expect(calls).toHaveLength(3);
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("a keyless reader who started before the capabilities loaded", () => {
+  it("is offered the choice from the same paragraph once the capabilities say there's no key, after the request failed", async () => {
+    query.value = undefined;
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(3);
+    await act(async () =>
+      calls[0].reject(
+        new ConvexError("Natural voices need an OpenRouter key."),
+      ),
+    );
+    expect(listen.status).toBe("failed");
+    expect(listen.needsKey).toBe(false);
+
+    query.value = { providers: [] };
+    await act(async () => root.render(<Harness />));
+    expect(listen.needsKey).toBe(true);
+    expect(listen.status).toBe("idle");
+    expect(listen.active).toBe(false);
+    expect(speak).not.toHaveBeenCalled();
+    expect(pending()).toBeNull();
+
+    await act(async () => listen.chooseDeviceVoice());
+    expect(speak).toHaveBeenCalledTimes(1);
+    expect(speak.mock.calls[0][0].text).toBe(paragraphText(3));
+  });
+
+  it("does the same while the first clip is still being made, and never switches on its own", async () => {
+    query.value = undefined;
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(2);
+    expect(listen.status).toBe("preparing");
+    query.value = { providers: ["openai"] };
+    await act(async () => root.render(<Harness />));
+    expect(listen.needsKey).toBe(true);
+    expect(listen.status).toBe("idle");
+    expect(calls[0].signal.aborted).toBe(true);
+    expect(speak).not.toHaveBeenCalled();
+    expect(listen.mode).toBe("natural");
+  });
+
+  it("lets a listen that has already been heard play on", async () => {
+    query.value = undefined;
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    expect(listen.status).toBe("playing");
+    query.value = { providers: [] };
+    await act(async () => root.render(<Harness />));
+    expect(listen.status).toBe("playing");
+    expect(listen.needsKey).toBe(false);
   });
 });
 

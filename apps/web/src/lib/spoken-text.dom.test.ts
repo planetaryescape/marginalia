@@ -177,11 +177,24 @@ describe("splitLeading", () => {
     expect([first, ...rest].join(" ")).toBe(paragraph);
   });
 
-  it("takes at least one sentence even when it is longer than the lead", () => {
-    const long = `${"A long opening sentence runs on ".repeat(20).trim()}. Then a short one.`;
-    const [first, second] = splitLeading(long, "en");
-    expect(first.length).toBeGreaterThan(LEAD_CHARS);
-    expect(first).toMatch(/runs on\.$/);
-    expect(second).toBe("Then a short one.");
+  it("cuts a first sentence longer than the lead at its last comma and drops nothing", () => {
+    const long = `${"A long opening sentence runs on, ".repeat(20).trim()} to its end. Then a short one.`;
+    const parts = splitLeading(long, "en");
+    expect(parts[0].length).toBeLessThanOrEqual(LEAD_CHARS);
+    expect(parts[0]).toMatch(/,$/);
+    expect(parts.join(" ")).toBe(long);
+  });
+
+  it("cuts at the last space when the long first sentence has no comma, and never splits an emoji", () => {
+    const words = Array.from({ length: 200 }, (_v, n) => `w${n}`).join(" ");
+    const [spaced, ...rest] = splitLeading(`${words}. Next one.`, "en");
+    expect(spaced.length).toBeLessThanOrEqual(LEAD_CHARS);
+    expect(`${spaced} ${rest.join(" ")}`).toBe(`${words}. Next one.`);
+    const emoji = splitLeading(`${"😀".repeat(400)}. Next one.`, "en");
+    expect(emoji[0].length).toBeLessThanOrEqual(LEAD_CHARS);
+    for (const part of emoji)
+      expect(new TextDecoder().decode(new TextEncoder().encode(part))).toBe(
+        part,
+      );
   });
 });

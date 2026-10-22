@@ -29,7 +29,7 @@ For each item the player needs a playable object URL. In rung 1, `speech.clip` r
 
 Either way, then `URL.createObjectURL(blob)`.
 
-The player keeps the playing item plus the next three ready or in flight (D-TTS-008), with at most two requests at once, and never requests an item twice. Clips are held as blobs, not remote URLs, so moving to the next clip never waits on the network, which matters most with the screen locked. Object URLs are revoked once their item is two behind the voice or the player stops.
+The player keeps the playing item plus the next three ready or in flight (D-TTS-008), with at most two requests at once (counting any a Stop or restart left unanswered, because an action can't be cancelled), and never requests an item twice. Clips are held as blobs, not remote URLs, so moving to the next clip never waits on the network, which matters most with the screen locked. Object URLs are revoked once their block is two behind the voice's block, so Previous reuses the clips of the paragraph before; they are also revoked when the player stops.
 
 A voice change in settings while listening drops every ready item after the playing one and fetches them again in the new voice. The playing clip finishes in the old voice.
 
@@ -50,7 +50,7 @@ stop (any state) ──▶ idle
 
 - **Gap.** Between blocks the player waits `--listen-gap` (350 ms, 700 ms after a heading), divided by the speed. Parts of one block play with no added gap. When `document.hidden`, the gap is skipped and the next `src` is set inside the `ended` handler, because background timers are throttled; the silence at the ends of each clip is pause enough (S4).
 - **Highlight.** `data-speaking` moves to the item's block on `playing`, not when the request starts. While preparing, the block gets `data-speaking-pending` (the 30% wash in [02](02-design-concept.md#visual-language)).
-- **Previous.** Restarts the current block if `currentTime` is over 3 s, else goes to the previous block's first item.
+- **Previous.** Restarts the current block if the playing clip's `currentTime` is over 3 s (a paragraph still being prepared counts as 0), else goes to the previous block's first item.
 - **Next.** Goes to the next block's first item.
 - **Pause.** `audio.pause()`; resume continues mid-clip, unlike today's Web Speech pause.
 - **Finished.** After the last item: clear the highlight, hide the bar, and scroll the back matter into view if the page was following.
@@ -61,7 +61,7 @@ stop (any state) ──▶ idle
 
 `toggleListen` keeps its current start point: `position.current ?? position.firstVisible ?? 0`.
 
-Time to first sound is the clip time for the first item (S3). S3 showed Kokoro taking 1.1–2.7 s for a 450–550-character block and about 4 s for 2,000, so the first item of a listen is the starting block's leading sentences, packed up to 300 characters (always at least one sentence), and the rest of that block follows as its next item or items. Every other block is packed normally, up to 2,000 characters (D-TTS-023). That costs a slightly worse cache key on the starting block only, and only from rung 3.
+Time to first sound is the clip time for the first item (S3). S3 showed Kokoro taking 1.1–2.7 s for a 450–550-character block and about 4 s for 2,000, so the first item of a listen is at most 300 characters (UTF-16 units, the same count the backend uses): the leading sentences of the first block that will be read, at or after the start, that fit in 300. When the first sentence alone is longer, it is cut at its last comma, else its last space, at or before 300. The rest follows as the next item or items, and nothing is dropped. When a listen starts from the top, the spoken title is the first item and is capped the same way. Every other block is packed normally, up to 2,000 characters (D-TTS-023). That costs a slightly worse cache key on the starting block only, and only from rung 3.
 
 The first `audio.play()` call happens inside the Listen click or keypress, before any await, with a silent data URL, so mobile browsers count the element as user-activated for the rest of the session.
 

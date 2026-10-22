@@ -152,8 +152,8 @@ export function useListen(
   const { stop: stopVoice, speakFrom: speakVoice } = voice;
   const speakFrom = useCallback(
     (start: number) => {
+      pendingStart.current = start;
       if (missingKey) {
-        pendingStart.current = start;
         setChoosing(true);
         return;
       }
@@ -166,6 +166,19 @@ export function useListen(
     setChoosing(false);
     stopVoice();
   }, [stopVoice]);
+
+  // A reader without a key who pressed Listen before the capabilities loaded
+  // started a natural listen that can only fail. Once the capabilities say so,
+  // offer the same choice, from the same paragraph, instead of a Retry that
+  // can't work. The device voice still starts only when they pick it.
+  const { status: naturalStatus, stop: stopNatural } = natural;
+  useEffect(() => {
+    if (!missingKey) return;
+    if (naturalStatus === "preparing" || naturalStatus === "failed") {
+      stopNatural();
+      setChoosing(true);
+    }
+  }, [missingKey, naturalStatus, stopNatural]);
 
   const chooseDeviceVoice = useCallback(() => {
     writeDeviceChoice();

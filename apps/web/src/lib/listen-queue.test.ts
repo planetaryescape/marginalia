@@ -66,6 +66,43 @@ describe("buildQueue", () => {
     expect(buildQueue(blocks, 0, "en")).toHaveLength(2);
   });
 
+  it("leads with the first block that will be read when the start block is skipped", () => {
+    const blocks = [prose(0), null, long(60), long(60)];
+    const queue = buildQueue(blocks, 1, "en");
+    const first = queue.find((i) => i.block === 2);
+    expect(first?.text.length).toBeLessThanOrEqual(300);
+    // Only that block leads: the block after it packs normally
+    expect(queue.filter((i) => i.block === 3)).toHaveLength(1);
+    // Nothing is dropped
+    expect(
+      queue
+        .filter((i) => i.block === 2)
+        .map((i) => i.text)
+        .join(" "),
+    ).toBe(blocks[2]?.text);
+  });
+
+  it("caps a first sentence longer than 300 units and keeps all of its text", () => {
+    const words = Array.from({ length: 300 }, (_v, n) => `word${n}`).join(" ");
+    const sentence = `${words}.`;
+    const queue = buildQueue(
+      [{ text: `${sentence} Then a short one.`, heading: false }],
+      0,
+      "en",
+    );
+    expect(queue[0].text.length).toBeLessThanOrEqual(300);
+    expect(queue.map((i) => i.text).join(" ")).toBe(
+      `${sentence} Then a short one.`,
+    );
+  });
+
+  it("caps a long title too", () => {
+    const title = `${"A very long title ".repeat(40)}ends here.`;
+    const queue = buildQueue([prose(0)], 0, "en", title);
+    expect(queue[0].block).toBe(TITLE_BLOCK);
+    expect(queue[0].text.length).toBeLessThanOrEqual(300);
+  });
+
   it("carries the heading flag onto every part", () => {
     const queue = buildQueue([heading(0), prose(1)], 0, "en");
     expect(queue.map((i) => i.heading)).toEqual([true, false]);
@@ -110,8 +147,8 @@ const entries = (pairs: [number, ClipStatus][]) => new Map(pairs);
 
 describe("planFetches", () => {
   it("asks for the playing item and then the ones ahead, two at a time", () => {
-    expect(planFetches(20, 5, entries([]))).toEqual([5, 6]);
-    expect(planFetches(20, 5, entries([[5, "pending"]]))).toEqual([6]);
+    expect(planFetches(20, 5, entries([]), 0)).toEqual([5, 6]);
+    expect(planFetches(20, 5, entries([[5, "pending"]]), 1)).toEqual([6]);
     expect(
       planFetches(
         20,
@@ -120,6 +157,7 @@ describe("planFetches", () => {
           [5, "pending"],
           [6, "pending"],
         ]),
+        2,
       ),
     ).toEqual([]);
   });
@@ -130,14 +168,14 @@ describe("planFetches", () => {
       [6, "ready"],
       [7, "ready"],
     ]);
-    expect(planFetches(20, 5, ready)).toEqual([8]);
+    expect(planFetches(20, 5, ready, 0)).toEqual([8]);
     const all = entries([
       [5, "ready"],
       [6, "ready"],
       [7, "ready"],
       [8, "ready"],
     ]);
-    expect(planFetches(20, 5, all)).toEqual([]);
+    expect(planFetches(20, 5, all, 0)).toEqual([]);
     expect(LOOKAHEAD).toBe(3);
     expect(MAX_IN_FLIGHT).toBe(2);
   });
@@ -150,30 +188,54 @@ describe("planFetches", () => {
         [0, "ready"],
         [1, "ready"],
       ]),
+      0,
     );
     expect(planned).toEqual([2, 3]);
   });
 
   it("stops at a failure and stays inside the queue", () => {
-    expect(planFetches(20, 0, entries([[1, "failed"]]))).toEqual([0]);
-    expect(planFetches(2, 1, entries([]))).toEqual([1]);
+    expect(planFetches(20, 0, entries([[1, "failed"]]), 0)).toEqual([0]);
+    expect(planFetches(2, 1, entries([]), 0)).toEqual([1]);
   });
 
-  it("counts pending requests that are behind the voice against the limit", () => {
-    expect(planFetches(20, 9, entries([[2, "pending"]]))).toEqual([9]);
+  it("counts requests a Stop or restart left unsettled against the limit", () => {
+    expect(planFetches(20, 9, entries([]), 2)).toEqual([]);
+    expect(planFetches(20, 9, entries([]), 1)).toEqual([9]);
   });
 });
 
 describe("planRevokes", () => {
-  it("gives back ready clips two behind the voice and keeps the one just behind", () => {
-    const e = entries([
-      [3, "ready"],
-      [4, "ready"],
-      [5, "ready"],
-      [6, "ready"],
-      [2, "pending"],
+  // Blocks 0..5, with block 2 four clips long
+  const queue = buildQueue(
+    [prose(0), prose(1), long(300), prose(3), prose(4), prose(5)],
+    9,
+    "en",
+  );
+  const first = (block: number) => queue.findIndex((i) => i.block === block);
+  const allReady = () =>
+    new Map<number, ClipStatus>(queue.map((_i, n) => [n, "ready"]));
+
+  it("keeps the clips of the playing block and the block before it, by block not by item", () => {
+    expect(queue.filter((i) => i.block === 2).length).toBeGreaterThan(2);
+    // Playing block 3: block 2's clips (several items) all stay, so Previous reuses them
+    expect(planRevokes(queue, first(3), allReady()).sort()).toEqual([
+      ...Array(first(2)).keys(),
     ]);
-    expect(planRevokes(6, e).sort()).toEqual([3, 4]);
-    expect(planRevokes(4, e)).toEqual([]);
+    // Playing the last part of block 2 keeps block 1 and the whole of block 2
+    const lastOf2 = first(3) - 1;
+    expect(planRevokes(queue, lastOf2, allReady())).toEqual([first(0)]);
+  });
+
+  it("gives back only ready clips", () => {
+    const e = allReady();
+    e.set(0, "pending");
+    e.set(1, "failed");
+    expect(planRevokes(queue, first(5), e)).not.toContain(0);
+    expect(planRevokes(queue, first(5), e)).not.toContain(1);
+  });
+
+  it("keeps everything while the voice is on the first block or the one after it", () => {
+    expect(planRevokes(queue, 0, allReady())).toEqual([]);
+    expect(planRevokes(queue, first(1), allReady())).toEqual([]);
   });
 });

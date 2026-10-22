@@ -105,7 +105,7 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Limit that makes it safe:** a 2,000-character clip is about two minutes of audio, roughly 1 MB at 64 kbps, well under Convex's 16 MiB return limit.
 
 ### D-TTS-023: The first item of a listen is a short lead. (S3 spike, 2026-10-22)
-- **Decision:** the first item is the starting block's leading sentences, packed up to 300 characters and never fewer than one sentence. The rest of that block follows as its next item or items. Other blocks use the normal packing of at most 2,000 characters.
+- **Decision:** the first item is at most 300 characters, split at sentence, then comma, then space. It is the leading sentences of the first block that will be read, at or after the start, that fit; a first sentence longer than 300 is cut at its last comma, else its last space. The rest follows as its next item or items, and nothing is dropped. Other blocks use the normal packing of at most 2,000 characters.
 - **Why:** S3 measured Kokoro through OpenRouter from the UK: 300 characters took 0.9–1.4 s, 450–550 characters 1.1–2.7 s, 2,000 characters 3.8–4.2 s. Time to first sound is the clip time of the first item, and the target is about 2 s.
 - **Cost:** the starting block is split differently from how it would be on a later listen, which matters for the clip cache from rung 3 (a worse cache key on that block only).
 

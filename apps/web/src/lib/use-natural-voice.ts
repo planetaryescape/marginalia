@@ -5,7 +5,7 @@ import {
   buildQueue,
   firstItemFrom,
   gapAfter,
-  KEEP_BEHIND,
+  keepFrom,
   nextBlockItem,
   planFetches,
   planRevokes,
@@ -95,6 +95,13 @@ function createPlayer(env: PlayerEnv) {
   /** Counts pauses, so a play() that began before one doesn't announce "playing" after it. */
   let pauses = 0;
   let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The item whose clip the element holds, which Previous measures its 3 s against. */
+  let holding = -1;
+  /**
+   * Requests that haven't settled, across Stop and restart: an action can't be
+   * cancelled, so an abandoned request still costs a slot until it answers.
+   */
+  let unsettled = 0;
 
   function set(next: ListenStatus, error: string | null = null) {
     status = next;
@@ -124,6 +131,9 @@ function createPlayer(env: PlayerEnv) {
 
   function onEnded() {
     if (loaded === null || audio?.src !== loaded) return;
+    // Nothing is loaded for the next item yet, so a pause in the gap or while
+    // preparing has no element to pause
+    loaded = null;
     const next = playing + 1;
     if (next >= queue.length) {
       finishRun();
@@ -191,6 +201,7 @@ function createPlayer(env: PlayerEnv) {
     clearTimeout(fadeTimer);
     resume = null;
     loaded = null;
+    holding = -1;
     if (audio) {
       audio.pause();
       audio.removeAttribute("src");
@@ -208,33 +219,38 @@ function createPlayer(env: PlayerEnv) {
     const token = session;
     const entry: ClipEntry = { status: "pending" };
     clips.set(i, entry);
+    unsettled += 1;
     const source = env.clipSource();
     const signal = abort?.signal ?? new AbortController().signal;
+    const behind = () => i < keepFrom(queue, playing);
     // Whatever the outcome, a request that ends frees a slot, so the current run
-    // plans again; otherwise a skip made while both slots were full never gets
-    // its own item requested
-    const behind = () => i < playing - KEEP_BEHIND;
+    // plans again; otherwise a skip made while the slots were full never gets
+    // its own item requested, and a restart waits on the slots the last run held
     new Promise<Blob>((resolve) => resolve(source(queue[i].text, signal))).then(
       (blob) => {
+        unsettled -= 1;
         // Stop, restart or unmount ran while this was in flight: the result is
         // late, so no object URL is ever made for it
-        if (token !== session || clips.get(i) !== entry) return;
-        if (behind()) {
-          clips.delete(i);
-        } else {
-          const url = URL.createObjectURL(blob);
-          clips.set(i, { status: "ready", url });
-          if (status === "preparing" && playing === i) play(i, url);
+        if (token === session && clips.get(i) === entry) {
+          if (behind()) {
+            clips.delete(i);
+          } else {
+            const url = URL.createObjectURL(blob);
+            clips.set(i, { status: "ready", url });
+            if (status === "preparing" && playing === i) play(i, url);
+          }
         }
         fetchAhead();
       },
       (error: unknown) => {
-        if (token !== session || clips.get(i) !== entry) return;
-        if (behind()) {
-          clips.delete(i);
-        } else {
-          clips.set(i, { status: "failed", error });
-          if (status === "preparing" && playing === i) fail(i, error);
+        unsettled -= 1;
+        if (token === session && clips.get(i) === entry) {
+          if (behind()) {
+            clips.delete(i);
+          } else {
+            clips.set(i, { status: "failed", error });
+            if (status === "preparing" && playing === i) fail(i, error);
+          }
         }
         fetchAhead();
       },
@@ -245,11 +261,14 @@ function createPlayer(env: PlayerEnv) {
     new Map([...clips].map(([i, entry]) => [i, entry.status] as const));
 
   function fetchAhead() {
-    for (const i of planFetches(queue.length, playing, statuses())) request(i);
+    // Between runs there is nothing to plan, only slots a late result gave back
+    if (playing < 0) return;
+    for (const i of planFetches(queue.length, playing, statuses(), unsettled))
+      request(i);
   }
 
   function revokeBehind() {
-    for (const i of planRevokes(playing, statuses())) revokeEntry(i);
+    for (const i of planRevokes(queue, playing, statuses())) revokeEntry(i);
   }
 
   /** Starts the element on `loaded` and, once the sound has begun, moves the highlight. */
@@ -275,6 +294,7 @@ function createPlayer(env: PlayerEnv) {
 
   function play(i: number, url: string) {
     loaded = url;
+    holding = i;
     ensureAudio().src = url;
     playLoaded(i);
   }
@@ -300,6 +320,7 @@ function createPlayer(env: PlayerEnv) {
   /** Moves the voice to item `i`: plays it if its clip is ready, else waits for it. */
   function begin(i: number) {
     playing = i;
+    loaded = null;
     clearTimeout(gapTimer);
     revokeBehind();
     fetchAhead();
@@ -353,15 +374,18 @@ function createPlayer(env: PlayerEnv) {
         continueFrom?.();
         return;
       }
-      if (status === "playing") {
+      if (status === "playing" || status === "gap" || status === "preparing") {
         pauses += 1;
-        audio?.pause();
         const i = playing;
-        set("paused");
-        resume = () => playLoaded(i);
-      } else if (status === "gap" || status === "preparing") {
-        pauses += 1;
-        clearTimeout(gapTimer);
+        if (loaded !== null) {
+          // A clip is loaded, playing or about to: pause the element itself and
+          // carry on with that same clip. This covers a play() still pending.
+          audio?.pause();
+          resume = () => playLoaded(i);
+        } else {
+          // Waiting on a clip or a gap: the continuation set then still holds
+          clearTimeout(gapTimer);
+        }
         set("paused");
       }
     },
@@ -373,7 +397,9 @@ function createPlayer(env: PlayerEnv) {
     },
     previous() {
       if (playing < 0) return;
-      jump(previousItem(queue, playing, audio?.currentTime ?? 0));
+      // Only the playing item's own clip has a time worth measuring
+      const elapsed = holding === playing ? (audio?.currentTime ?? 0) : 0;
+      jump(previousItem(queue, playing, elapsed));
     },
     retry,
   };

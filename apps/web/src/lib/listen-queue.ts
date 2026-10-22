@@ -14,19 +14,17 @@ export const TITLE_BLOCK = -1;
 /** The playing item plus this many ahead are kept ready (D-TTS-008). */
 export const LOOKAHEAD = 3;
 export const MAX_IN_FLIGHT = 2;
-/** Items this far behind the voice give their object URL back. */
-export const KEEP_BEHIND = 1;
 export const GAP_MS = 350;
 export const GAP_AFTER_HEADING_MS = 700;
 const GAP_RESTART_AFTER_SECONDS = 3;
 
 /**
- * The items for a listen that starts at block `start`. A listen from the top
- * opens with `intro` (the spoken title) when there is one; it is already short,
- * so it skips the lead rule. Blocks that are skipped
- * (`null`) give none. The starting block begins with a short lead item so the
- * first sound arrives quickly (D-TTS-023); every other block is packed as usual.
- * Earlier blocks are included, so previous can go back past the start.
+ * The items for a listen that starts at block `start`. Blocks that are skipped
+ * (`null`) give none. What is heard first is capped at 300 units so the voice
+ * starts quickly (D-TTS-023): the spoken title `intro` when a listen starts from
+ * the top, and the first block that will be read at or after `start`, which
+ * begins with a lead item. Every other block is packed as usual. Earlier blocks
+ * are included, so previous can go back past the start.
  */
 export function buildQueue(
   blocks: readonly (SpokenBlock | null)[],
@@ -35,16 +33,23 @@ export function buildQueue(
   intro?: string,
 ): QueueItem[] {
   const items: QueueItem[] = [];
-  if (start === 0 && intro)
-    items.push({ block: TITLE_BLOCK, part: 0, text: intro, heading: true });
+  const push = (block: number, parts: string[], heading: boolean) => {
+    for (const [part, text] of parts.entries())
+      items.push({ block, part, text, heading });
+  };
+  // The first thing heard is capped at 300 units: the title when there is one,
+  // else the first block that will be read, which may be after a skipped start
+  if (start === 0 && intro) push(TITLE_BLOCK, splitLeading(intro, lang), true);
+  const lead = blocks.findIndex((block, index) => block && index >= start);
   blocks.forEach((block, index) => {
     if (!block) return;
-    const parts =
-      index === start
+    push(
+      index,
+      index === lead
         ? splitLeading(block.text, lang)
-        : splitSpoken(block.text, lang);
-    for (const [part, text] of parts.entries())
-      items.push({ block: index, part, text, heading: block.heading });
+        : splitSpoken(block.text, lang),
+      block.heading,
+    );
   });
   return items;
 }
@@ -106,16 +111,17 @@ export type ClipStatus = "pending" | "ready" | "failed";
 /**
  * Which items to request now: the playing item first, then up to `LOOKAHEAD`
  * after it, skipping any that already have an entry (so none is requested
- * twice) and stopping at a failure (Retry owns it). `MAX_IN_FLIGHT` caps the
- * requests that are pending at once.
+ * twice) and stopping at a failure (Retry owns it). `inFlight` counts every
+ * request that hasn't settled, including ones a Stop or restart left behind,
+ * because an action can't be cancelled; `MAX_IN_FLIGHT` caps them.
  */
 export function planFetches(
   length: number,
   playing: number,
   entries: ReadonlyMap<number, ClipStatus>,
+  inFlight: number,
 ): number[] {
-  let free = MAX_IN_FLIGHT;
-  for (const status of entries.values()) if (status === "pending") free -= 1;
+  let free = MAX_IN_FLIGHT - inFlight;
   const planned: number[] = [];
   for (let i = playing; i <= playing + LOOKAHEAD && i < length; i++) {
     if (free <= 0) break;
@@ -128,12 +134,28 @@ export function planFetches(
   return planned;
 }
 
-/** Ready clips far enough behind the voice that their object URLs can go. */
+/**
+ * The first item whose clip is still worth keeping: the first item of the
+ * block before the playing one, so Previous reuses its blobs. Distance is in
+ * blocks, not items, because a long block is several clips.
+ */
+export function keepFrom(queue: readonly QueueItem[], playing: number): number {
+  const block = queue[playing]?.block;
+  if (block === undefined) return 0;
+  const startOfBlock = queue.findIndex((item) => item.block === block);
+  if (startOfBlock <= 0) return 0;
+  const before = queue[startOfBlock - 1].block;
+  return queue.findIndex((item) => item.block === before);
+}
+
+/** Ready clips before `keepFrom`, whose object URLs can go. */
 export function planRevokes(
+  queue: readonly QueueItem[],
   playing: number,
   entries: ReadonlyMap<number, ClipStatus>,
 ): number[] {
+  const from = keepFrom(queue, playing);
   return [...entries]
-    .filter(([i, status]) => status === "ready" && i < playing - KEEP_BEHIND)
+    .filter(([i, status]) => status === "ready" && i < from)
     .map(([i]) => i);
 }

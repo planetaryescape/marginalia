@@ -132,10 +132,23 @@ export function splitSpoken(
 }
 
 /**
- * The first block of a listen: its leading sentences packed up to
- * `LEAD_CHARS` (always at least one sentence) as the first part, then the rest
- * packed as usual. A clip's wait grows with its length, so a short first part
- * is what gets the voice going quickly (D-TTS-023).
+ * Cuts `text` so the head is at most `limit` UTF-16 units: at the last comma,
+ * else the last space, else (never inside an emoji) at the limit.
+ */
+function cutAtLimit(text: string, limit: number): [string, string] {
+  const comma = text.lastIndexOf(",", limit - 1);
+  const space = text.lastIndexOf(" ", limit);
+  const hard = isHighSurrogate(text.charCodeAt(limit - 1)) ? limit - 1 : limit;
+  const cut = comma > 0 ? comma + 1 : space > 0 ? space : hard;
+  return [text.slice(0, cut), text.slice(cut)];
+}
+
+/**
+ * The first block of a listen: a first part of at most `lead` units (D-TTS-023),
+ * then the rest packed as usual. The first part is the leading sentences that
+ * fit; when the first sentence alone is longer it is cut at its last comma,
+ * else its last space. A clip's wait grows with its length, so a short first
+ * part is what gets the voice going quickly. No text is dropped.
  */
 export function splitLeading(
   text: string,
@@ -144,13 +157,15 @@ export function splitLeading(
   max = MAX_CLIP_CHARS,
 ): string[] {
   if (text.length <= lead) return text ? [text] : [];
-  const pieces = sentencePieces(text, lang, max);
-  let taken = 0;
-  let length = 0;
-  while (taken < pieces.length) {
-    const next = pieces[taken].length;
-    if (taken > 0 && length + next > lead) break;
-    length += next;
+  let pieces = sentencePieces(text, lang, max);
+  if (pieces[0].length > lead) {
+    const [head, tail] = cutAtLimit(pieces[0], lead);
+    pieces = [head, tail, ...pieces.slice(1)];
+  }
+  let taken = 1;
+  let length = pieces[0].length;
+  while (taken < pieces.length && length + pieces[taken].length <= lead) {
+    length += pieces[taken].length;
     taken += 1;
   }
   const first = pieces.slice(0, taken).join("").trim();

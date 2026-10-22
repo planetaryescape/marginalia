@@ -26,6 +26,7 @@ const NARRATOR_INSTRUCTIONS =
 const COPY = {
   noKey: "Natural voices need an OpenRouter key. Add one in Your account.",
   unreadable: "The voice couldn't read this paragraph.",
+  unreadableArticle: "The voice couldn't read this article.",
   unknownVoice: "That voice isn't available.",
   refused: "Your OpenRouter key was refused. Check it in Your account.",
   noCredit: "Your OpenRouter credit has run out.",
@@ -212,10 +213,16 @@ export const clip = action({
   },
   returns: v.bytes(),
   handler: async (ctx, args): Promise<ArrayBuffer> => {
-    await ctx.runQuery(internal.speech.assertArticle, {
-      articleId: args.articleId,
-      userId: ctx.readerId,
-    });
+    // requireArticle throws a plain Error, which would reach the reader as no
+    // sentence at all; ownership still comes first, before any spend
+    try {
+      await ctx.runQuery(internal.speech.assertArticle, {
+        articleId: args.articleId,
+        userId: ctx.readerId,
+      });
+    } catch {
+      throw new ConvexError(COPY.unreadableArticle);
+    }
     if (args.text.trim() === "" || args.text.length > MAX_CHARS)
       throw new ConvexError(COPY.unreadable);
     const voice = findSpeechVoice(args.voice ?? DEFAULT_SPEECH_VOICE);

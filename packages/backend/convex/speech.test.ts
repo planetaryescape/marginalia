@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { ConvexError } from "convex/values";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   saveTestCredential,
@@ -26,6 +27,7 @@ const KOKORO = "openrouter:hexgrad/kokoro-82m#af_heart";
 const COPY = {
   noKey: "Natural voices need an OpenRouter key. Add one in Your account.",
   unreadable: "The voice couldn't read this paragraph.",
+  unreadableArticle: "The voice couldn't read this article.",
   unknownVoice: "That voice isn't available.",
   refused: "Your OpenRouter key was refused. Check it in Your account.",
   noCredit: "Your OpenRouter credit has run out.",
@@ -218,9 +220,12 @@ describe("speech.clip", () => {
     );
     const calls = stubFetch(audio);
 
-    await expect(clip({ articleId: ownersArticle })).rejects.toThrow(
-      "Article not found",
+    const refused = await clip({ articleId: ownersArticle }).catch(
+      (error: unknown) => error,
     );
+    // A string ConvexError, so the bar can show it; never the internal message
+    expect(refused).toBeInstanceOf(ConvexError);
+    expect((refused as ConvexError<string>).data).toBe(COPY.unreadableArticle);
     expect(calls).toHaveLength(0);
   });
 
