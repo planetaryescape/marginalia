@@ -6,6 +6,7 @@ import {
   splitLeading,
   splitSpoken,
   spokenBlock,
+  spokenTitle,
 } from "./spoken-text";
 
 function block(html: string, tag = "p"): HTMLElement {
@@ -80,6 +81,19 @@ const longProse = (sentences: number) =>
   Array.from({ length: sentences }, (_v, i) => sentence(i))
     .join("")
     .trim();
+
+describe("spokenTitle", () => {
+  it("says the title and author, or just the title", () => {
+    expect(spokenTitle("A Plain Title", "Ann Author")).toBe(
+      "A Plain Title. By Ann Author.",
+    );
+    expect(spokenTitle("A Plain Title")).toBe("A Plain Title.");
+    expect(spokenTitle("Why now?", " Ann ")).toBe("Why now? By Ann.");
+    expect(spokenTitle("  Spaced \n title ", "")).toBe("Spaced title.");
+    expect(spokenTitle("", "Ann")).toBe("By Ann.");
+    expect(spokenTitle("", null)).toBe("");
+  });
+});
 
 describe("splitSpoken", () => {
   it("leaves a short text as one part", () => {

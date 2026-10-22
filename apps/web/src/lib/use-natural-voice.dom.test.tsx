@@ -98,7 +98,15 @@ class Utterance {
   constructor(public text: string) {}
 }
 
-function Harness({ content = "prose", clip = source as ClipSource | null }) {
+function Harness({
+  content = "prose",
+  clip = source as ClipSource | null,
+  heading,
+}: {
+  content?: string;
+  clip?: ClipSource | null;
+  heading?: { title: string; author?: string | null };
+}) {
   listen = useListen(
     { current: article },
     "a1",
@@ -106,6 +114,7 @@ function Harness({ content = "prose", clip = source as ClipSource | null }) {
     content,
     "",
     clip ?? undefined,
+    heading,
   );
   return null;
 }
@@ -281,6 +290,115 @@ describe("fetching ahead", () => {
       expect.arrayContaining(["blob:clip-1", "blob:clip-2"]),
     );
     expect(revoked).not.toContain(audio().src);
+  });
+});
+
+describe("skipping while requests are out", () => {
+  async function skippedTwice() {
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    // Items 0 and 1 are out, so both slots are full
+    expect(calls).toHaveLength(2);
+    await act(async () => listen.next());
+    await act(async () => listen.next());
+    expect(listen.index).toBe(2);
+    expect(listen.status).toBe("preparing");
+    expect(calls).toHaveLength(2);
+  }
+
+  it("requests the item skipped to once a late clip behind the voice frees a slot, and plays it", async () => {
+    await skippedTwice();
+    await settle(0);
+    expect(calls.map((c) => c.text)).toContain(paragraphText(2));
+    const target = calls.findIndex((c) => c.text === paragraphText(2));
+    await settle(target);
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(2));
+    // The dropped clip made no object URL that is still held
+    expect(created.length - revoked.length).toBeGreaterThan(0);
+    expect(audio().src).toBe(created.at(-1));
+  });
+
+  it("does the same when the clip behind the voice fails", async () => {
+    await skippedTwice();
+    await act(async () => calls[0].reject(new ConvexError("Rate limited.")));
+    expect(listen.status).toBe("preparing");
+    const target = calls.findIndex((c) => c.text === paragraphText(2));
+    expect(target).toBeGreaterThan(-1);
+    await settle(target);
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(2));
+  });
+
+  it("skips forward twice and back once with requests still out", async () => {
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await act(async () => listen.next());
+    await act(async () => listen.next());
+    await act(async () => listen.previous());
+    expect(listen.index).toBe(1);
+    for (let n = 0; n < 8; n++) {
+      for (const [k, call] of calls.entries())
+        if (!call.settled) await settle(k);
+      if (listen.status === "playing") break;
+    }
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(1));
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("the title", () => {
+  const heading = { title: "A Plain Title", author: "Ann Author" };
+
+  it("opens a listen from the top with the title and author, without lighting a paragraph", async () => {
+    mountArticle(plain(3));
+    await act(async () => root.render(<Harness heading={heading} />));
+    await start(0);
+    expect(calls[0].text).toBe("A Plain Title. By Ann Author.");
+    expect(calls[1].text).toBe(paragraphText(0));
+    expect(pending()).toBeNull();
+    await settle(0);
+    expect(listen.status).toBe("playing");
+    expect(listen.active).toBe(true);
+    expect(speaking()).toBeNull();
+    expect(pending()).toBeNull();
+
+    await settle(1);
+    await ended();
+    await elapse(699);
+    expect(listen.status).toBe("gap");
+    await elapse(2);
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(0));
+  });
+
+  it("says just the title when there is no author, and nothing extra from further down the page", async () => {
+    mountArticle(plain(3));
+    await act(async () =>
+      root.render(<Harness heading={{ title: "Why now?" }} />),
+    );
+    await start(0);
+    expect(calls[0].text).toBe("Why now?");
+    await start(1);
+    expect(calls.at(-2)?.text).not.toBe("Why now?");
+    expect(calls.at(-1)?.text).toBe(paragraphText(2));
+  });
+
+  it("previous from the first paragraph goes back to the title", async () => {
+    mountArticle(plain(3));
+    await act(async () => root.render(<Harness heading={heading} />));
+    await start(0);
+    await settle(0);
+    await settle(1);
+    await act(async () => listen.next());
+    expect(speaking()).toBe(el(0));
+    await act(async () => listen.previous());
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBeNull();
+    expect(audio().src).toBe("blob:clip-1");
   });
 });
 

@@ -11,6 +11,7 @@ import {
   planRevokes,
   previousItem,
   type QueueItem,
+  TITLE_BLOCK,
 } from "./listen-queue";
 import { getArticleBody, getParagraphs } from "./paragraphs";
 import { spokenBlock } from "./spoken-text";
@@ -53,6 +54,8 @@ type ClipEntry =
 interface PlayerEnv {
   paragraphs: () => HTMLElement[];
   clipSource: () => ClipSource;
+  /** The spoken title, said before the first paragraph of a listen from the top. */
+  intro: () => string | undefined;
   publish: (snapshot: PlayerSnapshot) => void;
 }
 
@@ -93,7 +96,8 @@ function createPlayer(env: PlayerEnv) {
 
   function set(next: ListenStatus, error: string | null = null) {
     status = next;
-    const block = queue[playing]?.block ?? null;
+    // The title item is announced as the first paragraph, which it precedes
+    const block = queue[playing] ? Math.max(0, queue[playing].block) : null;
     env.publish(
       next === "idle" || next === "finished"
         ? { status: next, index: null, error: null }
@@ -193,24 +197,33 @@ function createPlayer(env: PlayerEnv) {
     clips.set(i, entry);
     const source = env.clipSource();
     const signal = abort?.signal ?? new AbortController().signal;
+    // Whatever the outcome, a request that ends frees a slot, so the current run
+    // plans again; otherwise a skip made while both slots were full never gets
+    // its own item requested
+    const behind = () => i < playing - KEEP_BEHIND;
     new Promise<Blob>((resolve) => resolve(source(queue[i].text, signal))).then(
       (blob) => {
         // Stop, restart or unmount ran while this was in flight: the result is
         // late, so no object URL is ever made for it
         if (token !== session || clips.get(i) !== entry) return;
-        if (i < playing - KEEP_BEHIND) {
+        if (behind()) {
           clips.delete(i);
-          return;
+        } else {
+          const url = URL.createObjectURL(blob);
+          clips.set(i, { status: "ready", url });
+          if (status === "preparing" && playing === i) play(i, url);
         }
-        const url = URL.createObjectURL(blob);
-        clips.set(i, { status: "ready", url });
-        if (status === "preparing" && playing === i) play(i, url);
         fetchAhead();
       },
       (error: unknown) => {
         if (token !== session || clips.get(i) !== entry) return;
-        clips.set(i, { status: "failed", error });
-        if (status === "preparing" && playing === i) fail(i, error);
+        if (behind()) {
+          clips.delete(i);
+        } else {
+          clips.set(i, { status: "failed", error });
+          if (status === "preparing" && playing === i) fail(i, error);
+        }
+        fetchAhead();
       },
     );
   }
@@ -305,8 +318,9 @@ function createPlayer(env: PlayerEnv) {
       paragraphs = env.paragraphs();
       abort = new AbortController();
       const lang = document.documentElement.lang || "en";
-      queue = buildQueue(paragraphs.map(spokenBlock), Math.max(0, block), lang);
-      const first = firstItemFrom(queue, Math.max(0, block));
+      const from = Math.max(0, block);
+      queue = buildQueue(paragraphs.map(spokenBlock), from, lang, env.intro());
+      const first = firstItemFrom(queue, from === 0 ? TITLE_BLOCK : from);
       if (first === null) {
         teardown();
         set("finished");
@@ -365,18 +379,22 @@ export function useNaturalVoice(
   content: string | undefined,
   contentHtml: string | undefined,
   clipSource: ClipSource | undefined,
+  intro?: string,
 ) {
   const [snapshot, setSnapshot] = useState<PlayerSnapshot>(IDLE);
   const source = useRef(clipSource);
   source.current = clipSource;
   const container = useRef(containerRef);
   container.current = containerRef;
+  const spokenIntro = useRef(intro);
+  spokenIntro.current = intro;
   const player = useRef<ReturnType<typeof createPlayer>>(null);
   player.current ??= createPlayer({
     paragraphs: () => getParagraphs(getArticleBody(container.current.current)),
     clipSource: () =>
       source.current ??
       (() => Promise.reject(new Error("No speech source is wired in."))),
+    intro: () => spokenIntro.current,
     publish: (next) =>
       setSnapshot((prev) =>
         prev.status === next.status &&

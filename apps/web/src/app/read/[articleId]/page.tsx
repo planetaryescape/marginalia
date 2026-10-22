@@ -465,6 +465,8 @@ export default function ReadPage() {
     unitKey,
     article?.content,
     article?.contentHtml,
+    undefined,
+    article ? { title: article.title, author: article.author } : undefined,
   );
   const {
     trackAnnotationOpen,

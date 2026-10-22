@@ -11,6 +11,7 @@ import {
   planRevokes,
   previousItem,
   type QueueItem,
+  TITLE_BLOCK,
 } from "./listen-queue";
 import type { SpokenBlock } from "./spoken-text";
 
@@ -54,6 +55,15 @@ describe("buildQueue", () => {
     // Other blocks keep the normal packing: one part when under 2,000 characters
     expect(queue.filter((i) => i.block === 2)).toHaveLength(1);
     expect(starting.map((i) => i.text).join(" ")).toBe(blocks[1]?.text);
+  });
+
+  it("opens a listen from the top with the title, and not one from further down", () => {
+    const blocks = [prose(0), prose(1)];
+    const top = buildQueue(blocks, 0, "en", "A Title. By Ann.");
+    expect(shape(top)).toEqual(["-1.0", "0.0", "1.0"]);
+    expect(firstItemFrom(top, TITLE_BLOCK)).toBe(0);
+    expect(buildQueue(blocks, 1, "en", "A Title. By Ann.")).toHaveLength(2);
+    expect(buildQueue(blocks, 0, "en")).toHaveLength(2);
   });
 
   it("carries the heading flag onto every part", () => {

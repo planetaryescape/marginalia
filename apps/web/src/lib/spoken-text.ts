@@ -61,6 +61,15 @@ export function spokenBlock(el: HTMLElement): SpokenBlock | null {
   return { text, heading };
 }
 
+/** What opens a listen from the top: "<title>. By <author>.", or just "<title>.". */
+export function spokenTitle(title: string, author?: string | null): string {
+  const named = title.replace(/\s+/g, " ").trim();
+  const by = author?.replace(/\s+/g, " ").trim();
+  if (!named) return by ? `By ${by}.` : "";
+  const sentence = CLOSING_PUNCTUATION.test(named) ? named : `${named}.`;
+  return by ? `${sentence} By ${by}.` : sentence;
+}
+
 function sentencesOf(text: string, lang: string): string[] {
   let segmenter: Intl.Segmenter;
   try {

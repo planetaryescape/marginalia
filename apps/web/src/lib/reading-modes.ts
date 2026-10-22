@@ -8,6 +8,7 @@ import {
   paragraphGeometry,
 } from "./paragraph-geometry";
 import { getArticleBody } from "./paragraphs";
+import { spokenTitle } from "./spoken-text";
 import {
   type ClipSource,
   type ListenStatus,
@@ -119,6 +120,7 @@ export function useListen(
   content?: string,
   contentHtml?: string,
   clipSource?: ClipSource,
+  heading?: { title: string; author?: string | null },
 ) {
   const capabilities = useQuery(api.providerCredentials.capabilities, {});
   const [deviceChosen, setDeviceChosen] = useState(readDeviceChoice);
@@ -138,6 +140,7 @@ export function useListen(
     content,
     contentHtml,
     clipSource,
+    heading ? spokenTitle(heading.title, heading.author) : undefined,
   );
 
   const mode: "natural" | "device" =

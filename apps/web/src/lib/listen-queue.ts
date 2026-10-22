@@ -9,6 +9,8 @@ export interface QueueItem {
   heading: boolean;
 }
 
+/** The title item sits before the first paragraph and belongs to no paragraph. */
+export const TITLE_BLOCK = -1;
 /** The playing item plus this many ahead are kept ready (D-TTS-008). */
 export const LOOKAHEAD = 3;
 export const MAX_IN_FLIGHT = 2;
@@ -19,7 +21,9 @@ export const GAP_AFTER_HEADING_MS = 700;
 const GAP_RESTART_AFTER_SECONDS = 3;
 
 /**
- * The items for a listen that starts at block `start`. Blocks that are skipped
+ * The items for a listen that starts at block `start`. A listen from the top
+ * opens with `intro` (the spoken title) when there is one; it is already short,
+ * so it skips the lead rule. Blocks that are skipped
  * (`null`) give none. The starting block begins with a short lead item so the
  * first sound arrives quickly (D-TTS-023); every other block is packed as usual.
  * Earlier blocks are included, so previous can go back past the start.
@@ -28,8 +32,11 @@ export function buildQueue(
   blocks: readonly (SpokenBlock | null)[],
   start: number,
   lang: string,
+  intro?: string,
 ): QueueItem[] {
   const items: QueueItem[] = [];
+  if (start === 0 && intro)
+    items.push({ block: TITLE_BLOCK, part: 0, text: intro, heading: true });
   blocks.forEach((block, index) => {
     if (!block) return;
     const parts =
