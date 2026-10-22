@@ -81,6 +81,12 @@ export const READER_LIMITS = {
     windowMs: 60 * 60_000,
     message: "Indexing books is paused for an hour to limit spend.",
   },
+  // Clips read aloud (speech.ts), spent with the reader's own key
+  speech: {
+    max: 60,
+    windowMs: 60_000,
+    message: "Listening is paused for a minute to limit requests.",
+  },
 } as const;
 
 export type LimitBucket = keyof typeof READER_LIMITS;
@@ -98,6 +104,7 @@ const bucket = v.union(
   v.literal("alongsideDaily"),
   v.literal("alongsideRetrieval"),
   v.literal("bookIndex"),
+  v.literal("speech"),
 );
 
 /** Spends one request from the reader's bucket; false when it's used up. */

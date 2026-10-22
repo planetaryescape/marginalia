@@ -46,7 +46,7 @@ bun run test
 
 ## Contextual AI
 
-Structured annotation/summary generation uses the AI SDK and Zod schemas. Passage and Library answers stream plain text through Convex HTTP actions. Each reader's own provider keys (OpenRouter, OpenAI or Anthropic) are stored AES-GCM encrypted in `providerCredentials`; `convex/lib/router.ts` decrypts them only inside the action making the call. Model choices are validated against the reader's available models in `convex/lib/providers.ts`, and fallbacks stay within that reader's own models. Embeddings use `text-embedding-3-small` through OpenAI or OpenRouter, with 1536 dimensions across the vector indexes.
+Structured annotation/summary generation uses the AI SDK and Zod schemas. Passage and Library answers stream plain text through Convex HTTP actions. Each reader's own provider keys (OpenRouter, OpenAI or Anthropic) are stored AES-GCM encrypted in `providerCredentials`; `convex/lib/router.ts` decrypts them only inside the action making the call. Model choices are validated against the reader's available models in `convex/lib/providers.ts`, and fallbacks stay within that reader's own models. Embeddings use `text-embedding-3-small` through OpenAI or OpenRouter, with 1536 dimensions across the vector indexes. Read-aloud (`convex/speech.ts`) is the one other call that spends a reader's OpenRouter key: one paragraph goes to OpenRouter's speech endpoint and the MP3 comes back, with nothing stored.
 
 Library context combines article material and the reader's stored activity. Search validates ranked results against the retrieved articles; a model cannot invent an arbitrary result ID. Context assembly lives in `lib/library.ts` and `lib/marginaliaContext.ts`.
 
