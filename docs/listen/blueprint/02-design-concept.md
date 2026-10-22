@@ -139,7 +139,7 @@ The eye lands on the dot and the pause button. The pill sits 24 px above the bot
 ```
 Listening
   Voice
-    ◉ Kokoro · Emma                   plain, clear     about $0.03 an hour   ▶
+    ◉ Kokoro · Heart                  warm, clear      about $0.03 an hour   ▶
     ○ Kokoro · George                 low, steady      about $0.03 an hour   ▶
     ○ Gemini Flash-Lite · Charon      calm, rich       about $0.59 an hour   ▶
     ○ Gemini Flash · Charon           richer still     about $0.89 an hour   ▶

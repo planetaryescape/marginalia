@@ -63,6 +63,6 @@ Don't expand this into "everything audio" without a separate validated problem.
 |---|---|
 | Block | One numbered paragraph of the article (`[data-para]`): a paragraph, list item, heading, quote or caption |
 | Clip | The MP3 of one block, or of one part of a long block, in one voice |
-| Voice | A catalog model plus one of its named voices, such as Kokoro · Emma |
+| Voice | A catalog model plus one of its named voices, such as Kokoro · Heart |
 | Device voice | The browser's Web Speech API voice, today's Listen |
 | Lead | How many clips are synthesized ahead of the one playing (three) |

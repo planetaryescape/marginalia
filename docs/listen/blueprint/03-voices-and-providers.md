@@ -11,7 +11,7 @@ export interface SpeechVoice {
   id: string;            // "openrouter:google/gemini-3.8-flash-lite-tts#Charon"
   model: string;         // OpenRouter model id
   voice: string;         // the provider's voice name
-  name: string;          // "Kokoro · Emma"
+  name: string;          // "Kokoro · Heart"
   character: string;     // one or two words: "calm, clear"
   centsPerHour: number;  // from S2, shown in settings (D-TTS-014)
   instructions: boolean; // whether the model takes `instructions`
@@ -21,7 +21,7 @@ export interface SpeechVoice {
 
 | Model | OpenRouter id | Role | Voice candidates for S1 | `maxChars` |
 |---|---|---|---|---|
-| Kokoro 82M | `hexgrad/kokoro-82m` | Default (D-TTS-021) | `af_heart`, `bf_emma`, `bm_george`, `am_michael` | 2,000 |
+| Kokoro 82M | `hexgrad/kokoro-82m` | Default: `af_heart` (D-TTS-021, D-TTS-024) | the eight sampled in S1, for rung 1b | 2,000 |
 | Gemini 3.8 Flash-Lite TTS | `google/gemini-3.8-flash-lite-tts` | Better | Charon, Sulafat, Iapetus, Schedar | 2,000 |
 | Gemini 3.8 Flash TTS | `google/gemini-3.8-flash-tts` | Richer | the two Flash-Lite winners | 2,000 |
 | Eleven v4 Turbo | `elevenlabs/eleven-v4-turbo` | Best | from S5 | 2,000 |
@@ -40,7 +40,7 @@ Content-Type: application/json
 {
   "model": "hexgrad/kokoro-82m",
   "input": "<the block's spoken text>",
-  "voice": "bf_emma",
+  "voice": "af_heart",
   "response_format": "mp3",
   "instructions": "Read the text exactly as written, word for word, as a calm, attentive narrator reading an essay aloud. Do not add, skip or rephrase anything.",
   "provider": { "data_collection": "deny" }
