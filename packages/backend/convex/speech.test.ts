@@ -8,13 +8,13 @@ import {
 } from "../test/owner";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { speechRequestBody } from "./speech";
 import {
   DEFAULT_SPEECH_VOICE,
   findSpeechVoice,
   SPEECH_VOICES,
 } from "./lib/speechVoices";
 import { READER_LIMITS } from "./limits";
+import { speechRequestBody } from "./speech";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -160,10 +160,7 @@ describe("speech.clip", () => {
       characters: TEXT.length,
       voice: KOKORO,
     });
-    const logged = JSON.stringify([
-      ...log.mock.calls,
-      ...error.mock.calls,
-    ]);
+    const logged = JSON.stringify([...log.mock.calls, ...error.mock.calls]);
     expect(logged).not.toContain(TEXT);
     expect(logged).not.toContain(READER_KEY);
   });
@@ -173,11 +170,16 @@ describe("speech.clip", () => {
     const calls = stubFetch(audio, audio);
 
     await expect(clip({ text: "a".repeat(2000) })).resolves.toBeDefined();
-    await expect(clip({ text: "a".repeat(2001) })).rejects.toThrow(COPY.unreadable);
+    await expect(clip({ text: "a".repeat(2001) })).rejects.toThrow(
+      COPY.unreadable,
+    );
     expect(calls).toHaveLength(1);
   });
 
-  it.each(["", "   \n\t"])("refuses empty text (%j) without calling OpenRouter", async (text) => {
+  it.each([
+    "",
+    "   \n\t",
+  ])("refuses empty text (%j) without calling OpenRouter", async (text) => {
     const { clip } = await setup();
     const calls = stubFetch(audio);
 
@@ -194,16 +196,19 @@ describe("speech.clip", () => {
     expect(calls[0].body.voice).toBe("af_heart");
   });
 
-  it.each(["bm_george", "openrouter:hexgrad/kokoro-82m#bm_george", "constructor", "__proto__", "toString"])(
-    "refuses the voice %s without calling OpenRouter",
-    async (voice) => {
-      const { clip } = await setup();
-      const calls = stubFetch(audio);
+  it.each([
+    "bm_george",
+    "openrouter:hexgrad/kokoro-82m#bm_george",
+    "constructor",
+    "__proto__",
+    "toString",
+  ])("refuses the voice %s without calling OpenRouter", async (voice) => {
+    const { clip } = await setup();
+    const calls = stubFetch(audio);
 
-      await expect(clip({ voice })).rejects.toThrow(COPY.unknownVoice);
-      expect(calls).toHaveLength(0);
-    },
-  );
+    await expect(clip({ voice })).rejects.toThrow(COPY.unknownVoice);
+    expect(calls).toHaveLength(0);
+  });
 
   it("refuses another reader's article without calling OpenRouter", async () => {
     const { t, clip } = await setup();
@@ -244,7 +249,12 @@ describe("speech.clip", () => {
     );
     // The owner has an OpenRouter key and the reader only an OpenAI one
     await saveTestCredential(t, OWNER, "openrouter", OWNER_KEY);
-    await saveTestCredential(t, readerLibraryId, "openai", "sk-openai-reader-fixture-0003");
+    await saveTestCredential(
+      t,
+      readerLibraryId,
+      "openai",
+      "sk-openai-reader-fixture-0003",
+    );
     vi.stubEnv("OPENROUTER_API_KEY", "server-key-fixture-0004");
     const calls = stubFetch(audio);
 
@@ -263,14 +273,19 @@ describe("speech.clip", () => {
           q.eq("userId", readerLibraryId).eq("provider", "openrouter"),
         )
         .unique();
-      if (row) await ctx.db.patch("providerCredentials", row._id, { ciphertext: "AAAA" });
+      if (row)
+        await ctx.db.patch("providerCredentials", row._id, {
+          ciphertext: "AAAA",
+        });
     });
     const calls = stubFetch(audio);
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(clip()).rejects.toThrow(COPY.noKey);
     expect(calls).toHaveLength(0);
-    expect(error).toHaveBeenCalledWith("Couldn't open the saved OpenRouter key");
+    expect(error).toHaveBeenCalledWith(
+      "Couldn't open the saved OpenRouter key",
+    );
   });
 
   it("an unknown voice spends no budget", async () => {
@@ -382,7 +397,13 @@ describe("speech.clip", () => {
   });
 
   it.each([
-    ["a timeout", "timeout", () => { throw new DOMException("The operation timed out.", "TimeoutError"); }],
+    [
+      "a timeout",
+      "timeout",
+      () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      },
+    ],
     ["a network error", "network error", networkError],
   ])("logs %s with its own reason", async (_, reason, failing) => {
     const { clip } = await setup();
@@ -407,7 +428,13 @@ describe("speech.clip", () => {
         throw new DOMException("The operation timed out.", "TimeoutError");
       },
     ],
-    ["an empty body", () => new Response(new Uint8Array(0), { headers: { "content-type": "audio/mpeg" } })],
+    [
+      "an empty body",
+      () =>
+        new Response(new Uint8Array(0), {
+          headers: { "content-type": "audio/mpeg" },
+        }),
+    ],
     ["a non-audio body", () => Response.json({ error: "bad" })],
   ])("retries %s once at once, then says OpenRouter didn't answer", async (_, failing) => {
     const { clip } = await setup();
@@ -434,7 +461,9 @@ describe("speechRequestBody", () => {
     expect(speechRequestBody(kokoro, TEXT)).not.toHaveProperty("instructions");
 
     const withInstructions = { ...kokoro, instructions: true };
-    expect(speechRequestBody(withInstructions, TEXT)).toHaveProperty("instructions");
+    expect(speechRequestBody(withInstructions, TEXT)).toHaveProperty(
+      "instructions",
+    );
   });
 });
 
