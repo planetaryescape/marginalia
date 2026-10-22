@@ -4,6 +4,8 @@
 
 For each, record the request, the response (with private text removed), the date and the conclusion in `docs/research/spikes/`, then update the document it affects. Use a public article, not one from a library.
 
+Kokoro parts of S1–S3 ran on 2026-10-22: [../../research/spikes/2026-10-22-kokoro.md](../../research/spikes/2026-10-22-kokoro.md). S1's voice choice waits on BK (A2).
+
 | # | Question | Why it matters | Affects | Blocks |
 |---|---|---|---|---|
 | S1 | Read the same three public articles (an essay with quotes, a technical post with a list, a piece with numbers and abbreviations) with every catalog model and two or three voices each. Does each read verbatim, with the `instructions` text below where the model takes it, and which voices sound like a good narrator? | Rung 1 needs only the Kokoro part: which Kokoro voice is the default (D-TTS-021). The other models' voices and the verbatim check for Gemini feed the catalog (D-TTS-004). A model that paraphrases or speaks its instructions is broken for an article reader. | [03](03-voices-and-providers.md) | Rung 1 (Kokoro), rung 3 (the rest) |
