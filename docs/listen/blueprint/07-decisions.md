@@ -109,3 +109,8 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Decision:** the default is `af_heart` ("Kokoro · Heart"), picked by ear from the eight S1 samples ([spike](../../research/spikes/2026-10-22-kokoro.md)). Choosing a voice moves forward to rung 1b, as a Kokoro-only list in Settings › Listening with ▶ samples. It needs no cache, because every Kokoro voice costs the same few cents an hour (D-TTS-022).
 - **Changes:** rung 3 no longer carries voice choice. It's only the pricier models and the clip cache they need, and it waits for a reason to want a richer voice than Kokoro (D-TTS-018).
 
+### D-TTS-025: The rung 1 Listen bar follows the approved comp, with a 30% preparing wash. (BK, 2026-10-22)
+- **Decision:** BK approved the rung 1 comp (design gate item 1) with the 30% variant for `--listen-wash-pending`.
+- **Why 30%:** at 20% the wash measured only 1.02–1.04:1 against the page on the light themes, so the "it starts where I am" moment barely showed.
+- **The comp's other resolutions, now part of the design:** one dot that stays through every state (breathing, dim when paused, terracotta on failure, absent with no key); the pill 20 px above the phone bar in every state; the slow-wait pencil line in the space under the pill, so the pill never moves; a pill-specific terracotta and focus ring for contrast in Sepia and Dusk; and the failed paragraph keeping the preparing wash.
+

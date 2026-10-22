@@ -49,7 +49,7 @@ stop (any state) ──▶ idle
 ```
 
 - **Gap.** Between blocks the player waits `--listen-gap` (350 ms, 700 ms after a heading), divided by the speed. Parts of one block play with no added gap. When `document.hidden`, the gap is skipped and the next `src` is set inside the `ended` handler, because background timers are throttled; the silence at the ends of each clip is pause enough (S4).
-- **Highlight.** `data-speaking` moves to the item's block on `playing`, not when the request starts. While preparing, the block gets `data-speaking-pending` (the 20% wash in [02](02-design-concept.md#visual-language)).
+- **Highlight.** `data-speaking` moves to the item's block on `playing`, not when the request starts. While preparing, the block gets `data-speaking-pending` (the 30% wash in [02](02-design-concept.md#visual-language)).
 - **Previous.** Restarts the current block if `currentTime` is over 3 s, else goes to the previous block's first item.
 - **Next.** Goes to the next block's first item.
 - **Pause.** `audio.pause()`; resume continues mid-clip, unlike today's Web Speech pause.

@@ -58,7 +58,7 @@ The bar exists only while the voice is reading or paused. Settings is where the 
 
 | Moment | What the person should feel | What makes it land |
 |---|---|---|
-| Pressing Listen | "It starts where I am." | The paragraph at the reading line takes a faint highlighter wash at once (20% instead of 60%). The pill rises 12 px over `--motion-quick`. Its dot breathes slowly while the first clip is made. When the voice starts, the wash deepens to 60% over 300 ms, in time with the first word. |
+| Pressing Listen | "It starts where I am." | The paragraph at the reading line takes a faint highlighter wash at once (30% instead of 60%). The pill rises 12 px over `--motion-quick`. Its dot breathes slowly while the first clip is made. When the voice starts, the wash deepens to 60% over 300 ms, in time with the first word. |
 | The voice moving on | "Someone is reading to me." | The highlighter cross-fades from one paragraph to the next over 300 ms as the new clip starts, not before. A natural pause of about 350 ms sits between paragraphs, longer after a heading. |
 | Scrolling away | "I can look around without losing my place." | Following stops at the first scroll of your own. **Follow** fades into the pill's left end. The highlight stays where the voice is. |
 | Follow | "Back with the voice." | The page eases the speaking paragraph to 40% down the viewport (the reading line) over `--motion-move`, and Follow fades out. |
@@ -76,7 +76,7 @@ Inherits every token from the design blueprint. Listen adds:
 | Token | Value | Use |
 |---|---|---|
 | `--listen-wash` | `--highlighter` at 60% (today's value) | The speaking paragraph |
-| `--listen-wash-pending` | `--highlighter` at 20% | The paragraph waiting for its first clip |
+| `--listen-wash-pending` | `--highlighter` at 30% (D-TTS-025) | The paragraph waiting for its first clip |
 | `--listen-gap` | 350 ms; 700 ms after a heading | Silence between clips. Shorter at higher speeds (divided by `playbackRate`) |
 
 The pill keeps `.reader-float` and today's shape: full radius, `--type-meta` for "Listening" and `--type-label` mono for `¶n/total` and the speed. Icons are Lucide at 14 px inside 32 px targets (44 px on touch). The voice name doesn't appear in the pill, because the voice is chosen once, not watched.
