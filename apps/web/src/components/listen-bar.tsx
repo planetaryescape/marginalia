@@ -1,8 +1,27 @@
 "use client";
-import { AnimatePresence, motion } from "framer-motion";
 import { Pause, Play, SkipBack, SkipForward, Square, X } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import type { ListenStatus } from "@/lib/use-natural-voice";
+
+/** How long the pill waits on one paragraph before it says so. */
+export const SLOW_WAIT_MS = 4000;
+
+interface View {
+  kind: "listening" | "failed" | "nokey";
+  status: ListenStatus;
+  index: number | null;
+  total: number;
+  error: string | null;
+  deviceSupported: boolean;
+}
+
+function dotMode(view: View) {
+  if (view.kind === "failed") return "failed";
+  if (view.kind === "nokey") return "none";
+  if (view.status === "paused") return "paused";
+  return view.status === "preparing" ? "preparing" : "playing";
+}
 
 export function ListenBar({
   status,
@@ -31,109 +50,181 @@ export function ListenBar({
   onRetry: () => void;
   onUseDeviceVoice: () => void;
 }) {
-  const button =
-    "w-8 h-8 flex items-center justify-center rounded-full opacity-75 hover:opacity-100 hover:bg-white/10 transition";
-  const textButton =
-    "px-2 h-8 rounded-full text-[12.5px] opacity-75 hover:opacity-100 hover:bg-white/10 transition";
-  const paused = status === "paused";
-  const failed = status === "failed";
-  const visible = needsKey || index !== null;
+  const open = needsKey || index !== null;
+  // The pill sinks away still showing what it last said, not an empty shell
+  const lastView = useRef<View | null>(null);
+  if (open) {
+    lastView.current = {
+      kind: needsKey ? "nokey" : status === "failed" ? "failed" : "listening",
+      status,
+      index,
+      total,
+      error,
+      deviceSupported,
+    };
+  }
+  const view = lastView.current;
+
+  const [slow, setSlow] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new paragraph restarts the wait
+  useEffect(() => {
+    setSlow(false);
+    if (status !== "preparing") return;
+    const timer = setTimeout(() => setSlow(true), SLOW_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [status, index]);
+
+  if (!view) return null;
+  const waiting = open && slow && status === "preparing";
+  const paused = view.status === "paused";
+  const number = (view.index ?? 0) + 1;
+
   return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 12 }}
-          style={{ x: "-50%" }}
-          className="fixed bottom-6 left-1/2 z-40 flex items-center gap-1 pl-4 pr-1.5 py-1.5 rounded-full font-sans reader-float shadow-[0_10px_30px_-8px_rgba(0,0,0,0.5)]"
+    <div className="listen-wrap" data-open={open || undefined}>
+      <div className="listen-anchor">
+        <div
+          className="listen-pill reader-float"
+          data-kind={view.kind}
           role="region"
-          aria-label="Listening"
+          aria-label={
+            view.kind === "failed"
+              ? "Listening stopped"
+              : view.kind === "nokey"
+                ? "Listening needs a voice"
+                : "Listening"
+          }
         >
-          {needsKey ? (
-            <>
-              <Link
-                href="/account"
-                target="_blank"
-                rel="noopener"
-                className={`${textButton} flex items-center mr-1`}
-              >
-                Natural voice: add an OpenRouter key
-              </Link>
-              {deviceSupported && (
-                <button className={textButton} onClick={onUseDeviceVoice}>
-                  Use device voice
-                </button>
-              )}
-              <button className={button} onClick={onStop} aria-label="Dismiss">
-                <X size={14} />
-              </button>
-            </>
-          ) : (
-            <>
-              <span
-                className="flex items-center gap-2 mr-2 text-[12.5px]"
-                role={failed ? "alert" : undefined}
-              >
+          <span
+            className="listen-dot"
+            data-mode={dotMode(view)}
+            aria-hidden="true"
+          />
+          <div className="listen-body" key={view.kind}>
+            {view.kind === "listening" && (
+              <>
+                <span className="listen-label">Listening</span>
                 <span
-                  className="listen-pulse w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background: failed ? "var(--danger)" : "var(--ink)",
-                  }}
-                  data-paused={paused || failed || undefined}
-                />
-                {failed ? (
-                  (error ?? "The voice stopped.")
-                ) : (
-                  <>
-                    Listening
-                    <span className="font-mono text-[11px] opacity-60 tabular-nums">
-                      ¶{(index ?? 0) + 1}/{total}
-                    </span>
-                  </>
-                )}
-              </span>
-              {failed ? (
-                <button className={textButton} onClick={onRetry}>
-                  Retry
-                </button>
-              ) : (
-                <>
+                  role="img"
+                  className="listen-count"
+                  aria-label={`Paragraph ${number} of ${view.total}`}
+                >
+                  ¶{number}/{view.total}
+                </span>
+                <span className="listen-controls">
                   <button
-                    className={button}
+                    type="button"
+                    className="listen-btn"
                     onClick={onPrevious}
                     aria-label="Previous paragraph"
-                    disabled={index === 0}
+                    disabled={view.index === 0}
                   >
                     <SkipBack size={14} />
                   </button>
                   <button
-                    className={button}
+                    type="button"
+                    className="listen-btn"
+                    data-primary=""
                     onClick={onTogglePause}
                     aria-label={paused ? "Resume" : "Pause"}
                   >
                     {paused ? <Play size={14} /> : <Pause size={14} />}
                   </button>
                   <button
-                    className={button}
+                    type="button"
+                    className="listen-btn"
                     onClick={onNext}
                     aria-label="Next paragraph"
                   >
                     <SkipForward size={14} />
                   </button>
-                </>
-              )}
-              <button
-                className={button}
-                onClick={onStop}
-                aria-label="Stop listening"
-              >
-                <Square size={12} />
-              </button>
-            </>
-          )}
-        </motion.div>
-      )}
-    </AnimatePresence>
+                  <i className="listen-sep" />
+                  <button
+                    type="button"
+                    className="listen-btn"
+                    data-quiet=""
+                    onClick={onStop}
+                    aria-label="Stop listening"
+                  >
+                    <Square size={14} />
+                  </button>
+                </span>
+              </>
+            )}
+            {view.kind === "failed" && (
+              <>
+                <span className="listen-msg" role="alert">
+                  {view.error ?? "The voice stopped."}
+                </span>
+                <button
+                  type="button"
+                  className="listen-link"
+                  data-strong=""
+                  onClick={onRetry}
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  className="listen-btn"
+                  data-quiet=""
+                  onClick={onStop}
+                  aria-label="Stop listening"
+                >
+                  <Square size={14} />
+                </button>
+              </>
+            )}
+            {view.kind === "nokey" && (
+              <span className="listen-nokey">
+                <Link
+                  href="/account"
+                  target="_blank"
+                  rel="noopener"
+                  title="Opens Your account"
+                  className="listen-link"
+                  data-strong=""
+                >
+                  Natural voice: add an OpenRouter key
+                </Link>
+                {view.deviceSupported && (
+                  <>
+                    <span className="listen-nokey-mid" aria-hidden="true">
+                      ·
+                    </span>
+                    <button
+                      type="button"
+                      className="listen-link"
+                      onClick={onUseDeviceVoice}
+                    >
+                      Use device voice
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="listen-btn"
+                  data-quiet=""
+                  onClick={onStop}
+                  aria-label="Dismiss"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+          </div>
+        </div>
+        <div
+          className="listen-pencil"
+          role="status"
+          aria-live="polite"
+          data-show={waiting || undefined}
+        >
+          <svg viewBox="0 0 72 14" aria-hidden="true">
+            <path d="M0.65 8 C 9.8 1, 16.4 13, 26.2 6 S 42.5 1, 52.3 8 S 65.4 11, 71.3 5" />
+          </svg>
+          <span>{waiting ? "Still preparing this paragraph." : ""}</span>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -119,6 +119,7 @@ import { useReaderPreviews } from "@/lib/use-reader-previews";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import { useSavedAnswerBody } from "@/lib/use-saved-answer-body";
 import { useScriptureStudy } from "@/lib/use-scripture-study";
+import { useSpeechClip } from "@/lib/use-speech-clip";
 import {
   marginNotesPending,
   useStartAnnotation,
@@ -459,13 +460,14 @@ export default function ReadPage() {
     },
     [sourceArticle?.bible, closeStudy],
   );
+  const speechClip = useSpeechClip(articleKey);
   const listen = useListen(
     articleRef,
     articleId,
     unitKey,
     article?.content,
     article?.contentHtml,
-    undefined,
+    speechClip,
     article ? { title: article.title, author: article.author } : undefined,
   );
   const {

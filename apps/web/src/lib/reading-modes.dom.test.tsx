@@ -21,7 +21,9 @@ function Harness({
   content = "Original prose",
   progress = 0,
 }) {
-  listen = useListen({ current: article }, "article-1", unit, content, "");
+  listen = useListen({ current: article }, "article-1", unit, content, "", () =>
+    Promise.reject(new Error("device mode never asks for a clip")),
+  );
   return <output>{progress}</output>;
 }
 beforeEach(() => {

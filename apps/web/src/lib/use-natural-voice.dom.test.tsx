@@ -100,11 +100,11 @@ class Utterance {
 
 function Harness({
   content = "prose",
-  clip = source as ClipSource | null,
+  clip = source,
   heading,
 }: {
   content?: string;
-  clip?: ClipSource | null;
+  clip?: ClipSource;
   heading?: { title: string; author?: string | null };
 }) {
   listen = useListen(
@@ -113,7 +113,7 @@ function Harness({
     "u1",
     content,
     "",
-    clip ?? undefined,
+    clip,
     heading,
   );
   return null;
@@ -620,6 +620,29 @@ describe("stale audio events and promises", () => {
   });
 });
 
+describe("finishing", () => {
+  it("fades the last highlight over 600 ms instead of dropping it, and clears the fade for the next listen", async () => {
+    mountArticle(plain(2));
+    await act(async () => root.render(<Harness />));
+    await start(1);
+    await settle(0);
+    expect(speaking()).toBe(el(1));
+    await ended();
+    expect(listen.status).toBe("finished");
+    expect(speaking()).toBeNull();
+    expect(el(1).hasAttribute("data-fading")).toBe(true);
+    await elapse(801);
+    expect(el(1).hasAttribute("data-fading")).toBe(false);
+
+    await start(1);
+    await settle(calls.length - 1);
+    await ended();
+    expect(el(1).hasAttribute("data-fading")).toBe(true);
+    await start(0);
+    expect(el(1).hasAttribute("data-fading")).toBe(false);
+  });
+});
+
 describe("gaps", () => {
   async function through(tags: string[], paragraphs = plain(3)) {
     mountArticle(paragraphs, tags);
@@ -820,11 +843,5 @@ describe("choosing a voice", () => {
     await act(async () => root.render(<Harness />));
     await start(0);
     expect(calls).toHaveLength(2);
-  });
-
-  it("falls back to the device voice only where there is no clip source at all", async () => {
-    mountArticle(plain());
-    await act(async () => root.render(<Harness clip={null} />));
-    expect(listen.mode).toBe("device");
   });
 });

@@ -110,16 +110,14 @@ function writeDeviceChoice() {
  * Reads the article aloud. Natural voices (the reader's OpenRouter key, through
  * `clipSource`) are used when the key is saved; the device voice is a named
  * fallback the reader chooses, never one we switch to on failure (D-TTS-013).
- * Without a `clipSource` there is no natural voice to offer, so the device
- * voice stays as today.
  */
 export function useListen(
   containerRef: React.RefObject<HTMLElement | null>,
-  articleId?: string,
-  unitKey?: string | null,
-  content?: string,
-  contentHtml?: string,
-  clipSource?: ClipSource,
+  articleId: string | undefined,
+  unitKey: string | null | undefined,
+  content: string | undefined,
+  contentHtml: string | undefined,
+  clipSource: ClipSource,
   heading?: { title: string; author?: string | null },
 ) {
   const capabilities = useQuery(api.providerCredentials.capabilities, {});
@@ -143,8 +141,7 @@ export function useListen(
     heading ? spokenTitle(heading.title, heading.author) : undefined,
   );
 
-  const mode: "natural" | "device" =
-    deviceChosen || !clipSource ? "device" : "natural";
+  const mode: "natural" | "device" = deviceChosen ? "device" : "natural";
   // While the capabilities load we try the natural voice; a missing key then
   // arrives as the server's own sentence in the failed state
   const missingKey =

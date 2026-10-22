@@ -61,10 +61,11 @@ interface PlayerEnv {
 
 function clearMarks() {
   for (const el of document.querySelectorAll(
-    "[data-speaking], [data-speaking-pending]",
+    "[data-speaking], [data-speaking-pending], [data-fading]",
   )) {
     el.removeAttribute("data-speaking");
     el.removeAttribute("data-speaking-pending");
+    el.removeAttribute("data-fading");
   }
 }
 
@@ -93,6 +94,7 @@ function createPlayer(env: PlayerEnv) {
   let scrolledBlock = -1;
   /** Counts pauses, so a play() that began before one doesn't announce "playing" after it. */
   let pauses = 0;
+  let fadeTimer: ReturnType<typeof setTimeout> | undefined;
 
   function set(next: ListenStatus, error: string | null = null) {
     status = next;
@@ -124,8 +126,7 @@ function createPlayer(env: PlayerEnv) {
     if (loaded === null || audio?.src !== loaded) return;
     const next = playing + 1;
     if (next >= queue.length) {
-      teardown();
-      set("finished");
+      finishRun();
       return;
     }
     const wait = gapAfter(queue, playing, document.hidden);
@@ -139,6 +140,17 @@ function createPlayer(env: PlayerEnv) {
       resume = null;
       begin(next);
     }, wait);
+  }
+
+  /** The end of a listen: the last highlight fades over 600 ms instead of vanishing. */
+  function finishRun() {
+    const last = document.querySelector("[data-speaking]");
+    teardown();
+    if (last) {
+      last.setAttribute("data-fading", "");
+      fadeTimer = setTimeout(() => last.removeAttribute("data-fading"), 800);
+    }
+    set("finished");
   }
 
   function onError() {
@@ -176,6 +188,7 @@ function createPlayer(env: PlayerEnv) {
     abort?.abort();
     abort = null;
     clearTimeout(gapTimer);
+    clearTimeout(fadeTimer);
     resume = null;
     loaded = null;
     if (audio) {
@@ -355,10 +368,8 @@ function createPlayer(env: PlayerEnv) {
     next() {
       if (playing < 0) return;
       const target = nextBlockItem(queue, playing);
-      if (target === null) {
-        teardown();
-        set("finished");
-      } else jump(target);
+      if (target === null) finishRun();
+      else jump(target);
     },
     previous() {
       if (playing < 0) return;
@@ -378,7 +389,7 @@ export function useNaturalVoice(
   unitKey: string | null | undefined,
   content: string | undefined,
   contentHtml: string | undefined,
-  clipSource: ClipSource | undefined,
+  clipSource: ClipSource,
   intro?: string,
 ) {
   const [snapshot, setSnapshot] = useState<PlayerSnapshot>(IDLE);
@@ -391,9 +402,7 @@ export function useNaturalVoice(
   const player = useRef<ReturnType<typeof createPlayer>>(null);
   player.current ??= createPlayer({
     paragraphs: () => getParagraphs(getArticleBody(container.current.current)),
-    clipSource: () =>
-      source.current ??
-      (() => Promise.reject(new Error("No speech source is wired in."))),
+    clipSource: () => source.current,
     intro: () => spokenIntro.current,
     publish: (next) =>
       setSnapshot((prev) =>
