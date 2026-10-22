@@ -24,7 +24,7 @@ Verify these through [the reader guide](docs/reader-guide.md), the desk-layout t
 
 ## Implemented capabilities
 
-- Reading: extracted article content, adjustable typography, themes, focus mode, paragraph navigation and browser speech synthesis.
+- Reading: extracted article content, adjustable typography, themes, focus mode, paragraph navigation and Listen with natural voices through the reader's own OpenRouter key (the browser's speech synthesis stays as a named fallback the reader chooses).
 - Context: cross-reference, context, tension and question annotations; passage Explain/Simplify/Define/Ask; whole-article questions; summaries and idea maps.
 - Memory: highlights, pen marks, notes, annotation reflections, saved companion conversations, loved articles and revisit scheduling.
 - Library: semantic retrieval, conversational answers and explained search results.

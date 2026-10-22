@@ -34,7 +34,7 @@ Rate the article in the impression panel at its end, with `r`, or from **More ac
 
 Open settings with `,`. Choose paper/sepia/snow or dark palettes, or Auto to follow the operating system. Adjust the font, size, spacing, width, alignment, paragraph style, drop cap, pen and highlighter. Appearance preferences are stored in this browser, not synchronized across devices.
 
-Focus mode, paragraph numbers and the annotation map are optional. Listen uses the browser's speech synthesis; voices and availability depend on your device. Answer length, level, depth and web-search policy influence AI responses. Each reader picks the models for annotations, quick answers and deep answers under **Models** in these settings, from the providers their saved keys reach.
+Focus mode, paragraph numbers and the annotation map are optional. Listen reads the article aloud from the paragraph at the reading line. With an OpenRouter key saved under **Your account**, it uses a natural voice made through that key, and each paragraph is billed to the key, at roughly three cents an hour of speech. Without a key, Listen offers a choice: add one, or use the device voice, which is your browser's speech synthesis (voices and availability depend on your device). The device voice is never used unless you choose it, and a failed natural voice shows its reason with Retry instead of switching. Skipping and pausing work by paragraph, and pausing mid-sentence resumes mid-sentence with a natural voice. Answer length, level, depth and web-search policy influence AI responses. Each reader picks the models for annotations, quick answers and deep answers under **Models** in these settings, from the providers their saved keys reach.
 
 ## Main navigation
 

@@ -61,7 +61,7 @@ stop (any state) ──▶ idle
 
 `toggleListen` keeps its current start point: `position.current ?? position.firstVisible ?? 0`.
 
-Time to first sound is the clip time for the first item (S3). If S3 shows over 2 seconds for a typical first block, the first item is limited to its first sentence, and the rest of that block becomes its second item. That costs a slightly worse cache key on the first block only.
+Time to first sound is the clip time for the first item (S3). S3 showed Kokoro taking 1.1–2.7 s for a 450–550-character block and about 4 s for 2,000, so the first item of a listen is the starting block's leading sentences, packed up to 300 characters (always at least one sentence), and the rest of that block follows as its next item or items. Every other block is packed normally, up to 2,000 characters (D-TTS-023). That costs a slightly worse cache key on the starting block only, and only from rung 3.
 
 The first `audio.play()` call happens inside the Listen click or keypress, before any await, with a silent data URL, so mobile browsers count the element as user-activated for the rest of the session.
 

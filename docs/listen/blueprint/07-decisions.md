@@ -104,6 +104,11 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Why:** with Kokoro, a cached replay saves a fraction of a cent. The cache is a table, stored files, a cron, deletion paths and storage budgeting, which costs more to build and run than it saves. For voices at $0.59–$2.16 an hour it pays for itself again.
 - **Limit that makes it safe:** a 2,000-character clip is about two minutes of audio, roughly 1 MB at 64 kbps, well under Convex's 16 MiB return limit.
 
+### D-TTS-023: The first item of a listen is a short lead. (S3 spike, 2026-10-22)
+- **Decision:** the first item is the starting block's leading sentences, packed up to 300 characters and never fewer than one sentence. The rest of that block follows as its next item or items. Other blocks use the normal packing of at most 2,000 characters.
+- **Why:** S3 measured Kokoro through OpenRouter from the UK: 300 characters took 0.9–1.4 s, 450–550 characters 1.1–2.7 s, 2,000 characters 3.8–4.2 s. Time to first sound is the clip time of the first item, and the target is about 2 s.
+- **Cost:** the starting block is split differently from how it would be on a later listen, which matters for the clip cache from rung 3 (a worse cache key on that block only).
+
 ### D-TTS-024: The default voice is Kokoro Heart, and readers choose among Kokoro voices in Settings. (BK, 2026-10-22)
 - **BK said:** "default voice is heart. but you can put voice seleection settings in settings"
 - **Decision:** the default is `af_heart` ("Kokoro · Heart"), picked by ear from the eight S1 samples ([spike](../../research/spikes/2026-10-22-kokoro.md)). Choosing a voice moves forward to rung 1b, as a Kokoro-only list in Settings › Listening with ▶ samples. It needs no cache, because every Kokoro voice costs the same few cents an hour (D-TTS-022).
@@ -113,4 +118,3 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Decision:** BK approved the rung 1 comp (design gate item 1) with the 30% variant for `--listen-wash-pending`.
 - **Why 30%:** at 20% the wash measured only 1.02–1.04:1 against the page on the light themes, so the "it starts where I am" moment barely showed.
 - **The comp's other resolutions, now part of the design:** one dot that stays through every state (breathing, dim when paused, terracotta on failure, absent with no key); the pill 20 px above the phone bar in every state; the slow-wait pencil line in the space under the pill, so the pill never moves; a pill-specific terracotta and focus ring for contrast in Sepia and Dusk; and the failed paragraph keeping the preparing wash.
-
