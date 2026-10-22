@@ -14,20 +14,20 @@
 | # | Action | Needed by |
 |---|---|---|
 | A1 | BK confirms his OpenRouter key has credit for the spikes (a few dollars covers all of them) | S1 |
-| A2 | BK sets aside 10 minutes to listen to the Kokoro samples from S1 and pick the default voice (D-TTS-021) | Rung 1 |
+| A2 | ~~BK sets aside 10 minutes to listen to the Kokoro samples from S1 and pick the default voice~~ Done 2026-10-22: Kokoro · Heart (D-TTS-024) | Rung 1 |
 
 Spikes S1, S2 and S3 gate rung 1. S4 gates rung 2. S5 gates rung 3 ([08](08-open-questions.md)). The spike scripts call OpenRouter directly with `curl` or a short Bun script, read the key with `op read`, and save samples outside the repo, because the repo is public.
 
 ## Rung 1: Skateboard: "I press Listen and a person reads me the article"
 
-**Previously:** a device voice, often robotic. **Now:** Kokoro, in the voice BK picked, starting where he is reading, following paragraph by paragraph, for about 3 cents an hour.
+**Previously:** a device voice, often robotic. **Now:** Kokoro · Heart, the voice BK picked (D-TTS-024), starting where he is reading, following paragraph by paragraph, for about 3 cents an hour.
 
 **Promise:** "I opened an article, pressed L, and it sounded like a narrator, not a machine."
 
 **Build:**
 
 - `speech.clip` returning MP3 bytes, with no cache, and the `speech` budget ([04](04-synthesis-and-cache.md#rung-1-returns-the-audio-rung-3-adds-the-cache); D-TTS-006, D-TTS-016, D-TTS-022).
-- The catalog with the Kokoro voice from S1 only, and the request with `data_collection: "deny"` ([03](03-voices-and-providers.md); D-TTS-015, D-TTS-021).
+- The catalog with Kokoro · Heart only, and the request with `data_collection: "deny"` ([03](03-voices-and-providers.md); D-TTS-015, D-TTS-021).
 - `spoken-text.ts` with its fixtures (D-TTS-011).
 - `listen-queue.ts` and `use-natural-voice.ts`: queue, lead of three, one audio element, highlight, previous, next, pause, stop, finish, failure and Retry ([05](05-player.md); D-TTS-008, D-TTS-009).
 - `device-voice.ts` moved verbatim, and the no-key choice in the bar (D-TTS-013).
@@ -48,6 +48,30 @@ Spikes S1, S2 and S3 gate rung 1. S4 gates rung 2. S5 gates rung 3 ([08](08-open
 - The design gate passes ([02](02-design-concept.md#the-design-gate)), items 1, 2, 4 and 5.
 
 **Left out:** lock screen, speed, Follow, choosing a voice.
+
+## Rung 1b: "I choose the Kokoro voice I like by hearing it"
+
+**Previously:** everyone hears Kokoro · Heart. **Now:** Settings › Listening lists the Kokoro voices from S1, each with a ▶ sample, and the choice follows the reader across devices (D-TTS-024).
+
+**Promise:** "I played three voices on the paragraph I was reading and picked the one I like."
+
+**Build:**
+
+- The catalog gains the eight S1 voices (`af_heart`, `af_bella`, `am_michael`, `am_fenrir`, `bf_emma`, `bf_isabella`, `bm_george`, `bm_fable`), each with a one- or two-word character written after listening.
+- `userSettings.speechVoice` and its mutation, validated against the catalog. A stored ID that's no longer in the catalog falls back to the default ([03](03-voices-and-providers.md#settings--listening)).
+- Settings › Listening: the voice radio list with ▶ samples and the note. There's no cost column, because every Kokoro voice costs the same; the note says "about 3 cents an hour". Speed joins this section in rung 2.
+- A sample synthesizes the open article's current paragraph, or a fixed sentence with no article open, through `speech.clip` with the `voice` argument. There's no cache (D-TTS-022).
+- A voice change mid-listen ([05](05-player.md#fetching-ahead)).
+
+**Design:** the Listening section in the settings form pattern, and the sample's play and stop. The moment to get right is hearing a voice before choosing it.
+
+**New unknowns:** none beyond rung 1.
+
+**Demo:** open settings in an article, play three samples, choose Bella, close settings while listening: the next paragraph is in Bella. On the phone, the choice is already Bella.
+
+**Done when:** the demo runs on the deployed app on desktop and phone, and the design gate passes for the settings section.
+
+**Left out:** speed, lock screen and Follow (rung 2); pricier models (rung 3).
 
 ## Rung 2: Scooter: "I lock my phone and keep listening"
 
@@ -74,24 +98,24 @@ Spikes S1, S2 and S3 gate rung 1. S4 gates rung 2. S5 gates rung 3 ([08](08-open
 - The demo runs on BK's iPhone in the installed PWA and in Safari, and on an Android phone in Chrome.
 - The full design gate passes, including item 3: five minutes listened with the screen locked.
 
-**Left out:** choosing a voice.
+**Left out:** pricier voices.
 
-## Rung 3: Bicycle: "I choose the voice I like by hearing it"
+## Rung 3: Bicycle: "I can pick a richer voice than Kokoro"
 
-**Previously:** Kokoro for everyone. **Now:** Settings › Listening with the curated catalog, samples and cost per hour, and a clip cache so the pricier voices are paid for once.
+Not planned until there's a reason to want more than Kokoro (D-TTS-024). Voice choice itself shipped in rung 1b.
 
-**Promise:** "I tried three voices on the paragraph I was reading and picked the one I'd happily listen to for an hour."
+**Previously:** Kokoro voices only. **Now:** the Gemini and ElevenLabs voices join Settings › Listening with their cost per hour, and a clip cache means the pricier voices are paid for once.
+
+**Promise:** "I tried a Gemini voice beside Kokoro on the paragraph I was reading, and the replay cost nothing."
 
 **Build:**
 
-- The full catalog with S1's voices and S2's rates (D-TTS-004, D-TTS-014).
+- The Gemini and ElevenLabs catalog entries, with the rest of S1 and S2's rates for them (D-TTS-004, D-TTS-014).
 - The clip cache: `speechClips`, `speech.cachedClip`, the URL-returning `speech.clip`, the retention job, and deletion with articles and accounts ([04](04-synthesis-and-cache.md); D-TTS-007, D-TTS-022). Ask BK Q5 first.
-- `userSettings.speechVoice` and its mutation, validated against the catalog.
-- Settings › Listening: voice radio list with samples, speed slider, note ([03](03-voices-and-providers.md#settings--listening)).
-- A voice change mid-listen ([05](05-player.md#fetching-ahead)).
+- The cost column in Settings › Listening, and its note ("Clips are kept 30 days so replays are free") ([03](03-voices-and-providers.md#settings--listening)).
 - Models that lose all providers under `data_collection: "deny"` shown as unavailable (S5, D-TTS-015).
 
-**Design:** the Listening section in the settings form pattern; the sample's play and stop. The moment to get right is hearing a voice before choosing it.
+**Design:** the cost column in the voice list. Cost is shown once, where the voice is chosen (D-TTS-014).
 
 **New unknowns:** ElevenLabs voice names through OpenRouter (S5); clip storage and serving from Convex.
 
@@ -100,7 +124,6 @@ Spikes S1, S2 and S3 gate rung 1. S4 gates rung 2. S5 gates rung 3 ([08](08-open
 **Done when:**
 
 - The demo runs on the deployed app on desktop and phone.
-- The chosen voice follows BK from desktop to phone.
 - The design gate passes for the settings section.
 
 **Left out:** everything in "After the bicycle".

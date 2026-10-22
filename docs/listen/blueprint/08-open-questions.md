@@ -4,7 +4,7 @@
 
 For each, record the request, the response (with private text removed), the date and the conclusion in `docs/research/spikes/`, then update the document it affects. Use a public article, not one from a library.
 
-Kokoro parts of S1–S3 ran on 2026-10-22: [../../research/spikes/2026-10-22-kokoro.md](../../research/spikes/2026-10-22-kokoro.md). S1's voice choice waits on BK (A2).
+Kokoro parts of S1–S3 ran on 2026-10-22: [../../research/spikes/2026-10-22-kokoro.md](../../research/spikes/2026-10-22-kokoro.md). BK picked Kokoro · Heart from the samples (D-TTS-024).
 
 | # | Question | Why it matters | Affects | Blocks |
 |---|---|---|---|---|

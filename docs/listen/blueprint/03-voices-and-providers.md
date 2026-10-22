@@ -28,7 +28,7 @@ export interface SpeechVoice {
 
 Every model gets the same 2,000-character block cap, even where a model takes more, because the cap also bounds the wait for one clip and the cost of one failure (D-TTS-006). Kokoro's 4,096-token limit sits comfortably above it.
 
-Each model keeps two or three voices after S1. A voice survives S1 only if it reads all three test articles verbatim and sounds like a narrator, not an announcer or an assistant. Rung 1 ships Kokoro alone, with the voice BK picks in S1 (D-TTS-021). The other three arrive in rung 3. If Gemini Flash-Lite fails the verbatim test, Voxtral 3 (`mistralai/voxtral-mini-tts-3-0`, about $0.70 an hour) takes its place in the catalog.
+Each model keeps two or three voices after S1. A voice survives S1 only if it reads all three test articles verbatim and sounds like a narrator, not an announcer or an assistant. Rung 1 ships Kokoro · Heart alone, BK's pick from S1 (D-TTS-024). Rung 1b adds the other S1 Kokoro voices to Settings. The other three arrive in rung 3. If Gemini Flash-Lite fails the verbatim test, Voxtral 3 (`mistralai/voxtral-mini-tts-3-0`, about $0.70 an hour) takes its place in the catalog.
 
 ## The request
 
@@ -78,7 +78,7 @@ The device voice keeps today's `pickVoice()` unchanged. It's a fallback, and pol
 A new section in reader settings, below Models, built with the design blueprint's settings form pattern ([02](02-design-concept.md#settings--listening) has the layout and feel):
 
 - **Voice.** A radio list of the catalog voices. Each row has its name, character, cost per hour and a ▶ sample. The choice is stored as `speechVoice` (a catalog `id`) in `userSettings`, beside `annotationModel`, `quickModel` and `deepModel`, because it's an account choice that should follow the reader across devices. A stored ID that's no longer in the catalog falls back to the default.
-- **Sample.** ▶ synthesizes the open article's current paragraph, or a fixed sentence when no article is open, and plays it in the settings panel. Samples go through the same action and cache as listening, so a second press is free. (Settings arrive in rung 3, with the cache.)
+- **Sample.** ▶ synthesizes the open article's current paragraph, or a fixed sentence when no article is open, and plays it in the settings panel. Samples go through the same action and cache as listening, so a second press is free. (Settings arrive in rung 1b with the Kokoro voices and no cache; from rung 3 samples are cached like everything else, D-TTS-024.)
 - **Speed.** A slider from 0.8× to 2× in 0.05 steps, mirrored by the bar's speed button. Stored in browser storage with the other reader settings (D-TTS-010).
 - **Note.** "Uses your OpenRouter key. Clips are kept 30 days so replays are free." When the reader has no OpenRouter key, the list is shown disabled, with "Add an OpenRouter key in Your account to use these voices."
 

@@ -27,7 +27,7 @@ Related: the design blueprint ([../../design/blueprint/README.md](../../design/b
 
 ## Summary
 
-- **Voice:** a current TTS model replaces the device voice (D-TTS-001). The default is Kokoro at about $0.03 an hour, BK's call (D-TTS-021).
+- **Voice:** a current TTS model replaces the device voice (D-TTS-001). The default is Kokoro · Heart at about $0.03 an hour, BK's call (D-TTS-021, D-TTS-024); other Kokoro voices can be chosen in Settings from rung 1b.
 - **Key:** the reader's own OpenRouter key; no new account, no app-paid key (D-TTS-002). No OpenAI-direct speech, whose models shut down 2027-01-06 (D-TTS-005).
 - **Catalog:** four models, two or three voices each, chosen by hearing a sample, each with its cost per hour (D-TTS-004, D-TTS-014).
 - **Unit:** one clip per paragraph, long ones split at sentences (D-TTS-006), at most three clips ahead (D-TTS-008). No cache in rung 1; from rung 3, cached per reader, article, voice and text for 30 days after last play (D-TTS-007, D-TTS-022).

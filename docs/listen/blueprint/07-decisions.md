@@ -104,3 +104,8 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Why:** with Kokoro, a cached replay saves a fraction of a cent. The cache is a table, stored files, a cron, deletion paths and storage budgeting, which costs more to build and run than it saves. For voices at $0.59–$2.16 an hour it pays for itself again.
 - **Limit that makes it safe:** a 2,000-character clip is about two minutes of audio, roughly 1 MB at 64 kbps, well under Convex's 16 MiB return limit.
 
+### D-TTS-024: The default voice is Kokoro Heart, and readers choose among Kokoro voices in Settings. (BK, 2026-10-22)
+- **BK said:** "default voice is heart. but you can put voice seleection settings in settings"
+- **Decision:** the default is `af_heart` ("Kokoro · Heart"), picked by ear from the eight S1 samples ([spike](../../research/spikes/2026-10-22-kokoro.md)). Choosing a voice moves forward to rung 1b, as a Kokoro-only list in Settings › Listening with ▶ samples. It needs no cache, because every Kokoro voice costs the same few cents an hour (D-TTS-022).
+- **Changes:** rung 3 no longer carries voice choice. It's only the pricier models and the clip cache they need, and it waits for a reason to want a richer voice than Kokoro (D-TTS-018).
+
