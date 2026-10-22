@@ -1003,13 +1003,21 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   transition: opacity 0.35s ease;
 }
 
-.reader-focus [data-para]:not([data-current]):not([data-speaking]):not([data-companion]) {
+.reader-focus [data-para]:not([data-current]):not([data-speaking]):not([data-speaking-pending]):not([data-companion]) {
   opacity: 0.22;
 }
 
 [data-speaking] {
   background-color: color-mix(in srgb, var(--highlighter) 60%, transparent);
   box-shadow: 0 0 0 6px color-mix(in srgb, var(--highlighter) 60%, transparent);
+  border-radius: 3px;
+  transition: background-color 0.3s ease;
+}
+
+/* Waiting for its clip: the same highlighter, a fifth as strong (--listen-wash-pending) */
+[data-speaking-pending] {
+  background-color: color-mix(in srgb, var(--highlighter) 20%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--highlighter) 20%, transparent);
   border-radius: 3px;
   transition: background-color 0.3s ease;
 }

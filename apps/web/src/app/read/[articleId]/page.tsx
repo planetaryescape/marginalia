@@ -937,7 +937,7 @@ export default function ReadPage() {
     return () => window.clearTimeout(timer);
   }, [listenUnavailable]);
   const toggleListen = useCallback(() => {
-    if (listen.active) {
+    if (listen.active || listen.needsKey) {
       listen.stop();
     } else if (!listen.supported) {
       setListenUnavailable(true);
@@ -1880,14 +1880,18 @@ export default function ReadPage() {
       ) : null}
 
       <ListenBar
+        status={listen.status}
         index={listen.index}
         total={paragraphs.count}
-        paused={listen.paused}
+        error={listen.error}
+        needsKey={listen.needsKey}
+        deviceSupported={listen.deviceSupported}
         onTogglePause={listen.togglePause}
-        onSkip={(index) =>
-          listen.speakFrom(Math.min(Math.max(0, index), paragraphs.count - 1))
-        }
+        onPrevious={listen.previous}
+        onNext={listen.next}
         onStop={listen.stop}
+        onRetry={listen.retry}
+        onUseDeviceVoice={listen.chooseDeviceVoice}
       />
 
       {answerThread && answerPaneOpen && answerCard(false, true)}

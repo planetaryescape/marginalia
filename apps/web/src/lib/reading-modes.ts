@@ -1,10 +1,18 @@
 "use client";
+import { api } from "@marginalia/backend/convex/_generated/api";
+import { useQuery } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDeviceVoice } from "./device-voice";
 import {
   observeParagraphGeometry,
   paragraphGeometry,
 } from "./paragraph-geometry";
-import { getArticleBody, getParagraphs, paragraphText } from "./paragraphs";
+import { getArticleBody } from "./paragraphs";
+import {
+  type ClipSource,
+  type ListenStatus,
+  useNaturalVoice,
+} from "./use-natural-voice";
 
 export interface ReadingPosition {
   current: number | null;
@@ -78,110 +86,144 @@ export function useReadingPosition(
   return position;
 }
 
-function pickVoice(): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis.getVoices();
-  const lang = document.documentElement.lang || "en";
-  const matching = voices.filter((v) =>
-    v.lang.toLowerCase().startsWith(lang.slice(0, 2)),
-  );
-  const pool = matching.length ? matching : voices;
-  return (
-    pool.find((v) => /natural|premium|enhanced/i.test(v.name)) ??
-    pool.find((v) => /google|samantha|daniel/i.test(v.name)) ??
-    pool.find((v) => v.default) ??
-    pool[0] ??
-    null
-  );
+// "Use the device voice" holds for the browser session, not for good (D-TTS-013)
+const DEVICE_CHOICE_KEY = "marginalia.listenVoice";
+
+function readDeviceChoice(): boolean {
+  try {
+    return window.sessionStorage.getItem(DEVICE_CHOICE_KEY) === "device";
+  } catch {
+    return false;
+  }
 }
 
-/** Reads the article aloud paragraph by paragraph with the Web Speech API. */
+function writeDeviceChoice() {
+  try {
+    window.sessionStorage.setItem(DEVICE_CHOICE_KEY, "device");
+  } catch {
+    // Without storage the choice just lasts until the page closes
+  }
+}
+
+/**
+ * Reads the article aloud. Natural voices (the reader's OpenRouter key, through
+ * `clipSource`) are used when the key is saved; the device voice is a named
+ * fallback the reader chooses, never one we switch to on failure (D-TTS-013).
+ * Without a `clipSource` there is no natural voice to offer, so the device
+ * voice stays as today.
+ */
 export function useListen(
   containerRef: React.RefObject<HTMLElement | null>,
   articleId?: string,
   unitKey?: string | null,
   content?: string,
   contentHtml?: string,
+  clipSource?: ClipSource,
 ) {
-  const [state, setState] = useState<{ index: number | null; paused: boolean }>(
-    {
-      index: null,
-      paused: false,
-    },
+  const capabilities = useQuery(api.providerCredentials.capabilities, {});
+  const [deviceChosen, setDeviceChosen] = useState(readDeviceChoice);
+  const [choosing, setChoosing] = useState(false);
+  const pendingStart = useRef(0);
+  const device = useDeviceVoice(
+    containerRef,
+    articleId,
+    unitKey,
+    content,
+    contentHtml,
   );
-  const session = useRef(0);
-  const supported =
-    typeof window !== "undefined" && "speechSynthesis" in window;
+  const natural = useNaturalVoice(
+    containerRef,
+    articleId,
+    unitKey,
+    content,
+    contentHtml,
+    clipSource,
+  );
 
-  const clearMark = useCallback(() => {
-    for (const el of document.querySelectorAll("[data-speaking]"))
-      el.removeAttribute("data-speaking");
-  }, []);
+  const mode: "natural" | "device" =
+    deviceChosen || !clipSource ? "device" : "natural";
+  // While the capabilities load we try the natural voice; a missing key then
+  // arrives as the server's own sentence in the failed state
+  const missingKey =
+    mode === "natural" &&
+    capabilities?.providers.includes("openrouter") === false;
+  const voice = mode === "device" ? device : natural;
 
-  const stop = useCallback(() => {
-    session.current += 1;
-    if (supported) window.speechSynthesis.cancel();
-    clearMark();
-    setState({ index: null, paused: false });
-  }, [supported, clearMark]);
-
+  const { stop: stopVoice, speakFrom: speakVoice } = voice;
   const speakFrom = useCallback(
     (start: number) => {
-      if (!supported) return;
-      const paragraphs = getParagraphs(getArticleBody(containerRef.current));
-      const token = ++session.current;
-      window.speechSynthesis.cancel();
-      const voice = pickVoice();
-
-      const speak = (i: number) => {
-        if (token !== session.current) return;
-        const el = paragraphs[i];
-        if (!el) {
-          stop();
-          return;
-        }
-        clearMark();
-        el.setAttribute("data-speaking", "");
-        const rect = el.getBoundingClientRect();
-        if (rect.top < 80 || rect.bottom > window.innerHeight - 80) {
-          el.scrollIntoView({ block: "center", behavior: "smooth" });
-        }
-        setState({ index: i, paused: false });
-        const utterance = new SpeechSynthesisUtterance(paragraphText(el));
-        if (voice) utterance.voice = voice;
-        utterance.onend = () => speak(i + 1);
-        utterance.onerror = (e) => {
-          if (e.error !== "interrupted" && e.error !== "canceled") speak(i + 1);
-        };
-        window.speechSynthesis.speak(utterance);
-      };
-      speak(Math.max(0, start));
+      if (missingKey) {
+        pendingStart.current = start;
+        setChoosing(true);
+        return;
+      }
+      setChoosing(false);
+      speakVoice(start);
     },
-    [supported, containerRef, stop, clearMark],
+    [missingKey, speakVoice],
   );
+  const stop = useCallback(() => {
+    setChoosing(false);
+    stopVoice();
+  }, [stopVoice]);
 
-  const togglePause = useCallback(() => {
-    if (!supported) return;
-    setState((s) => {
-      if (s.paused) window.speechSynthesis.resume();
-      else window.speechSynthesis.pause();
-      return { ...s, paused: !s.paused };
-    });
-  }, [supported]);
+  const chooseDeviceVoice = useCallback(() => {
+    writeDeviceChoice();
+    setDeviceChosen(true);
+    setChoosing(false);
+    device.speakFrom(pendingStart.current);
+  }, [device.speakFrom]);
 
-  // Prose identity, not paragraph geometry or arriving annotations, ends speech.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes invalidate the captured paragraph array
-  useEffect(() => {
-    stop();
-    return stop;
-  }, [stop, articleId, unitKey, content, contentHtml]);
+  const deviceIndex = device.index;
+  const deviceSpeakFrom = device.speakFrom;
+  const previous = useCallback(() => {
+    if (deviceIndex !== null) deviceSpeakFrom(Math.max(0, deviceIndex - 1));
+  }, [deviceIndex, deviceSpeakFrom]);
+  const next = useCallback(() => {
+    if (deviceIndex !== null) deviceSpeakFrom(deviceIndex + 1);
+  }, [deviceIndex, deviceSpeakFrom]);
 
+  if (mode === "natural") {
+    return {
+      mode,
+      supported: natural.supported,
+      index: natural.index,
+      paused: natural.paused,
+      active: natural.active,
+      status: natural.status,
+      error: natural.error,
+      needsKey: choosing && missingKey,
+      deviceSupported: device.supported,
+      speakFrom,
+      togglePause: natural.togglePause,
+      stop,
+      previous: natural.previous,
+      next: natural.next,
+      retry: natural.retry,
+      chooseDeviceVoice,
+    };
+  }
+  const status: ListenStatus = !device.active
+    ? "idle"
+    : device.paused
+      ? "paused"
+      : "playing";
   return {
-    supported,
-    index: state.index,
-    paused: state.paused,
-    active: state.index !== null,
+    mode,
+    supported: device.supported,
+    index: device.index,
+    paused: device.paused,
+    active: device.active,
+    status,
+    error: null,
+    needsKey: false,
+    deviceSupported: device.supported,
     speakFrom,
-    togglePause,
+    togglePause: device.togglePause,
     stop,
+    previous,
+    next,
+    retry: () => undefined,
+    chooseDeviceVoice,
   };
 }

@@ -1,27 +1,46 @@
 "use client";
 import { AnimatePresence, motion } from "framer-motion";
-import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
+import { Pause, Play, SkipBack, SkipForward, Square, X } from "lucide-react";
+import Link from "next/link";
+import type { ListenStatus } from "@/lib/use-natural-voice";
 
 export function ListenBar({
+  status,
   index,
   total,
-  paused,
+  error,
+  needsKey,
+  deviceSupported,
   onTogglePause,
-  onSkip,
+  onPrevious,
+  onNext,
   onStop,
+  onRetry,
+  onUseDeviceVoice,
 }: {
+  status: ListenStatus;
   index: number | null;
   total: number;
-  paused: boolean;
+  error: string | null;
+  needsKey: boolean;
+  deviceSupported: boolean;
   onTogglePause: () => void;
-  onSkip: (index: number) => void;
+  onPrevious: () => void;
+  onNext: () => void;
   onStop: () => void;
+  onRetry: () => void;
+  onUseDeviceVoice: () => void;
 }) {
   const button =
     "w-8 h-8 flex items-center justify-center rounded-full opacity-75 hover:opacity-100 hover:bg-white/10 transition";
+  const textButton =
+    "px-2 h-8 rounded-full text-[12.5px] opacity-75 hover:opacity-100 hover:bg-white/10 transition";
+  const paused = status === "paused";
+  const failed = status === "failed";
+  const visible = needsKey || index !== null;
   return (
     <AnimatePresence>
-      {index !== null && (
+      {visible && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -31,45 +50,88 @@ export function ListenBar({
           role="region"
           aria-label="Listening"
         >
-          <span className="flex items-center gap-2 mr-2 text-[12.5px]">
-            <span
-              className="listen-pulse w-1.5 h-1.5 rounded-full bg-[var(--ink)]"
-              data-paused={paused || undefined}
-            />
-            Listening
-            <span className="font-mono text-[11px] opacity-60 tabular-nums">
-              ¶{index + 1}/{total}
-            </span>
-          </span>
-          <button
-            className={button}
-            onClick={() => onSkip(index - 1)}
-            aria-label="Previous paragraph"
-            disabled={index === 0}
-          >
-            <SkipBack size={14} />
-          </button>
-          <button
-            className={button}
-            onClick={onTogglePause}
-            aria-label={paused ? "Resume" : "Pause"}
-          >
-            {paused ? <Play size={14} /> : <Pause size={14} />}
-          </button>
-          <button
-            className={button}
-            onClick={() => onSkip(index + 1)}
-            aria-label="Next paragraph"
-          >
-            <SkipForward size={14} />
-          </button>
-          <button
-            className={button}
-            onClick={onStop}
-            aria-label="Stop listening"
-          >
-            <Square size={12} />
-          </button>
+          {needsKey ? (
+            <>
+              <Link
+                href="/account"
+                target="_blank"
+                rel="noopener"
+                className={`${textButton} flex items-center mr-1`}
+              >
+                Natural voice: add an OpenRouter key
+              </Link>
+              {deviceSupported && (
+                <button className={textButton} onClick={onUseDeviceVoice}>
+                  Use device voice
+                </button>
+              )}
+              <button className={button} onClick={onStop} aria-label="Dismiss">
+                <X size={14} />
+              </button>
+            </>
+          ) : (
+            <>
+              <span
+                className="flex items-center gap-2 mr-2 text-[12.5px]"
+                role={failed ? "alert" : undefined}
+              >
+                <span
+                  className="listen-pulse w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: failed ? "var(--danger)" : "var(--ink)",
+                  }}
+                  data-paused={paused || failed || undefined}
+                />
+                {failed ? (
+                  (error ?? "The voice stopped.")
+                ) : (
+                  <>
+                    Listening
+                    <span className="font-mono text-[11px] opacity-60 tabular-nums">
+                      ¶{(index ?? 0) + 1}/{total}
+                    </span>
+                  </>
+                )}
+              </span>
+              {failed ? (
+                <button className={textButton} onClick={onRetry}>
+                  Retry
+                </button>
+              ) : (
+                <>
+                  <button
+                    className={button}
+                    onClick={onPrevious}
+                    aria-label="Previous paragraph"
+                    disabled={index === 0}
+                  >
+                    <SkipBack size={14} />
+                  </button>
+                  <button
+                    className={button}
+                    onClick={onTogglePause}
+                    aria-label={paused ? "Resume" : "Pause"}
+                  >
+                    {paused ? <Play size={14} /> : <Pause size={14} />}
+                  </button>
+                  <button
+                    className={button}
+                    onClick={onNext}
+                    aria-label="Next paragraph"
+                  >
+                    <SkipForward size={14} />
+                  </button>
+                </>
+              )}
+              <button
+                className={button}
+                onClick={onStop}
+                aria-label="Stop listening"
+              >
+                <Square size={12} />
+              </button>
+            </>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
