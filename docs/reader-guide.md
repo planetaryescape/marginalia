@@ -36,7 +36,7 @@ The header has four rooms. **Marginalia** (the wordmark) opens the desk, the pag
 
 - **Library:** ask questions across your articles, and browse shelves in the URL (`?shelf=`): **Up next** (unread, with archive), **Saved** (articles you queued), **Loved** and **Finished** (your impressions, with stars and what stayed with you). `/saved` opens the Saved shelf.
 - **Notes:** revisit saved notes and follow them back to the source article.
-- **Your reading:** recent reading, time, engagement and reflections. It stays out of the reader and Notes.
+- **Your reading:** recent reading, time, engagement and reflections. Its article activity list separates your highlights, underlines and notes from distinct AI margin notes opened during visits, using the same month, 30-day and 90-day choices as the rest of the page. Note dates use creation time, so autosaving an old note does not make it new. Imported Readwise marks are shown separately; their dates are import dates because the original mark dates are not retained. High mark counts describe activity, including disagreement, and do not mean you liked an article. Reports can be partial when their bounded data limit is reached and show at most 30 articles. They use retained records: deleting a mark, note, AI margin note or article removes it from the report.
 
 The avatar at the right of the header opens the account menu:
 
