@@ -1,7 +1,10 @@
 /// <reference types="vite/client" />
+import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addReader, secondReaderTest } from "../test/owner";
 import { api } from "./_generated/api";
+import authSchema from "./betterAuth/schema";
+import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const NOW = Date.UTC(2026, 9, 25, 12);
@@ -323,4 +326,78 @@ describe("article engagement report", () => {
     expect(result.report.articles[0].personalHighlights).toBe(2);
     expect(result.metrics.bytesRead.used).toBeLessThan(8_000_000);
   });
+
+  it("bounds annotation validation before native range limits and reports omissions", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    t.registerComponent(
+      "betterAuth",
+      authSchema,
+      import.meta.glob("./betterAuth/**/*.ts"),
+    );
+    const { client, libraryId } = await addReader(t, {
+      email: "engagement-budget@example.com",
+    });
+    const articleId = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: libraryId,
+        guid: "native-budget",
+        url: "https://example.com/native-budget",
+        title: "Native query budget",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      }),
+    );
+    for (let batch = 0; batch < 34; batch++) {
+      await t.run(async (ctx) => {
+        const ids: string[] = [];
+        for (let i = 0; i < 128; i++) {
+          ids.push(
+            String(
+              await ctx.db.insert("annotations", {
+                userId: libraryId,
+                articleId,
+                type: "question",
+                anchorText: "a",
+                anchorStartOffset: 0,
+                anchorEndOffset: 1,
+                content: "Why?",
+                relevanceScore: 1,
+                wasViewed: false,
+                wasDismissed: false,
+                createdAt: Date.now(),
+              }),
+            ),
+          );
+        }
+        await ctx.db.insert("readingActivity", {
+          userId: libraryId,
+          articleId,
+          visitId: `budget-${batch}`,
+          day: "2026-10-25",
+          startedAt: Date.now(),
+          updatedAt: Date.now(),
+          activeTimeMs: 1000,
+          visibleTimeMs: 1000,
+          timeSpentMs: 1000,
+          maxScrollPercent: 1,
+          annotationsOpened: ids,
+        });
+      });
+    }
+
+    const result = await client.run(async (ctx) => {
+      const report = await ctx.runQuery(api.stats.readingEngagement, {
+        timeZone: "UTC",
+        period: "90days",
+      });
+      return { report, metrics: await ctx.meta.getTransactionMetrics() };
+    });
+    expect(result.report.partial).toBe(true);
+    expect(result.report.articles).toMatchObject([
+      { articleId, title: "Native query budget", aiMarginNotes: 2_000 },
+    ]);
+    expect(result.metrics.documentsRead.used).toBeLessThan(10_000);
+    expect(result.metrics.bytesRead.used).toBeLessThan(13 * 1024 * 1024);
+  }, 60_000);
 });

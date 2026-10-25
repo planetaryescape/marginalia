@@ -12,6 +12,8 @@ const ROW_LIMIT = 1500;
 const SOURCE_BYTES = 1_500_000;
 const ARTICLE_CONTEXT_LIMIT = 300;
 const ARTICLES_SHOWN = 30;
+// Reserve native ranges for source scans, up to 600 context reads, and auth.
+const ANNOTATION_VALIDATION_LIMIT = 2_000;
 
 type ActivityRow = {
   personalHighlights: number;
@@ -109,9 +111,14 @@ async function addValidatedOpens(
       articleIdsByAnnotation.set(id, articleIds);
     }
   // Keep validation reads sequential so each one observes the shared byte cap.
+  let validated = 0;
   for (const [raw, articleIds] of articleIdsByAnnotation) {
     const annotationId = ctx.db.normalizeId("annotations", raw);
     if (!annotationId) continue;
+    if (validated === ANNOTATION_VALIDATION_LIMIT) return true;
+    // Missing and foreign IDs still spend a native range, even when they add
+    // no bytes or activity to the report.
+    validated++;
     try {
       const annotation = await readReportingDocument(ctx, () =>
         ctx.db.get(annotationId),

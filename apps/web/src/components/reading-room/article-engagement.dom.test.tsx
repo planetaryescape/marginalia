@@ -27,9 +27,9 @@ const report: FunctionReturnType<typeof api.stats.readingEngagement> = {
       personalHighlights: 2,
       personalUnderlines: 1,
       notes: 1,
-      importedHighlights: 1,
-      importedUnderlines: 0,
-      aiMarginNotes: 3,
+      importedHighlights: 2,
+      importedUnderlines: 1,
+      aiMarginNotes: 1,
       lastPersonalAt: Date.UTC(2026, 9, 24),
       lastImportedAt: Date.UTC(2026, 9, 23),
       personalMarksPerThousandWords: 1.5,
@@ -61,11 +61,12 @@ it("renders personal marks, imported marks and AI opens in separate columns", as
   );
   expect(container.textContent).toContain("Your marks and notes");
   expect(container.textContent).toContain(
-    "2 highlights · 1 underlines · 1 notes",
+    "2 highlights · 1 underline · 1 note",
   );
   expect(container.textContent).toContain("AI margin notes opened");
-  expect(container.textContent).toContain("3 distinct notes");
+  expect(container.textContent).toContain("1 distinct note");
   expect(container.textContent).toContain("Imported from Readwise");
+  expect(container.textContent).toContain("2 highlights · 1 underline");
   expect(container.textContent).toContain("including disagreement");
   expect(
     container.querySelector('a[href="/read/article-one"]')?.textContent,

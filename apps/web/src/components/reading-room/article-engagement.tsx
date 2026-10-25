@@ -7,6 +7,10 @@ import type { RoomPeriod } from "@/lib/reading-sentence";
 type Report = FunctionReturnType<typeof api.stats.readingEngagement>;
 type Article = Report["articles"][number];
 
+function counted(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function activityDate(at: number | null, timeZone: string) {
   if (at === null) return null;
   return new Intl.DateTimeFormat(undefined, {
@@ -24,13 +28,17 @@ function MarkCounts({
   timeZone: string;
 }) {
   const personal = [
-    article.personalHighlights && `${article.personalHighlights} highlights`,
-    article.personalUnderlines && `${article.personalUnderlines} underlines`,
-    article.notes && `${article.notes} notes`,
+    article.personalHighlights &&
+      counted(article.personalHighlights, "highlight"),
+    article.personalUnderlines &&
+      counted(article.personalUnderlines, "underline"),
+    article.notes && counted(article.notes, "note"),
   ].filter(Boolean);
   const imported = [
-    article.importedHighlights && `${article.importedHighlights} highlights`,
-    article.importedUnderlines && `${article.importedUnderlines} underlines`,
+    article.importedHighlights &&
+      counted(article.importedHighlights, "highlight"),
+    article.importedUnderlines &&
+      counted(article.importedUnderlines, "underline"),
   ].filter(Boolean);
 
   return (
@@ -60,7 +68,7 @@ function MarkCounts({
           AI margin notes opened
         </p>
         <p className="mt-1 text-sm tabular-nums text-[var(--reader-muted)]">
-          {article.aiMarginNotes} distinct notes
+          {counted(article.aiMarginNotes, "distinct note", "distinct notes")}
         </p>
         <p className="mt-1 text-xs text-[var(--reader-muted)]">
           Repeated opens count once; dated by recorded reading visit.
