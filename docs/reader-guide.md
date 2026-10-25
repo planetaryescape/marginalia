@@ -12,6 +12,8 @@ Suggestions never include something you've read. An article leaves Up next and t
 
 Paste an `http`/`https` article URL into the same picker to import it. Extraction and annotation can take time; importing a URL does not guarantee its publisher exposes readable content.
 
+Extracted articles remain in Library's **Up next** shelf and the desk's time choices when you have no AI provider key. Short articles whose marginalia were skipped are readable too. Missing or empty extractions stay out of these choices; books keep their separate reading flow. Open an article to read it without adding a key.
+
 ## Read and keep context
 
 Open a piece to enter the separate reader. Select a passage to open its menu: Ask, Explain, Simplify, Define, Highlight, Underline (the pen mark), Note and Copy. Choosing a mark that's already on the passage removes it. **Ask** turns the menu into a question field; toggle **Web** to let the model search, pick **Quick** or **Deep**, and press Enter to send or Escape to close. **Define** gives a dictionary-style meaning, the sense used in this passage, useful etymology when known, and substitute words or phrases that fit the sentence. Select the word or phrase you want to define, then choose **Define** or press `d`. Definitions use the same answer-length, depth and optional web settings as other companion answers; they are AI assistance, not a verified dictionary source. Saved definitions can be reopened and followed up like other conversations. With the keyboard, `j`/`k` move between paragraphs and passage actions use the current paragraph if nothing is selected.

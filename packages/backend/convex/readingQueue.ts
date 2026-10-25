@@ -3,6 +3,11 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { libraryIsActive } from "./access";
 import { internalMutation, type MutationCtx } from "./functions";
+import {
+  completeReadableQueue,
+  initializeReadableQueue,
+  rebuildReadableQueue,
+} from "./lib/readableQueue";
 
 function contribution(article: Doc<"articles"> | null) {
   // A deferred article is as much in the queue as an annotated one; only its
@@ -106,7 +111,10 @@ export const initialize = internalMutation({
       .query("readingQueueStats")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .unique();
-    if (stats?.ready) return;
+    if (stats?.ready) {
+      await initializeReadableQueue(ctx, args.userId);
+      return;
+    }
     if (!stats) {
       const id = await ctx.db.insert("readingQueueStats", {
         userId: args.userId,
@@ -138,9 +146,18 @@ export const initialize = internalMutation({
       cursor: page.continueCursor,
       ready: page.isDone,
     });
-    if (!page.isDone)
+    // Only a complete empty range proves the new namespace needs no scan.
+    // A resumed legacy cursor may have passed rows before this code existed.
+    const emptyLibrary = page.isDone && !stats.cursor && page.page.length === 0;
+    if (emptyLibrary) await completeReadableQueue(ctx, args.userId);
+    if (!emptyLibrary)
       await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {
         userId: args.userId,
       });
   },
+});
+
+export const rebuildReadable = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => rebuildReadableQueue(ctx, userId),
 });

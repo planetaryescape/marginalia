@@ -493,6 +493,27 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
     fits20: 0,
     ready: true,
   });
+  const readableCounts = {
+    annotated: 1,
+    waiting: 1,
+    pending: 0,
+    fits5: 0,
+    fits10: 0,
+    fits20: 0,
+  };
+  await ctx.db.insert("readableQueueStats", {
+    userId,
+    ...readableCounts,
+    generation: 1,
+    ready: true,
+  });
+  if (lastArticle)
+    await ctx.db.insert("readableQueueEntries", {
+      userId,
+      articleId: lastArticle,
+      ...readableCounts,
+      generation: 1,
+    });
   await ctx.db.insert("readwiseSyncState", {
     userId,
     active: false,
@@ -838,27 +859,18 @@ describe("account deletion", () => {
     );
     expect(await reader.query(api.auth.currentReader, {})).toBeNull();
 
-    try {
-      await t.finishAllScheduledFunctions(vi.runAllTimers);
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !error.message.startsWith(
-          "finishAllScheduledFunctions: too many iterations.",
-        )
-      )
-        throw error;
-      // The helper throws after its 100th completed round without making the
-      // terminal empty check. Do not run another job or raise its iteration
-      // bound: accept only an already-drained queue, then assert all data gone.
-      const unfinished = await t.run(async (ctx) =>
-        (await ctx.db.system.query("_scheduled_functions").collect()).filter(
-          (job) =>
-            job.state.kind === "pending" || job.state.kind === "inProgress",
-        ),
-      );
-      expect(unfinished).toEqual([]);
-    }
+    // The paged purge can exceed finishAllScheduledFunctions' 100 rounds.
+    // Advance time between completed jobs, retaining a bounded completion check.
+    await runScheduled(t, { maxSteps: 300 });
+    const purgeJobs = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").take(1000)).filter(
+        (job) => job.name === "account:purge",
+      ),
+    );
+    expect(purgeJobs.every((job) => job.state.kind === "success")).toBe(true);
+    process.stdout.write(
+      `reader-purge-completed ${JSON.stringify({ jobs: purgeJobs.length })}\n`,
+    );
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
     // Both new and pre-versioned queued pages are harmless after account purge.
     if (!legacyJob) throw new Error("Missing seeded colour job");

@@ -22,6 +22,7 @@ const article = (userId = "default_user", title = "Metadata choice") => ({
   guid: title,
   url: `https://example.com/${title}`,
   title,
+  content: "Synthetic readable article.",
   extractionStatus: "extracted" as const,
   annotationStatus: "annotated" as const,
   estimatedReadMinutes: 10,

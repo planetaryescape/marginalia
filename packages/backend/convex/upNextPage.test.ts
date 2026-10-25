@@ -11,6 +11,7 @@ function row(userId: string, i: number, status: "annotated" | "deferred") {
     guid: `${userId}-${i}`,
     url: `https://example.com/${userId}/${i}`,
     title: `${userId} piece ${i}`,
+    content: "Synthetic readable article.",
     extractionStatus: "extracted" as const,
     annotationStatus: status,
     createdAt: i,

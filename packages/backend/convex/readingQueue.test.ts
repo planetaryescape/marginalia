@@ -18,6 +18,7 @@ describe("whole-library reading queue counts", () => {
             guid: `item-${i}`,
             url: `https://example.com/${i}`,
             title: `Piece ${i}`,
+            content: "Synthetic readable article.",
             extractionStatus: "extracted",
             annotationStatus: "annotated",
             estimatedReadMinutes: i % 2 ? 15 : 4,
@@ -41,7 +42,7 @@ describe("whole-library reading queue counts", () => {
       return ids;
     });
     expect((await t.query(api.home.counts, {})).waiting).toBeNull();
-    for (let i = 0; i < 80; i++)
+    for (let i = 0; i < 160; i++)
       await t.mutation(internal.readingQueue.initialize, {
         userId: "default_user",
       });

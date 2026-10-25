@@ -49,6 +49,7 @@ async function article(
     title: a.title,
     author: a.author,
     feedId: a.feedId,
+    content: "Synthetic readable article.",
     extractionStatus: "extracted",
     annotationStatus: a.status ?? "annotated",
     estimatedReadMinutes: a.minutes,

@@ -34,7 +34,7 @@ bunx convex env set PROVIDER_KEYS_ENCRYPTION_KEY
 
 Then open **Your account → AI providers** and save an OpenRouter, OpenAI or Anthropic key. The key is checked against that provider's model list, stored encrypted, and shown only by its last four characters. Search and Ask your library need an OpenAI or OpenRouter key (both embed with `text-embedding-3-small`); Anthropic covers answers, summaries and marginalia. Changing the encryption key makes saved keys unreadable, so readers would need to save them again.
 
-The curated models per provider, role defaults and fallback order are in `convex/lib/providers.ts`; smoke-test availability before changing them. A reader without a key can still read, note and highlight; AI features say to add a key.
+The curated models per provider, role defaults and fallback order are in `convex/lib/providers.ts`; smoke-test availability before changing them. A reader without a key can still read, note and highlight; extracted articles remain in Library Up next and the desk's time choices even when annotations are skipped. AI features say to add a key.
 
 The backend has no shared AI key. Every reader, including the owner, adds their own key in Your account.
 
