@@ -9,6 +9,7 @@ import {
   type RoomPeriod,
   readingSentence,
 } from "@/lib/reading-sentence";
+import { ArticleEngagement } from "./article-engagement";
 import { HowYouRead } from "./how-you-read";
 import { ShortAndLong } from "./short-and-long";
 import { TagMergeSuggestion } from "./tag-merge-suggestion";
@@ -26,6 +27,11 @@ export function StatsTab() {
   );
   const today = useLocalToday();
   const room = useQuery(api.stats.readingRoom, { timeZone, period, today });
+  const engagement = useQuery(api.stats.readingEngagement, {
+    timeZone,
+    period,
+    today,
+  });
   const topics = useQuery(api.stats.readingTopics, {
     timeZone,
     period,
@@ -135,6 +141,7 @@ export function StatsTab() {
             : "Short against long counts your most recent reads only."}
         </p>
       )}
+      <ArticleEngagement report={engagement} period={period} />
     </div>
   );
 }

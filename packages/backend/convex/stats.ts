@@ -18,6 +18,7 @@ import {
   reportingReflections,
   takeReportingRows,
 } from "./lib/legacyReporting";
+import { readingEngagementData } from "./lib/readingEngagement";
 import {
   bucketActiveMinutes,
   localDayKeyer,
@@ -677,6 +678,13 @@ export const readingRoom = query({
       feeds,
     };
   },
+});
+
+/** Per-article activity in the same timezone-aware periods as Your reading. */
+export const readingEngagement = query({
+  args: roomArgs,
+  handler: async (ctx, { timeZone, period }) =>
+    readingEngagementData(ctx, ctx.readerId, timeZone, period),
 });
 
 // Articles whose tags are read, newest read first, and the most tags kept per article

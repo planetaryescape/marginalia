@@ -1367,6 +1367,7 @@ export default defineSchema({
     .index("by_article", ["articleId"])
     .index("by_article_and_unitIndex", ["articleId", "unitIndex"])
     .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId_and_createdAt", ["userId", "createdAt"])
     .index("by_userId", ["userId"])
     .index("by_reader_highlight", ["readerHighlightId"])
     .index("by_userId_and_kind_and_color", ["userId", "kind", "color"])
