@@ -34,6 +34,7 @@ describe("legacy Vercel alias redirect", () => {
     "https://reader.example.org/read/article-1",
     "https://another-project.vercel.app/read/article-1",
     "https://marginalia-drab.vercel.app.attacker.test/read/article-1",
+    "https://marginalia-drabXvercelYapp/read/article-1",
     "https://marginalia-drab.vercel.app/api/auth/passkey",
     "https://marginalia-drab.vercel.app/api",
     "https://marginalia-drab.vercel.app/_next/static/chunk.js",

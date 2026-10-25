@@ -21,7 +21,7 @@ const nextConfig: NextConfig = {
       {
         source:
           "/:path((?!api(?:/|$)|_next(?:/|$)|\\.well-known(?:/|$)|.*\\.[^/]+$).*)",
-        has: [{ type: "host", value: "marginalia-drab.vercel.app" }],
+        has: [{ type: "host", value: "marginalia-drab\\.vercel\\.app" }],
         destination: "https://reader.bhekani.com/:path",
         permanent: false,
       },

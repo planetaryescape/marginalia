@@ -33,7 +33,7 @@ Schedule a short maintenance window with the owner present. Backend-first deploy
 
 Passkeys are origin-bound. Development at `localhost:3107` or `localhost:3108` uses separate **localhost** credentials; production credentials do not work there. Raw LAN HTTP addresses and Vercel preview aliases are not trusted auth origins. Use the HTTPS reader domain for phone access. For another installation, set `SITE_URL` to its canonical HTTPS origin.
 
-Open the reader at `https://reader.bhekani.com` before signing in with a passkey. The established `marginalia-drab.vercel.app` alias redirects page URLs to that canonical host, preserving the path and query. API routes, Next assets, public files and `/.well-known/` requests stay on their requested host. Browser fragments such as `#invite=<token>` and `#setup=<token>` are not sent in the HTTP request; the redirect does not add them to its `Location`, so the browser keeps the fragment for the canonical page to handle.
+Open the reader at `https://reader.bhekani.com` before signing in with a passkey. The established `marginalia-drab.vercel.app` alias redirects page URLs to that canonical host, preserving the path and query. API routes, Next assets, paths ending in a file extension and `/.well-known/` requests stay on their requested host. Browser fragments such as `#invite=<token>` and `#setup=<token>` are not sent in the HTTP request; the redirect does not add them to its `Location`, so the browser keeps the fragment for the canonical page to handle.
 
 Include owner/auth component records in backups. Rolling back only the frontend does not remove backend auth; reverting to the previous public backend reopens personal content. Do not clear auth tables or detach the owner as a rollback shortcut.
 
