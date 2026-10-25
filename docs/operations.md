@@ -33,6 +33,8 @@ Schedule a short maintenance window with the owner present. Backend-first deploy
 
 Passkeys are origin-bound. Development at `localhost:3107` or `localhost:3108` uses separate **localhost** credentials; production credentials do not work there. Raw LAN HTTP addresses and Vercel preview aliases are not trusted auth origins. Use the HTTPS reader domain for phone access. For another installation, set `SITE_URL` to its canonical HTTPS origin.
 
+Open the reader at `https://reader.bhekani.com` before signing in with a passkey. The established `marginalia-drab.vercel.app` alias redirects page URLs to that canonical host, preserving the path and query. API routes, Next assets, public files and `/.well-known/` requests stay on their requested host. Browser fragments such as `#invite=<token>` and `#setup=<token>` are not sent in the HTTP request; the redirect does not add them to its `Location`, so the browser keeps the fragment for the canonical page to handle.
+
 Include owner/auth component records in backups. Rolling back only the frontend does not remove backend auth; reverting to the previous public backend reopens personal content. Do not clear auth tables or detach the owner as a rollback shortcut.
 
 ## Current deployment
@@ -154,6 +156,7 @@ If Convex logs show `invalid_client`, the client ID or secret is wrong; readers'
 | Vault request returns 401 | The local and deployment vault keys must match |
 | Vault run exits non-zero | Old file index is preserved for failed replacements; resolve the error and rerun the same vault |
 | Route typecheck refers to an old path | `bun run typecheck` regenerates Next route types before checking |
+| Passkey sign-in fails on a Vercel alias | Open `https://reader.bhekani.com` and confirm the browser address changed there before signing in. Passkeys are scoped to the current origin; the established alias redirects page URLs before the app requests a credential. |
 | `::highlight` build warnings | Known Turbopack CSS parser warning for valid Custom Highlight API selectors; verify the actual marks in the browser |
 
 Logs may contain article titles, URLs and provider error bodies. Do not paste credentials or private passages into public issue reports.
