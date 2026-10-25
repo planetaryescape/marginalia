@@ -454,12 +454,25 @@ const STEPS: Step[] = [
       ).page,
     PAGE_EMPTY,
   ),
-  rows((ctx, u) =>
-    ctx.db
-      .query("readingQueueStats")
-      .withIndex("by_user", (q) => q.eq("userId", u))
-      .take(BATCH),
-  ),
+  async (ctx, { userId }) => {
+    // Keep the existing numeric counter step valid for pre-deploy purge jobs.
+    const entries = await ctx.db
+      .query("readableQueueEntries")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .take(BATCH);
+    for (const entry of entries) await ctx.db.delete(entry._id);
+    if (entries.length === BATCH) return entries.length;
+    let removed = 0;
+    for (const table of ["readingQueueStats", "readableQueueStats"] as const) {
+      const stats = await ctx.db
+        .query(table)
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .take(BATCH);
+      for (const row of stats) await ctx.db.delete(row._id);
+      removed += stats.length;
+    }
+    return removed;
+  },
   rows((ctx, u) =>
     ctx.db
       .query("readwiseSyncState")

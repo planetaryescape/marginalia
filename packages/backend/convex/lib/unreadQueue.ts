@@ -1,17 +1,14 @@
 import type { Doc } from "../_generated/dataModel";
 import type { DatabaseReader } from "../_generated/server";
+import { readableArticleFilter, UNREAD_STATUSES } from "./readingEligibility";
 
-/**
- * The reader's unread, queued articles, newest first: annotated ones and the
- * long ones whose marginalia are deferred until the desk offers them. Both are
- * waiting to be read, so both belong in every list and count of the queue.
- */
+/** Readable unfinished articles, newest first, independent of marginalia. */
 export async function unreadQueue(
   ctx: { db: DatabaseReader; readerId: string },
   limit: number,
 ): Promise<Doc<"articles">[]> {
   const lists = await Promise.all(
-    (["annotated", "deferred"] as const).map((status) =>
+    UNREAD_STATUSES.map((status) =>
       ctx.db
         .query("articles")
         .withIndex("by_user_annotationStatus_finishedAt", (q) =>
@@ -21,6 +18,7 @@ export async function unreadQueue(
             .eq("finishedAt", undefined),
         )
         .order("desc")
+        .filter(readableArticleFilter)
         .take(limit),
     ),
   );

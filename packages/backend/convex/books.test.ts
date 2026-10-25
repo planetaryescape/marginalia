@@ -237,6 +237,7 @@ describe("a book in picks", () => {
         guid: "a",
         url: "https://example.com/a",
         title: "An ordinary article",
+        content: "Synthetic readable article.",
         extractionStatus: "extracted",
         annotationStatus: "annotated",
         estimatedReadMinutes: 8,

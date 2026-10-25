@@ -37,6 +37,7 @@ async function seed(
           guid: `guid-${i}`,
           url: `https://example.com/${i}`,
           title: a.title,
+          content: "Synthetic readable article.",
           extractionStatus: a.extraction ?? "extracted",
           annotationStatus: a.status,
           estimatedReadMinutes: a.minutes,

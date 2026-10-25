@@ -97,13 +97,46 @@ Sources shows connection, progress and last completed sync. The 15-minute cron s
 
 Deploy the backend before the frontend: the new `define` mode requires matching schema and mutation validators. **Backend deployment automatically enables a full backfill on the next Reader cron, including on previously connected accounts, and can incur embedding/annotation costs.** Obtain approval before updating the shared live backend. Removing `READWISE_TOKEN` pauses sync only for an owner library with no saved token; readers who connected from Sources disconnect there. Neither deletes imports or checkpoints, and already scheduled annotation jobs can still run.
 
-The counts behind the desk's time choices are maintained transactionally in `readingQueueStats`, independent of the paged Up next shelf in Library. Existing article counts and historical finishes are initialized in bounded, resumable pages by `readingQueue:initialize`; the 15-minute initialization cron runs even without Reader. To initialize immediately after an approved deployment, run `bunx convex run readingQueue:initialize '{}'` from `packages/backend`. This writes derived counts and finish markers, not notes or article bodies. The time choices show no counts until initialization completes. Do not manually delete counters or edit queue-affecting article fields in the dashboard; use the article/session mutations so counts stay consistent.
+Extracted articles with saved text remain readable in Library Up next and the desk's time choices when annotations are skipped, including `no_provider` and short articles. Missing/empty extractions, finished sources and book containers are excluded from ordinary candidates. Books keep their separate next-part picks. Reading these skipped articles does not start an annotation retry; saving a provider key still starts the existing catch-up.
+
+The desk's counts use `readableQueueStats`, independent of the paged Up next shelf. The 15-minute queue initialization cron runs even without Reader. For deployment and recovery, follow [the counter rollout](#readable-queue-counters-use-an-independent-baseline). Do not manually delete counters or edit queue-affecting article fields in the dashboard; use the article/session mutations so counts stay consistent.
 
 Per-feed outcome counts (`feedStats`: offered, opened, finished, skipped) are incremented in the same transaction as each `articleInteractions` insert, and the interaction gets `feedCounted: true` in that transaction. The marker means "decided", whether or not it added to a count, so each interaction is decided by exactly one path. A time cutoff would not do, because Convex creation times do not follow commit order. A reader's first counted interaction creates their `feedStatsBackfill` row and schedules `feedStats:backfill`, which scans their interactions in pages of eight (each page reads full articles) and decides the ones with no marker. Re-running it, running it twice at once, or resetting its cursor adds nothing. After the backend deploy, start it for every active reader with `bunx convex run background:fanOut '{"job":"feedStats"}'` from `packages/backend`. A desk open and the reader page's first checkpoint for the same article and session count as one `opened`; a visit's `finished` retried on another day counts once. Interactions on deleted articles, and articles without a feed, are not counted. Nothing is written for a library that is disabled or being deleted. Paragraph dwell lands in `paragraphDwell`, one row per reading visit and day, keyed by the displayed paragraph number.
 
 What a reader tends to read (rung 5c) is learned, suggested and spent on in four small pieces, all per reader and none acting without them. `tasteProfiles` holds one row of affinities (feed, author, active tag; each capped at 40) recomputed daily at 03:00 UTC and, after a finish, five minutes later (one queued at a time). It reads recent interactions, loves and ratings, then their articles eight at a time, so it never reads more than a page of article bodies per transaction. `suggestions:forWindow` and `moreForWindow` add a taste term of at most two points (a minute of fit) to articles that fit, so it never lifts a pick past one three minutes closer. A daily job at 04:00 UTC (`preAnnotate`) starts the marginalia of up to five deferred articles by taste, only for readers with a provider key and a profile, and logs them in `preAnnotations` with a control sample it passed over. Compare their open rates with `bunx convex run preAnnotate:preAnnotationReport '{"userId":"default_user"}'` from `packages/backend`; only choices at least three days old count (`minAgeMs` changes that). Feed suggestions are read live from `feedStats` (offered at least 15, opened under 10%); Keep is a `suggestionKeeps` row that lapses after 90 days. Tag merge suggestions (`tagMergeSuggestions`) are recomputed daily at 03:30 UTC from active tags by normalised name, then embeddings (0.90 strong, 0.80 suggested). Accepting one moves the links 50 at a time and turns the removed tag into an alias; Keep both is remembered for good. After a deploy, run each job once with `bunx convex run background:fanOut '{"job":"taste"}'`, then `'{"job":"tagMerge"}'`, then (once taste has finished) `'{"job":"preAnnotate"}'`.
 
 Before testing, choose a disposable article in a separate Reader account if possible. Do not delete real Reader documents to verify cleanup. Inspect Convex logs and `readwiseSyncState` after a failure; provider rate limits use bounded retries. Removing the token stops new integration calls but does not delete imported content.
+
+## Readable queue counters use an independent baseline
+
+After backing up and approving the intended backend deployment, resume every active library with:
+
+```sh
+cd packages/backend
+bunx convex run background:fanOut '{"job":"queue"}'
+```
+
+For one library, use `bunx convex run readingQueue:initialize '{"userId":"<library-id>"}'`. These are writes; no live command is needed to verify a candidate locally. The initializer first completes any legacy count/finish-history scan, then scans the readable queue in pages of at most four sources with a 1,500,000-byte pagination ceiling plus one-document overshoot. Successor pages schedule themselves. A legacy `ready: true` does not skip the new scan. Counts stay unavailable until the new scan completes; article lists and reading work during the scan. This migration schedules no AI jobs and does not reimport or change annotation statuses.
+
+Keep `readingQueueStats` and `queueCounted` unchanged in meaning. They retain the annotated/deferred baseline for compatibility. The new namespace starts at zero. Each source's compact `readableQueueEntries` receipt stores the contribution actually applied and its generation; a registered article trigger updates the receipt and new totals in the same transaction as the source write. Backfill uses that same receipt, so retries, imports behind a cursor, archive/restore, finishes and annotation transitions cannot count a source twice. Receipts avoid an additional full-body patch on each article. Source writes that cannot affect a contribution do not touch the totals. Account deletion purges both new tables.
+
+Deploy the backend first. Existing frontend field names and return shapes remain valid, old suggestion status cursors are accepted, and legacy/metadata pagination cursors remain pinned to their original storage. Skipped suggestions append a fourth status range; clients must keep paging after empty intermediate pages. Reload open suggestion lists after a backend rollback because the older backend cannot parse a new skipped-status cursor.
+
+Prefer a forward fix that retains the new trigger, receipt schema and generation. Rolling back the frontend leaves counts intact. To reverse backend behavior safely, retain the additive tables and writer trigger while reverting the read policy; do not deploy a pre-receipt writer alongside readable counters. If an older backend or a raw administrative write has already changed/deleted sources without updating receipts, first deploy a recovery build that restores the new schema/writer trigger but keeps `home.counts` and `home.overview` on legacy counters. Then run:
+
+```sh
+bunx convex run readingQueue:rebuildReadable '{"userId":"<library-id>"}'
+```
+
+This approved recovery mutation clears only the derived readable totals, increments their generation and starts a full bounded scan. Previous-generation receipts contribute zero, including receipts for sources deleted by older code. Live source changes during rebuilding use the new generation. Repeating recovery starts another generation safely, but delays readiness. Keep the compatible schema when rolling back code; do not delete receipts, edit their generations, or subtract a newly computed contribution from the old baseline. Complete this rebuild for every affected library and confirm `readableQueueStats.ready` before publishing the readable-counter queries again; then verify the reader's time choices. Old finish history and legacy totals remain available throughout.
+
+Local synthetic coverage:
+
+```sh
+agent-work run -- bun run --cwd packages/backend test convex/noProviderReading.test.ts convex/readableQueueMigration.test.ts convex/readableCandidates.test.ts convex/readableQueueBudget.test.ts --maxWorkers=3
+```
+
+The fixtures cover the no-key import-to-reader journey, tenant isolation, more than 1,000 existing counted rows, interrupted scans, contribution changes, rollback generations, and native read/write limits. They use no live library, credential or provider requests.
 
 ## Catching up after a key is saved
 
@@ -152,6 +185,7 @@ If Convex logs show `invalid_client`, the client ID or secret is wrong; readers'
 | No annotation output | Check extraction and annotation status; inspect model errors/quota before manually retrying one article |
 | Answer stops mid-stream | Retry; do not treat the incomplete answer as finished. Check provider/network logs |
 | Note says it was not saved | Keep the editor open, restore connectivity and Retry before navigating away |
+| Readwise sync completed but Up next is empty | Confirm extraction has saved text and the article is unfinished. `skipped/no_provider` is readable; deploy the eligibility repair rather than replacing the token or reimporting. If time counts are unavailable, check the readable queue migration and resume its queue job |
 | Reader card disconnected | Connect a Readwise token from the Sources page; it's stored encrypted per reader |
 | Vault request returns 401 | The local and deployment vault keys must match |
 | Vault run exits non-zero | Old file index is preserved for failed replacements; resolve the error and rerun the same vault |

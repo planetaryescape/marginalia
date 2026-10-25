@@ -18,6 +18,7 @@ async function library(
         guid: `guid-${i}`,
         url: `https://example.com/${i}`,
         title: a.title,
+        content: "Synthetic readable article.",
         extractionStatus: "extracted",
         annotationStatus: "annotated",
         estimatedReadMinutes: a.minutes,
@@ -244,6 +245,7 @@ describe("paged time-window suggestions", () => {
         guid: "theirs",
         url: "https://example.com/theirs",
         title: "theirs",
+        content: "Synthetic readable article.",
         extractionStatus: "extracted",
         annotationStatus: "annotated",
         estimatedReadMinutes: 5,
@@ -264,8 +266,8 @@ describe("paged time-window suggestions", () => {
     const t = await library([{ title: "long", minutes: 40 }]);
     const { all, pages } = await pageAll(t, 5, 10);
     expect(all).toEqual([]);
-    // The annotated range, then the deferred one, then the failed one
-    expect(pages).toBe(3);
+    // Annotated, deferred, failed, then readable skipped articles
+    expect(pages).toBe(4);
   });
 });
 
@@ -278,6 +280,7 @@ describe("failed annotations on the desk", () => {
         guid: "failed",
         url: "https://example.com/failed",
         title: "failed",
+        content: "Synthetic readable article.",
         extractionStatus: "extracted",
         annotationStatus: "failed",
         estimatedReadMinutes: 9,
@@ -307,6 +310,7 @@ describe("shortest unread article", () => {
         guid: "theirs-short",
         url: "https://example.com/theirs-short",
         title: "theirs short",
+        content: "Synthetic readable article.",
         extractionStatus: "extracted",
         annotationStatus: "annotated",
         estimatedReadMinutes: 1,
@@ -351,6 +355,7 @@ describe("shortest unread article", () => {
         guid: `guid-${title}`,
         url: `https://example.com/${title}`,
         title,
+        content: "Synthetic readable article.",
         extractionStatus: "extracted",
         annotationStatus: "annotated",
         wordCount,
@@ -408,7 +413,13 @@ describe("shortest unread article", () => {
         paginationOpts: { numItems: 10, cursor: page.continueCursor },
       });
       expect(last.page).toEqual([]);
-      expect(last.isDone).toBe(true);
+      expect(last.isDone).toBe(false);
+      const skipped = await t.query(api.suggestions.moreForWindow, {
+        requestedMinutes: 5,
+        paginationOpts: { numItems: 10, cursor: last.continueCursor },
+      });
+      expect(skipped.page).toEqual([]);
+      expect(skipped.isDone).toBe(true);
     });
   });
 });

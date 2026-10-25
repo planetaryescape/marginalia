@@ -8,6 +8,11 @@ import { ConvexError, getDocumentSize } from "convex/values";
 import { z } from "zod";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import {
+  readableArticleFilter,
+  readableMetadataFilter,
+  UNREAD_STATUSES,
+} from "./readingEligibility";
 import { metadataLibraryActive, metadataLibraryRetained } from "./shelfCounts";
 
 function displayText(text: string, limit: number) {
@@ -418,7 +423,7 @@ export async function windowSource(
   // table identities. Both ranges use the same public eligibility predicate.
   const ready =
     legacy === undefined ? await metadataReady(ctx, userId) : !legacy;
-  const source = ready
+  return ready
     ? ctx.db
         .query("articleMetadata")
         .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
@@ -428,6 +433,8 @@ export async function windowSource(
             .eq("finishedAt", undefined)
             [relation]("estimatedReadMinutes", minutes),
         )
+        .order(order)
+        .filter(readableMetadataFilter)
     : ctx.db
         .query("articles")
         .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
@@ -436,14 +443,15 @@ export async function windowSource(
             .eq("annotationStatus", status)
             .eq("finishedAt", undefined)
             [relation]("estimatedReadMinutes", minutes),
-        );
-  return source.order(order);
+        )
+        .order(order)
+        .filter(readableArticleFilter);
 }
 
 export async function unreadSource(
   ctx: Pick<QueryCtx, "db">,
   userId: string,
-  status?: "annotated" | "deferred",
+  status?: (typeof UNREAD_STATUSES)[number],
   legacy?: boolean,
 ): Promise<CardQuery> {
   const ready =
@@ -459,6 +467,7 @@ export async function unreadSource(
               .eq("finishedAt", undefined),
           )
           .order("desc")
+          .filter(readableMetadataFilter)
       : ctx.db
           .query("articles")
           .withIndex("by_user_annotationStatus_finishedAt", (q) =>
@@ -467,7 +476,8 @@ export async function unreadSource(
               .eq("annotationStatus", status)
               .eq("finishedAt", undefined),
           )
-          .order("desc");
+          .order("desc")
+          .filter(readableArticleFilter);
   return ready
     ? ctx.db
         .query("articleMetadata")
@@ -476,9 +486,13 @@ export async function unreadSource(
         )
         .order("desc")
         .filter((q) =>
-          q.or(
-            q.eq(q.field("annotationStatus"), "annotated"),
-            q.eq(q.field("annotationStatus"), "deferred"),
+          q.and(
+            readableMetadataFilter(q),
+            q.or(
+              ...UNREAD_STATUSES.map((status) =>
+                q.eq(q.field("annotationStatus"), status),
+              ),
+            ),
           ),
         )
     : ctx.db
@@ -488,9 +502,13 @@ export async function unreadSource(
         )
         .order("desc")
         .filter((q) =>
-          q.or(
-            q.eq(q.field("annotationStatus"), "annotated"),
-            q.eq(q.field("annotationStatus"), "deferred"),
+          q.and(
+            readableArticleFilter(q),
+            q.or(
+              ...UNREAD_STATUSES.map((status) =>
+                q.eq(q.field("annotationStatus"), status),
+              ),
+            ),
           ),
         );
 }

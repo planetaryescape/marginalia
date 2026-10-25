@@ -319,6 +319,16 @@ describe("catching up after a key is saved", () => {
       });
       return { waiting, older, ownerArticle };
     });
+    await t.mutation(internal.readingQueue.initialize, {
+      userId: readerLibraryId,
+    });
+    await t.mutation(internal.readingQueue.initialize, {
+      userId: readerLibraryId,
+    });
+    expect(
+      (await reader.query(api.articles.listUnread, {})).map((a) => a._id),
+    ).toContain(ids.waiting);
+    const countsBefore = await reader.query(api.home.counts, {});
     const mock = mockProviders();
 
     await reader.action(api.providerCredentials.save, {
@@ -333,6 +343,10 @@ describe("catching up after a key is saved", () => {
       owner: await ctx.db.get(ids.ownerArticle),
     }));
     expect(status.waiting).toMatchObject({ annotationStatus: "annotated" });
+    expect(
+      (await reader.query(api.articles.listUnread, {})).map((a) => a._id),
+    ).toContain(ids.waiting);
+    expect(await reader.query(api.home.counts, {})).toEqual(countsBefore);
     expect(status.waiting?.skipReason).toBeUndefined();
     expect(status.older).toMatchObject({ annotationStatus: "skipped" });
     expect(status.owner).toMatchObject({

@@ -34,15 +34,14 @@ const NEIGHBOURS = 12;
 // minutes closer. Recency can still outweigh it, as it should for new articles.
 const SAVED_BOOST = 4;
 
-// Annotated articles come first, then the long ones still waiting for their
-// marginalia (D-DES-056), then ones whose annotation failed: all are readable,
-// and the desk starts the marginalia of the last two ahead of time.
-const OFFERED = ["annotated", "deferred", "failed"] as const;
+// Annotation work does not gate reading. Retain existing status cursors and
+// append readable skipped text; the first picks share the primary card budget.
+const OFFERED = ["annotated", "deferred", "failed", "skipped"] as const;
 type Offered = (typeof OFFERED)[number];
 
 // Keep the established candidate/ranking bounds across the storage migration.
 const DEFERRED_NEIGHBOURS = 4;
-// 12 annotated, 4 deferred and 2 failed per side: 36 small candidates.
+// 12 annotated/skipped, 4 deferred and 2 failed per side: 36 small candidates.
 const FAILED_NEIGHBOURS = 2;
 
 // A book in progress is the reader's own choice, so it earns the same lift as a
@@ -174,21 +173,29 @@ export const forWindow = query({
     const reads: ArticleCard[][] = [];
     for (const status of OFFERED) {
       const limit =
-        status === "annotated"
+        status === "annotated" || status === "skipped"
           ? NEIGHBOURS
           : status === "deferred"
             ? DEFERRED_NEIGHBOURS
             : FAILED_NEIGHBOURS;
-      reads.push(await shorterOrEqual(ctx, status, targetMinutes, limit));
-      reads.push(await longer(ctx, status, targetMinutes, limit));
+      // Skipped text fills unused primary slots, preserving the 36-card read
+      // ceiling and the existing annotated/deferred/failed priority.
+      const shorterLimit =
+        status === "skipped" ? NEIGHBOURS - reads[0].length : limit;
+      const longerLimit =
+        status === "skipped" ? NEIGHBOURS - reads[1].length : limit;
+      reads.push(
+        shorterLimit
+          ? await shorterOrEqual(ctx, status, targetMinutes, shorterLimit)
+          : [],
+      );
+      reads.push(
+        longerLimit
+          ? await longer(ctx, status, targetMinutes, longerLimit)
+          : [],
+      );
     }
-    // Articles without an estimate sort below every number, so the shorter
-    // side still reaches them in a library that has nothing else
-    // A book's row holds no text and sits outside these indexes' ranges, but
-    // one with an old estimate must never come through as an ordinary article
-    const candidates: ArticleCard[] = reads
-      .flat()
-      .filter((a) => a.bookUnitCount === undefined);
+    const candidates: ArticleCard[] = reads.flat();
 
     const saved = await savedAmong(ctx, candidates);
     // Tag links only, never an article's text, so the 12/4/2 neighbour budget holds

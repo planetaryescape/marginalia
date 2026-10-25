@@ -10,6 +10,7 @@ import {
   takeCards,
   unreadSource,
 } from "./lib/articleMetadata";
+import { UNREAD_STATUSES } from "./lib/readingEligibility";
 import { isReading } from "./lib/shelfArticle";
 
 const BOOKS_ON_THE_SHELF = 5;
@@ -19,7 +20,7 @@ export const counts = query({
   args: {},
   handler: async (ctx) => {
     const stats = await ctx.db
-      .query("readingQueueStats")
+      .query("readableQueueStats")
       .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .unique();
     return {
@@ -76,7 +77,7 @@ export const overview = query({
     const [unread, stats, notes, books] = await Promise.all([
       unreadCards(ctx, 10),
       ctx.db
-        .query("readingQueueStats")
+        .query("readableQueueStats")
         .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
         .unique(),
       ctx.db
@@ -97,7 +98,7 @@ export const overview = query({
 
     return {
       countsReady: stats?.ready ?? false,
-      annotatedTotal: stats?.annotated ?? unread.length,
+      annotatedTotal: stats?.ready ? stats.annotated : unread.length,
       waiting: stats?.ready ? stats.waiting : null,
       pending: stats?.ready ? stats.pending : null,
       fits: {
@@ -128,7 +129,7 @@ const UP_NEXT_PAGE_BYTES = 3_000_000;
 
 /**
  * The Up next shelf, a page at a time, with Convex's own cursors. One index
- * range holds everything unread and unarchived; annotated and deferred
+ * range holds everything unread and unarchived; readable queued
  * articles are picked from it. Unfinished books ride on the first page only.
  */
 export const upNextPage = query({
@@ -198,7 +199,7 @@ async function unreadCards(
   limit: number,
 ) {
   const rows: ArticleCard[] = [];
-  for (const status of ["annotated", "deferred"] as const) {
+  for (const status of UNREAD_STATUSES) {
     rows.push(
       ...(await takeCards(
         ctx,

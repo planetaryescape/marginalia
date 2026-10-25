@@ -19,6 +19,15 @@ import { tagAliasTables } from "./lib/tagAliasSchema";
 import { tagVectorTables } from "./lib/tagVectorSchema";
 import { tagVocabularyTables } from "./lib/tagVocabularySchema";
 
+const queueCounts = {
+  annotated: v.number(),
+  waiting: v.number(),
+  pending: v.number(),
+  fits5: v.number(),
+  fits10: v.number(),
+  fits20: v.number(),
+};
+
 const tasteEntry = v.object({
   key: v.string(),
   affinity: v.number(),
@@ -1027,6 +1036,23 @@ export default defineSchema({
     ready: v.boolean(),
     cursor: v.optional(v.string()),
   }).index("by_user", ["userId"]),
+
+  readableQueueStats: defineTable({
+    userId: v.string(),
+    ...queueCounts,
+    generation: v.number(),
+    ready: v.boolean(),
+    cursor: v.optional(v.string()),
+  }).index("by_user", ["userId"]),
+
+  readableQueueEntries: defineTable({
+    articleId: v.id("articles"),
+    userId: v.string(),
+    generation: v.number(),
+    ...queueCounts,
+  })
+    .index("by_articleId", ["articleId"])
+    .index("by_userId", ["userId"]),
 
   readwiseSyncState: defineTable({
     userId: v.string(),

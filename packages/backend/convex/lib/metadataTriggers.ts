@@ -11,6 +11,7 @@ import {
   highlightIdentityTrigger,
 } from "./highlightIdentity";
 import { syncNoteReporting, syncReflectionReporting } from "./legacyReporting";
+import { syncReadableQueue } from "./readableQueue";
 import { syncResumeEligibility } from "./readingResume";
 import { invalidateReflectionProof } from "./reflectionProtection";
 import { membershipChanged } from "./shelfCounts";
@@ -87,6 +88,9 @@ for (const kind of [
       change.newDoc,
     ),
   );
+metadataTriggers.register("articles", (ctx, change) =>
+  syncReadableQueue({ ...ctx, db: ctx.innerDb }, change.oldDoc, change.newDoc),
+);
 metadataTriggers.register("articles", (ctx, change) =>
   syncArticleMetadata(
     { ...ctx, db: ctx.innerDb },
