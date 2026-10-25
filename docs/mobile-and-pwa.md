@@ -1,6 +1,6 @@
 # Use Marginalia on your phone
 
-Open your deployed Marginalia URL in your phone's browser. Use the desk to choose a reading time or search for an article, then tap the pick or a result to read it. You can use the main reading flows on a phone with a connection; installation is optional.
+Open [reader.bhekani.com](https://reader.bhekani.com) in your phone's browser before signing in with a passkey. The established `marginalia-drab.vercel.app` page alias redirects to this canonical host and keeps the requested path, query and browser fragment. Use the desk to choose a reading time or search for an article, then tap the pick or a result to read it. You can use the main reading flows on a phone with a connection; installation is optional.
 
 ## Install on your home screen
 

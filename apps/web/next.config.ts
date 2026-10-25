@@ -16,6 +16,17 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source:
+          "/:path((?!api(?:/|$)|_next(?:/|$)|\\.well-known(?:/|$)|.*\\.[^/]+$).*)",
+        has: [{ type: "host", value: "marginalia-drab\\.vercel\\.app" }],
+        destination: "https://reader.bhekani.com/:path",
+        permanent: false,
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
