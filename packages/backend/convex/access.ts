@@ -3,6 +3,7 @@ import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { biblePreferences } from "./lib/bibleSettings";
 import { DEFAULT_USER_ID } from "./lib/constants";
 
 const SIGN_IN = "Sign in to your private reader.";
@@ -112,7 +113,10 @@ export async function ownedArticle(
   userId: string,
 ): Promise<Doc<"articles"> | null> {
   const article = await ctx.db.get("articles", articleId);
-  return article?.userId === userId ? article : null;
+  if (article?.userId !== userId) return null;
+  if (article.bible && !(await biblePreferences(ctx, userId)).enabled)
+    return null;
+  return article;
 }
 
 export async function requireArticle(

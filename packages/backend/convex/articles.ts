@@ -10,6 +10,7 @@ import {
   mutation,
   query,
 } from "./functions";
+import { biblePreferences } from "./lib/bibleSettings";
 import { EXTRACT_PAGE } from "./lib/constants";
 import { updateQueueStats } from "./readingQueue";
 
@@ -36,6 +37,17 @@ export const listByFeed = query({
 export const listAnnotated = query({
   args: {},
   handler: async (ctx) => {
+    if (!(await biblePreferences(ctx, ctx.readerId)).enabled)
+      return ctx.db
+        .query("articles")
+        .withIndex("by_userId_and_bibleTranslation_and_annotationStatus", (q) =>
+          q
+            .eq("userId", ctx.readerId)
+            .eq("bible.translation", undefined)
+            .eq("annotationStatus", "annotated"),
+        )
+        .order("desc")
+        .take(50);
     return ctx.db
       .query("articles")
       .withIndex("by_annotation_status", (q) =>
@@ -50,6 +62,20 @@ export const listAnnotated = query({
 export const listUnread = query({
   args: {},
   handler: async (ctx) => {
+    if (!(await biblePreferences(ctx, ctx.readerId)).enabled)
+      return ctx.db
+        .query("articles")
+        .withIndex(
+          "by_userId_and_bibleTranslation_and_annotationStatus_and_finishedAt",
+          (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("bible.translation", undefined)
+              .eq("annotationStatus", "annotated")
+              .eq("finishedAt", undefined),
+        )
+        .order("desc")
+        .take(100);
     return ctx.db
       .query("articles")
       .withIndex("by_user_annotationStatus_finishedAt", (q) =>
@@ -320,7 +346,9 @@ export const updateAnnotationStatus = internalMutation({
       v.literal("failed"),
       v.literal("skipped"),
     ),
-    skipReason: v.optional(v.literal("no_provider")),
+    skipReason: v.optional(
+      v.union(v.literal("no_provider"), v.literal("bible_disabled")),
+    ),
   },
   handler: (ctx, args) =>
     setAnnotationStatus(ctx, args.articleId, args.status, args.skipReason),
@@ -331,7 +359,7 @@ export async function setAnnotationStatus(
   ctx: MutationCtx,
   articleId: Id<"articles">,
   status: Doc<"articles">["annotationStatus"],
-  skipReason?: "no_provider",
+  skipReason?: Doc<"articles">["skipReason"],
 ) {
   const before = await ctx.db.get("articles", articleId);
   if (!before) return;

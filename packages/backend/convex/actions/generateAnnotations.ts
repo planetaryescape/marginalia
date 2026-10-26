@@ -4,6 +4,8 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { generateObjectWithFallback } from "../lib/aiModels";
+import { BIBLE_ANNOTATION_SYSTEM } from "../lib/bibleAnnotations";
+import { requireTranslation } from "../lib/bibleProvider";
 import {
   MAX_ANNOTATIONS_PER_ARTICLE,
   MIN_RELEVANCE_SCORE,
@@ -124,6 +126,22 @@ export const generateForArticle = internalAction({
       articleId: args.articleId,
     });
 
+    if (article?.bible) {
+      try {
+        await ctx.runQuery(internal.bible.requireEnabled, {
+          userId: article.userId,
+        });
+        requireTranslation(article.bible.translation);
+      } catch {
+        await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+          articleId: args.articleId,
+          status: "skipped",
+          skipReason: "bible_disabled",
+        });
+        return;
+      }
+    }
+
     if (!article?.content) {
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
@@ -133,7 +151,7 @@ export const generateForArticle = internalAction({
     }
 
     // Skip very short articles
-    if ((article.wordCount ?? 0) < 100) {
+    if (!article.bible && (article.wordCount ?? 0) < 100) {
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {
         articleId: args.articleId,
         status: "skipped",
@@ -174,13 +192,13 @@ ${articleText}${article.content.length > articleText.length ? "\n\n[The article 
 
 ${contextText}
 
-Generate annotations and a reflection for this article. Remember: quality over quantity. Only annotate where you genuinely add value.`;
+Generate annotations${article.bible ? " for this Bible passage" : " and a reflection for this article"}. Remember: quality over quantity. Only annotate where you genuinely add value.`;
 
       // Step 3: Generate annotations via LLM
       const { object, modelId } =
         await generateObjectWithFallback<AnnotationResult>({
           schema: annotationCandidateSchema,
-          system: SYSTEM_PROMPT,
+          system: article.bible ? BIBLE_ANNOTATION_SYSTEM : SYSTEM_PROMPT,
           prompt,
           targets,
           onFailure: ai.noteFailure,
@@ -273,14 +291,15 @@ Generate annotations and a reflection for this article. Remember: quality over q
       }
 
       // Step 6: Persist reflection
-      await ctx.runMutation(internal.reflections.insert, {
-        articleId: args.articleId,
-        userId: article.userId,
-        strongestPoint: object.reflection.strongestPoint,
-        weakestAssumption: object.reflection.weakestAssumption,
-        credibleCounterview: object.reflection.credibleCounterview,
-        questionForYou: object.reflection.questionForYou,
-      });
+      if (!article.bible)
+        await ctx.runMutation(internal.reflections.insert, {
+          articleId: args.articleId,
+          userId: article.userId,
+          strongestPoint: object.reflection.strongestPoint,
+          weakestAssumption: object.reflection.weakestAssumption,
+          credibleCounterview: object.reflection.credibleCounterview,
+          questionForYou: object.reflection.questionForYou,
+        });
 
       // Step 7: Mark as annotated
       await ctx.runMutation(internal.articles.updateAnnotationStatus, {

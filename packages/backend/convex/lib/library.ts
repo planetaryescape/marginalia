@@ -2,6 +2,7 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import type { ReadingScope } from "./bible";
 import { type EmbeddingTarget, embedText } from "./embeddings";
 
 export const libraryRequestSchema = z.object({
@@ -63,6 +64,7 @@ export async function retrieveLibraryContext(
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
+  scope?: ReadingScope,
 ) {
   const vector = await embedText(embedder, question.slice(0, 4000));
 
@@ -135,6 +137,7 @@ export async function retrieveLibraryContext(
     {
       userId,
       articleIds: order,
+      scope,
     },
   );
 

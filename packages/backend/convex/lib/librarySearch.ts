@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const librarySearchRequestSchema = z.object({
   question: z.string().trim().min(2).max(2000),
+  scope: z.enum(["articles", "mixed", "bible"]).optional(),
 });
 const rankedMatchesSchema = z.object({
   matches: z

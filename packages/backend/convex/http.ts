@@ -523,6 +523,7 @@ http.route({
         readerId,
         parsed.data.question,
         embedder,
+        parsed.data.scope,
       );
       if (!articles.length)
         return new Response(JSON.stringify({ matches: [] }), { headers });

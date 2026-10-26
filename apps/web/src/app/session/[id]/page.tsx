@@ -7,9 +7,24 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BibleSessionPicker } from "@/components/bible-session-picker";
 import { formatDate, formatReadTime } from "@/lib/utils";
 
 export default function SessionPage() {
+  const { id } = useParams<{ id: Id<"sessions"> }>();
+  const preferences = useQuery(api.bible.preferences, {});
+  if (preferences === undefined)
+    return (
+      <p role="status" className="p-6">
+        Loading your reading preferences…
+      </p>
+    );
+  if (preferences.enabled && preferences.scope !== "articles")
+    return <BibleSessionPicker id={id} scope={preferences.scope} />;
+  return <ArticleSessionPage />;
+}
+
+function ArticleSessionPage() {
   const { id } = useParams<{ id: string }>();
   // SAFETY: session links come from stored IDs; Convex validates this route parameter with v.id("sessions").
   const sessionId = id as Id<"sessions">;

@@ -61,6 +61,7 @@ export async function generateObjectWithFallback<T>(options: {
   targets: ProviderTarget[];
   /** Bound output reservation for tasks that need only a short response. */
   maxOutputTokens?: number;
+  abortSignal?: AbortSignal;
   /** Told about each failure, so a ChatGPT connection can record its state. */
   onFailure?: (error: unknown) => Promise<void>;
 }): Promise<{ object: T; modelId: string }> {
@@ -68,6 +69,7 @@ export async function generateObjectWithFallback<T>(options: {
     throw new Error("No AI model is available for this library");
   let lastError: unknown;
   for (const [index, target] of options.targets.entries()) {
+    options.abortSignal?.throwIfAborted();
     const isLast = index === options.targets.length - 1;
     if (target.provider === "chatgpt") {
       try {
@@ -76,6 +78,7 @@ export async function generateObjectWithFallback<T>(options: {
           modelId: target.id,
         };
       } catch (error) {
+        options.abortSignal?.throwIfAborted();
         lastError = error;
         await options.onFailure?.(error).catch(() => {});
         // The plan's own limits are the reader's to see, not a reason to
@@ -98,9 +101,11 @@ export async function generateObjectWithFallback<T>(options: {
         prompt: options.prompt,
         system: options.system,
         maxOutputTokens: options.maxOutputTokens,
+        abortSignal: options.abortSignal,
       });
       return { object: result.object as T, modelId: target.id };
     } catch (error) {
+      options.abortSignal?.throwIfAborted();
       lastError = error;
       // A refused key may belong to one of the reader's providers; another may still work
       if (isAuthError(error)) {
@@ -123,7 +128,12 @@ export async function generateObjectWithFallback<T>(options: {
  */
 async function generateWithChatGPT<T>(
   target: ProviderTarget,
-  options: { schema: ZodType<T, any, any>; prompt?: string; system?: string },
+  options: {
+    schema: ZodType<T, any, any>;
+    prompt?: string;
+    system?: string;
+    abortSignal?: AbortSignal;
+  },
 ): Promise<T> {
   const content = await completeResponses({
     accessToken: target.apiKey,
@@ -135,6 +145,7 @@ async function generateWithChatGPT<T>(
       { role: "user", content: options.prompt ?? "" },
     ],
     jsonSchema: toJSONSchema(options.schema as any),
+    signal: options.abortSignal,
   });
   return options.schema.parse(JSON.parse(content));
 }

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
+import { biblePreferences } from "./lib/bibleSettings";
 
 // Data access for the "Ask your library" endpoint (lib/library.ts). Every
 // lookup is scoped to the caller's library, including vector search hits.
@@ -54,14 +55,24 @@ export const loadMatches = internalQuery({
 });
 
 export const loadArticles = internalQuery({
-  args: { userId: v.string(), articleIds: v.array(v.id("articles")) },
+  args: {
+    userId: v.string(),
+    articleIds: v.array(v.id("articles")),
+    scope: v.optional(
+      v.union(v.literal("articles"), v.literal("mixed"), v.literal("bible")),
+    ),
+  },
   handler: async (ctx, args) => {
+    const prefs = await biblePreferences(ctx, args.userId);
+    const scope = prefs.enabled ? (args.scope ?? "mixed") : "articles";
     const rows = await Promise.all(
       args.articleIds.map((id) => ctx.db.get("articles", id)),
     );
     // Only what the librarian needs; article bodies stay out of the prompt
     return rows.map((row) =>
-      row?.userId === args.userId
+      row?.userId === args.userId &&
+      (scope === "mixed" ||
+        (scope === "bible" ? Boolean(row.bible) : !row.bible))
         ? {
             ...row,
             content: undefined,

@@ -27,29 +27,37 @@ export const forWindow = query({
     const [shorter, longer] = await Promise.all([
       ctx.db
         .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined)
-            .lte("estimatedReadMinutes", targetMinutes),
+        .withIndex(
+          "by_userId_and_bibleTranslation_and_annotationStatus_and_finishedAt_and_minutes",
+          (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("bible.translation", undefined)
+              .eq("annotationStatus", "annotated")
+              .eq("finishedAt", undefined)
+              .lte("estimatedReadMinutes", targetMinutes),
         )
         .order("desc")
         .take(NEIGHBOURS),
       ctx.db
         .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt_minutes", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined)
-            .gt("estimatedReadMinutes", targetMinutes),
+        .withIndex(
+          "by_userId_and_bibleTranslation_and_annotationStatus_and_finishedAt_and_minutes",
+          (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("bible.translation", undefined)
+              .eq("annotationStatus", "annotated")
+              .eq("finishedAt", undefined)
+              .gt("estimatedReadMinutes", targetMinutes),
         )
         .take(NEIGHBOURS),
     ]);
     // Articles without an estimate sort below every number, so the shorter
     // side still reaches them in a library that has nothing else
-    const candidates: Doc<"articles">[] = [...shorter, ...longer];
+    const candidates: Doc<"articles">[] = [...shorter, ...longer].filter(
+      (a) => !a.bible,
+    );
 
     const now = Date.now();
     const scored = candidates.map((a) => {

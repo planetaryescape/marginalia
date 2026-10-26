@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { AnnotationCard } from "@/components/annotation-card";
 import { ArticleAsk } from "@/components/article-ask";
 import { ArticleRenderer } from "@/components/article-renderer";
+import { BibleReaderTools } from "@/components/bible-reader-tools";
 import { CompanionCard } from "@/components/companion-card";
 import {
   ImpressionPanel,
@@ -750,7 +751,7 @@ export default function ReadPage() {
             settings.focus && "reader-focus",
             settings.align === "justify" && "reader-justify",
             settings.paragraphs === "indented" && "reader-indented",
-            settings.dropCap !== "off" && "reader-dropcap",
+            !article.bible && settings.dropCap !== "off" && "reader-dropcap",
           )}
           data-dropcap-style={settings.dropCap}
           style={
@@ -784,6 +785,14 @@ export default function ReadPage() {
               )}
             </div>
             {impression && <ImpressionSummary impression={impression} />}
+            {article.bible && (
+              <BibleReaderTools
+                bible={article.bible}
+                annotationStatus={article.annotationStatus}
+                articleId={article._id}
+                skipReason={article.skipReason}
+              />
+            )}
           </header>
 
           <SummaryPanel

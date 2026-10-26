@@ -16,11 +16,14 @@ export const overview = query({
     const [unread, stats, notes] = await Promise.all([
       ctx.db
         .query("articles")
-        .withIndex("by_user_annotationStatus_finishedAt", (q) =>
-          q
-            .eq("userId", ctx.readerId)
-            .eq("annotationStatus", "annotated")
-            .eq("finishedAt", undefined),
+        .withIndex(
+          "by_userId_and_bibleTranslation_and_annotationStatus_and_finishedAt",
+          (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("bible.translation", undefined)
+              .eq("annotationStatus", "annotated")
+              .eq("finishedAt", undefined),
         )
         .order("desc")
         .take(10),
@@ -51,25 +54,29 @@ export const overview = query({
         20: stats?.ready ? stats.fits20 : null,
         30: stats?.ready ? stats.waiting : null,
       },
-      upNext: unread.slice(0, 10).map((a) => ({
-        _id: a._id,
-        title: a.title,
-        author: a.author,
-        source: hostOf(a.url),
-        minutes: a.estimatedReadMinutes,
-        excerpt: a.excerpt?.slice(0, 180),
-        fromReader: Boolean(a.readerDocumentId),
-      })),
-      latestNote: latest
-        ? {
-            articleId: latest.articleId,
-            articleTitle: latestNoteArticle?.title,
-            selectedText: latest.selectedText,
-            text: latest.contentPlain.slice(0, 220),
-            prompt: latest.prompt,
-            createdAt: latest.createdAt,
-          }
-        : null,
+      upNext: unread
+        .filter((a) => !a.bible)
+        .slice(0, 10)
+        .map((a) => ({
+          _id: a._id,
+          title: a.title,
+          author: a.author,
+          source: hostOf(a.url),
+          minutes: a.estimatedReadMinutes,
+          excerpt: a.excerpt?.slice(0, 180),
+          fromReader: Boolean(a.readerDocumentId),
+        })),
+      latestNote:
+        latest && latestNoteArticle
+          ? {
+              articleId: latest.articleId,
+              articleTitle: latestNoteArticle?.title,
+              selectedText: latest.selectedText,
+              text: latest.contentPlain.slice(0, 220),
+              prompt: latest.prompt,
+              createdAt: latest.createdAt,
+            }
+          : null,
     };
   },
 });

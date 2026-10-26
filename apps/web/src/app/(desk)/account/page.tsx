@@ -8,6 +8,7 @@ import { useState } from "react";
 import QRCode from "react-qr-code";
 import { AiProviders } from "@/components/ai-providers";
 import { ApiTokens } from "@/components/api-tokens";
+import { BibleSettings } from "@/components/bible-settings";
 import { DeskPage } from "@/components/desk-page";
 import { FeedbackPreferences } from "@/components/interaction-feedback";
 import { SourceLink } from "@/components/source-link";
@@ -59,6 +60,7 @@ export default function AccountPage() {
           Manage readers and requests
         </Link>
       )}
+      <BibleSettings />
       <section className="account-section">
         <h2 className="flex items-center gap-2 font-serif text-2xl">
           <Fingerprint size={22} />

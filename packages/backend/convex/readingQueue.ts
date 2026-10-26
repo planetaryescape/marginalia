@@ -5,6 +5,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { libraryIsActive } from "./access";
 
 function contribution(article: Doc<"articles"> | null) {
+  if (article?.bible) article = null;
   const annotated =
     article?.queueCounted && article.annotationStatus === "annotated" ? 1 : 0;
   const waiting = annotated && article?.finishedAt === undefined ? 1 : 0;

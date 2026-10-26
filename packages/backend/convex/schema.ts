@@ -104,6 +104,13 @@ export default defineSchema({
     excerpt: v.optional(v.string()),
     wordCount: v.optional(v.number()),
     estimatedReadMinutes: v.optional(v.number()),
+    bible: v.optional(
+      v.object({
+        reference: v.string(),
+        translation: v.string(),
+        copyright: v.string(),
+      }),
+    ),
     imageUrl: v.optional(v.string()),
     extractionStatus: v.union(
       v.literal("pending"),
@@ -119,7 +126,9 @@ export default defineSchema({
     // Why a "skipped" article was skipped. "no_provider" articles are
     // re-annotated once the library saves a key (catchUp.ts); older skipped
     // rows have no reason and are re-annotated only by hand.
-    skipReason: v.optional(v.literal("no_provider")),
+    skipReason: v.optional(
+      v.union(v.literal("no_provider"), v.literal("bible_disabled")),
+    ),
     embedding: v.optional(v.array(v.float64())),
     // Set when the article came from (or was matched to) Readwise Reader
     readerDocumentId: v.optional(v.string()),
@@ -145,6 +154,25 @@ export default defineSchema({
       "finishedAt",
     ])
     // Time-window suggestions read only the articles nearest the window's length
+    .index("by_userId_and_bibleTranslation_and_annotationStatus", [
+      "userId",
+      "bible.translation",
+      "annotationStatus",
+    ])
+    .index(
+      "by_userId_and_bibleTranslation_and_annotationStatus_and_finishedAt",
+      ["userId", "bible.translation", "annotationStatus", "finishedAt"],
+    )
+    .index(
+      "by_userId_and_bibleTranslation_and_annotationStatus_and_finishedAt_and_minutes",
+      [
+        "userId",
+        "bible.translation",
+        "annotationStatus",
+        "finishedAt",
+        "estimatedReadMinutes",
+      ],
+    )
     .index("by_user_annotationStatus_finishedAt_minutes", [
       "userId",
       "annotationStatus",
@@ -607,6 +635,11 @@ export default defineSchema({
     annotationModel: v.optional(v.string()),
     quickModel: v.optional(v.string()),
     deepModel: v.optional(v.string()),
+    bibleEnabled: v.optional(v.boolean()),
+    bibleTranslation: v.optional(v.string()),
+    readingScope: v.optional(
+      v.union(v.literal("articles"), v.literal("mixed"), v.literal("bible")),
+    ),
     // Readwise Reader sync: documents updated after this were not yet imported
     readwiseSyncedAt: v.optional(v.number()),
     readwiseCheckedAt: v.optional(v.number()),

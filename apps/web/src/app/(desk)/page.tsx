@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { ArticleFinder } from "@/components/article-finder";
 import { FitChildren } from "@/components/fit-children";
 import { RATINGS } from "@/components/impression-panel";
+import { ReadingScopeControl } from "@/components/reading-scope";
 import { moveFocus, useShortcuts } from "@/lib/shortcuts";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -92,6 +93,7 @@ export default function HomePage() {
   const upNextRef = useRef<HTMLDivElement>(null);
 
   const overview = useQuery(api.home.overview, {});
+  const biblePreferences = useQuery(api.bible.preferences, {});
   const inProgress = useQuery(api.sessions.getInProgress);
   const dueForReview = useQuery(api.lovedArticles.getDueForReview);
   const impressions = useQuery(api.impressions.listRecent, {});
@@ -123,11 +125,14 @@ export default function HomePage() {
 
   const startSession = async (minutes: number) => {
     const sessionId = await createSession({ requestedMinutes: minutes });
-    router.push(`/session/${sessionId}?m=${minutes}`);
+    router.push(
+      `/session/${sessionId}?m=${minutes}&scope=${biblePreferences?.scope ?? "articles"}`,
+    );
   };
 
   const loading = overview === undefined;
-  const hasArticles = (overview?.annotatedTotal ?? 0) > 0;
+  const hasArticles =
+    (overview?.annotatedTotal ?? 0) > 0 || biblePreferences?.enabled === true;
   const hasSources = Boolean(feeds?.length) || Boolean(readwise?.connected);
   const revisit = dueForReview?.filter((entry) => entry !== null)[0] ?? null;
   const today = new Date().toLocaleDateString(undefined, {
@@ -373,6 +378,11 @@ export default function HomePage() {
               <br className="hidden sm:block" /> do you have?
             </motion.h1>
 
+            {biblePreferences?.enabled && (
+              <div className="mt-2 shrink-0">
+                <ReadingScopeControl scope={biblePreferences.scope} />
+              </div>
+            )}
             <motion.div
               custom={2}
               variants={rise}
@@ -407,11 +417,16 @@ export default function HomePage() {
                       {option.label}
                     </span>
                     <span className="mt-1 sm:mt-0 text-[11px] sm:text-[11.5px] text-[var(--reader-muted)]">
-                      {fits === null
-                        ? "counting…"
-                        : fits === 0
-                          ? "none"
-                          : `${fits} fit`}
+                      {biblePreferences?.scope !== undefined &&
+                      biblePreferences.scope !== "articles"
+                        ? biblePreferences.scope === "bible"
+                          ? "Bible passages"
+                          : "passages too"
+                        : fits === null
+                          ? "counting…"
+                          : fits === 0
+                            ? "none"
+                            : `${fits} fit`}
                     </span>
                   </button>
                 );
