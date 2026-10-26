@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The provider's verse-click UI disables native selection. Our reader uses
+   native ranges for marks, notes and passage actions instead. */
+.licensed-bible-text[data-slot="yv-bible-renderer"],
+.licensed-bible-text[data-slot="yv-bible-renderer"] * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 .licensed-bible-text[data-slot="yv-bible-renderer"] {
   --yv-foreground: var(--reader-fg);
   --yv-background: var(--reader-bg);
