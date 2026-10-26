@@ -182,6 +182,7 @@ import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_unfinishedBooks from "../lib/unfinishedBooks.js";
 import type * as lib_unreadQueue from "../lib/unreadQueue.js";
 import type * as lib_vaultUpload from "../lib/vaultUpload.js";
+import type * as lib_youversion from "../lib/youversion.js";
 import type * as library from "../library.js";
 import type * as libraryIndex from "../libraryIndex.js";
 import type * as limits from "../limits.js";
@@ -401,6 +402,7 @@ declare const fullApi: ApiFromModules<{
   "lib/unfinishedBooks": typeof lib_unfinishedBooks;
   "lib/unreadQueue": typeof lib_unreadQueue;
   "lib/vaultUpload": typeof lib_vaultUpload;
+  "lib/youversion": typeof lib_youversion;
   library: typeof library;
   libraryIndex: typeof libraryIndex;
   limits: typeof limits;
