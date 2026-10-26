@@ -40,6 +40,7 @@ export function ReadingScopeControl({ scope }: { scope: ReadingScope }) {
     <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--reader-fg-soft)]">
       <span>Look in</span>
       <DropdownMenu.Root
+        modal={false}
         open={open}
         onOpenChange={(nextOpen) => {
           if (nextOpen && busyRef.current) return;

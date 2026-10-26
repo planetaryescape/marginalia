@@ -70,6 +70,7 @@ describe("reading source control", () => {
       "true",
       "false",
     ]);
+    expect(container.closest('[aria-hidden="true"]')).toBeNull();
   });
 
   it("selects by keyboard and restores focus after Escape", async () => {
