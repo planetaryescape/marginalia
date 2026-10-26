@@ -36,7 +36,7 @@ export const create = mutation({
     contentPlain: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    const article = await requireArticle(ctx, args.articleId, ctx.readerId);
     validateNote(args.content, args.contentPlain);
     assertBytes(args.selectedText, 32_000, "Selection");
     if (args.prompt) assertBytes(args.prompt, 16_000, "Prompt");
@@ -61,6 +61,7 @@ export const create = mutation({
       userId: ctx.readerId,
       articleId: args.articleId,
       selectedText: args.selectedText,
+      licensedQuote: article.bible?.displayVersionId ? true : undefined,
       selectedStartOffset: args.selectedStartOffset,
       selectedEndOffset: args.selectedEndOffset,
       unitIndex: args.unitIndex,

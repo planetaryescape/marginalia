@@ -118,8 +118,31 @@ export const requireEnabled = internalQuery({
   args: { userId: v.string() },
   handler: (ctx, args) => requireBible(ctx, args.userId),
 });
+export const studySource = internalQuery({
+  args: { userId: v.string(), articleId: v.string() },
+  handler: async (ctx, args) => {
+    const id = ctx.db.normalizeId("articles", args.articleId);
+    if (!id) return null;
+    const article = await ctx.db.get(id);
+    if (article?.userId !== args.userId || !article.bible?.displayVersionId)
+      return null;
+    await requireBible(ctx, args.userId);
+    if (article.bible.translation !== "web")
+      throw new Error("Unsupported AI study source.");
+    return {
+      title: article.title,
+      content: article.content ?? "",
+      reference: article.bible.reference,
+    };
+  },
+});
 export const findPassage = internalQuery({
-  args: { userId: v.string(), reference: v.string(), translation: v.string() },
+  args: {
+    userId: v.string(),
+    reference: v.string(),
+    translation: v.string(),
+    displayVersionId: v.optional(v.number()),
+  },
   handler: async (ctx, args): Promise<Id<"articles"> | null> => {
     await requireBible(ctx, args.userId);
     const row = await ctx.db
@@ -127,7 +150,10 @@ export const findPassage = internalQuery({
       .withIndex("by_user_guid", (q) =>
         q
           .eq("userId", args.userId)
-          .eq("guid", `bible:${args.translation}:${args.reference}`),
+          .eq(
+            "guid",
+            `bible:${args.translation}:${args.reference}${args.displayVersionId ? `:display:${args.displayVersionId}` : ""}`,
+          ),
       )
       .unique();
     return row?._id ?? null;
@@ -179,6 +205,8 @@ export const savePassage = internalMutation({
     contentHtml: v.string(),
     copyright: v.string(),
     url: v.string(),
+    displayVersionId: v.optional(v.number()),
+    displayVersionName: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Id<"articles">> => {
     // Recheck after the network request: switching off must win an in-flight open.
@@ -189,7 +217,7 @@ export const savePassage = internalMutation({
     const ref = parseBibleReference(args.reference);
     if (!ref || ref.reference !== args.reference)
       throw new Error("Invalid Bible reference.");
-    const guid = `bible:${translation}:${ref.reference}`;
+    const guid = `bible:${translation}:${ref.reference}${args.displayVersionId ? `:display:${args.displayVersionId}` : ""}`;
     const existing = await ctx.db
       .query("articles")
       .withIndex("by_user_guid", (q) =>
@@ -212,6 +240,8 @@ export const savePassage = internalMutation({
         reference: ref.reference,
         translation,
         copyright: args.copyright,
+        displayVersionId: args.displayVersionId,
+        displayVersionName: args.displayVersionName,
       },
       extractionStatus: "extracted",
       annotationStatus: "pending",

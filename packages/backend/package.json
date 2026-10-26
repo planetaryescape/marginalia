@@ -36,6 +36,7 @@
     "better-auth": "~1.6.15",
     "convex": "1.46.0",
     "convex-helpers": "0.1.126",
+    "fast-xml-parser": "5.11.2",
     "jose": "^6.2.12",
     "rss-parser": "^3.13.0",
     "unpdf": "1.8.1",

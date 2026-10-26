@@ -3,24 +3,34 @@ import { BIBLE_BOOKS, parseBibleReference } from "@marginalia/backend/bible";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import type { useBibleDisplay } from "@/lib/use-bible-display";
 import { BibleBrowser } from "./bible-browser";
+import { BibleWordStudy } from "./bible-word-study";
 
 export function BibleReaderTools({
   bible,
   annotationStatus,
   articleId,
   skipReason,
+  display,
 }: {
-  bible: { reference: string; translation: string; copyright: string };
+  bible: {
+    reference: string;
+    translation: string;
+    copyright: string;
+    displayVersionId?: number;
+  };
   annotationStatus: string;
   articleId: Id<"articles">;
   skipReason?: string;
+  display?: ReturnType<typeof useBibleDisplay>;
 }) {
   const router = useRouter();
-  const openPassage = useAction(api.actions.bible.openPassage);
+  const openPassage = useAction(api.actions.bible.openReading);
   const [busy, setBusy] = useState(false);
   const resumeAnnotations = useMutation(api.bible.resumeAnnotations);
   useEffect(() => {
@@ -54,6 +64,7 @@ export function BibleReaderTools({
       const id = await openPassage({
         reference,
         translation: bible.translation,
+        versionId: bible.displayVersionId,
       });
       router.push(`/read/${id}`);
     } catch (error) {
@@ -74,14 +85,56 @@ export function BibleReaderTools({
       <p className="text-[var(--reader-fg-soft)]">
         {bible.copyright}{" "}
         <a
-          href="https://ebible.org/eng-web/copyright.htm"
+          href={
+            display?.primary?.publisherUrl ??
+            "https://ebible.org/eng-web/copyright.htm"
+          }
           target="_blank"
           rel="noreferrer"
           className="underline underline-offset-4"
         >
-          About this translation
+          {display?.primary?.publisher ?? "About this translation"}
         </a>
       </p>
+      <p className="text-[var(--reader-fg-soft)]">
+        AI study source: <strong>World English Bible (WEB)</strong>. Summaries,
+        idea maps and marginalia use this public-domain text, not the wording of
+        your displayed translation. Cross-version margin notes are attached by
+        verse.
+      </p>
+      {display ? (
+        <>
+          <label className="flex min-h-11 items-center gap-3">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-checked={display.comparing}
+              checked={display.comparing}
+              onChange={(event) => display.setComparing(event.target.checked)}
+            />
+            Compare versions
+          </label>
+          {display.comparing ? (
+            <ComparisonVersion
+              selected={display.otherVersion}
+              primaryId={bible.displayVersionId}
+              onChange={display.setOtherVersion}
+            />
+          ) : null}
+          {display.comparing && display.error ? (
+            <p role="alert">
+              {display.error}{" "}
+              <button
+                type="button"
+                className="min-h-11 underline"
+                onClick={display.retry}
+              >
+                Retry comparison
+              </button>
+            </p>
+          ) : null}
+        </>
+      ) : null}
       <nav
         aria-label="Bible chapter navigation"
         className="flex flex-wrap justify-between gap-2"
@@ -103,7 +156,12 @@ export function BibleReaderTools({
           Next chapter
         </button>
       </nav>
-      <BibleBrowser onOpen={() => {}} translation={bible.translation} />
+      <BibleBrowser
+        onOpen={() => {}}
+        translation={bible.translation}
+        versionId={bible.displayVersionId}
+      />
+      <BibleWordStudy key={bible.reference} reference={bible.reference} />
       <p role="status" className="text-xs text-[var(--reader-muted)]">
         {busy
           ? "Opening chapter…"
@@ -116,5 +174,70 @@ export function BibleReaderTools({
                 : "Marginalia is AI-generated interpretation, not Scripture. Check references and consider the surrounding context."}
       </p>
     </section>
+  );
+}
+
+function ComparisonVersion({
+  selected,
+  primaryId,
+  onChange,
+}: {
+  selected: number;
+  primaryId?: number;
+  onChange: (id: number) => void;
+}) {
+  const load = useAction(api.actions.bible.catalogue);
+  const [versions, setVersions] = useState<FunctionReturnType<
+    typeof api.actions.bible.catalogue
+  > | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let current = true;
+    if (retry > 0) setVersions(null);
+    setError("");
+    void load({}).then(
+      (data) => {
+        if (current) setVersions(data);
+      },
+      () => {
+        if (current) setError("Couldn't load comparison editions.");
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [load, retry]);
+  if (error)
+    return (
+      <p role="alert">
+        {error}{" "}
+        <button
+          type="button"
+          className="min-h-11 underline"
+          onClick={() => setRetry((n) => n + 1)}
+        >
+          Retry versions
+        </button>
+      </p>
+    );
+  if (!versions) return <p role="status">Loading comparison editions…</p>;
+  return (
+    <label className="block">
+      Compare with
+      <select
+        className="app-input mt-2"
+        value={selected}
+        onChange={(event) => onChange(Number(event.target.value))}
+      >
+        {versions
+          .filter((v) => v.id !== primaryId)
+          .map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.title} ({v.language})
+            </option>
+          ))}
+      </select>
+    </label>
   );
 }

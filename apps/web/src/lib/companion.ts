@@ -212,6 +212,7 @@ export function useCompanion({
   settings,
   unitIndex = null,
   source,
+  bibleStudySource = false,
 }: {
   articleId: Id<"articles">;
   /** The part of a book on screen. Answers belong to it: their paragraph numbers are its own. */
@@ -221,6 +222,8 @@ export function useCompanion({
   settings: ReaderSettings;
   /** Bootstrap prose only; annotations/layout must not invalidate preparation. */
   source?: { content?: string; contentHtml?: string };
+  /** A licensed edition is displayed; AI receives only the saved public-domain source. */
+  bibleStudySource?: boolean;
 }) {
   // The ref is the truth; the state mirrors it for rendering. Handlers read
   // the ref, so a quick second action never acts on a stale render.
@@ -383,10 +386,21 @@ export function useCompanion({
 
       const { title, settings } = latest.current;
       const retrieval =
-        sourceReady && (base.mode === "ask" || base.mode === "article");
-      const context = retrieval
-        ? { paragraphs: [] }
-        : companionContext(containerRef.current, base);
+        !bibleStudySource &&
+        sourceReady &&
+        (base.mode === "ask" || base.mode === "article");
+      const context: {
+        paragraphs: string[];
+        paragraphIndices?: number[];
+        paragraphIndex?: number;
+        paragraphEnd?: number;
+        sentence?: string;
+        contextOccurrence?: number;
+      } = bibleStudySource
+        ? { paragraphs: (sourceContent ?? "").split(/\n\n+/).filter(Boolean) }
+        : retrieval
+          ? { paragraphs: [] }
+          : companionContext(containerRef.current, base);
       const { paragraphs } = context;
 
       // Define is told which usage of the words was selected, not just the words.
@@ -566,6 +580,7 @@ export function useCompanion({
       sourceReady,
       sourceContent,
       sourceHtml,
+      bibleStudySource,
     ],
   );
 
@@ -573,6 +588,24 @@ export function useCompanion({
     (args: { mode: CompanionMode; range: Range; question?: string }) => {
       const selection = rangeText(args.range);
       if (!selection) return;
+      if (bibleStudySource) {
+        // Never mistake an English translation's selected wording for a lemma.
+        run(
+          {
+            id: crypto.randomUUID(),
+            mode: "article",
+            selection: "",
+            paragraphIndex: null,
+            question:
+              args.question?.trim() ||
+              "Explain the meaning and context of this Bible passage using the supplied World English Bible study source. This is a passage study, not a definition of the wording in the displayed translation.",
+            turns: [],
+            status: "streaming",
+          },
+          [],
+        );
+        return;
+      }
       run(
         {
           id: crypto.randomUUID(),
@@ -588,7 +621,7 @@ export function useCompanion({
         [],
       );
     },
-    [run],
+    [run, bibleStudySource],
   );
 
   const startArticle = useCallback(

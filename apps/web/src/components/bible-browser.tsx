@@ -5,21 +5,22 @@ import { useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { toast } from "sonner";
-import { licensedBibleHref } from "@/lib/bible-destination";
 
 export function BibleBrowser({
   onOpen,
   translation = "web",
+  versionId,
 }: {
   onOpen: () => void;
   translation?: string;
+  versionId?: number;
 }) {
   const [bookId, setBookId] = useState("GEN");
   const [chapter, setChapter] = useState(1);
   const [busy, setBusy] = useState(false);
   const id = useId();
   const book = BIBLE_BOOKS.find(([id]) => id === bookId) ?? BIBLE_BOOKS[0];
-  const openPassage = useAction(api.actions.bible.openPassage);
+  const openPassage = useAction(api.actions.bible.openReading);
   const router = useRouter();
   return (
     <details className="px-3 py-2 text-sm">
@@ -68,14 +69,10 @@ export function BibleBrowser({
             setBusy(true);
             try {
               const reference = `${book[1]} ${chapter}`;
-              const href = licensedBibleHref(reference, translation);
-              if (href) {
-                onOpen();
-                router.push(href);
-                return;
-              }
               const articleId = await openPassage({
                 reference,
+                translation,
+                versionId,
               });
               onOpen();
               router.push(`/read/${articleId}`);

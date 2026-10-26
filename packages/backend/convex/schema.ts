@@ -186,6 +186,8 @@ export default defineSchema({
         reference: v.string(),
         translation: v.string(),
         copyright: v.string(),
+        displayVersionId: v.optional(v.number()),
+        displayVersionName: v.optional(v.string()),
       }),
     ),
     imageUrl: v.optional(v.string()),
@@ -372,6 +374,8 @@ export default defineSchema({
         reference: v.string(),
         translation: v.string(),
         copyright: v.string(),
+        displayVersionId: v.optional(v.number()),
+        displayVersionName: v.optional(v.string()),
       }),
     ),
     articleId: v.id("articles"),
@@ -1153,6 +1157,7 @@ export default defineSchema({
     .index("by_user_article", ["userId", "articleId"]),
 
   userNotes: defineTable({
+    licensedQuote: v.optional(v.boolean()),
     userId: v.string(),
     articleId: v.id("articles"),
     // The text the user highlighted when creating the note
@@ -1377,6 +1382,7 @@ export default defineSchema({
   // Highlighter and pen marks, re-anchored by text when the article renders.
   // A mark keeps the colour it was made in; rows without one follow the reader's current setting.
   highlights: defineTable({
+    licensedQuote: v.optional(v.boolean()),
     userId: v.string(),
     articleId: v.id("articles"),
     kind: v.union(v.literal("highlight"), v.literal("underline")),

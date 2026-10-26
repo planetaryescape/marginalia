@@ -66,10 +66,12 @@ function compact(
     body = row.content;
   } else {
     articleId = row.articleId;
+    if ("licensedQuote" in row && row.licensedQuote && !("contentPlain" in row))
+      return null;
     if ("contentPlain" in row) {
       source = `note:${row._id}:${row.updatedAt}`;
       body = [
-        row.selectedText
+        row.selectedText && !row.licensedQuote
           ? `Highlighted: "${clipRecallText(row.selectedText, 2048)}"`
           : "",
         row.prompt ? `Responding to: ${clipRecallText(row.prompt, 2048)}` : "",

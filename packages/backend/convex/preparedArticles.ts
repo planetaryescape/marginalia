@@ -43,6 +43,9 @@ async function liveSource(
   const id = ctx.db.normalizeId("articles", args.articleId);
   const article = id && (await ownedArticle(ctx, id, args.userId));
   if (!article) return null;
+  // Displayed licensed DOM must never be retained as an AI representation.
+  // These small passage requests use the authoritative WEB source directly.
+  if (article.bible?.displayVersionId) return null;
   if (args.unitIndex !== undefined) {
     if (
       !Number.isInteger(args.unitIndex) ||

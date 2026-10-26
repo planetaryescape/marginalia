@@ -133,7 +133,7 @@ export const create = mutation({
     unitIndex: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    const article = await requireArticle(ctx, args.articleId, ctx.readerId);
     assertBytes(args.text, 32_000, "Marked passage");
     if (args.color && !colorFitsKind(args.kind, args.color))
       throw new Error("That colour is not for this kind of mark");
@@ -143,6 +143,7 @@ export const create = mutation({
         : null;
     const highlightId = await ctx.db.insert("highlights", {
       ...args,
+      licensedQuote: article.bible?.displayVersionId ? true : undefined,
       color: args.color ?? legacyDefault?.color,
       userId: ctx.readerId,
       source: "marginalia",
@@ -469,6 +470,8 @@ export const listUnembedded = internalQuery({
       .query("highlights")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .take(500);
-    return rows.filter((r) => !r.embedding).map((r) => r._id);
+    return rows
+      .filter((r) => !r.embedding && !r.licensedQuote)
+      .map((r) => r._id);
   },
 });

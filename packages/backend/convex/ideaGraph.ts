@@ -366,7 +366,7 @@ export const node = query({
     let prompt: string | undefined;
     if (found.kind === "note") {
       const note = await ctx.db.get("userNotes", found.id as Id<"userNotes">);
-      quote = note?.selectedText || undefined;
+      quote = note?.licensedQuote ? undefined : note?.selectedText || undefined;
       prompt = note?.prompt || undefined;
     }
     // An article reads as its one point, from the summary when there is one

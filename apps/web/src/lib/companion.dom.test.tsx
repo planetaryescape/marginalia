@@ -42,10 +42,12 @@ function Harness({
   articleId = "a1",
   unitIndex,
   source,
+  bibleStudySource,
 }: {
   articleId?: string;
   unitIndex?: number;
   source?: { content?: string; contentHtml?: string };
+  bibleStudySource?: boolean;
 }) {
   container.current = article;
   // SAFETY: synthetic IDs are never sent to Convex in this provider-mocked fixture.
@@ -56,6 +58,7 @@ function Harness({
     title: "Hill walking",
     settings: DEFAULT_SETTINGS,
     source,
+    bibleStudySource,
   });
   return null;
 }
@@ -136,6 +139,32 @@ const finish = async (text: string, index = streams.length - 1) => {
 };
 const stored = (id = "a1") =>
   JSON.parse(sessionStorage.getItem(`marginalia:answers:${id}`) ?? "[]");
+
+it("keeps displayed licensed wording out of study AI, including selection and Define paths", async () => {
+  article.innerHTML = '<p data-para="0">Displayed-edition-only words</p>';
+  const selected = document.createRange();
+  selected.selectNodeContents(article.querySelector("p")!);
+  await act(async () =>
+    root.render(
+      <Harness
+        bibleStudySource
+        source={{ content: "3:16 Public-domain study source" }}
+      />,
+    ),
+  );
+  await act(async () => latest.startArticle("Summarize this passage"));
+  await settle();
+  expect(bodies[0].paragraphs).toEqual(["3:16 Public-domain study source"]);
+  expect(JSON.stringify(bodies[0])).not.toContain("Displayed-edition-only");
+  await finish("Study summary");
+  await act(async () => latest.start({ mode: "define", range: selected }));
+  await settle();
+  expect(bodies[1].mode).toBe("article");
+  expect(bodies[1].selection).toBe("");
+  expect(JSON.stringify(bodies[1])).not.toContain("Displayed-edition-only");
+  await finish("Passage context, not an invented lexical alignment");
+  expect(mocks.recordLookup).not.toHaveBeenCalled();
+});
 
 it("records a completed Define in the displayed book part", async () => {
   await act(async () => root.render(<Harness unitIndex={4} />));

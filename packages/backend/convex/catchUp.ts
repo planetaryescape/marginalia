@@ -248,7 +248,7 @@ async function scan(
             )
             .take(1),
         (row) =>
-          !row.embedding && row.text
+          !row.embedding && row.text && !row.licensedQuote
             ? { kind: "highlight", id: row._id }
             : null,
         cursor,

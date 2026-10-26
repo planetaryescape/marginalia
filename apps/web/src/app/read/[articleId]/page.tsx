@@ -39,6 +39,7 @@ import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
 import { FINISH_ARTICLE } from "@/components/view-transition";
 import { readerMeta } from "@/lib/article-meta";
+import { bibleVerseAtRange, mapBibleAnnotations } from "@/lib/bible-display";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
@@ -69,6 +70,7 @@ import {
 } from "@/lib/reader-settings";
 import { articleProgress } from "@/lib/reading-clock";
 import { useListen, useReadingPosition } from "@/lib/reading-modes";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { findTextRange, rangeText } from "@/lib/text-range";
@@ -113,6 +115,8 @@ export default function ReadPage() {
   // A book is read a part at a time: `article` carries the part on screen
   const {
     article,
+    sourceArticle,
+    bibleDisplay,
     isBook,
     unitIndex,
     unitKey,
@@ -131,11 +135,19 @@ export default function ReadPage() {
   );
   const readerData = useReaderPreviews(articleKey, unit, scopeReady);
   const {
-    annotations,
+    annotations: storedAnnotations,
     notes: articleNotes,
     threads: savedThreads,
     marks: highlightDocs,
   } = readerData;
+  const annotations =
+    storedAnnotations && bibleDisplay?.primary
+      ? mapBibleAnnotations(
+          storedAnnotations,
+          sourceArticle?.content ?? "",
+          bibleDisplay.anchors,
+        )
+      : storedAnnotations;
   const reflection = useQuery(api.reflections.getByArticle, {
     articleId: articleId as any,
   });
@@ -234,9 +246,14 @@ export default function ReadPage() {
     unitIndex: unitIndex,
     containerRef: articleRef,
     title: article?.title ?? "",
-    source: article
-      ? { content: article.content, contentHtml: article.contentHtml }
-      : undefined,
+    bibleStudySource: Boolean(sourceArticle?.bible?.displayVersionId),
+    source:
+      (sourceArticle ?? article)
+        ? {
+            content: (sourceArticle ?? article)?.content,
+            contentHtml: (sourceArticle ?? article)?.contentHtml,
+          }
+        : undefined,
     settings,
   });
   const savedAnswer = useSavedAnswerBody(
@@ -344,7 +361,15 @@ export default function ReadPage() {
 
   // Where the margin column is, a kept answer's passage is marked and the note is
   // its handle. Elsewhere every answer is marked, since the text is the handle.
-  const marginMode = useMarginMode(articleRef, Boolean(article), settings);
+  const naturalMarginMode = useMarginMode(
+    articleRef,
+    Boolean(article),
+    settings,
+  );
+  const marginMode =
+    bibleDisplay?.comparing && naturalMarginMode === "sidenotes"
+      ? "sheet"
+      : naturalMarginMode;
   // Streaming rebuilds `companion.answers` on every chunk, so the passages are
   // keyed by value: only a changed passage makes the text be searched again.
   const passageKey = JSON.stringify(
@@ -493,11 +518,20 @@ export default function ReadPage() {
 
   const startCompanion = useCallback(
     (args: Parameters<typeof companion.start>[0]) => {
+      if (args.mode === "define" && article?.bible) {
+        const reference =
+          bibleVerseAtRange(article.bible.reference, args.range) ??
+          article.bible.reference;
+        window.dispatchEvent(
+          new CustomEvent("bible-word-study", { detail: { reference } }),
+        );
+        return;
+      }
       savedAnswer.cancel();
       setActiveAnnotation(null);
       companion.start(args);
     },
-    [companion.start, savedAnswer.cancel],
+    [companion.start, savedAnswer.cancel, article?.bible],
   );
 
   useReaderTheme(settings);
@@ -902,6 +936,15 @@ export default function ReadPage() {
   );
 
   if (!article) {
+    if (bibleDisplay?.error)
+      return (
+        <main className="mx-auto max-w-3xl px-6 pt-24">
+          <InlineError
+            message={bibleDisplay.error}
+            onRetry={bibleDisplay.retry}
+          />
+        </main>
+      );
     // Opened from the desk, the heading is already known: it is there for the
     // morph to land on while the body loads.
     const opening = (
@@ -968,6 +1011,15 @@ export default function ReadPage() {
 
   return (
     <>
+      {bibleDisplay?.fontCss ? (
+        <>
+          <link
+            rel="stylesheet"
+            href="https://cdn.youversion.com/platform/1/bible.css"
+          />
+          <style>{bibleDisplay.fontCss}</style>
+        </>
+      ) : null}
       {/* Reading progress bar */}
       <div
         className="reading-progress"
@@ -1156,127 +1208,208 @@ export default function ReadPage() {
             window.dispatchEvent(new Event("resize"));
         }}
       >
-        <article
-          ref={articleRef}
-          className={cn(
-            "article-column reader-arriving mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
-            settings.numbers && "reader-numbers",
-            settings.focus && "reader-focus",
-            settings.align === "justify" && "reader-justify",
-            settings.paragraphs === "indented" && "reader-indented",
-            // A PDF's first block is often a licence line or an author list, so
-            // nothing in it is a lead worth a drop cap
-            settings.dropCap !== "off" &&
-              !article.bible &&
-              !article.uploadedFileName &&
-              "reader-dropcap",
-          )}
-          data-dropcap-style={settings.dropCap}
-          data-margin={marginMode}
-          style={
-            {
-              maxWidth: MAX_WIDTHS[settings.width],
-              "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
-              "--reader-size": `${settings.size}px`,
-              "--reader-leading": LINE_HEIGHTS[settings.spacing],
-              "--dropcap-lines": settings.dropCapLines,
-              "--dropcap-font":
-                settings.dropCap === "off"
-                  ? undefined
-                  : DROP_CAP_FAMILIES[settings.dropCap],
-            } as React.CSSProperties
+        <div
+          className={
+            bibleDisplay?.comparison
+              ? "mx-auto grid max-w-[100rem] items-start md:grid-cols-2 md:gap-8"
+              : undefined
           }
         >
-          <header className="mb-10">
-            <ReaderTitle articleId={articleId} title={article.title} />
-            <p
-              data-testid="reader-meta"
-              className="text-sm font-sans text-[var(--ink-muted)]"
-            >
-              {readerMeta({
-                url: article.url,
-                uploaded: Boolean(article.uploadedFileName),
-                author: article.author,
-                minutes: article.estimatedReadMinutes,
-                part:
-                  isBook && outline && unitIndex !== null
-                    ? { index: unitIndex, of: outline.length }
-                    : undefined,
-              })}
-            </p>
-            <ArticleTags articleId={articleId as any} />
-            {impression && <ImpressionSummary impression={impression} />}
-            {article.bible && (
-              <BibleReaderTools
-                bible={article.bible}
-                annotationStatus={article.annotationStatus}
-                articleId={article._id}
-                skipReason={article.skipReason}
-              />
+          <article
+            ref={articleRef}
+            className={cn(
+              "article-column reader-arriving mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
+              settings.numbers && "reader-numbers",
+              settings.focus && "reader-focus",
+              settings.align === "justify" && "reader-justify",
+              settings.paragraphs === "indented" && "reader-indented",
+              // A PDF's first block is often a licence line or an author list, so
+              // nothing in it is a lead worth a drop cap
+              settings.dropCap !== "off" &&
+                !article.bible &&
+                !article.uploadedFileName &&
+                "reader-dropcap",
             )}
-          </header>
+            data-dropcap-style={settings.dropCap}
+            data-margin={marginMode}
+            style={
+              {
+                maxWidth: MAX_WIDTHS[settings.width],
+                "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
+                "--reader-size": `${settings.size}px`,
+                "--reader-leading": LINE_HEIGHTS[settings.spacing],
+                "--dropcap-lines": settings.dropCapLines,
+                "--dropcap-font":
+                  settings.dropCap === "off"
+                    ? undefined
+                    : DROP_CAP_FAMILIES[settings.dropCap],
+              } as React.CSSProperties
+            }
+          >
+            <header className="mb-10">
+              <ReaderTitle articleId={articleId} title={article.title} />
+              <p
+                data-testid="reader-meta"
+                className="text-sm font-sans text-[var(--ink-muted)]"
+              >
+                {readerMeta({
+                  url: article.url,
+                  uploaded: Boolean(article.uploadedFileName),
+                  author: article.author,
+                  minutes: article.estimatedReadMinutes,
+                  part:
+                    isBook && outline && unitIndex !== null
+                      ? { index: unitIndex, of: outline.length }
+                      : undefined,
+                })}
+              </p>
+              <ArticleTags articleId={articleId as any} />
+              {impression && <ImpressionSummary impression={impression} />}
+              {article.bible && (
+                <BibleReaderTools
+                  bible={article.bible}
+                  annotationStatus={article.annotationStatus}
+                  articleId={article._id}
+                  skipReason={article.skipReason}
+                  display={bibleDisplay}
+                />
+              )}
+            </header>
 
-          {(!isBook || summary) && (
-            <div ref={setFrontMatter}>
-              <SummaryPanel
-                articleId={articleId as any}
-                title={article.title}
-                content={article.content}
-                contentHtml={article.contentHtml}
-                wordCount={article.wordCount}
-                summary={summary}
-                containerRef={articleRef}
-                onJump={jumpToParagraph}
-                canGenerate={!isBook}
-                onExpandedChange={setSummaryOpen}
-                contentVersion={paragraphs.version}
+            {(!isBook || summary) && (
+              <div ref={setFrontMatter}>
+                <SummaryPanel
+                  articleId={articleId as any}
+                  title={article.title}
+                  content={sourceArticle?.content ?? article.content}
+                  contentHtml={
+                    sourceArticle?.contentHtml ?? article.contentHtml
+                  }
+                  wordCount={article.wordCount}
+                  summary={summary}
+                  containerRef={articleRef}
+                  onJump={(index) => {
+                    const verse = bibleDisplay?.anchors.find(
+                      (anchor) => anchor.sourceParagraph === index,
+                    );
+                    const target = verse
+                      ? articleRef.current?.querySelector(
+                          `[data-usfm~="${verse.verseId}"]`,
+                        )
+                      : null;
+                    jumpToParagraph(
+                      target ? (paragraphIndexOf(target) ?? index) : index,
+                    );
+                  }}
+                  canGenerate={!isBook}
+                  onExpandedChange={setSummaryOpen}
+                  contentVersion={paragraphs.version}
+                />
+              </div>
+            )}
+            <div
+              data-yv-sdk={bibleDisplay?.primary ? "" : undefined}
+              data-slot={
+                bibleDisplay?.primary ? "yv-bible-renderer" : undefined
+              }
+              className={
+                bibleDisplay?.primary
+                  ? "licensed-bible-text licensed-bible-view"
+                  : undefined
+              }
+              dir="auto"
+              lang={bibleDisplay?.primary?.language}
+            >
+              <ArticleRenderer
+                content={article.content ?? ""}
+                contentHtml={article.contentHtml ?? ""}
+                annotations={annotations ?? []}
+                activeAnnotationId={activeAnnotation?.id ?? null}
+                onAnnotationSelect={handleAnnotationSelect}
               />
             </div>
-          )}
-          <ArticleRenderer
-            content={article.content ?? ""}
-            contentHtml={article.contentHtml ?? ""}
-            annotations={annotations ?? []}
-            activeAnnotationId={activeAnnotation?.id ?? null}
-            onAnnotationSelect={handleAnnotationSelect}
-          />
 
-          {/* Back matter: the Ask pill steps aside while it is in view */}
-          <div ref={setBackMatter}>
-            {isBook && outline && unitIndex !== null && (
-              <BookUnitNav
-                articleId={articleId}
-                unitIndex={unitIndex}
-                outline={outline}
-                summaries={summaries}
-              />
+            {/* Back matter: the Ask pill steps aside while it is in view */}
+            <div ref={setBackMatter}>
+              {isBook && outline && unitIndex !== null && (
+                <BookUnitNav
+                  articleId={articleId}
+                  unitIndex={unitIndex}
+                  outline={outline}
+                  summaries={summaries}
+                />
+              )}
+              {!isBook && (
+                <ArticleBackMatter
+                  articleId={articleId}
+                  reflection={reflection}
+                  impressionRef={impressionRef}
+                  reflectionFlush={reflectionFlush}
+                  onDone={handleDone}
+                  doneError={doneError}
+                  finished={article.finishedAt !== undefined}
+                  onMarkUnread={handleRestore}
+                />
+              )}
+            </div>
+            {readerData.hasMore && (
+              <button
+                type="button"
+                className="mt-6 min-h-11 font-sans text-sm underline"
+                disabled={readerData.loadingMore}
+                onClick={readerData.loadMore}
+              >
+                {readerData.loadingMore
+                  ? "Loading more…"
+                  : "Load more margin notes and marks"}
+              </button>
             )}
-            {!isBook && (
-              <ArticleBackMatter
-                articleId={articleId}
-                reflection={reflection}
-                impressionRef={impressionRef}
-                reflectionFlush={reflectionFlush}
-                onDone={handleDone}
-                doneError={doneError}
-                finished={article.finishedAt !== undefined}
-                onMarkUnread={handleRestore}
-              />
-            )}
-          </div>
-          {readerData.hasMore && (
-            <button
-              type="button"
-              className="mt-6 min-h-11 font-sans text-sm underline"
-              disabled={readerData.loadingMore}
-              onClick={readerData.loadMore}
+          </article>
+          {bibleDisplay?.comparison ? (
+            <aside
+              aria-label={`Compare with ${bibleDisplay.comparison.title}`}
+              className="licensed-bible-view min-w-0 px-6 pb-24 pt-8 md:pt-[calc(5rem+env(safe-area-inset-top))]"
+              style={
+                {
+                  fontSize: `${settings.size}px`,
+                  lineHeight: LINE_HEIGHTS[settings.spacing],
+                  "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
+                  "--reader-size": `${settings.size}px`,
+                  "--reader-leading": LINE_HEIGHTS[settings.spacing],
+                } as React.CSSProperties
+              }
             >
-              {readerData.loadingMore
-                ? "Loading more…"
-                : "Load more margin notes and marks"}
-            </button>
-          )}
-        </article>
+              <h2 className="mb-5 font-sans text-base">
+                {bibleDisplay.comparison.title} ·{" "}
+                {bibleDisplay.comparison.abbreviation}
+              </h2>
+              <div
+                data-yv-sdk=""
+                data-slot="yv-bible-renderer"
+                dir="auto"
+                lang={bibleDisplay.comparison.language}
+                className="licensed-bible-text"
+                dangerouslySetInnerHTML={{
+                  __html: sanitizeHtml(bibleDisplay.comparison.html, {
+                    ADD_TAGS: ["sup"],
+                    ADD_ATTR: ["style", "class", "target"],
+                  }),
+                }}
+              />
+              <p className="mt-6 whitespace-pre-line font-sans text-xs leading-5 text-[var(--reader-fg-soft)]">
+                {bibleDisplay.comparison.copyright}
+              </p>
+              <a
+                className="inline-flex min-h-11 items-center font-sans text-sm underline underline-offset-4"
+                href={bibleDisplay.comparison.publisherUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {bibleDisplay.comparison.publisher}
+              </a>
+            </aside>
+          ) : null}
+        </div>
       </div>
 
       <Sidenotes

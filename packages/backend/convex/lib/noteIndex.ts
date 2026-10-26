@@ -31,9 +31,14 @@ export function noteIndexInput(note: {
   selectedText: string;
   prompt?: string;
   contentPlain: string;
+  licensedQuote?: boolean;
 }) {
   if (!note.contentPlain) return "";
-  return [note.selectedText, note.prompt, note.contentPlain]
+  return [
+    note.licensedQuote ? "" : note.selectedText,
+    note.prompt,
+    note.contentPlain,
+  ]
     .filter(Boolean)
     .join("\n\n")
     .slice(0, 8000);

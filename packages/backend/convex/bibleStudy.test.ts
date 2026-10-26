@@ -1,13 +1,31 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ownerTest, secondReaderTest } from "../test/owner";
+import {
+  ownerTest,
+  runScheduled,
+  saveTestCredential,
+  secondReaderTest,
+} from "../test/owner";
 import { api, internal } from "./_generated/api";
+import * as aiModels from "./lib/aiModels";
 
 const modules = import.meta.glob("./**/*.ts");
 const scripture = "Licensed provider text, not an article or an AI input";
 function provider() {
   return vi.fn(async (input: string) => {
     const url = new URL(input);
+    if (url.hostname === "bible-api.com")
+      return Response.json({
+        translation: { identifier: "web" },
+        verses: [
+          {
+            book_id: "JHN",
+            chapter: 3,
+            verse: 16,
+            text: "Public-domain study wording",
+          },
+        ],
+      });
     if (url.pathname.endsWith("/stylesheet"))
       return new Response("/* provider font CSS */");
     if (url.pathname.includes("/passages/"))
@@ -31,11 +49,81 @@ beforeEach(() => {
   vi.stubEnv("YOUVERSION_READING_ENABLED", "true");
 });
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
 describe("reading-only Bible study boundaries", () => {
+  it("opens the normal reader using a public-domain AI source while keeping licensed display text transient", async () => {
+    vi.useFakeTimers();
+    const t = await ownerTest(modules);
+    await t.mutation(api.bible.setPreferences, {
+      enabled: true,
+      translation: "niv",
+    });
+    vi.stubGlobal("fetch", provider());
+    const id = await t.action(api.actions.bible.openReading, {
+      reference: "John 3:16",
+    });
+    const article = await t.query(api.articles.getById, { articleId: id });
+    expect(article).toMatchObject({
+      content: "3:16 Public-domain study wording",
+      bible: { translation: "web", displayVersionId: 111 },
+    });
+    expect(JSON.stringify(article)).not.toContain(scripture);
+    expect(
+      await t.action(api.actions.bible.openReading, {
+        reference: "John 3:16",
+        versionId: 111,
+      }),
+    ).toBe(id);
+    const nasb = await t.action(api.actions.bible.openReading, {
+      reference: "John 3:16",
+      versionId: 2692,
+    });
+    expect(nasb).not.toBe(id);
+    expect(
+      await t.query(internal.bible.studySource, {
+        articleId: id,
+        userId: "default_user",
+      }),
+    ).toMatchObject({ content: "3:16 Public-domain study wording" });
+    const mark = await t.mutation(api.highlights.create, {
+      articleId: id,
+      kind: "highlight",
+      text: scripture,
+      paragraphIndex: 0,
+    });
+    const note = await t.mutation(api.userNotes.create, {
+      articleId: id,
+      selectedText: scripture,
+      content: "My own idea",
+      contentPlain: "My own idea",
+    });
+    expect(await t.run((ctx) => ctx.db.get(mark))).toMatchObject({
+      licensedQuote: true,
+    });
+    const savedNote = await t.run((ctx) => ctx.db.get(note));
+    expect(savedNote?.noteIndex?.input).toBe("My own idea");
+    await saveTestCredential(t, "default_user", "anthropic", "fixture-key");
+    const generate = vi
+      .spyOn(aiModels, "generateObjectWithFallback")
+      .mockResolvedValue({
+        modelId: "anthropic:fixture",
+        object: {
+          annotations: [],
+          reflection: { assumption: "", challenge: "", question: "" },
+        },
+      });
+    await runScheduled(t);
+    expect(generate).toHaveBeenCalled();
+    expect(JSON.stringify(generate.mock.calls)).toContain(
+      "Public-domain study wording",
+    );
+    expect(JSON.stringify(generate.mock.calls)).not.toContain(scripture);
+  });
   it("does not let a slow older request retire the newer comparison", async () => {
     const t = await ownerTest(modules);
     await t.mutation(api.bible.setPreferences, { enabled: true });

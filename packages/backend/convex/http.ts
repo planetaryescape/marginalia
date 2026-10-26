@@ -376,6 +376,26 @@ http.route({
       }))
     )
       return new Response("Article not found", { status: 404 });
+    if (parsed.data.articleId) {
+      const study = await preparation.runQuery(internal.bible.studySource, {
+        userId: readerId,
+        articleId: parsed.data.articleId,
+      });
+      if (study) {
+        // A display edition is not an AI source, including selection/Define paths.
+        const mode = parsed.data.mode;
+        parsed.data.mode = "article";
+        parsed.data.paragraphs = study.content.split(/\n\n+/).filter(Boolean);
+        parsed.data.selection = "";
+        parsed.data.paragraphIndex = null;
+        parsed.data.paragraphIndices = undefined;
+        parsed.data.paragraphEnd = undefined;
+        parsed.data.sentence = undefined;
+        parsed.data.prepared = undefined;
+        parsed.data.title = `${study.title} — World English Bible study source`;
+        parsed.data.question ??= `${mode === "article" ? "Explain" : mode} this passage using the supplied World English Bible text, not the wording of another displayed edition.`;
+      }
+    }
     const [summary, { ai, book, article, nearby }] = await Promise.all([
       parsed.data.articleId
         ? preparation.runQuery(internal.summaries.forCompanion, {

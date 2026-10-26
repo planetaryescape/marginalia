@@ -14,6 +14,8 @@ const state = vi.hoisted(() => {
   return { ready: false, next: 2, blockExplicit: true, calls };
 });
 vi.mock("convex/react", () => ({
+  useConvexConnectionState: () => ({ isWebSocketConnected: true }),
+  useAction: () => vi.fn(),
   useQuery: (
     ref: Parameters<typeof getFunctionName>[0],
     args: { articleId: string; unitIndex?: number } | "skip",

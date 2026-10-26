@@ -5,7 +5,6 @@ import { useAction } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
-import { licensedBibleHref } from "@/lib/bible-destination";
 import { BibleBrowser } from "./bible-browser";
 import { ReadingScopeControl } from "./reading-scope";
 
@@ -39,7 +38,7 @@ function PassageFinder({
   translation: string;
 }) {
   const suggest = useAction(api.actions.bible.suggest);
-  const openPassage = useAction(api.actions.bible.openPassage);
+  const openPassage = useAction(api.actions.bible.openReading);
   const router = useRouter();
   const inputId = useId();
   const [draft, setDraft] = useState("");
@@ -125,14 +124,6 @@ function PassageFinder({
                 setOpening(passage.reference);
                 setError("");
                 try {
-                  const href = licensedBibleHref(
-                    passage.reference,
-                    translation,
-                  );
-                  if (href) {
-                    router.push(href);
-                    return;
-                  }
                   const id = await openPassage({
                     reference: passage.reference,
                   });
@@ -167,7 +158,7 @@ function PassageFinder({
         href="/bible"
         className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
       >
-        All available Bibles · compare versions
+        All available Bibles
       </Link>
       <BibleBrowser onOpen={() => {}} translation={translation} />
     </div>

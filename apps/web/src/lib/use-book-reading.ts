@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState } from "react";
 import { observeParagraphGeometry } from "./paragraph-geometry";
+import { useBibleDisplay } from "./use-bible-display";
 
 /** `?unit=` as a part number counted from 0, or null when absent or not a number. */
 export function parseUnit(value: string | null): number | null {
@@ -57,9 +58,12 @@ export function useReadable(
     api.readerBootstrap.progress,
     isBook ? { articleId } : "skip",
   );
+  const bibleDisplay = useBibleDisplay(result?.article);
 
   return {
-    article: result?.article,
+    article: bibleDisplay.article,
+    sourceArticle: result?.article,
+    bibleDisplay,
     scopeReady: Boolean(result?.article),
     isBook,
     unitIndex: result?.unitIndex ?? null,

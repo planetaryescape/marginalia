@@ -5,9 +5,9 @@
 .licensed-bible-text[data-slot="yv-bible-renderer"] {
   --yv-foreground: var(--reader-fg);
   --yv-background: var(--reader-bg);
-  --yv-reader-font-family: "Untitled Serif", var(--font-newsreader), serif;
-  --yv-reader-font-size: 20px;
-  --yv-reader-line-height: 1.625;
+  --yv-reader-font-family: var(--reader-font, "Untitled Serif"), var(--font-newsreader), serif;
+  --yv-reader-font-size: var(--reader-size, 20px);
+  --yv-reader-line-height: var(--reader-leading, 1.625);
   --yv-reader-max-width: 65ch;
   color: var(--reader-fg);
   overflow-wrap: anywhere;

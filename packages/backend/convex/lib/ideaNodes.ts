@@ -71,7 +71,10 @@ export async function loadNode(
         kind: "note",
         id: row._id,
         articleId: row.articleId,
-        label: snippet(row.contentPlain || row.selectedText, 70),
+        label: snippet(
+          row.contentPlain || (row.licensedQuote ? "" : row.selectedText),
+          70,
+        ),
         text: row.contentPlain,
         createdAt: row.createdAt,
       };
@@ -80,7 +83,7 @@ export async function loadNode(
       const id = db.normalizeId("highlights", ref.id);
       const row = id && (await db.get("highlights", id));
       budget.charge(row);
-      if (!row || row.userId !== userId) return null;
+      if (!row || row.userId !== userId || row.licensedQuote) return null;
       return {
         key,
         kind: "highlight",

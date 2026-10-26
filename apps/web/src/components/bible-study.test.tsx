@@ -5,15 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BibleStudy } from "./bible-study";
 
-const state = vi.hoisted(() => ({
-  enabled: true,
-  active: "",
-  connected: true,
-}));
+const state = vi.hoisted(() => ({ enabled: true, params: "" }));
 const catalogue = vi.hoisted(() => vi.fn());
-const compare = vi.hoisted(() => vi.fn());
+const openReading = vi.hoisted(() => vi.fn());
+const push = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(state.params),
+  useRouter: () => ({ push }),
 }));
 vi.mock("next/link", () => ({
   default: ({
@@ -30,13 +28,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("convex/react", () => ({
-  useConvexConnectionState: () => ({ isWebSocketConnected: state.connected }),
-  useQuery: (ref: Parameters<typeof getFunctionName>[0]) =>
-    getFunctionName(ref) === "bible:preferences"
-      ? { enabled: state.enabled, translation: "niv" }
-      : state.active,
+  useQuery: () => ({ enabled: state.enabled, translation: "niv" }),
   useAction: (ref: Parameters<typeof getFunctionName>[0]) =>
-    getFunctionName(ref) === "actions/bible:catalogue" ? catalogue : compare,
+    getFunctionName(ref) === "actions/bible:catalogue"
+      ? catalogue
+      : openReading,
 }));
 let root: Root;
 const render = () => act(async () => root.render(<BibleStudy />));
@@ -45,44 +41,12 @@ function button(text: string) {
     (b) => b.textContent === text,
   );
 }
-function reading() {
-  return {
-    reference: "John 3:16-21",
-    token: "view-one",
-    fontCss: "/* font CSS */",
-    panes: [111, 2692].map((id) => ({
-      id,
-      title:
-        id === 111
-          ? "New International Version"
-          : "New American Standard Bible 2020",
-      abbreviation: id === 111 ? "NIV11" : "NASB2020",
-      language: "en",
-      html: `<p>Source text for edition ${id}</p><span>Original footnote</span>`,
-      copyright: `Notice for ${id}`,
-      publisher: "Publisher",
-      publisherUrl: "https://example.com",
-    })),
-  };
-}
 beforeEach(() => {
-  // Keep the DOM test offline; stylesheet rendering is checked in browser QA.
-  if (
-    "happyDOM" in window &&
-    typeof window.happyDOM === "object" &&
-    window.happyDOM !== null &&
-    "settings" in window.happyDOM &&
-    typeof window.happyDOM.settings === "object" &&
-    window.happyDOM.settings !== null
-  )
-    Object.assign(window.happyDOM.settings, {
-      disableCSSFileLoading: true,
-      handleDisabledFileLoadingAsSuccess: true,
-    });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   document.body.innerHTML = '<div id="root"></div>';
   root = createRoot(document.getElementById("root")!);
-  Object.assign(state, { enabled: true, active: "", connected: true });
+  Object.assign(state, { enabled: true, params: "" });
+  push.mockReset();
   catalogue.mockReset().mockResolvedValue([
     { id: 111, title: "New International Version", language: "en" },
     { id: 2692, title: "New American Standard Bible 2020", language: "en" },
@@ -92,30 +56,36 @@ beforeEach(() => {
       language: "es",
     })),
   ]);
-  compare.mockReset().mockImplementation(async () => {
-    state.active = "view-one";
-    return reading();
-  });
+  openReading.mockReset().mockResolvedValue("study-article");
 });
 afterEach(async () => {
   await act(async () => root.unmount());
   vi.unstubAllGlobals();
 });
-
-describe("Bible catalogue and comparison", () => {
-  it("makes no requests while opted out", async () => {
+describe("authorized Bible catalogue", () => {
+  it("makes no requests before opt-in", async () => {
     state.enabled = false;
     await render();
     expect(document.body.textContent).toContain("Bible reading is off");
     expect(catalogue).not.toHaveBeenCalled();
-    expect(compare).not.toHaveBeenCalled();
+    expect(openReading).not.toHaveBeenCalled();
   });
-  it("defaults to NIV and NASB, searches the full catalogue beyond the visible first page, and chooses a pane", async () => {
+  it("defaults to one preferred version and opens the normal reader, not a comparison page", async () => {
     await render();
-    const selects = document.querySelectorAll<HTMLSelectElement>("select");
-    expect(selects[0].value).toBe("111");
-    expect(selects[1].value).toBe("2692");
-    expect(document.body.textContent).toContain("102 matching versions");
+    expect(document.querySelectorAll("select")).toHaveLength(2); // version + language
+    expect(document.querySelector<HTMLSelectElement>("select")?.value).toBe(
+      "111",
+    );
+    expect(button("Compare verses")).toBeUndefined();
+    await act(async () => button("Read passage")?.click());
+    expect(openReading).toHaveBeenCalledWith({
+      reference: "John 3:16-21",
+      versionId: 111,
+    });
+    expect(push).toHaveBeenCalledWith("/read/study-article");
+  });
+  it("searches all metadata, including rows beyond the visible page, and reads the actual chosen edition", async () => {
+    await render();
     const search = document.querySelector<HTMLInputElement>(
       'input[type="search"]',
     )!;
@@ -127,49 +97,40 @@ describe("Bible catalogue and comparison", () => {
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(document.body.textContent).toContain("1 matching versions");
-    const choose = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Use Authorized edition 99 on right"]',
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Read Authorized edition 99"]',
+        )
+        ?.click(),
     );
-    await act(async () => choose?.click());
-    expect(
-      document.querySelectorAll<HTMLSelectElement>("select")[1].value,
-    ).toBe("3099");
-  });
-  it("shows both real editions, notices and footnotes without AI controls, then hides stale or disconnected views", async () => {
-    await render();
-    await act(async () => button("Compare verses")?.click());
-    expect(compare).toHaveBeenCalledWith({
+    expect(openReading).toHaveBeenCalledWith({
       reference: "John 3:16-21",
-      versionIds: [111, 2692],
+      versionId: 3099,
     });
-    expect(document.querySelectorAll(".licensed-bible-text")).toHaveLength(2);
-    expect(document.body.textContent).toContain("Source text for edition 111");
-    expect(document.body.textContent).toContain("Source text for edition 2692");
-    expect(document.body.textContent).toContain("Original footnote");
-    expect(document.body.textContent).toContain("Notice for 111");
-    expect(button("Ask")).toBeUndefined();
-    state.connected = false;
-    await render();
-    expect(document.querySelector(".licensed-bible-text")).toBeNull();
-    state.connected = true;
-    state.active = "other-window";
-    await render();
-    expect(document.querySelector(".licensed-bible-text")).toBeNull();
-    expect(document.body.textContent).toContain("Only one Bible comparison");
   });
-  it("keeps the catalogue usable after a comparison error and hides everything immediately on opt-out", async () => {
-    compare.mockRejectedValueOnce(new Error("Not authorized"));
+  it("does not re-enable comparison from an older two-version URL", async () => {
+    state.params = "reference=Romans+8&left=2692&right=111";
     await render();
-    await act(async () => button("Compare verses")?.click());
+    expect(document.querySelector<HTMLSelectElement>("select")?.value).toBe(
+      "2692",
+    );
+    expect(button("Compare verses")).toBeUndefined();
+    await act(async () => button("Read passage")?.click());
+    expect(openReading).toHaveBeenCalledWith({
+      reference: "Romans 8",
+      versionId: 2692,
+    });
+  });
+  it("keeps the catalogue usable after an open failure and retries in place", async () => {
+    openReading.mockRejectedValueOnce(new Error("Not authorized"));
+    await render();
+    await act(async () => button("Read passage")?.click());
     expect(document.querySelector('[role="alert"]')?.textContent).toContain(
       "Not authorized",
     );
-    expect(document.body.textContent).toContain("Available Bibles");
+    expect(document.body.textContent).toContain("All authorized editions");
     await act(async () => button("Retry passage")?.click());
-    expect(document.querySelectorAll(".licensed-bible-text")).toHaveLength(2);
-    state.enabled = false;
-    await render();
-    expect(document.querySelector(".licensed-bible-text")).toBeNull();
-    expect(document.body.textContent).not.toContain("Available Bibles");
+    expect(push).toHaveBeenCalledWith("/read/study-article");
   });
 });

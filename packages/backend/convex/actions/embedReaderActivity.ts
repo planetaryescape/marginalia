@@ -16,6 +16,7 @@ export const embedHighlight = internalAction({
       args,
     );
     if (!row) return;
+    if (row.licensedQuote) return;
     try {
       const [embedding] =
         (await embedForLibrary(ctx, row.userId, [row.text.slice(0, 8000)])) ??

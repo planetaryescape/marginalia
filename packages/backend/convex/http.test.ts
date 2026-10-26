@@ -2,7 +2,8 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ownerWithKey } from "../test/owner";
-import { components } from "./_generated/api";
+import { api, components } from "./_generated/api";
+import { sourceHash } from "./lib/preparedRepresentation";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -103,6 +104,69 @@ function sse(lines: string[]) {
 }
 
 describe("companion HTTP streaming", () => {
+  it("replaces display-edition context with authoritative WEB and rejects retaining licensed DOM in preparation", async () => {
+    const t = await ownerWithKey(modules);
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    const content = "3:16 Public-domain WEB source words";
+    const contentHtml = `<p>${content}</p>`;
+    const articleId = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "display-web-boundary",
+        url: "https://bible-api.com",
+        title: "John 3:16",
+        content,
+        contentHtml,
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+        bible: {
+          reference: "John 3:16",
+          translation: "web",
+          copyright: "Public domain",
+          displayVersionId: 111,
+        },
+      }),
+    );
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(String(init.body));
+        return sse([
+          '{"choices":[{"delta":{"content":"WEB study answer"}}]}',
+          "[DONE]",
+        ]);
+      }),
+    );
+    const response = await t.fetch("/api/companion", {
+      method: "POST",
+      body: JSON.stringify({
+        ...request,
+        articleId,
+        mode: "define",
+        paragraphs: ["Licensed-display-canary"],
+        selection: "Licensed-display-canary",
+        sentence: "Licensed-display-canary",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("WEB study answer");
+    expect(bodies.join("\n")).toContain(content);
+    expect(bodies.join("\n")).not.toContain("Licensed-display-canary");
+    const prepared = await t.fetch("/api/companion/prepare", {
+      method: "POST",
+      body: JSON.stringify({
+        articleId,
+        sourceHash: await sourceHash(content, contentHtml),
+        paragraphs: ["Licensed-display-canary"],
+      }),
+    });
+    expect(prepared.status).toBe(409);
+    expect(
+      await t.run((ctx) => ctx.db.query("preparedArticles").take(5)),
+    ).toEqual([]);
+  });
   it("accepts a near-limit legacy local upload but sends only its bounded selected context to the provider", async () => {
     const t = await ownerWithKey(modules);
     let prompt = "";

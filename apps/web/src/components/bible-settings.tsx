@@ -23,8 +23,8 @@ export function BibleSettings() {
         className="my-3 text-sm text-[var(--reader-muted)]"
       >
         Optional. Find passages by topic or reading time, then read with your
-        own notes and AI marginalia in WEB. Licensed translations have a
-        separate reading-only comparison view.
+        own notes and AI marginalia in the normal reader. Your chosen
+        translation is displayed; public-domain WEB supplies the AI study text.
       </p>
       <label className="flex min-h-11 items-center gap-3 text-sm">
         <input
@@ -92,15 +92,15 @@ export function BibleSettings() {
           </label>
           <p className="max-w-xl text-sm text-[var(--reader-muted)]">
             Your preferred translations appear first. NIV and NASB 2020 use
-            reading-only access when connected; ESV, New Living Translation and
-            The Message remain unavailable until separately authorized. No
+            licensed display access when connected; ESV, New Living Translation
+            and The Message remain unavailable until separately authorized. No
             version is silently replaced with WEB.
           </p>
           <Link
             href="/bible"
             className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
           >
-            Browse all available Bibles and compare versions
+            Browse all available Bibles
           </Link>
           <p className="text-sm text-[var(--reader-muted)]">
             Turning this off removes Bible discovery and access without deleting

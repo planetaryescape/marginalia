@@ -220,7 +220,7 @@ export async function retrieveLibraryContext(
       lines.push(`  Their note: ${note.contentPlain.slice(0, 240)}`);
     }
     for (const mark of related.highlights
-      .filter((h) => h.articleId === article._id)
+      .filter((h) => h.articleId === article._id && !h.licensedQuote)
       .slice(0, 2)) {
       lines.push(`  They highlighted: "${mark.text.slice(0, 200)}"`);
     }
