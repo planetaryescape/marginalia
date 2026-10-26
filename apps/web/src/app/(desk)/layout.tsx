@@ -1,6 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { LegalFooter } from "@/components/legal-footer";
 import { MobileNav, SiteHeader, useMainNav } from "@/components/site-header";
 import { useReaderSettings } from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
@@ -22,6 +23,7 @@ export default function DeskLayout({ children }: { children: ReactNode }) {
       >
         {children}
       </div>
+      <LegalFooter />
       <MobileNav items={nav} />
     </div>
   );

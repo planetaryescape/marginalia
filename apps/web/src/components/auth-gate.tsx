@@ -3,8 +3,10 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { Fingerprint, LockKeyhole } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { LegalFooter } from "@/components/legal-footer";
 import { SourceLink } from "@/components/source-link";
 import { authClient } from "@/lib/auth-client";
 import { useReaderSettings } from "@/lib/reader-settings";
@@ -41,6 +43,13 @@ export function takeFragmentTokens(
 export function AuthGate({ children }: { children: ReactNode }) {
   const { settings } = useReaderSettings();
   useReaderTheme(settings);
+  const pathname = usePathname();
+  // Only these static notices are public; every reading route stays gated.
+  if (pathname === "/privacy" || pathname === "/terms") return children;
+  return <ReaderAccessGate>{children}</ReaderAccessGate>;
+}
+
+function ReaderAccessGate({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const reader = useQuery(
     api.auth.currentReader,
@@ -311,6 +320,7 @@ function SignIn({ fragment }: { fragment: FragmentTokens | null }) {
         )}
       </div>
       <SourceLink variant="text" className="mt-10" />
+      <LegalFooter />
     </main>
   );
 }
@@ -408,6 +418,7 @@ export function RequestAccess({ onBack }: { onBack: () => void }) {
         )}
       </div>
       <SourceLink variant="text" className="mt-10" />
+      <LegalFooter />
     </main>
   );
 }

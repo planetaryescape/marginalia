@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthGate, RequestAccess } from "./auth-gate";
 
 const state = vi.hoisted(() => ({
+  pathname: "/",
+  loading: false,
   authenticated: false,
   reader: undefined as
     | { isOwner: boolean; email: string; name: string }
@@ -12,11 +14,12 @@ const state = vi.hoisted(() => ({
 vi.mock("convex/react", () => ({
   useConvexAuth: () => ({
     isAuthenticated: state.authenticated,
-    isLoading: false,
+    isLoading: state.loading,
   }),
   useQuery: () => state.reader,
   useMutation: () => vi.fn(),
 }));
+vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));
 vi.mock("@/lib/auth-client", () => ({ authClient: {} }));
 vi.mock("@/lib/reader-settings", () => ({
   useReaderSettings: () => ({ settings: { theme: "ink" } }),
@@ -24,11 +27,48 @@ vi.mock("@/lib/reader-settings", () => ({
 vi.mock("@/lib/use-reader-theme", () => ({ useReaderTheme: vi.fn() }));
 
 afterEach(() => {
+  state.pathname = "/";
+  state.loading = false;
   state.authenticated = false;
   state.reader = undefined;
 });
 
 describe("reader gate", () => {
+  it.each([
+    "/privacy",
+    "/terms",
+  ])("shows %s without signing in or waiting for authentication", (pathname) => {
+    state.pathname = pathname;
+    state.loading = true;
+    expect(renderToStaticMarkup(<AuthGate>public notice</AuthGate>)).toBe(
+      "public notice",
+    );
+  });
+
+  it.each([
+    "/",
+    "/library",
+    "/account",
+    "/privacy/other",
+    "/terms/other",
+  ])("keeps %s protected", (pathname) => {
+    state.pathname = pathname;
+    const html = renderToStaticMarkup(<AuthGate>private library</AuthGate>);
+    expect(html).not.toContain("private library");
+    expect(html).toContain("Request access");
+  });
+
+  it("links the notices from sign-in and request-access footers", () => {
+    for (const html of [
+      renderToStaticMarkup(<AuthGate>desk</AuthGate>),
+      renderToStaticMarkup(<RequestAccess onBack={() => {}} />),
+    ]) {
+      expect(html).toContain('href="/privacy"');
+      expect(html).toContain('href="/terms"');
+      expect(html).toContain('aria-label="Legal"');
+    }
+  });
+
   it("lets approved readers in", () => {
     state.authenticated = true;
     state.reader = { isOwner: false, email: "r@example.com", name: "R" };

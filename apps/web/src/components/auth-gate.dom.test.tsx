@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
 }));
 const toast = vi.hoisted(() => vi.fn());
 const signUp = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ usePathname: () => location.pathname }));
 vi.mock("convex/react", () => ({
   useConvexAuth: () => ({
     isAuthenticated: state.authenticated,
