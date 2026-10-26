@@ -71,8 +71,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function fixture(key = true) {
+async function fixture(key = true, bible = false) {
   const f = await secondReaderTest(modules);
+  if (bible)
+    await f.reader.mutation(api.bible.setPreferences, { enabled: true });
   if (key)
     await saveTestCredential(
       f.t,
@@ -95,6 +97,14 @@ async function fixture(key = true) {
       annotationStatus: "annotated",
       createdAt: Date.now(),
     });
+    if (bible)
+      await ctx.db.patch(id, {
+        bible: {
+          reference: "Psalms 23:1",
+          translation: "web",
+          copyright: "Public domain",
+        },
+      });
     await ctx.db.insert("annotations", {
       userId: f.readerLibraryId,
       articleId: id,
@@ -153,6 +163,121 @@ function holdModel(value = result) {
 }
 
 describe("manual reannotation consuming lifecycle", () => {
+  it("rejects a held Bible result after the saved passage reference changes", async () => {
+    const f = await fixture(true, true);
+    await f.request();
+    const hold = holdModel();
+    const running = f.run();
+    await hold.started;
+    await f.t.run(async (ctx) => {
+      const article = await ctx.db.get(f.articleId);
+      if (!article?.bible) throw new Error("Expected the saved Bible source");
+      await ctx.db.patch(f.articleId, {
+        bible: { ...article.bible, reference: "Psalms 24:1" },
+      });
+    });
+    hold.release();
+    await running;
+    expect(await f.state()).toMatchObject({ run: 1, status: "failed" });
+    expect((await f.margin()).notes.map((note) => note.content)).toEqual([
+      "Successful old note",
+    ]);
+    expect((await f.margin()).reflections[0]?.strongestPoint).toBe(
+      "Successful old reflection",
+    );
+  });
+
+  it("refreshes an explicitly requested completed Bible run after its prompt identity changes and coalesces duplicates", async () => {
+    const f = await fixture(true, true);
+    await f.request();
+    await f.run();
+    const completed = await f.state();
+    expect(completed).toMatchObject({ run: 1, status: "complete" });
+    if (!completed) throw new Error("Expected the completed Bible run");
+    const savedAnnotation = (await f.margin()).notes[0];
+    if (!savedAnnotation) throw new Error("Expected the completed Bible note");
+
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(completed._id, {
+        input: "before-scripture-prompt-revision",
+      });
+      const reflection = await ctx.db.query("reflections").unique();
+      if (!reflection)
+        throw new Error("Expected the completed Bible reflection");
+      await ctx.db.patch(reflection._id, {
+        userResponse: "My interpretation",
+        respondedAt: 123,
+      });
+      await ctx.db.insert("userNotes", {
+        userId: f.readerLibraryId,
+        articleId: f.articleId,
+        annotationId: savedAnnotation._id,
+        selectedText: savedAnnotation.anchorText,
+        content: "<p>My note</p>",
+        contentPlain: "My note",
+        createdAt: 124,
+        updatedAt: 124,
+      });
+      await ctx.db.insert("highlights", {
+        userId: f.readerLibraryId,
+        articleId: f.articleId,
+        kind: "highlight",
+        text: "My marked verse",
+        createdAt: 125,
+      });
+    });
+    await f.request();
+    await f.request();
+    expect(await f.state()).toMatchObject({ run: 2, status: "queued" });
+    await f.run();
+    expect(await f.state()).toMatchObject({ run: 2, status: "complete" });
+    expect((await f.margin()).reflections).toMatchObject([
+      { userResponse: "My interpretation", respondedAt: 123 },
+    ]);
+    expect((await f.margin()).notes.map((note) => note._id)).toContain(
+      savedAnnotation._id,
+    );
+    expect(
+      await f.t.run((ctx) => ctx.db.query("userNotes").collect()),
+    ).toMatchObject([
+      { annotationId: savedAnnotation._id, contentPlain: "My note" },
+    ]);
+    expect(
+      await f.t.run((ctx) => ctx.db.query("highlights").collect()),
+    ).toMatchObject([{ text: "My marked verse" }]);
+  });
+
+  it("preserves the prior Bible margin and reader response when an explicit refresh fails", async () => {
+    const f = await fixture(true, true);
+    await f.request();
+    await f.run();
+    const previous = await f.margin();
+    const completed = await f.state();
+    await f.t.run(async (ctx) => {
+      if (!completed) throw new Error("Expected the completed Bible run");
+      await ctx.db.patch(completed._id, {
+        input: "before-scripture-prompt-revision",
+      });
+      const reflection = await ctx.db.query("reflections").unique();
+      if (!reflection)
+        throw new Error("Expected the completed Bible reflection");
+      await ctx.db.patch(reflection._id, {
+        userResponse: "My interpretation",
+        respondedAt: 123,
+      });
+    });
+    model.generate.mockRejectedValueOnce(new Error("Fixture provider failure"));
+    await f.request();
+    await f.run();
+    expect(await f.state()).toMatchObject({ run: 2, status: "failed" });
+    expect((await f.margin()).notes.map((note) => note.content)).toEqual(
+      previous.notes.map((note) => note.content),
+    );
+    expect((await f.margin()).reflections).toMatchObject([
+      { userResponse: "My interpretation", respondedAt: 123 },
+    ]);
+  });
+
   it.each([
     ["keep", "before"],
     ["paused", "before"],

@@ -1,6 +1,6 @@
 "use client";
-import type { CSSProperties } from "react";
 import { ArrowRight } from "lucide-react";
+import type { CSSProperties } from "react";
 import { articleTitleName, rememberedTitle } from "@/lib/title-handoff";
 import { Skeleton, SkeletonBar } from "./in-place";
 import { ViewTransition } from "./view-transition";
@@ -105,7 +105,11 @@ export function ReaderOpening({
             <div className="mb-10 font-sans">
               <div className="py-1 text-[14px] leading-[1.55] text-[var(--pencil)]">
                 Summary, key claims and a map, before you start
-                <ArrowRight size={14} aria-hidden className="ml-1.5 inline align-[-2px]" />
+                <ArrowRight
+                  size={14}
+                  aria-hidden
+                  className="ml-1.5 inline align-[-2px]"
+                />
               </div>
             </div>
           )}

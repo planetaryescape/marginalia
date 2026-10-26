@@ -1,19 +1,24 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   saveTestCredential,
   secondReaderTest,
   TEST_ENCRYPTION_KEY,
 } from "../test/owner";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import {
+  type AnnotationResult,
   annotationCandidateSchema,
+  buildScriptureUserPrompt,
   buildUserPrompt,
   proposedTags,
   resolveNotePath,
+  SCRIPTURE_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
+  scriptureAnnotationCandidateSchema,
 } from "./actions/generateAnnotations";
 import { annotationBudget } from "./lib/annotationGate";
 
@@ -27,6 +32,10 @@ const SENTENCES = [
   "Written culture matters most to remote teams.",
 ];
 const CONTENT = SENTENCES.join(" ").concat(" ", "Filler sentence. ".repeat(60));
+const schemaWithoutDescriptions = (schema: z.ZodType) =>
+  JSON.stringify(z.toJSONSchema(schema), (key, value) =>
+    key === "description" ? undefined : value,
+  );
 
 beforeEach(() => {
   vi.stubEnv("PROVIDER_KEYS_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
@@ -116,6 +125,64 @@ describe("the annotation prompt and schema", () => {
         vocabulary: [],
       }),
     ).toContain("None yet.");
+  });
+
+  it("gives Scripture genre-aware guidance without quotas while keeping the ordinary prompt separate", () => {
+    const prompt = buildScriptureUserPrompt({
+      title: "Psalms 23:1",
+      author: "WEB",
+      articleText: "23:1 Synthetic passage wording.",
+      truncated: false,
+      contextText: "",
+      vocabulary: [],
+    });
+    expect(SCRIPTURE_SYSTEM_PROMPT).toContain("literary genre");
+    expect(SCRIPTURE_SYSTEM_PROMPT).toContain("Distinguish what the text says");
+    expect(SCRIPTURE_SYSTEM_PROMPT).toContain("supplied, inspected evidence");
+    expect(SCRIPTURE_SYSTEM_PROMPT).toContain("exact verbatim substring");
+    expect(SCRIPTURE_SYSTEM_PROMPT).toContain("cross_reference");
+    expect(SCRIPTURE_SYSTEM_PROMPT).toMatch(/zero annotations/i);
+    expect(SCRIPTURE_SYSTEM_PROMPT).not.toMatch(
+      /55 to 60 percent|minimum number of notes/i,
+    );
+    expect(prompt).toMatch(
+      /there is no target count, minimum or pushback share/i,
+    );
+    expect(prompt).not.toMatch(/Aim for about|no more than \d+ notes/);
+    expect(prompt).toContain("thesis, gist and one to three tags");
+    expect(schemaWithoutDescriptions(scriptureAnnotationCandidateSchema)).toBe(
+      schemaWithoutDescriptions(annotationCandidateSchema),
+    );
+    const scriptureSchemaInstructions = JSON.stringify(
+      z.toJSONSchema(scriptureAnnotationCandidateSchema),
+    );
+    expect(scriptureSchemaInstructions).toContain(
+      "grounded only in the supplied text and evidence",
+    );
+    expect(scriptureSchemaInstructions).toContain(
+      "Otherwise say no particular assumption or uncertainty is evidenced",
+    );
+    expect(scriptureSchemaInstructions).toContain(
+      "Otherwise say no supported alternative is evidenced",
+    );
+    expect(z.toJSONSchema(annotationCandidateSchema)).toMatchObject({
+      properties: {
+        thesis: {
+          description:
+            "The article's main point in one sentence, under 25 words. Always give one.",
+        },
+      },
+    });
+    expect(
+      buildUserPrompt({
+        title: "Article",
+        articleText: "Body.",
+        truncated: false,
+        contextText: "",
+        wordCount: 150,
+        vocabulary: [],
+      }),
+    ).toContain("Lean toward pushback, close to balance");
   });
 
   it("accepts a response with no summary, tags or fallacy name", () => {
@@ -208,11 +275,13 @@ function addArticle(
 describe("generateForArticle", () => {
   async function run(
     respond: (ids: {
+      target: Id<"articles">;
       neighbour: Id<"articles">;
       foreign: Id<"articles">;
-    }) => unknown,
+    }) => AnnotationResult,
     options: {
       embeddings?: boolean;
+      bible?: boolean;
       before?: (f: Fixture) => Promise<void>;
     } = {},
   ) {
@@ -223,8 +292,28 @@ describe("generateForArticle", () => {
       "openrouter",
       "sk-or-fixture-0001",
     );
+    if (options.bible)
+      await f.reader.mutation(api.bible.setPreferences, { enabled: true });
+    const sourceText = options.bible
+      ? "23:1 Synthetic WEB source words for the careful reader."
+      : CONTENT;
+    const target = await f.t.run(async (ctx) => {
+      const fields = {
+        content: sourceText,
+        wordCount: sourceText.split(/\s+/).length,
+      };
+      if (options.bible)
+        return addArticle(ctx, f.readerLibraryId, "target", {
+          ...fields,
+          bible: {
+            reference: "Psalms 23:1",
+            translation: "web",
+            copyright: "Public domain",
+          },
+        });
+      return addArticle(ctx, f.readerLibraryId, "target", fields);
+    });
     const ids = await f.t.run(async (ctx) => ({
-      target: await addArticle(ctx, f.readerLibraryId, "target"),
       neighbour: await addArticle(ctx, f.readerLibraryId, "neighbour", {
         annotationStatus: "annotated",
         finishedAt: undefined,
@@ -235,9 +324,10 @@ describe("generateForArticle", () => {
         annotationStatus: "annotated",
       }),
     }));
-    const fixture = { ...f, ...ids };
+    const fixture = { ...f, target, ...ids };
     await options.before?.(fixture);
     const prompts: string[] = [];
+    const requests: unknown[] = [];
     vi.stubGlobal(
       "fetch",
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -249,6 +339,7 @@ describe("generateForArticle", () => {
               embedding: vector,
             })),
           });
+        requests.push(request);
         prompts.push(JSON.stringify(request.messages));
         return Response.json({
           id: "x",
@@ -260,7 +351,7 @@ describe("generateForArticle", () => {
               finish_reason: "stop",
               message: {
                 role: "assistant",
-                content: JSON.stringify(respond(ids)),
+                content: JSON.stringify(respond({ ...ids, target })),
               },
             },
           ],
@@ -269,15 +360,15 @@ describe("generateForArticle", () => {
       },
     );
     await f.t.action(internal.actions.generateAnnotations.generateForArticle, {
-      articleId: ids.target,
+      articleId: target,
     });
     const notes = await f.t.run((ctx) =>
       ctx.db
         .query("annotations")
-        .withIndex("by_article", (q) => q.eq("articleId", ids.target))
+        .withIndex("by_article", (q) => q.eq("articleId", target))
         .collect(),
     );
-    return { ...fixture, prompts, notes };
+    return { ...fixture, prompts, requests, notes };
   }
   type Fixture = Awaited<ReturnType<typeof secondReaderTest>> & {
     target: Id<"articles">;
@@ -292,6 +383,7 @@ describe("generateForArticle", () => {
     questionForYou: "q",
   };
   const base = (fields: Record<string, unknown>) => ({
+    type: "context",
     anchorText: SENTENCES[0],
     content: "A short note.",
     relevanceScore: 0.8,
@@ -361,6 +453,13 @@ describe("generateForArticle", () => {
     expect(result.prompts[0]).not.toContain("Secret owner article");
     expect(result.prompts[0]).not.toContain(result.foreign);
     expect(result.prompts[0]).toContain("Aim for about 2 notes");
+    const ordinaryRequest = JSON.stringify(result.requests[0]);
+    expect(ordinaryRequest).toContain(
+      "The article's main point in one sentence, under 25 words. Always give one.",
+    );
+    expect(ordinaryRequest).not.toContain(
+      "grounded only in the supplied text and evidence",
+    );
 
     expect(
       await result.t.run((ctx) => ctx.db.get(result.target)),
@@ -492,6 +591,68 @@ describe("generateForArticle", () => {
     expect(
       await f.t.run((ctx) => ctx.db.query("articleTags").collect()),
     ).toEqual([]);
+  });
+
+  it("uses Scripture prompts, publishes gated notes and reflections, and accepts an honest empty margin", async () => {
+    const source = "23:1 Synthetic WEB source words for the careful reader.";
+    const result = await run(
+      () => ({
+        thesis: "A passage's central claim.",
+        gist: "A short supplied-text summary.",
+        annotations: [
+          base({
+            type: "context",
+            anchorText: source,
+            content: "This observation follows from the supplied verse.",
+          }),
+          base({
+            type: "cross_reference",
+            anchorText: source,
+            notePath: "not-offered.md",
+          }),
+        ],
+        reflection,
+      }),
+      { bible: true },
+    );
+    expect(result.prompts[0]).toContain(
+      "careful reader of the supplied Bible study text",
+    );
+    expect(result.prompts[0]).toMatch(
+      /there is no target count, minimum or pushback share/i,
+    );
+    expect(result.prompts[0]).not.toContain("Aim for about");
+    const scriptureRequest = JSON.stringify(result.requests[0]);
+    expect(scriptureRequest).toContain(
+      "grounded only in the supplied text and evidence",
+    );
+    expect(scriptureRequest).toContain(
+      "no particular assumption or uncertainty is evidenced",
+    );
+    expect(scriptureRequest).toContain("no supported alternative is evidenced");
+    expect(scriptureRequest).not.toContain(
+      "The article's main point in one sentence",
+    );
+    expect(result.notes.map((note) => note.content)).toEqual([
+      "This observation follows from the supplied verse.",
+    ]);
+    expect(
+      await result.t.run((ctx) => ctx.db.query("reflections").collect()),
+    ).toMatchObject([{ strongestPoint: "s", weakestAssumption: "w" }]);
+
+    const empty = await run(
+      () => ({
+        annotations: [],
+        reflection,
+        thesis: "A claim.",
+        gist: "A summary.",
+      }),
+      { bible: true },
+    );
+    expect(empty.notes).toEqual([]);
+    expect(
+      await empty.t.run((ctx) => ctx.db.query("reflections").collect()),
+    ).toMatchObject([{ strongestPoint: "s", weakestAssumption: "w" }]);
   });
 
   it("leaves an annotated article's old margin when re-annotation fails", async () => {
