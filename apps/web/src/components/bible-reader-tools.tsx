@@ -103,7 +103,7 @@ export function BibleReaderTools({
           Next chapter
         </button>
       </nav>
-      <BibleBrowser onOpen={() => {}} />
+      <BibleBrowser onOpen={() => {}} translation={bible.translation} />
       <p role="status" className="text-xs text-[var(--reader-muted)]">
         {busy
           ? "Opening chapter…"

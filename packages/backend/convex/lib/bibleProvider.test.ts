@@ -6,7 +6,10 @@ import {
   requireTranslation,
 } from "./bibleProvider";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 function reference(text: string) {
   const ref = parseBibleReference(text);
   if (!ref) throw new Error("Invalid test reference");
@@ -25,12 +28,25 @@ function response(
 
 describe("Bible text provenance", () => {
   it("does not enable licensed translations just because an API key exists", () => {
+    vi.stubEnv("YOUVERSION_APP_KEY", "test-only-app-credential");
+    vi.stubEnv("YOUVERSION_READING_ENABLED", "");
     expect(
       bibleTranslations()
         .filter((t) => t.available)
         .map((t) => t.code),
     ).toEqual(["web"]);
     for (const code of ["esv", "nasb", "niv", "nlt", "msg"])
+      expect(() => requireTranslation(code)).toThrow("permission");
+  });
+  it("enables the connected preferred reading editions without claiming ESV, NLT or MSG access", () => {
+    vi.stubEnv("YOUVERSION_APP_KEY", "test-only-app-credential");
+    vi.stubEnv("YOUVERSION_READING_ENABLED", "true");
+    expect(
+      bibleTranslations()
+        .filter((t) => t.available)
+        .map((t) => t.code),
+    ).toEqual(["niv", "nasb", "web"]);
+    for (const code of ["esv", "nlt", "msg"])
       expect(() => requireTranslation(code)).toThrow("permission");
   });
   it("preserves fetched text, escapes markup, and selects only the requested verses", async () => {

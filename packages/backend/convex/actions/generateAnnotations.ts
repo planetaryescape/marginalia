@@ -301,6 +301,14 @@ export const generateForArticle = internalAction({
       articleId: args.articleId,
     });
     if (source?.bible) {
+      if (source.bible.translation !== "web") {
+        await ctx.runMutation(internal.articles.updateAnnotationStatus, {
+          articleId: args.articleId,
+          status: "skipped",
+          skipReason: "licensed_bible_read_only",
+        });
+        return;
+      }
       try {
         await ctx.runQuery(internal.bible.requireEnabled, {
           userId: source.userId,

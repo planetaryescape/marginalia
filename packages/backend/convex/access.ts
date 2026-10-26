@@ -117,6 +117,7 @@ export async function ownedArticle(
 ): Promise<Doc<"articles"> | null> {
   const article = await ctx.db.get("articles", articleId);
   if (article?.userId !== userId) return null;
+  if (article.bible && article.bible.translation !== "web") return null;
   if (article.bible && !(await biblePreferences(ctx, userId)).enabled)
     return null;
   return article;

@@ -80,6 +80,14 @@ export default function PrivacyPage() {
         policies.
       </p>
       <p>
+        The licensed Bible catalogue and comparison view use YouVersion. Passage
+        references are sent to its API, and Bible fonts and styles load from its
+        services and font providers. This view does not save Scripture text or
+        send it to AI providers. A per-account display token prevents multiple
+        comparison views from remaining active together; it contains no
+        Scripture text.
+      </p>
+      <p>
         If the operator uses the optional vault indexer, selected Markdown notes
         are sent to an embedding provider and stored in the operator&apos;s
         remote library index. This is not enabled for other readers by default.

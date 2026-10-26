@@ -2,19 +2,19 @@ import { z } from "zod";
 import type { BibleReference } from "./bible";
 
 export const TRANSLATION_CODES = [
-  "web",
-  "esv",
-  "nasb",
   "niv",
+  "nasb",
+  "esv",
   "nlt",
   "msg",
+  "web",
 ] as const;
 export type TranslationCode = (typeof TRANSLATION_CODES)[number];
 export const translationCode = z.enum(TRANSLATION_CODES);
 const NAMES = {
   web: "World English Bible",
   esv: "English Standard Version",
-  nasb: "New American Standard Bible",
+  nasb: "New American Standard Bible 2020",
   niv: "New International Version",
   nlt: "New Living Translation",
   msg: "The Message",
@@ -33,7 +33,11 @@ export function bibleTranslations() {
     code,
     name: NAMES[code],
     style: STYLES[code],
-    available: code === "web",
+    available:
+      code === "web" ||
+      ((code === "niv" || code === "nasb") &&
+        process.env.YOUVERSION_READING_ENABLED === "true" &&
+        Boolean(process.env.YOUVERSION_APP_KEY?.trim())),
   }));
 }
 
@@ -70,6 +74,9 @@ export async function fetchBiblePassage(
   code: TranslationCode,
 ) {
   requireTranslation(code);
+  // Licensed Scripture is deliberately excluded from the saved-article/AI path.
+  if (code !== "web")
+    throw new Error("Open this translation in the reading-only Bible reader.");
   if (code === "web") {
     const url = `https://bible-api.com/data/web/${ref.bookId}/${ref.chapter}`;
     const chapters = await Promise.all(

@@ -1,6 +1,7 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -22,7 +23,8 @@ export function BibleSettings() {
         className="my-3 text-sm text-[var(--reader-muted)]"
       >
         Optional. Find passages by topic or reading time, then read with your
-        own notes and AI marginalia generated when you open a passage.
+        own notes and AI marginalia in WEB. Licensed translations have a
+        separate reading-only comparison view.
       </p>
       <label className="flex min-h-11 items-center gap-3 text-sm">
         <input
@@ -89,11 +91,17 @@ export function BibleSettings() {
             </select>
           </label>
           <p className="max-w-xl text-sm text-[var(--reader-muted)]">
-            The World English Bible is public domain. ESV and NASB (literal),
-            NIV (balanced), NLT (thought-for-thought), and The Message
-            (paraphrase) require provider setup and verification of the rights
-            for text storage and AI use. They are never replaced with WEB.
+            Your preferred translations appear first. NIV and NASB 2020 use
+            reading-only access when connected; ESV, New Living Translation and
+            The Message remain unavailable until separately authorized. No
+            version is silently replaced with WEB.
           </p>
+          <Link
+            href="/bible"
+            className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
+          >
+            Browse all available Bibles and compare versions
+          </Link>
           <p className="text-sm text-[var(--reader-muted)]">
             Turning this off removes Bible discovery and access without deleting
             your saved passages or notes. AI features use your connected

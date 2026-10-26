@@ -18,6 +18,59 @@ export const translations = query({
     return bibleTranslations();
   },
 });
+
+export const activeLicensedReading = query({
+  args: {},
+  handler: async (ctx) => {
+    if (!(await biblePreferences(ctx, ctx.readerId)).enabled) return null;
+    if (
+      process.env.YOUVERSION_READING_ENABLED !== "true" ||
+      !process.env.YOUVERSION_APP_KEY?.trim()
+    )
+      return null;
+    return (
+      (
+        await ctx.db
+          .query("bibleReadingSessions")
+          .withIndex("by_userId", (q) => q.eq("userId", ctx.readerId))
+          .unique()
+      )?.token ?? null
+    );
+  },
+});
+
+export const activateLicensedReading = internalMutation({
+  args: {
+    userId: v.string(),
+    token: v.string(),
+    onlyIfCurrent: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireBible(ctx, args.userId);
+    if (
+      process.env.YOUVERSION_READING_ENABLED !== "true" ||
+      !process.env.YOUVERSION_APP_KEY?.trim()
+    )
+      throw new Error("The licensed Bible connection is not enabled.");
+    const row = await ctx.db
+      .query("bibleReadingSessions")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .unique();
+    if (args.onlyIfCurrent) {
+      if (row?.token !== args.token)
+        throw new Error(
+          "Another passage was opened while this was loading. Please retry here if needed.",
+        );
+      return;
+    }
+    if (row) await ctx.db.patch(row._id, { token: args.token });
+    else
+      await ctx.db.insert("bibleReadingSessions", {
+        userId: args.userId,
+        token: args.token,
+      });
+  },
+});
 export const setPreferences = mutation({
   args: {
     enabled: v.optional(v.boolean()),
@@ -51,6 +104,13 @@ export const setPreferences = mutation({
     if (row) await ctx.db.patch(row._id, patch);
     else
       await ctx.db.insert("userSettings", { userId: ctx.readerId, ...patch });
+    if (!enabled) {
+      const lease = await ctx.db
+        .query("bibleReadingSessions")
+        .withIndex("by_userId", (q) => q.eq("userId", ctx.readerId))
+        .unique();
+      if (lease) await ctx.db.delete(lease._id);
+    }
   },
 });
 
@@ -124,6 +184,8 @@ export const savePassage = internalMutation({
     // Recheck after the network request: switching off must win an in-flight open.
     await requireBible(ctx, args.userId);
     const translation = requireTranslation(args.translation);
+    if (translation !== "web")
+      throw new Error("Licensed Bible text cannot be saved as an article.");
     const ref = parseBibleReference(args.reference);
     if (!ref || ref.reference !== args.reference)
       throw new Error("Invalid Bible reference.");

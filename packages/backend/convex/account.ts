@@ -585,7 +585,16 @@ const STEPS: Step[] = [
       .withIndex("by_libraryId", (q) => q.eq("libraryId", u))
       .take(BATCH),
   ),
-  authRows("passkey"),
+  // Sweep display leases in an existing step, preserving queued numeric steps.
+  async (ctx, args) => {
+    const leases = await ctx.db
+      .query("bibleReadingSessions")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .take(BATCH);
+    for (const row of leases) await ctx.db.delete(row._id);
+    if (leases.length) return leases.length;
+    return authRows("passkey")(ctx, args);
+  },
   authRows("twoFactor"),
   authRows("session"),
   authRows("account"),

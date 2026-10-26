@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+.licensed-bible-text[data-slot="yv-bible-renderer"] {
+  --yv-foreground: var(--reader-fg);
+  --yv-background: var(--reader-bg);
+  --yv-reader-font-family: "Untitled Serif", var(--font-newsreader), serif;
+  --yv-reader-font-size: 20px;
+  --yv-reader-line-height: 1.625;
+  --yv-reader-max-width: 65ch;
+  color: var(--reader-fg);
+  overflow-wrap: anywhere;
+}
+
+@media print {
+  .licensed-bible-view {
+    display: none !important;
+  }
+}
+
 @layer base {
   :root {
     --background: 38 30% 97%;

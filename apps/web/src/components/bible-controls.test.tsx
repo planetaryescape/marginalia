@@ -171,6 +171,18 @@ describe("Bible opt-in controls", () => {
     expect(suggest).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).toContain("Psalms 23");
   });
+  it("opens licensed suggestions in comparison without saving Scripture as an article", async () => {
+    Object.assign(state, { enabled: true, scope: "bible", translation: "niv" });
+    await renderDiscovery();
+    const passage = Array.from(document.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Psalms 23"),
+    );
+    await act(async () => passage?.click());
+    expect(openPassage).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith(
+      "/bible?reference=Psalms+23&left=111&right=2692",
+    );
+  });
   it("drops passage results immediately after opt-out", async () => {
     Object.assign(state, { enabled: true, scope: "mixed" });
     await renderDiscovery();

@@ -36,6 +36,11 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  // Only a display lease, never licensed Scripture. New opens retire older views.
+  bibleReadingSessions: defineTable({
+    userId: v.string(),
+    token: v.string(),
+  }).index("by_userId", ["userId"]),
   ...currentReportingTables,
   discoveryEpochs,
   ...legacyReportingTables,
@@ -229,7 +234,11 @@ export default defineSchema({
     // re-annotated once the library saves a key (catchUp.ts); older skipped
     // rows have no reason and are re-annotated only by hand.
     skipReason: v.optional(
-      v.union(v.literal("no_provider"), v.literal("bible_disabled")),
+      v.union(
+        v.literal("no_provider"),
+        v.literal("bible_disabled"),
+        v.literal("licensed_bible_read_only"),
+      ),
     ),
     // The marginalia generation that wrote this article's notes; below
     // CURRENT_ANNOTATION_VERSION (lib/annotationGate.ts) it is re-annotated by

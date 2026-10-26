@@ -13,6 +13,10 @@ import {
 } from "../lib/bible";
 import { fetchBiblePassage, requireTranslation } from "../lib/bibleProvider";
 import { loadReaderAI } from "../lib/router";
+import {
+  fetchYouVersionCatalogue,
+  fetchYouVersionComparison,
+} from "../lib/youversion";
 import { requireReaderLimit } from "../limits";
 
 const suggestionSchema = z.object({
@@ -42,6 +46,10 @@ export const openPassage = action({
     const translation = requireTranslation(
       args.translation ?? prefs.translation,
     );
+    if (translation !== "web")
+      throw new Error(
+        "Open this translation in the reading-only Bible reader.",
+      );
     const existing = await ctx.runQuery(internal.bible.findPassage, {
       userId: ctx.readerId,
       reference: ref.reference,
@@ -62,6 +70,41 @@ export const openPassage = action({
       translation,
       ...passage,
     });
+  },
+});
+
+export const catalogue = action({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
+    await requireReaderLimit(ctx, ctx.readerId, "api");
+    const versions = await fetchYouVersionCatalogue();
+    await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
+    return versions;
+  },
+});
+
+export const readComparison = action({
+  args: { reference: v.string(), versionIds: v.array(v.number()) },
+  handler: async (ctx, args) => {
+    await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
+    const ref = parseBibleReference(args.reference);
+    if (!ref)
+      throw new Error("Use a reference such as John 3:16-21 or Romans 8.");
+    await requireReaderLimit(ctx, ctx.readerId, "api");
+    const token = crypto.randomUUID();
+    await ctx.runMutation(internal.bible.activateLicensedReading, {
+      userId: ctx.readerId,
+      token,
+    });
+    const passage = await fetchYouVersionComparison(ref, args.versionIds);
+    // This transaction rechecks opt-in and provider availability after the fetch.
+    await ctx.runMutation(internal.bible.activateLicensedReading, {
+      userId: ctx.readerId,
+      token,
+      onlyIfCurrent: true,
+    });
+    return { ...passage, token };
   },
 });
 

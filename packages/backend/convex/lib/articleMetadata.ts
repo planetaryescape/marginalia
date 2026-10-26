@@ -338,6 +338,7 @@ export async function resolveArticleCard(
   row: Doc<"articles"> | Doc<"articleMetadata">,
 ): Promise<ArticleCard | null> {
   const card = articleCard(row);
+  if (card.bible && card.bible.translation !== "web") return null;
   if (card.bible && !(await biblePreferences(ctx, card.userId)).enabled)
     return null;
   if (!("articleId" in row)) return { ...card, url: row.url, guid: row.guid };

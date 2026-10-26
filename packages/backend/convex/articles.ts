@@ -589,12 +589,30 @@ export const updateAnnotationStatus = internalMutation({
       v.literal("skipped"),
     ),
     skipReason: v.optional(
-      v.union(v.literal("no_provider"), v.literal("bible_disabled")),
+      v.union(
+        v.literal("no_provider"),
+        v.literal("bible_disabled"),
+        v.literal("licensed_bible_read_only"),
+      ),
     ),
     generation: v.optional(annotationGeneration),
   },
   handler: async (ctx, args) => {
     const article = await ctx.db.get("articles", args.articleId);
+    if (
+      article?.bible &&
+      article.bible.translation !== "web" &&
+      args.status === "skipped" &&
+      args.skipReason === "licensed_bible_read_only"
+    ) {
+      await setAnnotationStatus(
+        ctx,
+        article._id,
+        "skipped",
+        "licensed_bible_read_only",
+      );
+      return;
+    }
     if (
       article?.bible &&
       args.status === "skipped" &&

@@ -112,6 +112,7 @@ export async function annotationSourceActive(
 ) {
   if (article.bible && !(await biblePreferences(ctx, article.userId)).enabled)
     return false;
+  if (article.bible && article.bible.translation !== "web") return false;
   // Subscription lifetime controls polling, not access to retained articles.
   // The caller loads the current article; deletion/transfer and exact source
   // changes are fenced separately from this library-lifetime check.

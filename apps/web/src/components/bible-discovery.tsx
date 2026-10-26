@@ -2,8 +2,10 @@
 import type { BibleSuggestion, ReadingScope } from "@marginalia/backend/bible";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction } from "convex/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
+import { licensedBibleHref } from "@/lib/bible-destination";
 import { BibleBrowser } from "./bible-browser";
 import { ReadingScopeControl } from "./reading-scope";
 
@@ -19,13 +21,23 @@ export function BibleDiscovery({
     <section aria-label="Bible discovery" className="space-y-4">
       <ReadingScopeControl scope={preferences.scope} />
       {preferences.scope !== "articles" && (
-        <PassageFinder key={preferences.translation} minutes={minutes} />
+        <PassageFinder
+          key={preferences.translation}
+          minutes={minutes}
+          translation={preferences.translation}
+        />
       )}
     </section>
   );
 }
 
-function PassageFinder({ minutes }: { minutes?: number }) {
+function PassageFinder({
+  minutes,
+  translation,
+}: {
+  minutes?: number;
+  translation: string;
+}) {
   const suggest = useAction(api.actions.bible.suggest);
   const openPassage = useAction(api.actions.bible.openPassage);
   const router = useRouter();
@@ -113,6 +125,14 @@ function PassageFinder({ minutes }: { minutes?: number }) {
                 setOpening(passage.reference);
                 setError("");
                 try {
+                  const href = licensedBibleHref(
+                    passage.reference,
+                    translation,
+                  );
+                  if (href) {
+                    router.push(href);
+                    return;
+                  }
                   const id = await openPassage({
                     reference: passage.reference,
                   });
@@ -143,7 +163,13 @@ function PassageFinder({ minutes }: { minutes?: number }) {
       {result?.notice && (
         <p className="text-sm text-[var(--reader-muted)]">{result.notice}</p>
       )}
-      <BibleBrowser onOpen={() => {}} />
+      <Link
+        href="/bible"
+        className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
+      >
+        All available Bibles · compare versions
+      </Link>
+      <BibleBrowser onOpen={() => {}} translation={translation} />
     </div>
   );
 }
