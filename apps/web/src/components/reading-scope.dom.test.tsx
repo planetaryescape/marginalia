@@ -112,11 +112,47 @@ describe("reading source control", () => {
       choice?.click();
       choice?.click();
     });
-    expect(trigger().disabled).toBe(true);
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    expect(trigger().getAttribute("aria-busy")).toBe("true");
+    await click(trigger());
     await open();
+    expect(choices()).toHaveLength(0);
     expect(mocks.save).toHaveBeenCalledTimes(1);
     await act(async () => resolveSave());
-    expect(trigger().disabled).toBe(false);
+    expect(trigger().getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("restores keyboard focus after a non-instant save finishes", async () => {
+    let resolveSave!: () => void;
+    mocks.save.mockImplementation(
+      () => new Promise<void>((resolve) => (resolveSave = resolve)),
+    );
+    await render("articles");
+    trigger().focus();
+    await press(trigger(), "Enter");
+    await press(choices()[1], "Enter");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => resolveSave());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it("does not take focus back if it moved while the save was pending", async () => {
+    let resolveSave!: () => void;
+    mocks.save.mockImplementation(
+      () => new Promise<void>((resolve) => (resolveSave = resolve)),
+    );
+    await render("articles");
+    const elsewhere = document.createElement("button");
+    elsewhere.textContent = "Elsewhere";
+    container.appendChild(elsewhere);
+    await open();
+    await press(choices()[1], "Enter");
+    elsewhere.focus();
+    await act(async () => resolveSave());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(document.activeElement).toBe(elsewhere);
   });
 
   it("keeps the saved label on failure and offers a retry", async () => {
