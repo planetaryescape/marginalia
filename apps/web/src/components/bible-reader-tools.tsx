@@ -2,10 +2,12 @@
 import { BIBLE_BOOKS, parseBibleReference } from "@marginalia/backend/bible";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
+import * as Popover from "@radix-ui/react-popover";
 import { useAction, useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import { BookOpen, ChevronLeft, ChevronRight, Columns2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { useBibleDisplay } from "@/lib/use-bible-display";
 import { BibleBrowser } from "./bible-browser";
@@ -17,6 +19,7 @@ export function BibleReaderTools({
   articleId,
   skipReason,
   display,
+  onOpenChange,
 }: {
   bible: {
     reference: string;
@@ -28,17 +31,149 @@ export function BibleReaderTools({
   articleId: Id<"articles">;
   skipReason?: string;
   display?: ReturnType<typeof useBibleDisplay>;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const router = useRouter();
-  const openPassage = useAction(api.actions.bible.openReading);
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const changeOpen = (value: boolean) => {
+    setOpen(value);
+    onOpenChange?.(value);
+  };
   const resumeAnnotations = useMutation(api.bible.resumeAnnotations);
+  const comparisonError = display?.comparing ? display.error : "";
+  useEffect(() => {
+    if (comparisonError) {
+      setOpen(true);
+      onOpenChange?.(true);
+    }
+  }, [comparisonError, onOpenChange]);
   useEffect(() => {
     if (annotationStatus === "skipped" && skipReason === "bible_disabled")
       void resumeAnnotations({ articleId }).catch(() =>
         toast.error("Marginalia is paused. Use Re-annotate to try again."),
       );
   }, [articleId, annotationStatus, skipReason, resumeAnnotations]);
+  useEffect(() => {
+    const showWords = () => {
+      setOpen(true);
+      onOpenChange?.(true);
+    };
+    window.addEventListener("bible-word-study", showWords);
+    return () => {
+      window.removeEventListener("bible-word-study", showWords);
+      onOpenChange?.(false);
+    };
+  }, [onOpenChange]);
+  return (
+    <>
+      {display ? (
+        <button
+          type="button"
+          className={TOOL_BUTTON}
+          aria-label="Compare versions"
+          title="Compare versions"
+          aria-pressed={display.comparing}
+          onClick={() => display.setComparing(!display.comparing)}
+        >
+          <Columns2 size={18} strokeWidth={1.5} aria-hidden />
+        </button>
+      ) : null}
+      <Popover.Root open={open} onOpenChange={changeOpen}>
+        <Popover.Trigger asChild>
+          <button
+            type="button"
+            className={TOOL_BUTTON}
+            aria-label="Bible tools"
+            title="Bible tools"
+          >
+            <BookOpen size={18} strokeWidth={1.5} aria-hidden />
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal forceMount>
+          <Popover.Content
+            forceMount
+            align="end"
+            sideOffset={8}
+            collisionPadding={12}
+            aria-label="Bible tools"
+            className="reader-menu z-50 max-h-[75svh] w-[min(30rem,calc(100vw-1.5rem))] overflow-y-auto p-5 font-sans text-sm data-[state=closed]:hidden"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-medium">Bible tools</h2>
+              <Popover.Close asChild>
+                <button
+                  type="button"
+                  className={TOOL_BUTTON}
+                  aria-label="Close Bible tools"
+                >
+                  <X size={16} aria-hidden />
+                </button>
+              </Popover.Close>
+            </div>
+            {display?.comparing ? (
+              <div className="mb-4">
+                <ComparisonVersion
+                  selected={display.otherVersion}
+                  primaryId={bible.displayVersionId}
+                  onChange={display.setOtherVersion}
+                />
+              </div>
+            ) : null}
+            {display?.error ? (
+              <p role="alert" className="mb-4">
+                {display.error}{" "}
+                <button
+                  type="button"
+                  className="min-h-11 underline"
+                  onClick={display.retry}
+                >
+                  Retry comparison
+                </button>
+              </p>
+            ) : null}
+            <BibleBrowser
+              onOpen={() => changeOpen(false)}
+              translation={bible.translation}
+              versionId={bible.displayVersionId}
+            />
+            <BibleWordStudy key={bible.reference} reference={bible.reference} />
+            {annotationStatus === "pending" ? (
+              <p
+                role="status"
+                className="mt-3 text-xs text-[var(--reader-muted)]"
+              >
+                Preparing study notes. You can keep reading.
+              </p>
+            ) : annotationStatus === "failed" ? (
+              <p className="mt-3 text-xs text-[var(--reader-muted)]">
+                Study notes failed. Use Re-annotate in More actions to retry.
+              </p>
+            ) : null}
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+    </>
+  );
+}
+
+const TOOL_BUTTON =
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--reader-chip)] aria-pressed:bg-[var(--reader-chip)] data-[state=open]:bg-[var(--reader-chip)] sm:h-9 sm:w-9";
+type BibleMetadata = {
+  reference: string;
+  translation: string;
+  copyright: string;
+  displayVersionId?: number;
+};
+
+export function BibleChapterNavigation({
+  bible,
+  children,
+}: {
+  bible: BibleMetadata;
+  children: ReactNode;
+}) {
+  const router = useRouter();
+  const openPassage = useAction(api.actions.bible.openReading);
+  const [busy, setBusy] = useState(false);
   const ref = parseBibleReference(bible.reference);
   const bookIndex = BIBLE_BOOKS.findIndex(([id]) => id === ref?.bookId);
   const book = BIBLE_BOOKS[bookIndex];
@@ -78,11 +213,48 @@ export function BibleReaderTools({
     }
   }
   return (
-    <section
-      aria-label="Bible reading tools"
-      className="mt-5 space-y-3 border-y border-[var(--reader-border)] py-4 font-sans text-sm"
+    <nav
+      aria-label="Bible chapter navigation"
+      className="flex items-start gap-2"
     >
-      <p className="text-[var(--reader-fg-soft)]">
+      <button
+        type="button"
+        className={`${TOOL_BUTTON} mt-1 -ml-3 sm:-ml-11`}
+        aria-label="Previous chapter"
+        title={previous ?? "Beginning of the Bible"}
+        disabled={busy || !previous}
+        onClick={() => previous && void open(previous)}
+      >
+        <ChevronLeft size={20} strokeWidth={1.5} aria-hidden />
+      </button>
+      <div className="min-w-0 flex-1">{children}</div>
+      <button
+        type="button"
+        className={`${TOOL_BUTTON} mt-1 -mr-3 sm:-mr-11`}
+        aria-label="Next chapter"
+        title={next ?? "End of the Bible"}
+        disabled={busy || !next}
+        onClick={() => next && void open(next)}
+      >
+        <ChevronRight size={20} strokeWidth={1.5} aria-hidden />
+      </button>
+    </nav>
+  );
+}
+
+export function BibleAttribution({
+  bible,
+  display,
+}: {
+  bible: BibleMetadata;
+  display?: ReturnType<typeof useBibleDisplay>;
+}) {
+  return (
+    <section
+      aria-label="Bible sources"
+      className="mt-10 space-y-2 font-sans text-xs leading-5 text-[var(--reader-muted)]"
+    >
+      <p className="whitespace-pre-line">
         {bible.copyright}{" "}
         <a
           href={
@@ -93,85 +265,13 @@ export function BibleReaderTools({
           rel="noreferrer"
           className="underline underline-offset-4"
         >
-          {display?.primary?.publisher ?? "About this translation"}
+          {display?.primary?.publisher ?? "World English Bible"}
         </a>
       </p>
-      <p className="text-[var(--reader-fg-soft)]">
-        AI study source: <strong>World English Bible (WEB)</strong>. Summaries,
-        idea maps and marginalia use this public-domain text, not the wording of
-        your displayed translation. Cross-version margin notes are attached by
-        verse.
-      </p>
-      {display ? (
-        <>
-          <label className="flex min-h-11 items-center gap-3">
-            <input
-              type="checkbox"
-              role="switch"
-              aria-checked={display.comparing}
-              checked={display.comparing}
-              onChange={(event) => display.setComparing(event.target.checked)}
-            />
-            Compare versions
-          </label>
-          {display.comparing ? (
-            <ComparisonVersion
-              selected={display.otherVersion}
-              primaryId={bible.displayVersionId}
-              onChange={display.setOtherVersion}
-            />
-          ) : null}
-          {display.comparing && display.error ? (
-            <p role="alert">
-              {display.error}{" "}
-              <button
-                type="button"
-                className="min-h-11 underline"
-                onClick={display.retry}
-              >
-                Retry comparison
-              </button>
-            </p>
-          ) : null}
-        </>
-      ) : null}
-      <nav
-        aria-label="Bible chapter navigation"
-        className="flex flex-wrap justify-between gap-2"
-      >
-        <button
-          type="button"
-          className="app-button secondary"
-          disabled={busy || !previous}
-          onClick={() => previous && void open(previous)}
-        >
-          Previous chapter
-        </button>
-        <button
-          type="button"
-          className="app-button secondary"
-          disabled={busy || !next}
-          onClick={() => next && void open(next)}
-        >
-          Next chapter
-        </button>
-      </nav>
-      <BibleBrowser
-        onOpen={() => {}}
-        translation={bible.translation}
-        versionId={bible.displayVersionId}
-      />
-      <BibleWordStudy key={bible.reference} reference={bible.reference} />
-      <p role="status" className="text-xs text-[var(--reader-muted)]">
-        {busy
-          ? "Opening chapter…"
-          : annotationStatus === "pending"
-            ? "Generating marginalia for this passage. You can start reading now."
-            : annotationStatus === "skipped"
-              ? "Connect an AI provider in Your account for on-demand marginalia. Your own notes and highlights work without AI."
-              : annotationStatus === "failed"
-                ? "Marginalia couldn't be generated. Use Re-annotate in the reader menu to try again."
-                : "Marginalia is AI-generated interpretation, not Scripture. Check references and consider the surrounding context."}
+      <p>
+        AI study source: World English Bible (public domain). Notes, summaries
+        and idea maps use WEB, not the displayed edition’s wording. AI
+        commentary is interpretation, not Scripture.
       </p>
     </section>
   );

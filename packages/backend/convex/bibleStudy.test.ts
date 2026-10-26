@@ -56,6 +56,64 @@ afterEach(() => {
 });
 
 describe("reading-only Bible study boundaries", () => {
+  it("does not download and discard licensed text before opening the reader, and reopens saved study sources without network calls", async () => {
+    vi.useFakeTimers();
+    const t = await ownerTest(modules);
+    await t.mutation(api.bible.setPreferences, {
+      enabled: true,
+      translation: "niv",
+    });
+    const fetch = provider();
+    vi.stubGlobal("fetch", fetch);
+    const id = await t.action(api.actions.bible.openReading, {
+      reference: "John 3:16",
+    });
+    expect(fetch.mock.calls.map(([url]) => new URL(url).hostname)).toEqual([
+      "bible-api.com",
+    ]);
+    fetch.mockClear();
+    expect(
+      await t.action(api.actions.bible.openReading, { reference: "John 3:16" }),
+    ).toBe(id);
+    expect(fetch).not.toHaveBeenCalled();
+    const display = await t.action(api.actions.bible.readComparison, {
+      reference: "John 3:16",
+      versionIds: [111],
+    });
+    expect(display.panes[0].html).toContain(scripture);
+    expect(
+      fetch.mock.calls.filter(([url]) => url.includes("/passages/")),
+    ).toHaveLength(1);
+  });
+  it("still rejects invalid or disabled licensed selections before saving a WEB study source", async () => {
+    const t = await ownerTest(modules);
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    const fetch = provider();
+    vi.stubGlobal("fetch", fetch);
+    for (const versionId of [-1, 0, 1.5]) {
+      await expect(
+        t.action(api.actions.bible.openReading, {
+          reference: "John 3:16",
+          versionId,
+        }),
+      ).rejects.toThrow("different");
+    }
+    await expect(
+      t.action(api.actions.bible.openReading, {
+        reference: "John 1-3",
+        versionId: 111,
+      }),
+    ).rejects.toThrow("one chapter");
+    vi.stubEnv("YOUVERSION_READING_ENABLED", "false");
+    await expect(
+      t.action(api.actions.bible.openReading, {
+        reference: "John 3:16",
+        versionId: 111,
+      }),
+    ).rejects.toThrow("not enabled");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await t.run((ctx) => ctx.db.query("articles").take(5))).toEqual([]);
+  });
   it("opens the normal reader using a public-domain AI source while keeping licensed display text transient", async () => {
     vi.useFakeTimers();
     const t = await ownerTest(modules);
@@ -114,7 +172,12 @@ describe("reading-only Bible study boundaries", () => {
         modelId: "anthropic:fixture",
         object: {
           annotations: [],
-          reflection: { assumption: "", challenge: "", question: "" },
+          reflection: {
+            strongestPoint: "",
+            weakestAssumption: "",
+            credibleCounterview: "",
+            questionForYou: "",
+          },
         },
       });
     await runScheduled(t);

@@ -13,11 +13,13 @@ import {
   starterPassages,
 } from "../lib/bible";
 import { fetchBiblePassage, requireTranslation } from "../lib/bibleProvider";
+import { sharedBibleCache } from "../lib/bibleResourceCache";
 import { loadReaderAI } from "../lib/router";
 import { wordStudy } from "../lib/wordStudy";
 import {
   fetchYouVersionCatalogue,
   fetchYouVersionComparison,
+  validateYouVersionReading,
 } from "../lib/youversion";
 import { requireReaderLimit } from "../limits";
 
@@ -37,7 +39,6 @@ async function openStudySource(
   ctx: ActionCtx & { readerId: string },
   reference: string,
   displayVersionId?: number,
-  displayVersionName?: string,
 ): Promise<Id<"articles">> {
   await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
   const ref = parseBibleReference(reference);
@@ -57,14 +58,13 @@ async function openStudySource(
     return existing;
   }
   await requireReaderLimit(ctx, ctx.readerId, "api");
-  const passage = await fetchBiblePassage(ref, "web");
+  const passage = await fetchBiblePassage(ref, "web", sharedBibleCache(ctx));
   return ctx.runMutation(internal.bible.savePassage, {
     userId: ctx.readerId,
     reference: ref.reference,
     translation: "web",
     ...passage,
     displayVersionId,
-    displayVersionName,
   });
 }
 
@@ -85,15 +85,14 @@ export const openReading = action({
       const code = requireTranslation(args.translation ?? prefs.translation);
       versionId = code === "niv" ? 111 : code === "nasb" ? 2692 : undefined;
     }
-    let versionName: string | undefined;
     if (versionId !== undefined) {
       const ref = parseBibleReference(args.reference);
       if (!ref) throw new Error("Use a valid Bible reference.");
-      await requireReaderLimit(ctx, ctx.readerId, "api");
-      const display = await fetchYouVersionComparison(ref, [versionId]);
-      versionName = display.panes[0].title;
+      // Do not download and discard a passage before the reader fetches it.
+      // Existing WEB sources can open without any external requests here.
+      validateYouVersionReading(ref, [versionId]);
     }
-    return openStudySource(ctx, args.reference, versionId, versionName);
+    return openStudySource(ctx, args.reference, versionId);
   },
 });
 
@@ -129,7 +128,11 @@ export const openPassage = action({
       return existing;
     }
     await requireReaderLimit(ctx, ctx.readerId, "api");
-    const passage = await fetchBiblePassage(ref, translation);
+    const passage = await fetchBiblePassage(
+      ref,
+      translation,
+      sharedBibleCache(ctx),
+    );
     return ctx.runMutation(internal.bible.savePassage, {
       userId: ctx.readerId,
       reference: ref.reference,
@@ -144,7 +147,7 @@ export const catalogue = action({
   handler: async (ctx) => {
     await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
     await requireReaderLimit(ctx, ctx.readerId, "api");
-    const versions = await fetchYouVersionCatalogue();
+    const versions = await fetchYouVersionCatalogue(sharedBibleCache(ctx));
     await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
     return versions;
   },
@@ -172,7 +175,11 @@ export const readComparison = action({
       userId: ctx.readerId,
       token,
     });
-    const passage = await fetchYouVersionComparison(ref, args.versionIds);
+    const passage = await fetchYouVersionComparison(
+      ref,
+      args.versionIds,
+      sharedBibleCache(ctx),
+    );
     // This transaction rechecks opt-in and provider availability after the fetch.
     await ctx.runMutation(internal.bible.activateLicensedReading, {
       userId: ctx.readerId,
@@ -211,7 +218,7 @@ export const explainOriginalWord = action({
     await requireReaderLimit(ctx, ctx.readerId, "ai");
     const [study, publicText] = await Promise.all([
       wordStudy(ref),
-      fetchBiblePassage(ref, "web"),
+      fetchBiblePassage(ref, "web", sharedBibleCache(ctx)),
     ]);
     const word = study.words[args.wordIndex];
     if (!word)

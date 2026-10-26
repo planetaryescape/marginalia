@@ -2,7 +2,7 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ArrowLeft, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { useToolbarFade } from "@/lib/use-toolbar-fade";
 import { cn } from "@/lib/utils";
@@ -34,6 +34,8 @@ function Kbd({ children }: { children: string }) {
 }
 
 export interface ReaderToolbarProps {
+  tools?: ReactNode;
+  toolsOpen?: boolean;
   title: string;
   /** Absent for a PDF the reader uploaded, which has no page to open. */
   originalUrl?: string;
@@ -82,12 +84,14 @@ export function ReaderToolbar({
   onMarkUnread,
   onReannotate,
   settings,
+  tools,
+  toolsOpen = false,
 }: ReaderToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const { hidden, focusProps } = useToolbarFade(
-    menuOpen || settingsOpen || notesOpen || copyFailed,
+    menuOpen || settingsOpen || notesOpen || copyFailed || toolsOpen,
   );
 
   const copyLink = async () => {
@@ -134,6 +138,7 @@ export function ReaderToolbar({
           </span>
 
           <div className="flex items-center gap-0.5">
+            {tools}
             <span className="relative">
               <ReaderSettingsPanel
                 {...settings}

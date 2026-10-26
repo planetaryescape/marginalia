@@ -2,6 +2,12 @@ import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
+crons.interval(
+  "purge expired Bible response cache",
+  { hours: 1 },
+  internal.bibleResourceCache.prune,
+  {},
+);
 
 // Each job fans out to the owner's library and every active reader
 // (background.ts); disabled and deleted readers are skipped.

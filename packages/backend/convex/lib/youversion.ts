@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { BibleReference } from "./bible";
+import {
+  type BibleResourceCache,
+  cachedBibleResource,
+} from "./bibleResourceCache";
 
 const passageSchema = z.object({
   id: z.string(),
@@ -29,28 +33,48 @@ function connection() {
   return { key, headers: { "X-YVP-App-Key": key } };
 }
 
-async function request(path: string, headers: Record<string, string>) {
-  const response = await fetch(`https://api.youversion.com/v1/${path}`, {
-    headers,
-    cache: "no-store",
-    redirect: "error",
-    signal: AbortSignal.timeout(20_000),
+async function request(
+  path: string,
+  headers: Record<string, string>,
+  cache?: BibleResourceCache,
+  validate: (body: string) => void = () => {},
+) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(headers["X-YVP-App-Key"]),
+  );
+  const scope = Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+  const body = await cachedBibleResource({
+    cache,
+    key: `yv:${scope}:${path}`,
+    validate,
+    load: async () => {
+      const response = await fetch(`https://api.youversion.com/v1/${path}`, {
+        headers,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!response.ok)
+        throw new Error(
+          response.status === 403
+            ? "This Bible edition is not authorized for the app. Choose another translation."
+            : response.status === 404
+              ? "This edition does not include that passage. Check the reference or choose another version."
+              : response.status === 429
+                ? "The Bible text service is busy. Wait a minute and try again."
+                : "Couldn't load this Bible from YouVersion. Please try again.",
+        );
+      return response;
+    },
   });
-  if (!response.ok)
-    throw new Error(
-      response.status === 403
-        ? "This Bible edition is not authorized for the app. Choose another translation."
-        : response.status === 404
-          ? "This edition does not include that passage. Check the reference or choose another version."
-          : response.status === 429
-            ? "The Bible text service is busy. Wait a minute and try again."
-            : "Couldn't load this Bible from YouVersion. Please try again.",
-    );
-  return response;
+  return new Response(body);
 }
 
 /** Default collection is entitlement-filtered. Never request all_available=true. */
-export async function fetchYouVersionCatalogue() {
+export async function fetchYouVersionCatalogue(cache?: BibleResourceCache) {
   const { headers } = connection();
   const params = new URLSearchParams({
     "language_ranges[]": "*",
@@ -59,7 +83,15 @@ export async function fetchYouVersionCatalogue() {
   for (const field of ["id", "title", "language_tag"])
     params.append("fields[]", field);
   const { data, next_page_token } = catalogueSchema.parse(
-    await (await request(`bibles?${params}`, headers)).json(),
+    await (
+      await request(`bibles?${params}`, headers, cache, (body) => {
+        const result = catalogueSchema.parse(JSON.parse(body));
+        if (result.next_page_token)
+          throw new Error(
+            "The complete Bible catalogue could not be loaded. Please retry.",
+          );
+      })
+    ).json(),
   );
   if (next_page_token)
     throw new Error(
@@ -103,12 +135,14 @@ function publisherLink(version: z.infer<typeof versionSchema>) {
   };
 }
 
-/** Transient display only: no Scripture cache, database storage, embeddings or AI. */
-export async function fetchYouVersionComparison(
+/** Check configuration and request bounds without downloading display text.
+ * Actual entitlements and attribution are checked when the reader fetches it.
+ */
+export function validateYouVersionReading(
   ref: BibleReference,
   versionIds: number[],
 ) {
-  const { key, headers } = connection();
+  connection();
   if (
     versionIds.length < 1 ||
     versionIds.length > 2 ||
@@ -122,7 +156,17 @@ export async function fetchYouVersionComparison(
       "Choose a passage within one chapter. Use chapter navigation to continue.",
     );
   // YouVersion ranges use JHN.3.16-21, not API.Bible's JHN.3.16-JHN.3.21.
-  const passageId = `${ref.bookId}.${ref.chapter}${ref.verse === undefined ? "" : `.${ref.verse}${ref.endVerse !== ref.verse ? `-${ref.endVerse}` : ""}`}`;
+  return `${ref.bookId}.${ref.chapter}${ref.verse === undefined ? "" : `.${ref.verse}${ref.endVerse !== ref.verse ? `-${ref.endVerse}` : ""}`}`;
+}
+
+/** Licensed display only: shared HTTP cache, never article storage, embeddings or AI. */
+export async function fetchYouVersionComparison(
+  ref: BibleReference,
+  versionIds: number[],
+  cache?: BibleResourceCache,
+) {
+  const passageId = validateYouVersionReading(ref, versionIds);
+  const { key, headers } = connection();
   const [panes, fontCss] = await Promise.all([
     Promise.all(
       versionIds.map(async (id) => {
@@ -130,10 +174,29 @@ export async function fetchYouVersionComparison(
           request(
             `bibles/${id}/passages/${encodeURIComponent(passageId)}?format=html&include_headings=true&include_notes=true`,
             headers,
+            cache,
+            (body) => {
+              const passage = passageSchema.parse(JSON.parse(body));
+              if (passage.id !== passageId)
+                throw new Error(
+                  "The Bible service returned a different passage or edition.",
+                );
+            },
           )
             .then((r) => r.json())
             .then((body) => passageSchema.parse(body)),
-          request(`bibles/${id}`, headers)
+          request(`bibles/${id}`, headers, cache, (body) => {
+            const version = versionSchema.parse(JSON.parse(body));
+            if (
+              version.id !== id ||
+              !(
+                version.copyright?.trim() || version.promotional_content?.trim()
+              )
+            )
+              throw new Error(
+                "This edition has no current display attribution or returned a different edition.",
+              );
+          })
             .then((r) => r.json())
             .then((body) => versionSchema.parse(body)),
         ]);
@@ -165,7 +228,12 @@ export async function fetchYouVersionComparison(
       }),
     ),
     // Header authentication keeps the app key out of browser URLs and resources.
-    request("fonts/1/stylesheet", headers).then((r) => r.text()),
+    request("fonts/1/stylesheet", headers, cache, (body) => {
+      if (body.includes(key) || body.length > 200_000)
+        throw new Error(
+          "The Bible font stylesheet could not be delivered safely.",
+        );
+    }).then((r) => r.text()),
   ]);
   if (fontCss.includes(key) || fontCss.length > 200_000)
     throw new Error("The Bible font stylesheet could not be delivered safely.");

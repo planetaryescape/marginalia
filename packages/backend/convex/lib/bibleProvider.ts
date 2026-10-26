@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { BibleReference } from "./bible";
+import {
+  type BibleResourceCache,
+  cachedBibleResource,
+} from "./bibleResourceCache";
 
 export const TRANSLATION_CODES = [
   "niv",
@@ -72,6 +76,7 @@ function escapeHtml(text: string) {
 export async function fetchBiblePassage(
   ref: BibleReference,
   code: TranslationCode,
+  cache?: BibleResourceCache,
 ) {
   requireTranslation(code);
   // Licensed Scripture is deliberately excluded from the saved-article/AI path.
@@ -84,19 +89,38 @@ export async function fetchBiblePassage(
         { length: ref.endChapter - ref.chapter + 1 },
         async (_, index) => {
           const chapter = ref.chapter + index;
-          const response = await fetch(
-            `https://bible-api.com/data/web/${ref.bookId}/${chapter}`,
-            { signal: AbortSignal.timeout(15_000) },
-          );
-          if (!response.ok)
-            throw new Error(
-              response.status === 404
-                ? "That passage wasn't found. Check the chapter and verse numbers."
-                : response.status === 429
-                  ? "The Bible text service is busy. Wait 30 seconds and try again."
-                  : "The Bible text service is unavailable. Please try again.",
-            );
-          const { verses } = publicPassageSchema.parse(await response.json());
+          const raw = await cachedBibleResource({
+            cache,
+            key: `web:v1:${ref.bookId}:${chapter}`,
+            publicDomainTtl: 7 * 86400_000,
+            validate: (body) => {
+              const { verses } = publicPassageSchema.parse(JSON.parse(body));
+              if (
+                verses.some(
+                  (v) => v.book_id !== ref.bookId || v.chapter !== chapter,
+                )
+              )
+                throw new Error(
+                  "The Bible text service returned a different passage. Please try again.",
+                );
+            },
+            load: async () => {
+              const response = await fetch(
+                `https://bible-api.com/data/web/${ref.bookId}/${chapter}`,
+                { signal: AbortSignal.timeout(15_000) },
+              );
+              if (!response.ok)
+                throw new Error(
+                  response.status === 404
+                    ? "That passage wasn't found. Check the chapter and verse numbers."
+                    : response.status === 429
+                      ? "The Bible text service is busy. Wait 30 seconds and try again."
+                      : "The Bible text service is unavailable. Please try again.",
+                );
+              return response;
+            },
+          });
+          const { verses } = publicPassageSchema.parse(JSON.parse(raw));
           if (
             verses.some(
               (v) => v.book_id !== ref.bookId || v.chapter !== chapter,

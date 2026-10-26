@@ -41,7 +41,12 @@ vi.mock("framer-motion", async () => {
       createElement(Fragment, null, children as never),
   };
 });
-vi.mock("@/lib/shortcuts", () => ({ useCommand: () => undefined }));
+const commands = vi.hoisted(() => ({ toggle: () => {} }));
+vi.mock("@/lib/shortcuts", () => ({
+  useCommand: (name: string, callback: () => void) => {
+    if (name === "toggle-summary") commands.toggle = callback;
+  },
+}));
 
 const { SummaryPanel } = await import("./summary-panel");
 const { IdeaMap } = await import("./idea-map");
@@ -123,6 +128,38 @@ const click = (el: HTMLElement) => act(async () => el.click());
 const text = () => document.body.textContent ?? "";
 
 describe("SummaryPanel layers", () => {
+  it("keeps Bible summaries out of the reading flow until requested from the toolbar, and sends only the WEB source", async () => {
+    container.querySelector("[data-article-body]")!.textContent =
+      "Licensed-dom-canary";
+    await act(async () =>
+      root.render(
+        <SummaryPanel
+          articleId={articleId}
+          title="John 3:16"
+          content="3:16 Public-domain WEB study text"
+          wordCount={7}
+          summary={null}
+          containerRef={{ current: container }}
+          onJump={vi.fn()}
+          toolbarOnly
+          studySource
+        />,
+      ),
+    );
+    expect(mount.textContent).toBe("");
+    expect(generate).not.toHaveBeenCalled();
+    await act(async () => commands.toggle());
+    await vi.waitFor(() =>
+      expect(generate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paragraphs: ["3:16 Public-domain WEB study text"],
+        }),
+      ),
+    );
+    expect(JSON.stringify(generate.mock.calls)).not.toContain(
+      "Licensed-dom-canary",
+    );
+  });
   it("shows the one point first, then the gist and the map on request", async () => {
     await render(summaryWithMap);
     await click(button("Summary"));
@@ -155,8 +192,10 @@ describe("SummaryPanel layers", () => {
     expect(button("More")).toBeUndefined();
 
     await click(button("Refresh summary"));
-    expect(generate).toHaveBeenCalledWith(
-      expect.objectContaining({ articleId, title: "A saved article" }),
+    await vi.waitFor(() =>
+      expect(generate).toHaveBeenCalledWith(
+        expect.objectContaining({ articleId, title: "A saved article" }),
+      ),
     );
   });
 

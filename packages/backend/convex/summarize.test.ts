@@ -2,14 +2,61 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ownerWithKey } from "../test/owner";
 import { api } from "./_generated/api";
+import * as aiModels from "./lib/aiModels";
 
 const modules = import.meta.glob("./**/*.ts");
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
 
 describe("article summaries", () => {
+  it("summarizes the authoritative WEB source even if a licensed reader sends its displayed paragraphs", async () => {
+    const t = await ownerWithKey(modules);
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    const articleId = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "bible-summary-boundary",
+        url: "https://bible-api.com",
+        title: "John 3:16",
+        content: "3:16 Public-domain study text",
+        bible: {
+          reference: "John 3:16",
+          translation: "web",
+          copyright: "Public domain",
+          displayVersionId: 111,
+        },
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      }),
+    );
+    const generate = vi
+      .spyOn(aiModels, "generateObjectWithFallback")
+      .mockResolvedValue({
+        modelId: "fixture",
+        object: {
+          gist: "A passage study",
+          thesis: "A passage study",
+          ideas: [],
+          links: [],
+          flow: "A passage study",
+        },
+      });
+    await t.action(api.actions.summarize.generate, {
+      articleId,
+      title: "Displayed edition",
+      paragraphs: ["Licensed-dom-canary"],
+    });
+    expect(JSON.stringify(generate.mock.calls)).toContain(
+      "Public-domain study text",
+    );
+    expect(JSON.stringify(generate.mock.calls)).not.toContain(
+      "Licensed-dom-canary",
+    );
+  });
   it("lets the signed-in owner generate and retrieve an article summary", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only");
     const provider = vi.fn(

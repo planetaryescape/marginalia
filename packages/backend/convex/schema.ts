@@ -36,6 +36,14 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  // Shared provider responses, never reader annotations or AI sources. Internal access only.
+  bibleResourceCache: defineTable({
+    key: v.string(),
+    body: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_expiresAt", ["expiresAt"]),
   // Only a display lease, never licensed Scripture. New opens retire older views.
   bibleReadingSessions: defineTable({
     userId: v.string(),

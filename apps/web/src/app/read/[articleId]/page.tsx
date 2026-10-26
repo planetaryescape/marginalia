@@ -17,7 +17,11 @@ import { ArticleAsk } from "@/components/article-ask";
 import { ArticleBackMatter } from "@/components/article-back-matter";
 import { ArticleRenderer } from "@/components/article-renderer";
 import { ArticleTags } from "@/components/article-tags";
-import { BibleReaderTools } from "@/components/bible-reader-tools";
+import {
+  BibleAttribution,
+  BibleChapterNavigation,
+  BibleReaderTools,
+} from "@/components/bible-reader-tools";
 import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
 import { ImpressionSummary } from "@/components/impression-panel";
@@ -99,6 +103,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export default function ReadPage() {
+  const [bibleToolsOpen, setBibleToolsOpen] = useState(false);
   const { articleId } = useParams<{ articleId: string }>();
   // SAFETY: Convex validates this route-supplied article ID at every query/mutation boundary.
   const articleKey = articleId as Id<"articles">;
@@ -1027,6 +1032,20 @@ export default function ReadPage() {
       />
 
       <ReaderToolbar
+        toolsOpen={bibleToolsOpen}
+        tools={
+          article.bible ? (
+            <BibleReaderTools
+              key={articleId}
+              bible={article.bible}
+              annotationStatus={article.annotationStatus}
+              articleId={article._id}
+              skipReason={article.skipReason}
+              display={bibleDisplay}
+              onOpenChange={setBibleToolsOpen}
+            />
+          ) : undefined
+        }
         title={article.title}
         originalUrl={article.uploadedFileName ? undefined : article.url}
         backHref={back.href}
@@ -1247,38 +1266,39 @@ export default function ReadPage() {
             }
           >
             <header className="mb-10">
-              <ReaderTitle articleId={articleId} title={article.title} />
+              {article.bible ? (
+                <BibleChapterNavigation key={articleId} bible={article.bible}>
+                  <ReaderTitle articleId={articleId} title={article.title} />
+                </BibleChapterNavigation>
+              ) : (
+                <ReaderTitle articleId={articleId} title={article.title} />
+              )}
               <p
                 data-testid="reader-meta"
                 className="text-sm font-sans text-[var(--ink-muted)]"
               >
-                {readerMeta({
-                  url: article.url,
-                  uploaded: Boolean(article.uploadedFileName),
-                  author: article.author,
-                  minutes: article.estimatedReadMinutes,
-                  part:
-                    isBook && outline && unitIndex !== null
-                      ? { index: unitIndex, of: outline.length }
-                      : undefined,
-                })}
+                {article.bible
+                  ? `${bibleDisplay?.primary?.abbreviation ?? "WEB"} · ${article.estimatedReadMinutes ?? 1} min read`
+                  : readerMeta({
+                      url: article.url,
+                      uploaded: Boolean(article.uploadedFileName),
+                      author: article.author,
+                      minutes: article.estimatedReadMinutes,
+                      part:
+                        isBook && outline && unitIndex !== null
+                          ? { index: unitIndex, of: outline.length }
+                          : undefined,
+                    })}
               </p>
               <ArticleTags articleId={articleId as any} />
               {impression && <ImpressionSummary impression={impression} />}
-              {article.bible && (
-                <BibleReaderTools
-                  bible={article.bible}
-                  annotationStatus={article.annotationStatus}
-                  articleId={article._id}
-                  skipReason={article.skipReason}
-                  display={bibleDisplay}
-                />
-              )}
             </header>
 
             {(!isBook || summary) && (
               <div ref={setFrontMatter}>
                 <SummaryPanel
+                  toolbarOnly={Boolean(article.bible)}
+                  studySource={Boolean(sourceArticle?.bible?.displayVersionId)}
                   articleId={articleId as any}
                   title={article.title}
                   content={sourceArticle?.content ?? article.content}
@@ -1331,6 +1351,12 @@ export default function ReadPage() {
 
             {/* Back matter: the Ask pill steps aside while it is in view */}
             <div ref={setBackMatter}>
+              {article.bible ? (
+                <BibleAttribution
+                  bible={article.bible}
+                  display={bibleDisplay}
+                />
+              ) : null}
               {isBook && outline && unitIndex !== null && (
                 <BookUnitNav
                   articleId={articleId}

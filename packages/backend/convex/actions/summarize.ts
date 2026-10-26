@@ -101,6 +101,14 @@ export const generate = action({
     expectedSummaryId: v.optional(v.id("summaries")),
   },
   handler: async (ctx, args) => {
+    const study = await ctx.runQuery(internal.bible.studySource, {
+      userId: ctx.readerId,
+      articleId: args.articleId,
+    });
+    if (study) {
+      args.paragraphs = study.content.split(/\n\n+/).filter(Boolean);
+      args.title = `${study.title} — World English Bible study source`;
+    }
     const total = args.paragraphs.length;
     if (total === 0) throw new Error("Nothing to summarise");
     await requireReaderLimit(ctx, ctx.readerId, "ai");
