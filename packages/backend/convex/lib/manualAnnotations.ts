@@ -14,6 +14,8 @@ import { sha256Hex } from "./tokens";
 // never a watchdog that can spend again after an ambiguous provider response.
 export const MANUAL_ANNOTATION_LEASE_MS = 20 * 60_000;
 export const MANUAL_ANNOTATION_ATTEMPTS = 3;
+// Explicit Bible reannotation treats prompt-only changes as new input.
+export const BIBLE_ANNOTATION_PROMPT_VERSION = 1;
 export const annotationGeneration = v.object({ run: v.number() });
 export const manualAnnotationState = defineTable({
   userId: v.string(),
@@ -79,6 +81,16 @@ export async function annotationInput(ctx: Db, article: Doc<"articles">) {
     JSON.stringify([
       "manual-annotations-v1",
       CURRENT_ANNOTATION_VERSION,
+      ...(article.bible
+        ? [
+            ["bible-prompt", BIBLE_ANNOTATION_PROMPT_VERSION],
+            [
+              "bible-source",
+              article.bible.reference,
+              article.bible.translation,
+            ],
+          ]
+        : []),
       annotationSource(article),
       article.manualAnnotationRevision ?? 0,
       signals,

@@ -204,6 +204,16 @@ The reflection box appears after the article. Its job is to slow down premature 
 - credibleCounterview: What would a smart, informed critic say? Not a strawman.
 - questionForYou: Grounded in the reader's notes, past reflections and questions, or the article's implications. Not generic.`;
 
+export const SCRIPTURE_SYSTEM_PROMPT = `You are a careful reader of the supplied Bible study text, writing sparse margin notes that help this reader understand the passage. Read it according to its supplied literary genre and immediate context. A poem, prayer, lament, narrative, law, prophecy and letter call for different questions; do not force an argument critique onto a passage that is doing something else.
+
+Distinguish what the text says, what you infer from it, and how a reader might apply it. Use textual, literary, historical or intertextual methods only when they clarify a consequential feature of this passage. A disagreement deserves a note only when it could change understanding and the evidence supplied here supports discussing it. A sound passage needs no manufactured objection. Return zero annotations when nothing is useful; there is no minimum number or desired share of any kind.
+
+The study text is public-domain World English Bible (WEB); another edition may be displayed. Anchor only to exact text in the supplied WEB source. A displayed edition is not evidence for this analysis. Do not say WEB wording is identical to another edition. Do not invent scholars, scholarly consensus, manuscript readings, etymologies, original-language word alignments or other-passage context. Make no named scholarly claim unless it is supported by supplied, inspected evidence. If that evidence is absent, leave the claim out. A cross_reference must point to a real vault note or library article offered in the context; never invent a target.
+
+Use the existing annotation kinds only when they fit: context for useful supplied context; strong_point for a significant textual feature; tension for a consequential interpretive tension supported by evidence; question for a focused question arising from the passage; cross_reference only for an offered target. Every anchorText must be an exact verbatim substring of the supplied WEB text. Keep notes concise, specific and worth the interruption; do not repeat the verse or make a generic devotional observation.
+
+Return the existing schema, including thesis, gist, tags, annotations and reflection. The reflection can identify a significant strength, a real assumption or uncertainty, a credible alternative reading, and a question about the reader's interpretive assumptions or application. It need not claim that a poem or other passage contains a defect. Preserve the distinction between observation, interpretation and application, and do not present application as the passage's only meaning.`;
+
 /** The user message: the article, its context and this article's note budget. */
 export function buildUserPrompt(input: {
   title: string;
@@ -237,6 +247,37 @@ ${input.vocabulary.length ? input.vocabulary.join("\n") : "None yet."}
 ## Budget
 
 The article is about ${input.wordCount} words. Aim for about ${target} notes, and no more than ${cap}. Lean toward pushback, close to balance. Make each note substantive, not terse. Also return the thesis, the gist and one to three tags.`;
+}
+
+/** Scripture uses the shared response schema without an annotation quota. */
+export function buildScriptureUserPrompt(input: {
+  title: string;
+  author?: string;
+  articleText: string;
+  truncated: boolean;
+  outline?: string | null;
+  contextText: string;
+  vocabulary: string[];
+}) {
+  const continuation = !input.truncated
+    ? ""
+    : input.outline
+      ? `\n\n[The passage continues beyond this point. Its later sections, in order, with their rough length:\n${input.outline}\nYou can see only the text above this point. Anchor every note to that text, never to the outline, which shows the shape of the rest.]`
+      : "\n\n[The passage continues beyond this point.]";
+  return `## Bible passage: "${input.title}"
+${input.author ? `Translation: ${input.author}` : ""}
+
+${input.articleText}${continuation}
+
+${input.contextText}
+
+## The reader's existing tags
+
+${input.vocabulary.length ? input.vocabulary.join("\n") : "None yet."}
+
+## Reading
+
+Use the supplied genre and context. Return only findings that change or enrich understanding; zero annotations is valid. There is no target count, minimum or pushback share. Keep any summary, tags and reflection grounded in the supplied text and evidence. Also return the thesis, gist and one to three tags.`;
 }
 
 /** Resolves a note path the model wrote to the vault path it was shown. */
@@ -447,27 +488,28 @@ async function annotateArticle(
       return;
 
     // Step 3: Generate annotations via LLM
+    const promptInput = {
+      title: article.title,
+      author: article.author,
+      articleText,
+      truncated,
+      outline: truncated
+        ? outlineAfterWindow(
+            { content: article.content, contentHtml: article.contentHtml },
+            MAX_ARTICLE_CHARS,
+          )
+        : null,
+      contextText,
+      wordCount,
+      vocabulary: vocabulary.map((tag) => tag.name),
+    };
     const { object, modelId } =
       await generateObjectWithFallback<AnnotationResult>({
         schema: annotationCandidateSchema,
-        system: article.bible
-          ? `${SYSTEM_PROMPT}\nThe supplied Bible study text is public-domain World English Bible (WEB). A different edition may be displayed. Do not claim that WEB quotations are the exact wording of that displayed edition, and do not invent original-language alignments. Interpret the source according to its literary genre.`
-          : SYSTEM_PROMPT,
-        prompt: buildUserPrompt({
-          title: article.title,
-          author: article.author,
-          articleText,
-          truncated,
-          outline: truncated
-            ? outlineAfterWindow(
-                { content: article.content, contentHtml: article.contentHtml },
-                MAX_ARTICLE_CHARS,
-              )
-            : null,
-          contextText,
-          wordCount,
-          vocabulary: vocabulary.map((tag) => tag.name),
-        }),
+        system: article.bible ? SCRIPTURE_SYSTEM_PROMPT : SYSTEM_PROMPT,
+        prompt: article.bible
+          ? buildScriptureUserPrompt(promptInput)
+          : buildUserPrompt(promptInput),
         targets,
         maxOutputTokens: annotationOutputTokens(wordCount),
         onFailure: ai.noteFailure,
