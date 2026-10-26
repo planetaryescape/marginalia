@@ -2,9 +2,28 @@
 
 Checked 2026-10-26. These findings correct the impression that every copyrighted translation requires a separately negotiated, paid agreement before any app use. Published API terms can grant permission; access for display, retention and AI processing still need to be checked separately.
 
+Implementation update: the app is now Live with verified entitled NIV/NASB access. The intended reader integration displays licensed text transiently in the normal reader and uses a separately labeled public-domain WEB source for AI. Comparison is explicitly opt-in there, not a separate reading experience. The earlier account-vetting notes below describe the sequence of checks, not the current portal status. See the [reading guide](../bible-reading.md) and [release verification](../releases/2026-10-26-bible-comparison.md).
+
 ## Setup performed
 
-After the user signed in and explicitly approved app registration, Marginalia was created once in YouVersion using Codex's Sky computer-use integration in Dia. It persists after reload with status **In development**, and an initial app key exists; its value was not copied into code, chat or logs. The account offers fast-track Biblica (including NIV) and Lockman (including NASB) agreements, but neither has been accepted. Their agreement bodies opened in Google Docs but were not readable through the available desktop interface, so their storage and AI conditions remain unverified. Public Domain and Creative Commons is active. ESV, NLT and The Message entitlements have not been obtained. The live reader must not present these editions as connected.
+After the user signed in and explicitly approved app registration, Marginalia was created once in YouVersion using Codex's Sky computer-use integration in Dia. Its initial status was **In development**; the operator subsequently made it **Live**, as verified below. Its initial app key has not been copied into code, chat or logs.
+
+The user subsequently accepted the available agreements. A follow-up inspection of the account's ten active license inventories confirmed these requested editions:
+
+| Edition | Active account license | YouVersion version ID |
+| --- | --- | --- |
+| NIV 2011 | Biblica | `111` |
+| NIV Anglicized 2011 | Biblica | `113` |
+| NASB 1995 | Lockman | `100` |
+| NASB 2020 | Lockman | `2692` |
+
+ESV, New Living Translation and The Message were not found in those active inventories. Biblica's `NLT` entry is **New Luo Translation**, not New Living Translation; an abbreviation match is not sufficient entitlement verification.
+
+Both publisher agreements were readable during the follow-up. Account license acceptance does not by itself establish production approval or permission to use the existing AI and permanent-storage pipeline. Keep the live selector unavailable until the exact provider connection and its applicable feature restrictions are implemented and verified. No additional agreement, key generation or Make Live submission was performed during verification.
+
+An authenticated, server-side smoke check with the existing app key subsequently confirmed all four IDs in the default entitled Bible collection (`all_available` was not enabled). Actual passage requests for `JHN.3.16` succeeded for NIV 2011 and NASB 2020, with HTML and current attribution present. The check did not persist passage text or send it to an AI provider.
+
+The operator then completed Make Live; a fresh portal inspection verified **LIVE**. The existing key was saved to the personal family 1Password Private vault as **Marginalia — YouVersion API**, configured on the backend without logging its value, and the temporary secret template was removed. A full entitlement-filtered metadata request returned 1,485 editions across 1,262 language tags. The real comparison adapter retrieved both NIV 2011 and NASB 2020 for `John 3:16-21`, including current attribution and privately fetched font CSS.
 
 ## Practical routes
 
@@ -12,8 +31,8 @@ After the user signed in and explicitly approved app registration, Marginalia wa
 | --- | --- | --- | --- |
 | ESV | [Crossway's ESV API](https://api.esv.org/) | Free non-commercial website use. Mobile and other digital use are permitted without formal permission when the published conditions are met. An application key is required. | Stay within rate, page and cache limits, including at most 500 cached verses or half a book, whichever is less. The reviewed API terms do not expressly settle third-party AI annotation use. Do not assume either an AI ban or an unlimited AI grant. |
 | NLT | [Tyndale's direct API](https://api.nlt.to/) and [documentation](https://api.nlt.to/Documentation) | Anonymous non-commercial access: 50 verses per request, 500 requests per day. Keyed standard access: 500 verses per request, 5,000 requests per day. Purpose requirements apply. | Check retention and third-party model-processing permission before using the current indefinite article-storage and AI pipeline. Commercial use requires explaining the application when requesting access. |
-| NASB 1995/2020 | [Lockman's published permissions](https://www.lockman.org/permission-to-quote-copyright-trademark-information/) | Explicit permission for dynamic AI queries, RAG, grounding, search, citation and quotations, up to 1,000 verses per response, with attribution. This is not a blanket ban on AI inference. | Obtain an authorized text source. The policy does not authorize scraping, bulk downloading, standalone datasets or model training/development. Ordinary quotation/storage limits also matter: no more than 1,000 verses stored, no complete book and a 50% work limit under the general quotation permission. Do not equate the AI response allowance with unrestricted permanent library storage. |
-| NIV | [YouVersion Platform catalogue](https://platform.youversion.com/bibles) and [Biblica permissions](https://www.biblica.com/permissions/) | YouVersion lists NIV 2011 and NIV Anglicized 2011 and advertises fast-track licensing. | The exact app entitlement must be accepted/verified. Biblica's permissions require a license expressly allowing AI-connected use. A reading entitlement alone does not establish that permission. |
+| NASB 1995/2020 | [Lockman's published permissions](https://www.lockman.org/permission-to-quote-copyright-trademark-information/) and the accepted YouVersion agreement | Both requested editions are in the active account inventory. The separate public quotation policy permits specified dynamic AI uses, but is not a blanket AI grant for this platform integration. | Confirm YouVersion vetting and website notification, then connect the actual API/SDK with its required attribution and extraction safeguards. Apply the specific agreement and platform terms rather than assuming the general quotation allowance grants unrestricted retention or AI use. |
+| NIV | Accepted YouVersion Biblica agreement and [Biblica permissions](https://www.biblica.com/permissions/) | NIV 2011 and NIV Anglicized 2011 are in the active account inventory. | Implement a reading-only path with the applicable display, footnote, attribution and download restrictions; obtain the applicable product approval. Do not route this text through personalized AI features under the current agreement. |
 | The Message | [NavPress permissions](https://www.navpress.com/permissions) | Published print/eBook quotation allowances exist. | Online/audio use is expressly routed to the publisher's permissions questionnaire. Those print allowances do not themselves authorize this web reader and its AI pipeline. |
 
 ## YouVersion Platform

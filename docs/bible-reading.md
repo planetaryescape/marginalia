@@ -13,15 +13,37 @@ Try these searches:
 - `5 minutes about forgiveness` suggests passages related to the topic and within the estimated time.
 - `I have 10 minutes` offers starter passages without an AI request.
 
-Use **Browse the Bible** below the Bible finder to choose any of the 66 books and a chapter. A passage can contain a verse range within one chapter, a whole chapter, or up to three consecutive chapters, such as `Matthew 5-7`. Chapter navigation in the reader continues into the next book.
+Use **Browse the Bible** below the Bible finder to choose any of the 66 books and a chapter. Licensed display supports a verse range within one chapter or a whole chapter. WEB also supports up to three consecutive chapters, such as `Matthew 5-7`. Chapter navigation in the reader continues into the next book.
 
 In mixed mode, article results and Bible suggestions are retrieved independently. If one fails, the other remains usable. Bible-only mode hides the article search and recommendation slot.
 
-## Read and annotate
+## Choose a Bible and open the normal reader
 
-Passages open in the existing reader. Select text to highlight it, write a note, or ask the companion a question. Your reading settings and saved-reading tools work there too.
+Choose **All available Bibles** below the finder, or **Browse all available Bibles** in Your account. The `/bible` page lists the complete collection authorized for the app, not the unrestricted public YouVersion catalogue. The live API check on 26 October 2026 returned **1,485 editions across 1,262 language tags**; the app shows the current count, not a hard-coded list.
 
-Marginalia is generated only when you first open a passage. Opening it again reuses its text, annotations and notes. Each saved passage is keyed by its exact reference and translation: `Romans 8` and `Romans 8:1-10` are separate readings, even though their verses overlap. Marks and notes are not automatically copied between overlapping readings.
+Search by title, language tag, common abbreviation or version ID, or filter by language. Search covers the entire downloaded metadata catalogue, including rows not yet shown. Use **Show more versions** to browse the next rows. Your authorized preferred editions—NIV 2011, NASB 2020, NASB 1995 and NIV Anglicized 2011—appear first.
+
+Choose an edition, enter a passage such as `John 3:16-21`, and open it in the same reader used for articles. Your summaries, idea maps, marginalia, highlights, notes and reading settings remain available. Some editions contain only part of the Bible; an unavailable passage produces an error rather than a substitute.
+
+Comparison is **off by default**. Inside the reader, turn on **Compare versions**, then choose **Compare with**. The additional pane follows the same reference, preserves provider HTML and footnotes, and sits outside the primary selection/progress container. It appears beside the primary reading on desktop and below it on narrow screens. Turn comparison off to return to one edition. Comparisons are limited to two editions within one chapter. Only one licensed display is active per account; opening another retires the older display, and losing the live connection hides the licensed text.
+
+ESV, **New Living Translation** and The Message are not in the verified active entitlements. Biblica's New Luo Translation is not New Living Translation despite sharing the abbreviation NLT.
+
+## Read with an explicitly labeled AI study source
+
+Select text to highlight it, write a note, or ask the companion a question. Your chosen edition supplies the displayed Scripture; **World English Bible (WEB)** supplies AI summaries, idea maps, marginalia and passage explanations. The reader labels this distinction. WEB-based margin notes and summary jumps attach to licensed text by verse identity, not by claiming identical English wording.
+
+Marginalia is generated on demand. Reopening reuses the WEB study source and your notes; licensed display text is fetched again and is never saved as an article body. The study source is stored separately for each display edition so notes and highlight positions do not cross translations. Each exact reference is a separate reading: `Romans 8` and `Romans 8:1-10` do not automatically share marks.
+
+Automatically captured licensed quotations are excluded from note embeddings, highlight embeddings, library recall and idea-graph AI context. Your own note prose can still be indexed. Companion requests for licensed-display readings are normalized server-side to the saved WEB source; displayed DOM and selected wording are not AI evidence. Licensed bodies are not cached for offline reading or printed.
+
+## Study an original-language word
+
+Open **Word study · Greek / Hebrew / Strong’s**, enter one verse, then choose **Load original words**. Selecting **Define** on Bible text opens this tool for the selected verse when verse markup is available. English words are not automatically aligned to original-language words.
+
+Choose a Greek or Hebrew word to see source-supplied Strong’s references, morphology tags, historical dictionary entries and up to eight other occurrences in the same book. Choose **Explain this original word** to ask your connected AI provider for an explanation grounded in those sources, the surrounding original-language verses and WEB. Loading words and dictionary entries does not require AI.
+
+The Greek source is the public-domain Robinson-Pierpont parsed Byzantine text, which can differ from the critical text underlying NIV. Hebrew uses Open Scriptures Hebrew Bible / WLC, with its English/Hebrew verse map; partial or ambiguous mappings fail explicitly. Missing dictionary spellings remain missing. Strong’s numbers are dictionary indexes, not a guarantee that every listed sense applies in a verse. Source revisions, attribution, exact source downloads and license terms are shown with each study. See [third-party data notices](bible-word-study-sources.md).
 
 Connect an AI provider in **Your account** for generated marginalia and recommendations on specific topics. Direct reference lookup, chapter browsing, highlights, personal notes, time-based starter recommendations and a limited set of topic starters work without an AI key. After a provider is connected, the existing catch-up process can annotate passages previously skipped for lack of a provider. To retry manually, use the desktop toolbar's **Re-annotate with latest vault** button, or **More reading actions → Re-annotate** on mobile. Annotation jobs paused while Bible reading is off resume when you enable it and reopen the passage.
 
@@ -31,13 +53,15 @@ Turn Bible reading off in **Your account** to remove its discovery controls and 
 
 ## Translation and availability
 
-This release offers the **World English Bible (WEB)**, a public-domain, relatively literal translation. ESV, NASB, NIV, NLT and The Message remain unavailable pending their provider connections and the permissions needed for this app's storage and AI features. They are never silently replaced with WEB. See the [direct access research](research/bible-direct-access.md) for provider-specific access and obligations.
+The **World English Bible (WEB)** remains the public-domain study source and a directly readable edition. Licensed editions are displayed transiently in the normal reader, never silently replaced with WEB. See the [direct access research](research/bible-direct-access.md) for provider-specific access and obligations.
 
-Marginalia was registered on YouVersion on 26 October 2026. The portal shows the app as **In development** and an initial key exists. Biblica (NIV) and Lockman (NASB) fast-track agreements were available but have not been accepted. Public Domain and Creative Commons is the only confirmed active entitlement. Registration is not proof of permission to display or send copyrighted editions to AI, and the key has not been connected to the deployed app.
+Marginalia's YouVersion app is **Live** after the operator accepted the available agreements and completed Make Live. The existing app key is stored in the personal family 1Password Private vault as **Marginalia — YouVersion API** and configured only on the backend. No app key is sent to the browser, including in font stylesheet URLs.
 
-Text is fetched server-side, one chapter at a time, from [bible-api.com](https://bible-api.com/), then retained in your private library. The app checks the returned translation, book, chapter and requested verse endpoints before saving it. Scripture is escaped before rendering. No whole-Bible import or pre-annotation runs when you enable the feature.
+Set `YOUVERSION_APP_KEY` on the intended Convex deployment using the vault value, then set `YOUVERSION_READING_ENABLED=true` after verifying live status and accepted licenses. Removing either value disables licensed requests and retires active displays. The client never requests `all_available=true`. It fetches current attribution on every comparison, requires notices before displaying text, includes footnotes, and links to the publisher. Accepting a reading license does not authorize personalized AI features.
 
-The external text service is rate-limited and has no availability guarantee. New passages require a network connection; saved passages reuse their stored text. A busy or unavailable source produces an error and allows retry, never an AI replacement. A self-hosted, versioned WEB corpus is a possible later replacement for this dependency.
+WEB text is fetched server-side, one chapter at a time, from [bible-api.com](https://bible-api.com/), then retained in your private library. The app checks the returned translation, book, chapter and requested verse endpoints before saving it. Scripture is escaped before rendering. No whole-Bible import or pre-annotation runs when you enable the feature.
+
+The external text service is rate-limited and has no availability guarantee. New study passages require a network connection; saved WEB passages reuse their stored text. Licensed display requires a live connection even when its WEB study source is saved. A busy or unavailable source produces an error and allows retry, never an AI replacement.
 
 ## Verify the integration
 
