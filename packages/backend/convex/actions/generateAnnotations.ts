@@ -9,7 +9,6 @@ import { annotationBudget, gateNotes } from "../lib/annotationGate";
 import { KIND_FAMILIES } from "../lib/annotationKinds";
 import { annotationOutputTokens } from "../lib/annotationOutputBudget";
 import { outlineAfterWindow } from "../lib/articleOutline";
-import { BIBLE_ANNOTATION_SYSTEM } from "../lib/bibleAnnotations";
 import { requireTranslation } from "../lib/bibleProvider";
 import { type EmbeddingTarget, embedTexts } from "../lib/embeddings";
 import { annotationGeneration } from "../lib/manualAnnotations";
@@ -295,6 +294,7 @@ export const generateForArticle = internalAction({
     articleId: v.id("articles"),
     claim: v.optional(v.number()),
     generation: v.optional(annotationGeneration),
+    repairReflection: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const source = await ctx.runQuery(internal.articles.getByIdInternal, {
@@ -334,7 +334,11 @@ export const generateForArticle = internalAction({
       generation = begun.generation ?? undefined;
       await annotateArticle(
         ctx,
-        { articleId: args.articleId, generation },
+        {
+          articleId: args.articleId,
+          generation,
+          repairReflection: args.repairReflection,
+        },
         begun.article,
       );
     } finally {
@@ -356,7 +360,11 @@ export const generateForArticle = internalAction({
 
 async function annotateArticle(
   ctx: ActionCtx,
-  args: { articleId: Id<"articles">; generation?: { run: number } },
+  args: {
+    articleId: Id<"articles">;
+    generation?: { run: number };
+    repairReflection?: boolean;
+  },
   article: Doc<"articles">,
 ) {
   // A re-annotation (the backfill) keeps the notes it has when it can't run
@@ -443,7 +451,7 @@ async function annotateArticle(
       await generateObjectWithFallback<AnnotationResult>({
         schema: annotationCandidateSchema,
         system: article.bible
-          ? `${BIBLE_ANNOTATION_SYSTEM}\nReturn the reflection object with empty strings. Do not invent an argumentative thesis, gist or topic tags for Scripture.`
+          ? `${SYSTEM_PROMPT}\nThe supplied Bible study text is public-domain World English Bible (WEB). A different edition may be displayed. Do not claim that WEB quotations are the exact wording of that displayed edition, and do not invent original-language alignments. Interpret the source according to its literary genre.`
           : SYSTEM_PROMPT,
         prompt: buildUserPrompt({
           title: article.title,
@@ -464,6 +472,16 @@ async function annotateArticle(
         maxOutputTokens: annotationOutputTokens(wordCount),
         onFailure: ai.noteFailure,
       });
+
+    if (args.repairReflection) {
+      await ctx.runMutation(internal.reflections.insertMissing, {
+        articleId: args.articleId,
+        userId: article.userId,
+        ...object.reflection,
+        generation: args.generation,
+      });
+      return;
+    }
 
     // Step 4: Quality gate
     const { notes, rejected } = gateNotes(object.annotations, {

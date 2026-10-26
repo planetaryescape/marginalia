@@ -128,7 +128,7 @@ const click = (el: HTMLElement) => act(async () => el.click());
 const text = () => document.body.textContent ?? "";
 
 describe("SummaryPanel layers", () => {
-  it("keeps Bible summaries out of the reading flow until requested from the toolbar, and sends only the WEB source", async () => {
+  it("keeps the standard summary entry point for Bible readings and sends only the WEB source", async () => {
     container.querySelector("[data-article-body]")!.textContent =
       "Licensed-dom-canary";
     await act(async () =>
@@ -141,14 +141,15 @@ describe("SummaryPanel layers", () => {
           summary={null}
           containerRef={{ current: container }}
           onJump={vi.fn()}
-          toolbarOnly
           studySource
         />,
       ),
     );
-    expect(mount.textContent).toBe("");
+    expect(mount.textContent).toContain(
+      "Summary, key claims and a map, before you start",
+    );
     expect(generate).not.toHaveBeenCalled();
-    await act(async () => commands.toggle());
+    await click(button("Summary, key claims"));
     await vi.waitFor(() =>
       expect(generate).toHaveBeenCalledWith(
         expect.objectContaining({

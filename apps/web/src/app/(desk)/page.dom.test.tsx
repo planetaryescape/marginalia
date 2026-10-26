@@ -92,7 +92,7 @@ vi.mock("convex/react", async () => {
 });
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(state.search),
-  useRouter: () => ({ push: state.push }),
+  useRouter: () => ({ push: state.push, prefetch: vi.fn() }),
 }));
 vi.mock("next/link", () => ({
   default: ({
@@ -732,12 +732,15 @@ describe("choosing a time", () => {
     expect(
       document.querySelector('[data-testid="pick-skeleton"]'),
     ).not.toBeNull();
+    expect(document.querySelector('[data-testid="pick-skeleton"]')?.textContent).toContain("Read now");
+    expect(document.querySelector('[data-testid="pick-skeleton"] button')).toBeNull();
     expect(
       document.querySelector('[role="status"] svg, .animate-spin'),
     ).toBeNull();
     state.heads[10] = [card("a")];
     await render();
     expect(text()).toContain("Title a");
+    expect(state.prewarm).toHaveBeenCalledWith(expect.objectContaining({args: {articleId: "a"}}));
     expect(document.querySelector('[data-testid="pick-skeleton"]')).toBeNull();
   });
 

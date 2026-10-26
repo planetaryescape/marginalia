@@ -115,9 +115,9 @@ it("shares exact validated responses between readers, keeps notes separate, expi
   expect(ownerId).not.toBe(readerId);
   expect(fetch).toHaveBeenCalledTimes(1);
   const display = { ...input, versionIds: [111] };
-  const first = await owner.action(api.actions.bible.readComparison, display);
+  const first = await owner.action(api.bibleReading.readComparison, display);
   expect(fetch).toHaveBeenCalledTimes(4);
-  const second = await reader.action(api.actions.bible.readComparison, display);
+  const second = await reader.action(api.bibleReading.readComparison, display);
   expect(second.panes).toEqual(first.panes);
   expect(second.token).not.toBe(first.token);
   expect(fetch).toHaveBeenCalledTimes(4);
@@ -130,11 +130,11 @@ it("shares exact validated responses between readers, keeps notes separate, expi
     "Licensed display canary",
   );
   vi.setSystemTime(Date.now() + 3600_001);
-  await reader.action(api.actions.bible.readComparison, display);
+  await reader.action(api.bibleReading.readComparison, display);
   expect(fetch).toHaveBeenCalledTimes(6); // text + metadata refresh; font remains cached.
   vi.stubEnv("YOUVERSION_READING_ENABLED", "false");
   await expect(
-    owner.action(api.actions.bible.readComparison, display),
+    owner.action(api.bibleReading.readComparison, display),
   ).rejects.toThrow("not enabled");
   expect(fetch).toHaveBeenCalledTimes(6);
   await owner.mutation(internal.bibleResourceCache.put, {

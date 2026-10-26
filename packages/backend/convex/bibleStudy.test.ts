@@ -76,7 +76,7 @@ describe("reading-only Bible study boundaries", () => {
       await t.action(api.actions.bible.openReading, { reference: "John 3:16" }),
     ).toBe(id);
     expect(fetch).not.toHaveBeenCalled();
-    const display = await t.action(api.actions.bible.readComparison, {
+    const display = await t.action(api.bibleReading.readComparison, {
       reference: "John 3:16",
       versionIds: [111],
     });
@@ -212,11 +212,11 @@ describe("reading-only Bible study boundaries", () => {
     );
     const input = { reference: "John 3:16", versionIds: [111, 2692] };
     const old = t
-      .action(api.actions.bible.readComparison, input)
+      .action(api.bibleReading.readComparison, input)
       .catch((error: unknown) => error);
     await started;
     block = false;
-    const current = await t.action(api.actions.bible.readComparison, input);
+    const current = await t.action(api.bibleReading.readComparison, input);
     release();
     const late = await old;
     expect(late).toBeInstanceOf(Error);
@@ -265,7 +265,7 @@ describe("reading-only Bible study boundaries", () => {
       "Enable Bible",
     );
     await expect(
-      t.action(api.actions.bible.readComparison, {
+      t.action(api.bibleReading.readComparison, {
         reference: "John 3:16",
         versionIds: [111, 2692],
       }),
@@ -279,12 +279,22 @@ describe("reading-only Bible study boundaries", () => {
       translation: "niv",
     });
     vi.stubGlobal("fetch", provider());
-    const result = await t.action(api.actions.bible.readComparison, {
+    const result = await t.action(api.bibleReading.readComparison, {
       reference: "John 3:16",
       versionIds: [111, 2692],
     });
     expect(result.panes.map((pane) => pane.id)).toEqual([111, 2692]);
     expect(result.panes[0].html).toContain(scripture);
+    expect(
+      await t.run((ctx) =>
+        ctx.db
+          .query("readerLimits")
+          .withIndex("by_userId_and_bucket", (q) =>
+            q.eq("userId", "default_user").eq("bucket", "api"),
+          )
+          .unique(),
+      ),
+    ).toMatchObject({ count: 1 });
     expect(await t.query(api.bible.activeLicensedReading, {})).toBe(
       result.token,
     );
@@ -315,15 +325,43 @@ describe("reading-only Bible study boundaries", () => {
       }),
     ).rejects.toThrow("cannot be saved");
   });
+  it("does not fetch or replace the active display when the request budget is exhausted", async () => {
+    const t = await ownerTest(modules);
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("readerLimits", {
+        userId: "default_user",
+        bucket: "api",
+        count: 60,
+        startedAt: Date.now(),
+      });
+      await ctx.db.insert("bibleReadingSessions", {
+        userId: "default_user",
+        token: "existing-display",
+      });
+    });
+    const fetch = provider();
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      t.action(api.bibleReading.readComparison, {
+        reference: "John 3:16",
+        versionIds: [111],
+      }),
+    ).rejects.toThrow("Too many API requests");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await t.query(api.bible.activeLicensedReading, {})).toBe(
+      "existing-display",
+    );
+  });
   it("allows one active comparison per reader, isolates readers, and hides on opt-out or provider revocation", async () => {
     const { owner, reader } = await secondReaderTest(modules);
     for (const t of [owner, reader])
       await t.mutation(api.bible.setPreferences, { enabled: true });
     vi.stubGlobal("fetch", provider());
     const input = { reference: "John 3:16", versionIds: [111, 2692] };
-    const first = await owner.action(api.actions.bible.readComparison, input);
-    const other = await reader.action(api.actions.bible.readComparison, input);
-    const next = await owner.action(api.actions.bible.readComparison, input);
+    const first = await owner.action(api.bibleReading.readComparison, input);
+    const other = await reader.action(api.bibleReading.readComparison, input);
+    const next = await owner.action(api.bibleReading.readComparison, input);
     expect(next.token).not.toBe(first.token);
     expect(await owner.query(api.bible.activeLicensedReading, {})).toBe(
       next.token,
@@ -356,7 +394,7 @@ describe("reading-only Bible study boundaries", () => {
         return real(url);
       }),
     );
-    const pending = t.action(api.actions.bible.readComparison, {
+    const pending = t.action(api.bibleReading.readComparison, {
       reference: "John 3:16",
       versionIds: [111, 2692],
     });

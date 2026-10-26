@@ -4,13 +4,25 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { Fingerprint, LockKeyhole } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { LegalFooter } from "@/components/legal-footer";
+import { ReaderOpening } from "@/components/reader-opening";
 import { SourceLink } from "@/components/source-link";
 import { authClient } from "@/lib/auth-client";
 import { rearmAuth } from "@/lib/auth-retry";
-import { useReaderSettings } from "@/lib/reader-settings";
+import {
+  LINE_HEIGHTS,
+  MAX_WIDTHS,
+  TYPEFACE_FAMILIES,
+  useReaderSettings,
+} from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 
 export const ALREADY_SIGNED_IN =
@@ -51,6 +63,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
 }
 
 function ReaderAccessGate({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const { settings } = useReaderSettings();
   const { isAuthenticated, isLoading } = useConvexAuth();
   // Better Auth's own answer: a session here while Convex says signed out
   // means a token fetch failed, not that the reader signed out
@@ -74,6 +88,36 @@ function ReaderAccessGate({ children }: { children: ReactNode }) {
     if (isAuthenticated) setFragment(null);
   }, [fragment, isLoading, isAuthenticated]);
   if (stalled) return <Reconnect />;
+  if (
+    (isLoading || (isAuthenticated && reader === undefined)) &&
+    pathname.startsWith("/read/")
+  )
+    return (
+      <>
+        <ReaderOpening
+          articleId="auth-pending"
+          title=""
+          label="Opening your reader…"
+          columnStyle={
+            {
+              maxWidth: MAX_WIDTHS[settings.width],
+              "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
+              "--reader-size": `${settings.size}px`,
+              "--reader-leading": LINE_HEIGHTS[settings.spacing],
+            } as CSSProperties
+          }
+        />
+        {slow && (
+          <button
+            type="button"
+            className="fixed bottom-6 left-6 text-sm underline"
+            onClick={() => window.location.reload()}
+          >
+            Try again
+          </button>
+        )}
+      </>
+    );
   if (isLoading || (isAuthenticated && reader === undefined))
     return (
       <div className="auth-screen" role="status">

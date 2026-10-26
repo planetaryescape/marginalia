@@ -13,6 +13,14 @@ const state = vi.hoisted(() => ({
   asyncNoop: async () => {},
   observers: 0,
   reflectionSaved: true,
+  bible: false,
+  reflection: null as {
+    _id: string;
+    strongestPoint: string;
+    weakestAssumption: string;
+    credibleCounterview: string;
+    questionForYou: string;
+  } | null,
   finish: vi.fn(async () => {}),
   push: vi.fn(),
   query: vi.fn(),
@@ -38,6 +46,7 @@ vi.mock("convex/react", () => ({
   useQuery: (ref: Parameters<typeof getFunctionName>[0]) => {
     const name = getFunctionName(ref);
     if (name === "annotations:listByArticle") return annotations;
+    if (name === "reflections:getByArticle") return state.reflection;
     if (
       [
         "userNotes:listByArticle",
@@ -86,7 +95,17 @@ const article = {
 };
 vi.mock("@/lib/use-book-reading", () => ({
   useReadable: () => ({
-    article,
+    article: state.bible
+      ? {
+          ...article,
+          _id: "article-1",
+          bible: {
+            reference: "Psalms 23",
+            translation: "web",
+            copyright: "Public domain",
+          },
+        }
+      : article,
     isBook: false,
     unitIndex: null,
     scopeReady: state.scopeReady,
@@ -209,19 +228,25 @@ vi.mock("@/components/article-back-matter", () => ({
   ArticleBackMatter: ({
     reflectionFlush,
     onDone,
+    reflection,
   }: {
     reflectionFlush: { current: (() => Promise<boolean>) | null };
     onDone: () => void;
+    reflection?: { questionForYou: string } | null;
   }) => {
     reflectionFlush.current = async () => state.reflectionSaved;
     return (
-      <button id="fixture-done" onClick={onDone}>
-        Done fixture
-      </button>
+      <>
+        {reflection ? (
+          <p data-testid="standard-reflection">{reflection.questionForYou}</p>
+        ) : null}
+        <button id="fixture-done" onClick={onDone}>
+          Done fixture
+        </button>
+      </>
     );
   },
 }));
-vi.mock("@/components/summary-panel", () => ({ SummaryPanel: () => null }));
 vi.mock("@/components/reader-toolbar", () => ({ ReaderToolbar: () => null }));
 vi.mock("@/components/selection-toolbar", () => ({
   SelectionToolbar: () => null,
@@ -229,10 +254,6 @@ vi.mock("@/components/selection-toolbar", () => ({
 vi.mock("@/components/notes-panel", () => ({ NotesPanel: () => null }));
 vi.mock("@/components/listen-bar", () => ({ ListenBar: () => null }));
 vi.mock("@/components/reader-map", () => ({ ReaderMap: () => null }));
-vi.mock("@/components/reader-opening", () => ({
-  ReaderOpening: () => null,
-  ReaderTitle: ({ title }: { title: string }) => <h1>{title}</h1>,
-}));
 
 let root: Root;
 beforeEach(() => {
@@ -240,6 +261,8 @@ beforeEach(() => {
   state.progress = 0;
   state.observers = 0;
   state.reflectionSaved = true;
+  state.bible = false;
+  state.reflection = null;
   state.finish.mockClear();
   state.push.mockClear();
   state.query.mockReset();
@@ -291,6 +314,32 @@ it("does not finish or navigate away from a reflection whose save failed", async
   expect(state.finish).not.toHaveBeenCalled();
   expect(state.push).not.toHaveBeenCalled();
   expect(document.body.textContent).toContain("Couldn't save");
+});
+it("keeps the standard summary entry, header and bottom reflection for Bible content", async () => {
+  state.bible = true;
+  state.reflection = {
+    _id: "reflection-fixture",
+    strongestPoint: "A point",
+    weakestAssumption: "An assumption",
+    credibleCounterview: "An alternative",
+    questionForYou: "The standard reflection question",
+  };
+  await act(async () => root.render(<ReadPage />));
+  const summary = [...document.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("Summary, key claims and a map"),
+  );
+  expect(summary).toBeDefined();
+  const body = document.querySelector("[data-article-body]")!;
+  const reflection = document.querySelector(
+    '[data-testid="standard-reflection"]',
+  )!;
+  expect(
+    summary!.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    body.compareDocumentPosition(reflection) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(document.querySelector("article header nav")).toBeNull();
 });
 it("skips every preview collection until the readable unit scope resolves", async () => {
   state.scopeReady = false;

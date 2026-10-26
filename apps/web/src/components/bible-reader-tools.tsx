@@ -20,6 +20,7 @@ export function BibleReaderTools({
   skipReason,
   display,
   onOpenChange,
+  reflectionMissing = false,
 }: {
   bible: {
     reference: string;
@@ -32,6 +33,7 @@ export function BibleReaderTools({
   skipReason?: string;
   display?: ReturnType<typeof useBibleDisplay>;
   onOpenChange?: (open: boolean) => void;
+  reflectionMissing?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const changeOpen = (value: boolean) => {
@@ -47,11 +49,20 @@ export function BibleReaderTools({
     }
   }, [comparisonError, onOpenChange]);
   useEffect(() => {
-    if (annotationStatus === "skipped" && skipReason === "bible_disabled")
+    if (
+      (annotationStatus === "skipped" && skipReason === "bible_disabled") ||
+      (annotationStatus === "annotated" && reflectionMissing)
+    )
       void resumeAnnotations({ articleId }).catch(() =>
         toast.error("Marginalia is paused. Use Re-annotate to try again."),
       );
-  }, [articleId, annotationStatus, skipReason, resumeAnnotations]);
+  }, [
+    articleId,
+    annotationStatus,
+    skipReason,
+    resumeAnnotations,
+    reflectionMissing,
+  ]);
   useEffect(() => {
     const showWords = () => {
       setOpen(true);
@@ -98,7 +109,13 @@ export function BibleReaderTools({
             className="reader-menu z-50 max-h-[75svh] w-[min(30rem,calc(100vw-1.5rem))] overflow-y-auto p-5 font-sans text-sm data-[state=closed]:hidden"
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-medium">Bible tools</h2>
+              <div className="min-w-0 flex-1">
+                <BibleChapterNavigation bible={bible}>
+                  <h2 className="truncate text-center font-medium">
+                    {bible.reference}
+                  </h2>
+                </BibleChapterNavigation>
+              </div>
               <Popover.Close asChild>
                 <button
                   type="button"
@@ -215,11 +232,11 @@ export function BibleChapterNavigation({
   return (
     <nav
       aria-label="Bible chapter navigation"
-      className="flex items-start gap-2"
+      className="flex items-center gap-2"
     >
       <button
         type="button"
-        className={`${TOOL_BUTTON} mt-1 -ml-3 sm:-ml-11`}
+        className={TOOL_BUTTON}
         aria-label="Previous chapter"
         title={previous ?? "Beginning of the Bible"}
         disabled={busy || !previous}
@@ -230,7 +247,7 @@ export function BibleChapterNavigation({
       <div className="min-w-0 flex-1">{children}</div>
       <button
         type="button"
-        className={`${TOOL_BUTTON} mt-1 -mr-3 sm:-mr-11`}
+        className={TOOL_BUTTON}
         aria-label="Next chapter"
         title={next ?? "End of the Bible"}
         disabled={busy || !next}

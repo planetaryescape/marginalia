@@ -9,7 +9,7 @@ import { bibleDisplayAnchors } from "./bible-display";
 type Source = NonNullable<
   NonNullable<FunctionReturnType<typeof api.readerBootstrap.get>>["article"]
 >;
-type Display = FunctionReturnType<typeof api.actions.bible.readComparison>;
+type Display = FunctionReturnType<typeof api.bibleReading.readComparison>;
 
 export function useBibleDisplay(source: Source | null | undefined) {
   const [comparing, setComparing] = useState(false);
@@ -34,7 +34,7 @@ export function useBibleDisplay(source: Source | null | undefined) {
       ).join(",")
     : "";
   const needsDisplay = Boolean(idsKey);
-  const read = useAction(api.actions.bible.readComparison);
+  const read = useAction(api.bibleReading.readComparison);
   const active = useQuery(
     api.bible.activeLicensedReading,
     needsDisplay ? {} : "skip",

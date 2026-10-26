@@ -292,13 +292,12 @@ export const replaceForArticle = internalMutation({
     // What the reader wrote in answer is theirs; keep that reflection as it is
     if (!reflections.some((r) => r.userResponse !== undefined)) {
       for (const row of reflections) await ctx.db.delete(row._id);
-      if (!article.bible)
-        await ctx.db.insert("reflections", {
-          ...args.reflection,
-          articleId: args.articleId,
-          userId: args.userId,
-          createdAt: now,
-        });
+      await ctx.db.insert("reflections", {
+        ...args.reflection,
+        articleId: args.articleId,
+        userId: args.userId,
+        createdAt: now,
+      });
     }
 
     // The backfill's claim is released by the run that holds it

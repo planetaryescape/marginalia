@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 import { libraryIsActive, ownedArticleCard, requireArticle } from "./access";
+import { setAnnotationStatus } from "./articles";
 import { internalMutation, mutation, query } from "./functions";
-import { manualState } from "./lib/manualAnnotations";
+import {
+  annotationGeneration,
+  annotationPublicationAllowed,
+  manualState,
+} from "./lib/manualAnnotations";
 
 export const getByArticle = query({
   args: { articleId: v.id("articles") },
@@ -52,6 +57,38 @@ export const deleteByArticle = internalMutation({
 });
 
 // --- Internal ---
+
+/** Repair missing output without replacing any margin notes, marks or reader response. */
+export const insertMissing = internalMutation({
+  args: {
+    articleId: v.id("articles"),
+    userId: v.string(),
+    strongestPoint: v.string(),
+    weakestAssumption: v.string(),
+    credibleCounterview: v.string(),
+    questionForYou: v.string(),
+    generation: v.optional(annotationGeneration),
+  },
+  handler: async (ctx, { generation, ...args }) => {
+    const article = await ctx.db.get(args.articleId);
+    if (
+      !article ||
+      article.userId !== args.userId ||
+      !(await annotationPublicationAllowed(ctx, article, generation))
+    )
+      return false;
+    const existing = await ctx.db
+      .query("reflections")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .first();
+    if (!existing)
+      await ctx.db.insert("reflections", { ...args, createdAt: Date.now() });
+    const claim = await manualState(ctx, args.articleId);
+    if (claim && generation) await ctx.db.patch(claim._id, { published: true });
+    await setAnnotationStatus(ctx, args.articleId, "annotated");
+    return true;
+  },
+});
 
 export const insert = internalMutation({
   args: {

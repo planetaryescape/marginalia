@@ -8,6 +8,7 @@ import {
 } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import * as aiModels from "./lib/aiModels";
+import { annotationInput } from "./lib/manualAnnotations";
 
 const modules = import.meta.glob("./**/*.ts");
 afterEach(() => {
@@ -110,6 +111,140 @@ describe("opt-in Bible reading", () => {
     expect(
       await owner.query(api.articles.getById, { articleId: id }),
     ).toMatchObject({ annotationStatus: "skipped", skipReason: "no_provider" });
+  });
+  it("repairs previously annotated Bible readings missing reflections once, without replacing an existing response", async () => {
+    vi.useFakeTimers();
+    const t = await ownerTest(modules);
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    const create = (guid: string) =>
+      t.run((ctx) =>
+        ctx.db.insert("articles", {
+          userId: "default_user",
+          guid,
+          title: "Psalms 23",
+          url: "https://bible-api.com",
+          content: "Public-domain study text",
+          bible: {
+            reference: "Psalms 23",
+            translation: "web",
+            copyright: "Public domain",
+          },
+          extractionStatus: "extracted",
+          annotationStatus: "annotated",
+          createdAt: Date.now(),
+        }),
+      );
+    const missing = await create("missing-reflection");
+    await t.mutation(api.bible.resumeAnnotations, { articleId: missing });
+    await t.mutation(api.bible.resumeAnnotations, { articleId: missing });
+    expect(await t.run((ctx) => ctx.db.get(missing))).toMatchObject({
+      annotationStatus: "pending",
+    });
+    const existing = await create("answered-reflection");
+    const reflectionId = await t.mutation(internal.reflections.insert, {
+      articleId: existing,
+      userId: "default_user",
+      strongestPoint: "Kept point",
+      weakestAssumption: "Kept assumption",
+      credibleCounterview: "Kept alternative",
+      questionForYou: "Kept question",
+    });
+    await t.mutation(api.reflections.saveResponse, {
+      reflectionId,
+      userResponse: "My existing thoughts",
+    });
+    await t.mutation(api.bible.resumeAnnotations, { articleId: existing });
+    expect(
+      await t.query(api.reflections.getByArticle, { articleId: existing }),
+    ).toMatchObject({
+      userResponse: "My existing thoughts",
+      questionForYou: "Kept question",
+    });
+    const jobs = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").take(10),
+    );
+    expect(
+      jobs.filter(
+        (job) =>
+          job.state.kind === "pending" &&
+          job.name.includes("generateForArticle"),
+      ),
+    ).toHaveLength(1);
+  });
+  it("repairs an adopted reading without replacing its existing margin notes or dismissal state", async () => {
+    vi.useFakeTimers();
+    const t = await ownerTest(modules);
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    await saveTestCredential(t, "default_user", "anthropic", "fixture-key");
+    const articleId = await t.run((ctx) =>
+      ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "adopted-bible-missing-reflection",
+        title: "Psalms 23",
+        url: "https://bible-api.com",
+        content: "Public-domain study text",
+        bible: {
+          reference: "Psalms 23",
+          translation: "web",
+          copyright: "Public domain",
+        },
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+      }),
+    );
+    const noteId = await t.run(async (ctx) => {
+      const article = await ctx.db.get(articleId);
+      if (!article) throw new Error("Missing fixture");
+      await ctx.db.insert("manualAnnotationState", {
+        articleId,
+        userId: "default_user",
+        run: 1,
+        input: await annotationInput(ctx, article),
+        status: "complete",
+        attempts: 1,
+        published: true,
+        leaseUntil: Date.now() + 60_000,
+      });
+      return ctx.db.insert("annotations", {
+        articleId,
+        userId: "default_user",
+        type: "context",
+        anchorText: "Public-domain study text",
+        anchorStartOffset: 0,
+        anchorEndOffset: 24,
+        content: "Keep this existing margin note",
+        relevanceScore: 0.9,
+        wasViewed: true,
+        wasDismissed: true,
+        createdAt: Date.now(),
+      });
+    });
+    vi.spyOn(aiModels, "generateObjectWithFallback").mockResolvedValue({
+      modelId: "anthropic:fixture",
+      object: {
+        annotations: [],
+        reflection: {
+          strongestPoint: "Recovered point",
+          weakestAssumption: "Recovered assumption",
+          credibleCounterview: "Recovered counterview",
+          questionForYou: "Recovered question",
+        },
+      },
+    });
+    await t.mutation(api.bible.resumeAnnotations, { articleId });
+    await runScheduled(t);
+    expect(
+      await t.query(api.reflections.getByArticle, { articleId }),
+    ).toMatchObject({ questionForYou: "Recovered question" });
+    expect(await t.run((ctx) => ctx.db.get(noteId))).toMatchObject({
+      content: "Keep this existing margin note",
+      wasViewed: true,
+      wasDismissed: true,
+    });
+    expect(await t.query(api.articles.getById, { articleId })).toMatchObject({
+      annotationStatus: "annotated",
+    });
   });
   it("bounds topic generation before a stalled provider can consume the whole action", async () => {
     const t = await ownerTest(modules);
@@ -393,7 +528,7 @@ describe("opt-in Bible reading", () => {
       (await t.query(api.home.overview, {})).upNext.map((p) => p.title),
     ).toEqual(["Unread article"]);
   });
-  it("stores only anchored marginalia for short Scripture and no essay-critique reflection", async () => {
+  it("stores anchored marginalia and the standard bottom reflection for short Bible readings", async () => {
     vi.useFakeTimers();
     const t = await ownerTest(modules);
     await t.mutation(api.bible.setPreferences, { enabled: true });
@@ -423,10 +558,13 @@ describe("opt-in Bible reading", () => {
           },
         ],
         reflection: {
-          strongestPoint: "",
-          weakestAssumption: "",
-          credibleCounterview: "",
-          questionForYou: "",
+          strongestPoint: "The passage grounds trust in the shepherd's care.",
+          weakestAssumption:
+            "Consider what the shepherd metaphor implies rather than treating it as a guarantee of ease.",
+          credibleCounterview:
+            "Another reading emphasizes companionship during hardship rather than protection from it.",
+          questionForYou:
+            "What changes when you distinguish companionship from an absence of hardship?",
         },
       },
     });
@@ -444,7 +582,11 @@ describe("opt-in Bible reading", () => {
     ).toMatchObject([{ anchorText: "Yahweh is my shepherd", type: "context" }]);
     expect(
       await t.query(api.reflections.getByArticle, { articleId: id }),
-    ).toBeNull();
+    ).toMatchObject({
+      strongestPoint: "The passage grounds trust in the shepherd's care.",
+      questionForYou:
+        "What changes when you distinguish companionship from an absence of hardship?",
+    });
   });
   it("discards invalid and over-budget AI recommendations", async () => {
     const t = await ownerTest(modules);

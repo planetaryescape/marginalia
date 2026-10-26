@@ -1,7 +1,7 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -93,6 +93,7 @@ export function DeskPick({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const convex = useConvex();
   const reduced = useReducedMotion();
   const deck = useSuggestionDeck(minutes);
   const recorder = useSessionRecorder({
@@ -117,6 +118,18 @@ export function DeskPick({
   const [runCardAction] = useState(() => createSingleFlight());
   const visibleCard = useRef<string | null>(null);
   const { card, index } = deck;
+  const articleId = card?._id;
+  useEffect(() => {
+    if (!articleId) return;
+    // Warm only the visible pick, through the same authorized query the reader
+    // subscribes to. No marks, optional AI output or licensed text are prefetched.
+    convex.prewarmQuery({
+      query: api.readerBootstrap.get,
+      args: { articleId },
+      extendSubscriptionFor: 15_000,
+    });
+    router.prefetch(`/read/${articleId}`);
+  }, [articleId, convex, router]);
   const identity = card ? `${index}:${card._id}` : null;
   // The first card is usable immediately. Subsequent cards become actionable
   // when their entry completes, not while the previous title is still exiting.
@@ -218,12 +231,26 @@ export function DeskPick({
 
   if (deck.view === "loading") {
     return (
-      <div role="status" aria-busy="true">
+      <div role="status" aria-busy="true" className="max-w-[620px]">
         {label}
         {showSkeleton && (
-          <div className="mt-3 max-w-[620px]" data-testid="pick-skeleton">
-            <div className="h-7 w-[70%] rounded bg-[var(--reader-chip)]" />
-            <div className="mt-3 h-3.5 w-[30%] rounded bg-[var(--reader-chip)]" />
+          <div data-testid="pick-skeleton" aria-hidden="true">
+            <div className="mt-2 text-[24px] lg:text-[30px] leading-tight">
+              <div className="h-[1.25em] w-[70%] rounded bg-[var(--reader-chip)]" />
+            </div>
+            <div className="mt-1.5 flex h-[20.25px] items-center">
+              <div className="h-3 w-[30%] rounded bg-[var(--reader-chip)]" />
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
+              {["Read now", "Another", "Save for later"].map((text) => (
+                <div
+                  key={text}
+                  className="rounded-md bg-[var(--reader-chip)] px-[18px] py-[9px] text-[14.5px] text-transparent"
+                >
+                  {text}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

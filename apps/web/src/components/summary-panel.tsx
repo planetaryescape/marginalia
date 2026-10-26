@@ -141,7 +141,6 @@ export const SummaryPanel = memo(function SummaryPanel({
   onJump,
   canGenerate = true,
   onExpandedChange,
-  toolbarOnly = false,
   studySource = false,
 }: {
   articleId: Id<"articles">;
@@ -158,7 +157,6 @@ export const SummaryPanel = memo(function SummaryPanel({
   onExpandedChange?: (expanded: boolean) => void;
   /** Invalidates DOM-derived fallback word counts only when the prose changes. */
   contentVersion?: number;
-  toolbarOnly?: boolean;
   studySource?: boolean;
 }) {
   const generate = useAction(api.actions.summarize.generate);
@@ -230,8 +228,6 @@ export const SummaryPanel = memo(function SummaryPanel({
     if (state === "ready") setExpanded((e) => !e);
     else if (state === "idle" && canGenerate) run();
   });
-
-  if (toolbarOnly && !expanded && !loading && !error) return null;
 
   return (
     <motion.section

@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { rememberTitle } from "@/lib/title-handoff";
 import {
   ALREADY_SIGNED_IN,
   AuthGate,
@@ -35,9 +36,10 @@ vi.mock("@/lib/auth-client", () => ({
   },
 }));
 vi.mock("@/lib/auth-retry", () => ({ rearmAuth: rearm }));
-vi.mock("@/lib/reader-settings", () => ({
-  useReaderSettings: () => ({ settings: { theme: "ink" } }),
-}));
+vi.mock("@/lib/reader-settings", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/reader-settings")>();
+  return {...actual, useReaderSettings: () => ({settings: {...actual.DEFAULT_SETTINGS, theme: "ink"}})};
+});
 vi.mock("@/lib/use-reader-theme", () => ({ useReaderTheme: vi.fn() }));
 
 let root: Root;
@@ -58,6 +60,20 @@ afterEach(async () => {
 });
 
 describe("one-time tokens in the URL", () => {
+  it("keeps the reader-shaped loading state without mounting private content before authorization", async () => {
+    state.authenticated = true;
+    history.replaceState(null, "", "/read/private-article");
+    rememberTitle("private-article", "Previously seen private title");
+    await act(async () => root.render(<AuthGate>Private article text</AuthGate>));
+    expect(document.querySelector("article")).not.toBeNull();
+    expect(document.querySelector('[data-testid="reader-body-skeleton"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("Opening your reader");
+    expect(document.body.textContent).not.toContain("Private article text");
+    expect(document.body.textContent).not.toContain("Previously seen private title");
+    state.reader = {isOwner: true};
+    await act(async () => root.render(<AuthGate>Private article text</AuthGate>));
+    expect(document.body.textContent).toBe("Private article text");
+  });
   it("takes both tokens and keeps the path and query", () => {
     history.replaceState(null, "", "/library?view=all#invite=abc&setup=def");
     expect(takeFragmentTokens(window)).toEqual({

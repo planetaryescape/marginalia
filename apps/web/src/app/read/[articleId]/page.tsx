@@ -19,13 +19,12 @@ import { ArticleRenderer } from "@/components/article-renderer";
 import { ArticleTags } from "@/components/article-tags";
 import {
   BibleAttribution,
-  BibleChapterNavigation,
   BibleReaderTools,
 } from "@/components/bible-reader-tools";
 import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
 import { ImpressionSummary } from "@/components/impression-panel";
-import { InlineError, Skeleton, SkeletonBar } from "@/components/in-place";
+import { InlineError } from "@/components/in-place";
 import { ListenBar } from "@/components/listen-bar";
 import {
   AnswerUnfold,
@@ -35,7 +34,11 @@ import {
 import { NotesPanel } from "@/components/notes-panel";
 import { ReaderLinkMenu } from "@/components/reader-link-menu";
 import { ReaderMap } from "@/components/reader-map";
-import { ReaderOpening, ReaderTitle } from "@/components/reader-opening";
+import {
+  READER_COLUMN,
+  ReaderOpening,
+  ReaderTitle,
+} from "@/components/reader-opening";
 import { ReaderReturnChip } from "@/components/reader-return-chip";
 import { ReaderToolbar } from "@/components/reader-toolbar";
 import { SelectionToolbar } from "@/components/selection-toolbar";
@@ -78,7 +81,7 @@ import { sanitizeHtml } from "@/lib/sanitize";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, useShortcuts } from "@/lib/shortcuts";
 import { findTextRange, rangeText } from "@/lib/text-range";
-import { markFinished, rememberedTitle } from "@/lib/title-handoff";
+import { markFinished } from "@/lib/title-handoff";
 import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
@@ -952,9 +955,22 @@ export default function ReadPage() {
       );
     // Opened from the desk, the heading is already known: it is there for the
     // morph to land on while the body loads.
-    const opening = (
+    return (
       <ReaderOpening
         articleId={articleId}
+        title={sourceArticle?.title}
+        bibleTools={Boolean(sourceArticle?.bible)}
+        showSummary={!isBook}
+        meta={
+          sourceArticle && !sourceArticle.bible?.displayVersionId
+            ? readerMeta({
+                url: sourceArticle.url,
+                uploaded: Boolean(sourceArticle.uploadedFileName),
+                author: sourceArticle.author,
+                minutes: sourceArticle.estimatedReadMinutes,
+              })
+            : undefined
+        }
         columnStyle={
           {
             maxWidth: MAX_WIDTHS[settings.width],
@@ -964,20 +980,6 @@ export default function ReadPage() {
           } as React.CSSProperties
         }
       />
-    );
-    if (rememberedTitle(articleId)) return opening;
-    return (
-      <Skeleton
-        label="Loading article"
-        className="article-column mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))]"
-      >
-        <SkeletonBar className="mb-10 h-10 w-[75%]" />
-        <SkeletonBar className="mb-4 h-4 w-full" />
-        <SkeletonBar className="mb-4 h-4 w-full" />
-        <SkeletonBar className="mb-4 h-4 w-[85%]" />
-        <SkeletonBar className="mb-4 h-4 w-full" />
-        <SkeletonBar className="h-4 w-[60%]" />
-      </Skeleton>
     );
   }
 
@@ -1039,6 +1041,7 @@ export default function ReadPage() {
               key={articleId}
               bible={article.bible}
               annotationStatus={article.annotationStatus}
+              reflectionMissing={reflection === null}
               articleId={article._id}
               skipReason={article.skipReason}
               display={bibleDisplay}
@@ -1237,7 +1240,8 @@ export default function ReadPage() {
           <article
             ref={articleRef}
             className={cn(
-              "article-column reader-arriving mx-auto px-6 pt-[calc(5rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))] transition-[max-width] duration-300",
+              READER_COLUMN,
+              "reader-arriving transition-[max-width] duration-300",
               settings.numbers && "reader-numbers",
               settings.focus && "reader-focus",
               settings.align === "justify" && "reader-justify",
@@ -1245,7 +1249,6 @@ export default function ReadPage() {
               // A PDF's first block is often a licence line or an author list, so
               // nothing in it is a lead worth a drop cap
               settings.dropCap !== "off" &&
-                !article.bible &&
                 !article.uploadedFileName &&
                 "reader-dropcap",
             )}
@@ -1266,29 +1269,21 @@ export default function ReadPage() {
             }
           >
             <header className="mb-10">
-              {article.bible ? (
-                <BibleChapterNavigation key={articleId} bible={article.bible}>
-                  <ReaderTitle articleId={articleId} title={article.title} />
-                </BibleChapterNavigation>
-              ) : (
-                <ReaderTitle articleId={articleId} title={article.title} />
-              )}
+              <ReaderTitle articleId={articleId} title={article.title} />
               <p
                 data-testid="reader-meta"
                 className="text-sm font-sans text-[var(--ink-muted)]"
               >
-                {article.bible
-                  ? `${bibleDisplay?.primary?.abbreviation ?? "WEB"} · ${article.estimatedReadMinutes ?? 1} min read`
-                  : readerMeta({
-                      url: article.url,
-                      uploaded: Boolean(article.uploadedFileName),
-                      author: article.author,
-                      minutes: article.estimatedReadMinutes,
-                      part:
-                        isBook && outline && unitIndex !== null
-                          ? { index: unitIndex, of: outline.length }
-                          : undefined,
-                    })}
+                {readerMeta({
+                  url: article.url,
+                  uploaded: Boolean(article.uploadedFileName),
+                  author: article.author,
+                  minutes: article.estimatedReadMinutes,
+                  part:
+                    isBook && outline && unitIndex !== null
+                      ? { index: unitIndex, of: outline.length }
+                      : undefined,
+                })}
               </p>
               <ArticleTags articleId={articleId as any} />
               {impression && <ImpressionSummary impression={impression} />}
@@ -1297,7 +1292,6 @@ export default function ReadPage() {
             {(!isBook || summary) && (
               <div ref={setFrontMatter}>
                 <SummaryPanel
-                  toolbarOnly={Boolean(article.bible)}
                   studySource={Boolean(sourceArticle?.bible?.displayVersionId)}
                   articleId={articleId as any}
                   title={article.title}

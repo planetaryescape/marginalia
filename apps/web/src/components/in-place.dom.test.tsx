@@ -113,8 +113,32 @@ describe("the reader heading before the article loads", () => {
     );
   });
 
-  it("draws nothing for an article the desk never held, so the page shows its loading state", async () => {
-    await render(<ReaderOpening articleId="unknown" columnStyle={{}} />);
+  it("keeps the reader column, metadata, summary and body slots on a deep link", async () => {
+    await render(
+      <ReaderOpening articleId="unknown" columnStyle={{ maxWidth: "65ch" }} />,
+    );
     expect(document.querySelector("h1")).toBeNull();
+    expect(document.querySelector("article")?.style.maxWidth).toBe("65ch");
+    expect(document.querySelector("article")?.className).toContain(
+      "pt-[calc(5rem",
+    );
+    expect(
+      document.querySelector('[data-testid="reader-body-skeleton"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "Summary, key claims",
+    );
+  });
+  it("uses known headings while licensed wording loads and omits article-only slots for books", async () => {
+    await render(
+      <ReaderOpening
+        articleId="known"
+        title="Psalms 23"
+        showSummary={false}
+        columnStyle={{}}
+      />,
+    );
+    expect(document.querySelector("h1")?.textContent).toBe("Psalms 23");
+    expect(document.body.textContent).not.toContain("Summary, key claims");
   });
 });

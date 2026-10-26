@@ -1,11 +1,14 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { setAnnotationStatus } from "./articles";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 import { parseBibleReference } from "./lib/bible";
 import { bibleTranslations, requireTranslation } from "./lib/bibleProvider";
 import { biblePreferences, requireBible } from "./lib/bibleSettings";
+import { manualState } from "./lib/manualAnnotations";
+import { READER_LIMITS, spendReaderLimit } from "./limits";
 
 export const preferences = query({
   args: {},
@@ -44,6 +47,7 @@ export const activateLicensedReading = internalMutation({
     userId: v.string(),
     token: v.string(),
     onlyIfCurrent: v.optional(v.boolean()),
+    spendRequest: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireBible(ctx, args.userId);
@@ -63,6 +67,8 @@ export const activateLicensedReading = internalMutation({
         );
       return;
     }
+    if (args.spendRequest && !(await spendReaderLimit(ctx, args.userId, "api")))
+      throw new ConvexError(READER_LIMITS.api.message);
     if (row) await ctx.db.patch(row._id, { token: args.token });
     else
       await ctx.db.insert("bibleReadingSessions", {
@@ -169,19 +175,36 @@ async function resumePausedAnnotations(
   const article = await ctx.db.get(articleId);
   if (article?.userId !== userId || !article.bible)
     throw new Error("Bible passage not found.");
-  if (
-    article.annotationStatus !== "skipped" ||
-    article.skipReason !== "bible_disabled"
-  )
-    return;
-  await ctx.db.patch(articleId, {
-    annotationStatus: "pending",
-    skipReason: undefined,
-  });
+  const paused =
+    article.annotationStatus === "skipped" &&
+    article.skipReason === "bible_disabled";
+  const missingReflection =
+    article.annotationStatus === "annotated" &&
+    !(await ctx.db
+      .query("reflections")
+      .withIndex("by_article", (q) => q.eq("articleId", articleId))
+      .first());
+  if (!paused && !missingReflection) return;
+  if (missingReflection) {
+    const current = await manualState(ctx, articleId);
+    if (
+      current &&
+      (current.status === "queued" || current.status === "running") &&
+      current.leaseUntil > Date.now()
+    )
+      return;
+  }
+  await setAnnotationStatus(ctx, articleId, "pending");
+  // Restoring the previously suppressed reflection is a new generation input,
+  // including for readings already adopted by the manual publication fence.
+  if (missingReflection)
+    await ctx.db.patch(articleId, {
+      manualAnnotationRevision: (article.manualAnnotationRevision ?? 0) + 1,
+    });
   await ctx.scheduler.runAfter(
     0,
     internal.actions.generateAnnotations.generateForArticle,
-    { articleId },
+    { articleId, ...(missingReflection ? { repairReflection: true } : {}) },
   );
 }
 
