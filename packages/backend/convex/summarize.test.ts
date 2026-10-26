@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ownerWithKey } from "../test/owner";
 import { api } from "./_generated/api";
 import * as aiModels from "./lib/aiModels";
+import { sourceHash } from "./lib/preparedRepresentation";
 
 const modules = import.meta.glob("./**/*.ts");
 afterEach(() => {
@@ -12,7 +13,10 @@ afterEach(() => {
 });
 
 describe("article summaries", () => {
-  it("summarizes the authoritative WEB source even if a licensed reader sends its displayed paragraphs", async () => {
+  it.each([
+    "legacy",
+    "current",
+  ] as const)("summarizes the authoritative WEB source for a %s client even if it sends displayed paragraphs", async (client) => {
     const t = await ownerWithKey(modules);
     await t.mutation(api.bible.setPreferences, { enabled: true });
     const articleId = await t.run((ctx) =>
@@ -22,6 +26,7 @@ describe("article summaries", () => {
         url: "https://bible-api.com",
         title: "John 3:16",
         content: "3:16 Public-domain study text",
+        contentHtml: "<p>3:16 Public-domain study text</p>",
         bible: {
           reference: "John 3:16",
           translation: "web",
@@ -47,8 +52,16 @@ describe("article summaries", () => {
       });
     await t.action(api.actions.summarize.generate, {
       articleId,
-      title: "Displayed edition",
+      title: client === "current" ? "John 3:16" : "Displayed edition",
       paragraphs: ["Licensed-dom-canary"],
+      ...(client === "current"
+        ? {
+            sourceHash: await sourceHash(
+              "3:16 Public-domain study text",
+              "<p>3:16 Public-domain study text</p>",
+            ),
+          }
+        : {}),
     });
     expect(JSON.stringify(generate.mock.calls)).toContain(
       "Public-domain study text",
@@ -56,6 +69,33 @@ describe("article summaries", () => {
     expect(JSON.stringify(generate.mock.calls)).not.toContain(
       "Licensed-dom-canary",
     );
+    expect(
+      await t.query(api.summaries.getByArticle, { articleId }),
+    ).toMatchObject({ thesis: "A passage study" });
+    expect(generate.mock.calls[0][0].prompt).toContain(
+      "John 3:16 — World English Bible study source",
+    );
+    if (client === "current") {
+      await t.action(api.actions.summarize.generate, {
+        articleId,
+        title: "John 3:16",
+        paragraphs: ["Licensed-dom-canary"],
+        sourceHash: await sourceHash(
+          "3:16 Public-domain study text",
+          "<p>3:16 Public-domain study text</p>",
+        ),
+      });
+      expect(generate).toHaveBeenCalledOnce();
+      await expect(
+        t.action(api.actions.summarize.generate, {
+          articleId,
+          title: "John 3:16",
+          paragraphs: ["Licensed-dom-canary"],
+          sourceHash: await sourceHash("Outdated source"),
+        }),
+      ).rejects.toThrow("Reload the article");
+      expect(generate).toHaveBeenCalledOnce();
+    }
   });
   it("lets the signed-in owner generate and retrieve an article summary", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only");

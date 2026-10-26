@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   libraryIsActive,
   ownedArticle,
@@ -55,7 +55,9 @@ export const claimFull = internalMutation({
           (await sourceHash(article.content, article.contentHtml)) ||
           args.title !== article.title))
     )
-      throw new Error("Reload the article before generating its summary");
+      throw new ConvexError(
+        "Reload the article before generating its summary.",
+      );
     if (
       !args.paragraphs.length ||
       args.paragraphs.length > 4000 ||

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { sourceHash } from "@marginalia/backend/prepared-representation";
+import { ConvexError } from "convex/values";
 import { act, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,6 +27,7 @@ vi.mock("framer-motion", async () => {
               exit: _exit,
               transition: _transition,
               variants: _variants,
+              layout: _layout,
               ...props
             }: Record<string, unknown>) =>
               createElement(tag, props, children as never),
@@ -215,6 +217,26 @@ describe("SummaryPanel layers", () => {
 });
 
 describe("SummaryPanel open state", () => {
+  it("shows a short retry message instead of a Convex transport stack trace", async () => {
+    generate.mockRejectedValueOnce(
+      new Error(
+        "[CONVEX A(actions/summarize:generate)] [Request ID: fixture] Server Error\nUncaught Error: Reload the article before generating its summary\n at handler (../convex/summaries.ts:59:12)",
+      ),
+    );
+    await render(null);
+    await click(button("Summary, key"));
+    await vi.waitFor(() =>
+      expect(mount.textContent).toContain(
+        "Couldn't summarise this one. Try again.",
+      ),
+    );
+    expect(mount.textContent).not.toContain("[CONVEX");
+    expect(mount.textContent).not.toContain("at handler");
+    expect(mount.textContent).not.toContain("Request ID");
+    expect(button("Couldn't summarise").disabled).toBe(false);
+    await click(button("Couldn't summarise"));
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+  });
   it("keeps old output usable while a shared generation waits and reports a truthful failure", async () => {
     let reject = (_error: Error) => {};
     generate.mockImplementationOnce(
@@ -239,7 +261,9 @@ describe("SummaryPanel open state", () => {
       expectedSummaryId: summaryWithMap._id,
     });
     await act(async () =>
-      reject(new Error("Summary is still running. Try again to check it.")),
+      reject(
+        new ConvexError("Summary is still running. Try again to check it."),
+      ),
     );
     expect(document.querySelector('[role="alert"]')?.textContent).toContain(
       "still running",

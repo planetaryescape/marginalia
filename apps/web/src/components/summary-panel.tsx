@@ -6,6 +6,7 @@ import { useAction } from "convex/react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { ArrowRight, ChevronDown, RotateCcw } from "lucide-react";
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
+import { failureSentence } from "@/lib/failure-copy";
 import { modelName } from "@/lib/models";
 import { getArticleBody, getParagraphs, paragraphText } from "@/lib/paragraphs";
 import { useCommand } from "@/lib/shortcuts";
@@ -205,9 +206,7 @@ export const SummaryPanel = memo(function SummaryPanel({
     } catch (error) {
       if (epoch === requestEpoch.current)
         setError(
-          error instanceof Error
-            ? error.message
-            : "Couldn't summarise this one. Try again.",
+          failureSentence(error, "Couldn't summarise this one. Try again."),
         );
     } finally {
       if (epoch === requestEpoch.current) setLoading(false);

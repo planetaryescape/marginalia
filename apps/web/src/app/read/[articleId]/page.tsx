@@ -1295,10 +1295,8 @@ export default function ReadPage() {
                   studySource={Boolean(sourceArticle?.bible?.displayVersionId)}
                   articleId={articleId as any}
                   title={article.title}
-                  content={sourceArticle?.content ?? article.content}
-                  contentHtml={
-                    sourceArticle?.contentHtml ?? article.contentHtml
-                  }
+                  content={(sourceArticle ?? article).content}
+                  contentHtml={(sourceArticle ?? article).contentHtml}
                   wordCount={article.wordCount}
                   summary={summary}
                   containerRef={articleRef}

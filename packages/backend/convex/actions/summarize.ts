@@ -107,7 +107,7 @@ export const generate = action({
     });
     if (study) {
       args.paragraphs = study.content.split(/\n\n+/).filter(Boolean);
-      args.title = `${study.title} — World English Bible study source`;
+      args.title = study.title;
     }
     const total = args.paragraphs.length;
     if (total === 0) throw new Error("Nothing to summarise");
@@ -129,9 +129,9 @@ export const generate = action({
         });
         if (status === "complete") return;
         if (status !== "running")
-          throw new Error(`Summary ${status}. Try again explicitly.`);
+          throw new ConvexError(`Summary ${status}. Try again explicitly.`);
       }
-      throw new Error(
+      throw new ConvexError(
         "Summary is still running. Try again to check it; this does not restart it.",
       );
     }
@@ -151,7 +151,7 @@ export const generate = action({
       const { object, modelId } = await generateObjectWithFallback<Summary>({
         schema: summarySchema,
         system: SYSTEM,
-        prompt: `# ${args.title}\n\n${lines.join("\n\n")}`,
+        prompt: `# ${study ? `${study.title} — World English Bible study source` : args.title}\n\n${lines.join("\n\n")}`,
         targets,
         maxOutputTokens: 4096,
         onFailure: ai.noteFailure,
@@ -195,7 +195,7 @@ export const generate = action({
         generation: { run: claim.run },
       });
       if (!saved)
-        throw new Error(
+        throw new ConvexError(
           "Article changed while summarising. Reload and try again.",
         );
     } catch (error) {

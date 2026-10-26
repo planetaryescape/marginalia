@@ -1,10 +1,47 @@
 // @vitest-environment happy-dom
+
+import { sourceHash } from "@marginalia/backend/prepared-representation";
 import { getFunctionName } from "convex/server";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@/lib/reader-settings";
 import ReadPage from "./page";
+
+// Test settled UI states; happy-dom cannot finish/cancel native motion reliably.
+vi.mock("framer-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("framer-motion")>();
+  const { createElement, Fragment } = await import("react");
+  const tags = new Map<string, unknown>();
+  return {
+    ...actual,
+    AnimatePresence: ({ children }: { children: React.ReactNode }) =>
+      createElement(Fragment, null, children),
+    motion: new Proxy(
+      {},
+      {
+        get: (_target, tag: string) => {
+          if (!tags.has(tag))
+            tags.set(
+              tag,
+              ({
+                children,
+                initial: _initial,
+                animate: _animate,
+                exit: _exit,
+                transition: _transition,
+                variants: _variants,
+                layout: _layout,
+                ...props
+              }: Record<string, unknown>) =>
+                createElement(tag, props, children as React.ReactNode),
+            );
+          return tags.get(tag);
+        },
+      },
+    ),
+  };
+});
 
 const state = vi.hoisted(() => ({
   progress: 0,
@@ -14,6 +51,8 @@ const state = vi.hoisted(() => ({
   observers: 0,
   reflectionSaved: true,
   bible: false,
+  licensed: false,
+  summarize: vi.fn(async () => {}),
   reflection: null as {
     _id: string;
     strongestPoint: string;
@@ -58,7 +97,10 @@ vi.mock("convex/react", () => ({
     return null;
   },
   useMutation: () => state.asyncNoop,
-  useAction: () => state.asyncNoop,
+  useAction: (ref: Parameters<typeof getFunctionName>[0]) =>
+    getFunctionName(ref) === "actions/summarize:generate"
+      ? state.summarize
+      : state.asyncNoop,
   useConvex: () => ({ query: state.query }),
   usePaginatedQuery: (
     ref: Parameters<typeof getFunctionName>[0],
@@ -95,17 +137,38 @@ const article = {
 };
 vi.mock("@/lib/use-book-reading", () => ({
   useReadable: () => ({
-    article: state.bible
+    article: state.licensed
       ? {
           ...article,
-          _id: "article-1",
+          title: "Psalms 23",
+          content: "Licensed-display-canary",
+          contentHtml: "<p>Licensed-display-canary</p>",
+        }
+      : state.bible
+        ? {
+            ...article,
+            _id: "article-1",
+            bible: {
+              reference: "Psalms 23",
+              translation: "web",
+              copyright: "Public domain",
+            },
+          }
+        : article,
+    sourceArticle: state.licensed
+      ? {
+          ...article,
+          title: "Psalms 23",
+          content: "23:1 Public-domain WEB source",
+          contentHtml: undefined,
           bible: {
             reference: "Psalms 23",
             translation: "web",
+            displayVersionId: 111,
             copyright: "Public domain",
           },
         }
-      : article,
+      : undefined,
     isBook: false,
     unitIndex: null,
     scopeReady: state.scopeReady,
@@ -262,6 +325,8 @@ beforeEach(() => {
   state.observers = 0;
   state.reflectionSaved = true;
   state.bible = false;
+  state.licensed = false;
+  state.summarize.mockClear();
   state.reflection = null;
   state.finish.mockClear();
   state.push.mockClear();
@@ -304,6 +369,25 @@ beforeEach(() => {
   );
   document.body.innerHTML = '<div id="root"></div>';
   root = createRoot(document.getElementById("root")!);
+});
+it("binds Bible summaries to the saved WEB source even when it has no HTML", async () => {
+  state.licensed = true;
+  await act(async () => root.render(<ReadPage />));
+  const entry = [...document.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("Summary, key claims"),
+  )!;
+  await act(async () => entry.click());
+  await vi.waitFor(() => expect(state.summarize).toHaveBeenCalledOnce());
+  expect(state.summarize).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: "Psalms 23",
+      paragraphs: ["23:1 Public-domain WEB source"],
+      sourceHash: await sourceHash("23:1 Public-domain WEB source"),
+    }),
+  );
+  expect(JSON.stringify(state.summarize.mock.calls)).not.toContain(
+    "Licensed-display-canary",
+  );
 });
 it("does not finish or navigate away from a reflection whose save failed", async () => {
   state.reflectionSaved = false;
