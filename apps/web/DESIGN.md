@@ -48,6 +48,8 @@ Settings controls come from `src/components/settings-controls.ts`, not ad hoc st
 
 On the desk, the primary action is a solid ink button, Another is a chip, and the rest are quiet underlined text. Use native buttons, links and inputs, and native dialogs for the search picker and protected-focus panels (`useModalDialog` owns Tab containment and focus restoration). Global shortcuts pause while typing or while a modal is open. A button names its action even when it shows only an icon, and delete controls work from keyboard and touch, not just hover.
 
+For a compact choice among mutually exclusive desk options, use a Radix `DropdownMenu.RadioGroup` on the shared `.reader-menu` surface, with a visible selected value and current choice marked in the menu.
+
 ## Shared patterns
 
 A new feature reuses these.
