@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
+import { ownedArticleCard } from "./access";
+import { readStatus } from "./lib/articleCard";
 import { biblePreferences } from "./lib/bibleSettings";
+
+const scopeValidator = v.optional(
+  v.union(v.literal("articles"), v.literal("mixed"), v.literal("bible")),
+);
 
 // Data access for the "Ask your library" endpoint (lib/library.ts). Every
 // lookup is scoped to the caller's library, including vector search hits.
@@ -58,28 +64,44 @@ export const loadArticles = internalQuery({
   args: {
     userId: v.string(),
     articleIds: v.array(v.id("articles")),
-    scope: v.optional(
-      v.union(v.literal("articles"), v.literal("mixed"), v.literal("bible")),
-    ),
+    scope: scopeValidator,
   },
   handler: async (ctx, args) => {
     const prefs = await biblePreferences(ctx, args.userId);
     const scope = prefs.enabled ? (args.scope ?? "mixed") : "articles";
     const rows = await Promise.all(
-      args.articleIds.map((id) => ctx.db.get("articles", id)),
+      args.articleIds.map((id) => ownedArticleCard(ctx, id, args.userId)),
     );
-    // Only what the librarian needs; article bodies stay out of the prompt
     return rows.map((row) =>
-      row?.userId === args.userId &&
-      (scope === "mixed" ||
-        (scope === "bible" ? Boolean(row.bible) : !row.bible))
-        ? {
-            ...row,
-            content: undefined,
-            contentHtml: undefined,
-            embedding: undefined,
-          }
+      row && (scope === "mixed" || (scope === "bible" ? row.bible : !row.bible))
+        ? row
         : null,
     );
+  },
+});
+
+/**
+ * The search-only path's lookup: each article with its read status. Scoped to
+ * the caller's library even though the ids came from a filtered vector search.
+ */
+export const findArticles = internalQuery({
+  args: { userId: v.string(), articleIds: v.array(v.id("articles")) },
+  handler: async (ctx, args) => {
+    const rows = await Promise.all(
+      args.articleIds.map(async (id) => {
+        const article = await ownedArticleCard(ctx, id, args.userId);
+        if (!article || article.bible) return null;
+        const status = await readStatus(ctx, args.userId, id);
+        return {
+          articleId: article._id,
+          title: article.title,
+          url: article.url,
+          author: article.author ?? null,
+          minutes: article.estimatedReadMinutes ?? null,
+          status,
+        };
+      }),
+    );
+    return rows.filter((row) => row !== null);
   },
 });

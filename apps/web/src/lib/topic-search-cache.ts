@@ -1,0 +1,32 @@
+import { discoveryInvalidation } from "@/lib/discovery-invalidation";
+import { SessionCache } from "@/lib/session-cache";
+import type { TopicMatch } from "@/lib/topic-card";
+
+export const TOPIC_CACHE_TTL_MS = 5 * 60_000;
+
+export interface TopicCacheEntry {
+  foundAt: number;
+  find: { matches: TopicMatch[]; more: boolean };
+  reasons: Record<string, string>;
+  explained: boolean;
+}
+
+// Mutation callbacks import this small module, not the search hook or HTTP client.
+export const topicSearchCache = new SessionCache<TopicCacheEntry>(
+  20,
+  TOPIC_CACHE_TTL_MS,
+);
+
+let listening = false;
+/** The singleton cache and its single listener live for this browser page. */
+export function listenForTopicCacheInvalidation() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
+  discoveryInvalidation.subscribe(() => topicSearchCache.invalidate());
+}
+
+export function invalidateTopicSearchCache() {
+  listenForTopicCacheInvalidation();
+  if (!listening) topicSearchCache.invalidate();
+  discoveryInvalidation.publish();
+}

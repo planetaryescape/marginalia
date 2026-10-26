@@ -34,22 +34,17 @@ bunx convex env set PROVIDER_KEYS_ENCRYPTION_KEY
 
 Then open **Your account → AI providers** and save an OpenRouter, OpenAI or Anthropic key. The key is checked against that provider's model list, stored encrypted, and shown only by its last four characters. Search and Ask your library need an OpenAI or OpenRouter key (both embed with `text-embedding-3-small`); Anthropic covers answers, summaries and marginalia. Changing the encryption key makes saved keys unreadable, so readers would need to save them again.
 
-The curated models per provider, role defaults and fallback order are in `convex/lib/providers.ts`; smoke-test availability before changing them. A reader without a key can still read, note and highlight; AI features say to add a key.
+The curated models per provider, role defaults and fallback order are in `convex/lib/providers.ts`; smoke-test availability before changing them. A reader without a key can still read, note and highlight; extracted articles remain in Library Up next and the desk's time choices even when annotations are skipped. AI features say to add a key.
 
 The backend has no shared AI key. Every reader, including the owner, adds their own key in Your account.
 
-Verify by adding one article in your own deployment, waiting for extraction and opening its annotations. Ask Explain for one passage, then use Home search.
+Verify by adding one article in your own deployment, waiting for extraction and opening its annotations. Ask Explain for one passage, then use the desk's search.
 
 ## Enable Readwise Reader
 
-Obtain a token from [Readwise's access-token page](https://readwise.io/access_token), then run:
+Copy a token from [Readwise's access-token page](https://readwise.io/access_token), open **Sources**, paste it into the Reader card and connect. The token is checked, stored encrypted for that reader's library, and the card shows it is connected. Saving it needs `PROVIDER_KEYS_ENCRYPTION_KEY` on the deployment, as for AI keys.
 
-```bash
-cd packages/backend
-bunx convex env set READWISE_TOKEN
-```
-
-In **Sources**, the Reader card should show it is connected. Use **Sync now** to start or resume the pull. The full Inbox (`new`), Later and Shortlist is imported in pages of five documents, with a minute between pages and paced annotation jobs. There is no total import cap. Older installations also get this full backfill, even if the earlier 100-item sync recorded a watermark. After backfill, each completed sync overlaps its incremental watermark by two minutes. Archive, Feed, PDFs, EPUBs, tweets and videos remain excluded; missing text and oversized documents are skipped. The card shows checked/imported/skipped counts and pending annotations. A large library takes time and incurs model costs as eligible new articles are embedded and annotated. Automatic sync starts or resumes every 15 minutes; successful pages continue without the browser staying open.
+A deployment `READWISE_TOKEN` (`bunx convex env set READWISE_TOKEN`) still works as a stopgap for the owner's library only, and only while the owner has no saved token (`convex/lib/ownerTransition.ts`). It never serves another reader. Use **Sync now** to start or resume the pull. The full Inbox (`new`), Later and Shortlist is imported in pages of five documents, with a minute between pages and paced annotation jobs. There is no total import cap. Older installations also get this full backfill, even if the earlier 100-item sync recorded a watermark. After backfill, each completed sync overlaps its incremental watermark by two minutes. Feed, PDFs, EPUBs, tweets and videos remain excluded, and Archive is never imported: after the first backfill it is only checked so articles you archive in Reader are finished in Marginalia; missing text and oversized documents are skipped. The card shows checked/imported/skipped counts and pending annotations. A large library takes time and incurs model costs as eligible new articles are embedded and annotated. Automatic sync starts or resumes every 15 minutes; successful pages continue without the browser staying open.
 
 This integration is **not read-only**: reading actions can move a linked document between Reader locations, and highlights are pushed to Reader. Inspect `actions/readwiseSync.ts` before testing against a personal account. Use [operations](operations.md#readwise-sync) to verify a change without deleting real data.
 
@@ -69,7 +64,7 @@ Expected: lists of files that would be updated or removed from the remote index,
 bun --env-file=.env.local run --cwd packages/vault-indexer index --vault /absolute/path/to/vault
 ```
 
-Unchanged files are skipped by hash. A changed file replaces its remote chunks only after all its embeddings succeed, in one Convex transaction. Partial embedding/upload failures leave its previous index and exit non-zero for retry. Files missing from the eligible local note list have their remote chunks deleted, so pointing at the wrong vault can remove the prior index. One deployment currently represents one vault.
+Unchanged files are skipped by hash. A changed file replaces its remote chunks only after all its embeddings succeed, in one Convex transaction. Partial embedding/upload failures leave its previous index and exit non-zero for retry. Files missing from the eligible local note list have their remote chunks deleted, so pointing at the wrong vault can remove the prior index. One deployment holds one vault, in the owner's library only: the vault key is deployment-wide and the upload endpoints always write to the owner (`convex/http.ts`), so other readers can't index a vault yet.
 
 The scanner skips `.obsidian`, `.git`, `.smart-env`, `.smart-connections`, `Extras`, `node_modules` and Markdown files over 100KB. A read/frontmatter error aborts the scan before remote changes, rather than mistaking that file for a deletion. The chunker may skip small sections in multi-section notes and does not split a single oversized paragraph. Replacement accepts at most 128 chunks per file and requires 1536-dimensional vectors. Empty notes have no chunks and do not replace an old nonempty index. See [limitations](limitations.md) before treating the index as a complete copy of a vault.
 
@@ -87,7 +82,7 @@ Run at the repository root:
 | `bun run check` | Lint → typecheck → tests |
 | `bun run build` | Production Next.js build |
 
-Use `bun run --cwd apps/web dev --port 3100` if port 3000 is occupied. Next generates route types before typecheck so moved route groups do not leave stale references. Turbo build cache includes public Convex URLs and env files; changing deployments must not reuse a bundle with the previous URL.
+Use `bun run --cwd apps/web dev --port 3108` if port 3107 is occupied; sign-in trusts only those two local ports. Next generates route types before typecheck so moved route groups do not leave stale references. Turbo build cache includes public Convex URLs and env files; changing deployments must not reuse a bundle with the previous URL.
 
 Backend mutation tests use `convex-test` and the edge runtime. Its version is currently pinned to a release compatible with the installed Convex SDK; update the pair together rather than ignoring peer dependency errors. Tests do not require a deployed backend or real credentials.
 

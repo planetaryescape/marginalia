@@ -324,6 +324,14 @@ describe("separate reader libraries", () => {
           }),
       ],
       [
+        "highlight recolour",
+        () =>
+          reader.mutation(api.highlights.setColor, {
+            highlightId: owner.highlightId,
+            color: "pink",
+          }),
+      ],
+      [
         "highlight remove",
         () =>
           reader.mutation(api.highlights.remove, {
@@ -338,6 +346,27 @@ describe("separate reader libraries", () => {
             mode: "ask",
             selection: "x",
             turns: [],
+          }),
+      ],
+      [
+        "thread keep",
+        () =>
+          reader.mutation(api.companionThreads.keep, {
+            articleId,
+            answerId: "a",
+            mode: "ask",
+            selection: "x",
+            turns: [],
+          }),
+      ],
+      [
+        "lookup record",
+        () =>
+          reader.mutation(api.lookups.record, {
+            articleId,
+            word: "x",
+            sentence: "x.",
+            sense: "x",
           }),
       ],
       [
@@ -878,6 +907,7 @@ describe("separate reader libraries", () => {
         "companion",
         "library",
         "library/search",
+        "library/find",
         "engagement",
       ]) {
         const response = await client.fetch(`/api/${path}`, {

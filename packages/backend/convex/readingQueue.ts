@@ -1,13 +1,24 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, type MutationCtx } from "./_generated/server";
 import { libraryIsActive } from "./access";
+import { internalMutation, type MutationCtx } from "./functions";
+import {
+  completeReadableQueue,
+  initializeReadableQueue,
+  rebuildReadableQueue,
+} from "./lib/readableQueue";
 
 function contribution(article: Doc<"articles"> | null) {
   if (article?.bible) article = null;
+  // A deferred article is as much in the queue as an annotated one; only its
+  // marginalia are still to come
   const annotated =
-    article?.queueCounted && article.annotationStatus === "annotated" ? 1 : 0;
+    article?.queueCounted &&
+    (article.annotationStatus === "annotated" ||
+      article.annotationStatus === "deferred")
+      ? 1
+      : 0;
   const waiting = annotated && article?.finishedAt === undefined ? 1 : 0;
   const minutes = article?.estimatedReadMinutes ?? Number.POSITIVE_INFINITY;
   return {
@@ -69,6 +80,29 @@ export async function updateQueueStats(
   await ctx.db.patch(after._id, { queueCounted: true, finishedAt });
 }
 
+/** Takes a deleted article out of the totals, in the same transaction as the delete. */
+export async function removeFromQueueStats(
+  ctx: MutationCtx,
+  article: Doc<"articles">,
+) {
+  // Uncounted articles were never added; initialization skips them once deleted
+  if (!article.queueCounted) return;
+  const stats = await ctx.db
+    .query("readingQueueStats")
+    .withIndex("by_user", (q) => q.eq("userId", article.userId))
+    .unique();
+  if (!stats) return;
+  const gone = contribution(article);
+  await ctx.db.patch(stats._id, {
+    annotated: stats.annotated - gone.annotated,
+    waiting: stats.waiting - gone.waiting,
+    pending: stats.pending - gone.pending,
+    fits5: stats.fits5 - gone.fits5,
+    fits10: stats.fits10 - gone.fits10,
+    fits20: stats.fits20 - gone.fits20,
+  });
+}
+
 /** Idempotent, small-page initialization of existing articles and historical finishes. */
 export const initialize = internalMutation({
   args: { userId: v.string() },
@@ -78,7 +112,10 @@ export const initialize = internalMutation({
       .query("readingQueueStats")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .unique();
-    if (stats?.ready) return;
+    if (stats?.ready) {
+      await initializeReadableQueue(ctx, args.userId);
+      return;
+    }
     if (!stats) {
       const id = await ctx.db.insert("readingQueueStats", {
         userId: args.userId,
@@ -98,8 +135,10 @@ export const initialize = internalMutation({
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .paginate({
         cursor: stats.cursor ?? null,
-        numItems: 8,
-        maximumBytesRead: 4_000_000,
+        numItems: 4,
+        // Leave room for trigger pre/post reads, the patch syscall and
+        // historical finish rows; the page can overshoot by one document.
+        maximumBytesRead: 1_500_000,
       });
     for (const article of page.page) {
       if (!article.queueCounted) await updateQueueStats(ctx, null, article);
@@ -108,9 +147,18 @@ export const initialize = internalMutation({
       cursor: page.continueCursor,
       ready: page.isDone,
     });
-    if (!page.isDone)
+    // Only a complete empty range proves the new namespace needs no scan.
+    // A resumed legacy cursor may have passed rows before this code existed.
+    const emptyLibrary = page.isDone && !stats.cursor && page.page.length === 0;
+    if (emptyLibrary) await completeReadableQueue(ctx, args.userId);
+    if (!emptyLibrary)
       await ctx.scheduler.runAfter(0, internal.readingQueue.initialize, {
         userId: args.userId,
       });
   },
+});
+
+export const rebuildReadable = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => rebuildReadableQueue(ctx, userId),
 });

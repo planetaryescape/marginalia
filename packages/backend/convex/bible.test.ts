@@ -7,6 +7,7 @@ import {
   secondReaderTest,
 } from "../test/owner";
 import { api, internal } from "./_generated/api";
+import * as aiModels from "./lib/aiModels";
 
 const modules = import.meta.glob("./**/*.ts");
 afterEach(() => {
@@ -58,7 +59,7 @@ describe("opt-in Bible reading", () => {
     for (const read of [
       () => t.query(api.articles.listAnnotated, {}),
       () => t.query(api.articles.listUnread, {}),
-      () => t.action(api.actions.selectArticle.select, { requestedMinutes: 5 }),
+      () => t.query(api.suggestions.forWindow, { requestedMinutes: 5 }),
     ]) {
       expect((await read()).map((a) => a.title)).toEqual(["An article"]);
     }
@@ -353,6 +354,7 @@ describe("opt-in Bible reading", () => {
           guid: `bible-${i}`,
           url: "https://example.com",
           title: `Bible ${i}`,
+          content: "Synthetic readable Scripture.",
           bible: {
             reference: `Psalms ${i + 1}`,
             translation: "web",
@@ -368,12 +370,20 @@ describe("opt-in Bible reading", () => {
         guid: "article",
         url: "https://example.com",
         title: "Unread article",
+        content: "Synthetic readable article.",
         estimatedReadMinutes: 5,
         extractionStatus: "extracted",
         annotationStatus: "annotated",
         createdAt: 1,
       });
     });
+    for (let page = 0; page < 100; page++) {
+      const result = await t.mutation(internal.articleMetadata.backfill, {
+        userId: "default_user",
+      });
+      if (result.complete) break;
+      if (page === 99) throw new Error("Fixture metadata did not finish");
+    }
     expect(
       (await t.query(api.suggestions.forWindow, { requestedMinutes: 5 })).map(
         (p) => p.title,
@@ -387,46 +397,39 @@ describe("opt-in Bible reading", () => {
     vi.useFakeTimers();
     const t = await ownerTest(modules);
     await t.mutation(api.bible.setPreferences, { enabled: true });
-    await saveTestCredential(t, "default_user", "openrouter", "fixture-key");
+    await saveTestCredential(t, "default_user", "anthropic", "fixture-key");
     vi.stubGlobal(
       "fetch",
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        if (String(input).includes("bible-api.com")) return chapterResponse();
-        const body = JSON.parse(String(init?.body));
-        if (String(input).endsWith("/embeddings"))
-          return Response.json({
-            data: body.input.map((_: string, index: number) => ({
-              index,
-              embedding: Array.from({ length: 1536 }, () => 0.1),
-            })),
-          });
-        return completion(body.model, {
-          annotations: [
-            {
-              type: "context",
-              anchorText: "Yahweh is my shepherd",
-              content:
-                "The shepherd image frames the psalm's trust in provision and guidance.",
-              relevanceScore: 0.9,
-              reasoning: "Explains the central image.",
-            },
-            {
-              type: "context",
-              anchorText: "Text not in the passage",
-              content: "Unsupported note",
-              relevanceScore: 1,
-              reasoning: "Must be rejected.",
-            },
-          ],
-          reflection: {
-            strongestPoint: "",
-            weakestAssumption: "",
-            credibleCounterview: "",
-            questionForYou: "",
-          },
-        });
-      },
+      vi.fn().mockImplementation(async () => chapterResponse()),
     );
+    vi.spyOn(aiModels, "generateObjectWithFallback").mockResolvedValue({
+      modelId: "anthropic:fixture",
+      object: {
+        annotations: [
+          {
+            type: "context",
+            anchorText: "Yahweh is my shepherd",
+            content:
+              "The shepherd image frames the psalm's trust in provision and guidance.",
+            relevanceScore: 0.9,
+            reasoning: "Explains the central image.",
+          },
+          {
+            type: "context",
+            anchorText: "Text not in the passage",
+            content: "Unsupported note",
+            relevanceScore: 1,
+            reasoning: "Must be rejected.",
+          },
+        ],
+        reflection: {
+          strongestPoint: "",
+          weakestAssumption: "",
+          credibleCounterview: "",
+          questionForYou: "",
+        },
+      },
+    });
     const id = await t.action(api.actions.bible.openPassage, {
       reference: "Psalms 23",
     });

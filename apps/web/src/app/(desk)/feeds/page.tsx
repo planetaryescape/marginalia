@@ -2,29 +2,228 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { DeskPage } from "@/components/desk-page";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ApiTokens } from "@/components/api-tokens";
+import { FeedSuggestion } from "@/components/feed-suggestion";
+import { FileDrop } from "@/components/file-drop";
+import {
+  ChangeWash,
+  InlineError,
+  SavedMark,
+  Skeleton,
+  SkeletonBar,
+} from "@/components/in-place";
 import { ReadwiseCard } from "@/components/readwise-card";
+import { RemoveFeedConfirm } from "@/components/remove-feed-confirm";
+import {
+  destructiveControl,
+  fieldControl,
+  primaryControl,
+  quietControl,
+  textControl,
+} from "@/components/settings-controls";
+import { SettingsPage, SettingsSection } from "@/components/settings-section";
+import { SyncBar } from "@/components/sync-bar";
+import { useListKeys } from "@/lib/list-nav";
+import {
+  importOpmlBatches,
+  type OpmlOutcome,
+  type OpmlProgress,
+} from "@/lib/opml-import";
 import { formatDate } from "@/lib/utils";
+
+const CHECK_FLAG_TTL_MS = 10 * 60_000;
+const OPML_NAME = /\.(opml|xml)$/i;
 
 export default function FeedsPage() {
   const feeds = useQuery(api.feeds.list);
+  const pollStatus = useQuery(api.feedPolling.status);
+  const suggestions = useQuery(api.feedSuggestions.list);
+  const suggestionsByFeed = useMemo(() => {
+    const grouped = new Map<Id<"feeds">, NonNullable<typeof suggestions>>();
+    for (const suggestion of suggestions ?? []) {
+      const group = grouped.get(suggestion.feedId);
+      if (group) group.push(suggestion);
+      else grouped.set(suggestion.feedId, [suggestion]);
+    }
+    return grouped;
+  }, [suggestions]);
   const addFeed = useMutation(api.feeds.add);
-  const removeFeed = useMutation(api.feeds.remove);
+  const addBatch = useMutation(api.feeds.addBatch);
   const toggleActive = useMutation(api.feeds.toggleActive);
   const pollNow = useAction(api.feeds.pollNow);
   const [polling, setPolling] = useState(false);
+  const [requestedRun, setRequestedRun] = useState<number | null>(null);
+  const [pollFailed, setPollFailed] = useState(false);
+  // The server flags feeds while they are checked, so a scheduled check and a
+  // reload show it too. A check that died leaves the flag behind: ignore it
+  // once it is this old.
+  const [, expire] = useState(0);
+  const checkingSince = Math.max(
+    0,
+    ...(feeds ?? []).map((f) => f.checkingSince ?? 0),
+  );
+  const checkingUntil = pollStatus?.active
+    ? pollStatus.deadline
+    : checkingSince + CHECK_FLAG_TTL_MS;
+  const serverChecking = pollStatus
+    ? pollStatus.active && Date.now() < checkingUntil
+    : checkingSince > 0 && Date.now() < checkingUntil;
+  useEffect(() => {
+    if (!serverChecking) return;
+    const timer = setTimeout(
+      () => expire((n) => n + 1),
+      checkingUntil - Date.now(),
+    );
+    return () => clearTimeout(timer);
+  }, [serverChecking, checkingUntil]);
+  // The action acknowledgement can arrive before the live query. Keep waiting
+  // for that exact run instead of flashing the old error back onto the page.
+  const awaitingRun =
+    requestedRun !== null && requestedRun > (pollStatus?.run ?? 0);
+  const checking = polling || awaitingRun || serverChecking;
 
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const importingRef = useRef(false);
+  // Foreground failures stay beside the control that failed, with Retry where
+  // trying again can change the result
+  const [addFailure, setAddFailure] = useState<string | null>(null);
+  const [importFailure, setImportFailure] = useState<{
+    message: string;
+    retry?: () => void;
+  } | null>(null);
+  const [rowFailure, setRowFailure] = useState<{
+    feedId: Id<"feeds">;
+    retry: () => void;
+  } | null>(null);
+  // One feed's removal is open at a time; touching another row closes it.
+  const [removingId, setRemovingId] = useState<Id<"feeds"> | null>(null);
+  // Results of the reader's own add and import, shown where they acted
+  const [added, setAdded] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const [importOutcomes, setImportOutcomes] = useState<OpmlOutcome[]>([]);
+  useListKeys(
+    {
+      p: { action: "toggle" },
+      x: { action: "remove" },
+    },
+    [
+      ["p", "Pause or resume the source"],
+      ["x", "Remove the source"],
+    ],
+    true,
+    "Sources",
+  );
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // A successful check shows itself: each feed it updated takes the change wash
+  const checkNow = async () => {
+    setRemovingId(null);
+    setPolling(true);
+    setPollFailed(false);
+    try {
+      const run = await pollNow({});
+      setRequestedRun(run);
+    } catch {
+      setRequestedRun(null);
+      setPollFailed(true);
+    }
+    setPolling(false);
+  };
+
+  const importOpml = async (file: File, resume?: OpmlProgress) => {
+    if (importingRef.current) return;
+    importingRef.current = true;
+    setRemovingId(null);
+    setImporting(true);
+    setImportFailure(null);
+    setImportResult(null);
+    let progress = resume;
+    try {
+      if (!progress) {
+        if (file.size > 2 * 1024 * 1024)
+          throw new Error("Choose an OPML file smaller than 2 MiB.");
+        setImportOutcomes([]);
+        const text = await file.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, "text/xml");
+        if (doc.querySelector("parsererror"))
+          throw new Error("This OPML file isn't valid XML.");
+        const outlines = doc.querySelectorAll("outline[xmlUrl]");
+        if (!outlines.length)
+          throw new Error("No feed URLs found in this OPML file.");
+        if (outlines.length > 2000)
+          throw new Error("Import at most 2,000 feeds from one file.");
+        progress = {
+          entries: Array.from(outlines, (outline) => ({
+            url: outline.getAttribute("xmlUrl") ?? "",
+            title:
+              outline.getAttribute("title") ||
+              outline.getAttribute("text") ||
+              "",
+          })),
+          offset: 0,
+          outcomes: [],
+        };
+      }
+      await importOpmlBatches(progress, (entries) => addBatch({ entries }));
+      const added = progress.outcomes.filter(
+        (o) => o.status === "created",
+      ).length;
+      const duplicates = progress.outcomes.filter(
+        (o) => o.status === "duplicate",
+      ).length;
+      const invalid = progress.outcomes.filter(
+        (o) => o.status === "invalid",
+      ).length;
+      setImportOutcomes([...progress.outcomes]);
+      setImportResult(
+        `Imported ${added} feeds${duplicates ? `; ${duplicates} already added` : ""}${invalid ? `; ${invalid} invalid` : ""}`,
+      );
+    } catch (error) {
+      setImportFailure({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Couldn't read the OPML file.",
+        retry: () => void importOpml(file, progress),
+      });
+      if (progress) setImportOutcomes([...progress.outcomes]);
+    } finally {
+      importingRef.current = false;
+      setImporting(false);
+    }
+  };
+
+  // A drop is refused the same way a pick is: in one sentence, without importing
+  const dropOpml = (files: File[]) => {
+    if (importing) return;
+    const file = files.find((f) => OPML_NAME.test(f.name));
+    if (file) void importOpml(file);
+    else
+      setImportFailure({
+        message: "Marginalia imports OPML files, which end in .opml or .xml.",
+      });
+  };
+
+  const toggle = async (feedId: Id<"feeds">) => {
+    setRowFailure(null);
+    try {
+      await toggleActive({ feedId });
+    } catch {
+      setRowFailure({ feedId, retry: () => void toggle(feedId) });
+    }
+  };
+
+  const handleAdd = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!url.trim()) return;
+    setRemovingId(null);
 
     setAdding(true);
+    setAddFailure(null);
+    setAdded(false);
     try {
       // Use the URL as both title and URL for now — pollFeeds will update title
       await addFeed({
@@ -32,200 +231,305 @@ export default function FeedsPage() {
         title: new URL(url.trim()).hostname,
       });
       setUrl("");
-      toast.success("Feed added. Articles will appear shortly.");
+      setAdded(true);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to add feed",
+      setAddFailure(
+        error instanceof Error ? error.message : "Couldn't add that feed.",
       );
     }
     setAdding(false);
   };
 
-  const handleRemove = async (feedId: Id<"feeds">) => {
-    try {
-      await removeFeed({ feedId });
-      toast.success("Feed removed");
-    } catch {
-      toast.error("Couldn't remove the feed. Try again.");
-    }
-  };
-
   return (
-    <DeskPage
-      title="Sources"
-      action={
-        <button
-          type="button"
-          onClick={async () => {
-            setPolling(true);
-            try {
-              await pollNow({});
-              toast.success("Polling feeds... articles will appear shortly.");
-            } catch {
-              toast.error("Failed to poll");
-            }
-            setPolling(false);
-          }}
-          disabled={polling || !feeds?.length}
-          className="shrink-0 text-[var(--pen)] hover:underline text-sm disabled:opacity-40"
-        >
-          {polling ? "Polling..." : "Poll now"}
-        </button>
-      }
-    >
+    <SettingsPage title="Sources">
       <ReadwiseCard />
 
-      {/* Add feed */}
-      <form onSubmit={handleAdd} className="mb-10">
-        <div className="flex gap-2">
+      <SettingsSection
+        title="Feeds"
+        description="Add a feed URL, or import an OPML file from another reader. New posts arrive in your library."
+        action={
+          <button
+            type="button"
+            onClick={checkNow}
+            disabled={checking || !feeds?.length}
+            className={quietControl}
+          >
+            {checking ? "Checking…" : "Check now"}
+          </button>
+        }
+      >
+        {checking ? (
+          <div className="sticky top-0 z-10 bg-[var(--reader-bg)] py-3">
+            <SyncBar
+              label="Checking feeds"
+              value={
+                !polling && !awaitingRun && pollStatus?.total
+                  ? (pollStatus.processed / pollStatus.total) * 100
+                  : undefined
+              }
+              text={
+                polling || awaitingRun
+                  ? "Starting feed check…"
+                  : pollStatus?.total !== null &&
+                      pollStatus?.total !== undefined
+                    ? `${pollStatus.processed} of ${pollStatus.total} sources processed`
+                    : `Checking feeds… ${pollStatus?.processed ?? 0} sources processed`
+              }
+            />
+          </div>
+        ) : (
+          pollStatus && (
+            <p role="status" className="text-[13px] text-[var(--reader-muted)]">
+              {pollStatus.total !== null &&
+              pollStatus.processed === pollStatus.total
+                ? `Check complete · ${pollStatus.processed} sources processed`
+                : "Check stopped. Check now to continue."}
+            </p>
+          )
+        )}
+        {pollFailed && (
+          <InlineError
+            message="Couldn't check your feeds."
+            onRetry={() => void checkNow()}
+            busy={checking}
+          />
+        )}
+        <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
           <input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://example.com/feed.xml"
             aria-label="Feed URL"
-            className="min-w-0 flex-1 px-4 py-3 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)] text-[var(--reader-fg)] text-sm placeholder:text-[var(--reader-muted)] focus:outline-none focus:border-[var(--reader-focus)]"
+            className={`${fieldControl} max-w-sm flex-1`}
           />
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="px-5 py-3 bg-[var(--reader-fg)] text-[var(--reader-bg)] rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
+            className={primaryControl}
           >
             {adding ? "Adding…" : "Add"}
           </button>
-        </div>
-      </form>
-
-      {/* OPML Import */}
-      <div className="mb-10">
-        <label className="relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[var(--reader-border-strong)] cursor-pointer hover:border-[var(--pen)] focus-within:outline focus-within:outline-1 focus-within:outline-[var(--reader-focus)] focus-within:outline-offset-2 transition-colors">
-          <span className="text-xs text-[var(--reader-muted)]">
-            {importing ? "Importing feeds…" : "Import OPML file"}
-          </span>
-          <input
-            type="file"
-            accept=".opml,.xml"
-            className="sr-only"
-            disabled={importing}
-            onChange={async (e) => {
-              const input = e.currentTarget;
-              const file = input.files?.[0];
-              if (!file) return;
-              setImporting(true);
-              try {
-                const text = await file.text();
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(text, "text/xml");
-                if (doc.querySelector("parsererror"))
-                  throw new Error("This OPML file isn't valid XML.");
-                const outlines = doc.querySelectorAll("outline[xmlUrl]");
-                if (!outlines.length)
-                  throw new Error("No feed URLs found in this OPML file.");
-                let added = 0;
-                let skipped = 0;
-                for (const outline of outlines) {
-                  const feedUrl = outline.getAttribute("xmlUrl");
-                  const title =
-                    outline.getAttribute("title") ||
-                    outline.getAttribute("text") ||
-                    "";
-                  if (!feedUrl) continue;
-                  try {
-                    await addFeed({
-                      url: feedUrl,
-                      title: title || new URL(feedUrl).hostname,
-                    });
-                    added++;
-                  } catch {
-                    skipped++;
-                  }
-                }
-                toast.success(
-                  `Imported ${added} feeds${skipped ? `; ${skipped} couldn't be added` : ""}`,
-                );
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Couldn't read the OPML file.",
-                );
-              } finally {
-                input.value = "";
-                setImporting(false);
-              }
-            }}
+          <SavedMark visible={added}>Added</SavedMark>
+        </form>
+        {addFailure && (
+          <InlineError
+            message={addFailure}
+            busy={adding}
+            onRetry={() => void handleAdd()}
           />
-        </label>
-      </div>
+        )}
 
-      {/* Feed list */}
-      {feeds === undefined && (
-        <p role="status" className="py-8 text-sm text-[var(--reader-muted)]">
-          Loading sources…
+        <p className="text-sm text-[var(--reader-muted)]">
+          or{" "}
+          <label
+            className={`${textControl} cursor-pointer focus-within:outline focus-within:outline-1 focus-within:outline-[var(--reader-focus)] focus-within:outline-offset-2`}
+          >
+            {importing ? "Importing feeds…" : "import an OPML file"}
+            <input
+              type="file"
+              accept=".opml,.xml"
+              className="sr-only"
+              disabled={importing}
+              onChange={(e) => {
+                const input = e.currentTarget;
+                const file = input.files?.[0];
+                if (file)
+                  void importOpml(file).finally(() => {
+                    input.value = "";
+                  });
+              }}
+            />
+          </label>
+          {importResult && (
+            <SavedMark visible hold>
+              {importResult}
+            </SavedMark>
+          )}
         </p>
-      )}
-      {feeds && feeds.length === 0 ? (
-        <p className="text-center text-[var(--reader-muted)] text-sm py-12">
-          No feeds yet. Add one above.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          {feeds?.map((feed) => (
-            <div
-              key={feed._id}
-              className="flex flex-wrap sm:flex-nowrap items-center gap-4 p-4 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)]"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[var(--reader-fg)] truncate">
-                  {feed.title}
-                </p>
-                <p className="text-xs text-[var(--reader-muted)] truncate">
-                  {feed.url}
-                </p>
-                <div className="flex gap-3 mt-1 text-xs text-[var(--reader-muted)]">
-                  {feed.lastFetchedAt && (
-                    <span>Fetched {formatDate(feed.lastFetchedAt)}</span>
-                  )}
-                  {feed.lastError && (
-                    <span className="text-annotation-tension">
-                      Error: {feed.lastError}
-                    </span>
-                  )}
-                </div>
-              </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-pressed={feed.isActive}
-                  aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
-                  onClick={() =>
-                    toggleActive({ feedId: feed._id }).catch(() =>
-                      toast.error("Couldn't update the feed. Try again."),
-                    )
-                  }
-                  className={`px-3 py-1 rounded-full text-xs font-sans font-medium transition-colors ${
-                    feed.isActive
-                      ? "bg-annotation-context/10 text-annotation-context"
-                      : "bg-[var(--reader-chip)] text-[var(--reader-muted)]"
-                  }`}
-                >
-                  {feed.isActive ? "Active" : "Paused"}
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove ${feed.title}`}
-                  onClick={() => handleRemove(feed._id)}
-                  className="text-[var(--reader-muted)] hover:text-[var(--reader-fg)] text-sm transition-colors"
-                  title="Remove feed"
-                >
-                  &times;
-                </button>
-              </div>
-            </div>
+        {importOutcomes.length > 0 && (
+          <details className="text-sm text-[var(--reader-muted)]">
+            <summary>Import details ({importOutcomes.length})</summary>
+            <ul>
+              {importOutcomes.map((outcome, index) => (
+                <li key={`${index}:${outcome.url}`}>
+                  {outcome.url}:{" "}
+                  {outcome.status === "created"
+                    ? "Added"
+                    : outcome.status === "duplicate"
+                      ? "Already added"
+                      : outcome.message || "Invalid feed"}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        {importFailure &&
+          (importFailure.retry ? (
+            <InlineError
+              message={importFailure.message}
+              busy={importing}
+              onRetry={importFailure.retry}
+            />
+          ) : (
+            // A refused file is not retried; the reader picks another
+            <p role="alert" className="inline-error">
+              <span className="inline-error-dot" aria-hidden="true" />
+              <span>{importFailure.message}</span>
+            </p>
           ))}
+
+        {feeds === undefined && (
+          <Skeleton label="Loading sources">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="border-b border-[var(--reader-border)] py-3"
+              >
+                <SkeletonBar className="h-4 w-[40%]" />
+                <SkeletonBar className="mt-2 h-3.5 w-[60%]" />
+              </div>
+            ))}
+          </Skeleton>
+        )}
+        {feeds && feeds.length === 0 && (
+          <p className="text-sm text-[var(--reader-muted)]">
+            No feeds yet. Add one above.
+          </p>
+        )}
+        <div>
+          {feeds?.map((feed) => {
+            const queued =
+              feed.isActive &&
+              (polling ||
+                awaitingRun ||
+                (serverChecking && feed.checkRun !== pollStatus?.run));
+            const running =
+              feed.isActive &&
+              !queued &&
+              serverChecking &&
+              feed.checkingSince !== undefined;
+            return (
+              <div key={feed._id} data-nav-row>
+                <ChangeWash
+                  value={feed.lastFetchedAt}
+                  className="change-wash group flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-[var(--reader-border)] py-3"
+                >
+                  <div
+                    className="min-w-0 flex-1 text-sm"
+                    data-nav-item
+                    tabIndex={-1}
+                  >
+                    <p className="truncate font-medium">{feed.title}</p>
+                    <p className="truncate text-[13px] text-[var(--reader-muted)]">
+                      {feed.url}
+                    </p>
+                    {(feed.lastFetchedAt ||
+                      feed.articleCount !== undefined) && (
+                      <p className="text-[13px] text-[var(--reader-muted)]">
+                        {[
+                          feed.lastFetchedAt &&
+                            `Fetched ${formatDate(feed.lastFetchedAt)}`,
+                          feed.articleCount !== undefined &&
+                            `${feed.articleCount} in your library`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {!feed.isActive && (
+                      <p className="text-[13px] text-[var(--reader-muted)]">
+                        Paused
+                      </p>
+                    )}
+                    {queued && (
+                      <p
+                        role="status"
+                        className="mt-1 text-[13px] text-[var(--reader-muted)]"
+                      >
+                        Waiting to check…
+                      </p>
+                    )}
+                    {running && (
+                      <div className="mt-2">
+                        <SyncBar
+                          label={`Checking ${feed.title}`}
+                          text="Checking…"
+                        />
+                      </div>
+                    )}
+                    {!queued && !running && feed.lastError && (
+                      <p
+                        role="alert"
+                        className="text-[13px] text-[var(--danger)]"
+                      >
+                        Error: {feed.lastError}
+                      </p>
+                    )}
+                  </div>
+                  {/* Shown on hover and focus, and always on touch screens */}
+                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                    <button
+                      type="button"
+                      data-nav-action="toggle"
+                      aria-pressed={feed.isActive}
+                      aria-label={`${feed.isActive ? "Pause" : "Resume"} ${feed.title}`}
+                      onClick={() => {
+                        setRemovingId(null);
+                        void toggle(feed._id);
+                      }}
+                      className={textControl}
+                    >
+                      {feed.isActive ? "Pause" : "Resume"}
+                    </button>
+                    <button
+                      type="button"
+                      data-nav-action="remove"
+                      aria-label={`Remove ${feed.title}`}
+                      onClick={() => setRemovingId(feed._id)}
+                      className={destructiveControl}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </ChangeWash>
+                {rowFailure?.feedId === feed._id && (
+                  <InlineError
+                    message="Couldn't update the feed."
+                    onRetry={rowFailure.retry}
+                  />
+                )}
+                {removingId === feed._id && (
+                  <RemoveFeedConfirm
+                    feed={feed}
+                    onClose={() => setRemovingId(null)}
+                  />
+                )}
+                {removingId !== feed._id &&
+                  suggestionsByFeed
+                    .get(feed._id)
+                    ?.map((s) => (
+                      <FeedSuggestion
+                        key={s.feedId}
+                        feed={feed}
+                        offered={s.offered}
+                        opened={s.opened}
+                      />
+                    ))}
+              </div>
+            );
+          })}
         </div>
-      )}
-    </DeskPage>
+      </SettingsSection>
+
+      <ApiTokens />
+      <FileDrop
+        onFiles={dropOpml}
+        title="Drop to import your feeds"
+        hint="An OPML file from another reader"
+      />
+    </SettingsPage>
   );
 }

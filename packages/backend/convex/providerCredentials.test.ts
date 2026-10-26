@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ownerTest,
+  runScheduled,
   saveTestCredential,
   secondReaderTest,
   TEST_ENCRYPTION_KEY,
@@ -26,6 +27,7 @@ beforeEach(() => {
   vi.stubEnv("OPENROUTER_API_KEY", "");
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -262,6 +264,8 @@ describe("models from the reader's own providers", () => {
       "openrouter:deepseek/deepseek-v4.1-flash",
       "openrouter:openai/gpt-6-luna",
       "openrouter:google/gemini-3.8-flash",
+      "openrouter:anthropic/claude-sonnet-5.5",
+      "openrouter:~openai/gpt-terra-latest",
       "openai:gpt-6-luna",
       "openai:gpt-6.1-sol",
     ]);
@@ -501,6 +505,8 @@ describe("deployment keys", () => {
 });
 
 describe("embeddings", () => {
+  beforeEach(() => vi.useFakeTimers());
+
   async function readerNote(
     t: Awaited<ReturnType<typeof secondReaderTest>>["t"],
     userId: string,
@@ -537,6 +543,7 @@ describe("embeddings", () => {
     const { fetchMock } = mockProviders();
 
     await t.action(internal.actions.embedUserNote.embed, { noteId });
+    await runScheduled(t);
     expect(await reader.query(api.userNotes.getById, { noteId })).toMatchObject(
       { contentPlain: "My note" },
     );
@@ -572,6 +579,7 @@ describe("embeddings", () => {
       Response.json({ data: [{ index: 0, embedding }] }),
     );
     await t.action(internal.actions.embedUserNote.embed, { noteId });
+    await runScheduled(t);
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("https://api.openai.com/v1/embeddings");
     expect(calls[0].body.model).toBe("text-embedding-3-small");

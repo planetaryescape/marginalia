@@ -4,7 +4,7 @@ Enable **Your account → Bible reading → Enable Bible reading**. The setting 
 
 ## Find a passage
 
-On Home, choose **Articles only**, **Articles + Bible**, or **Bible only** from **Look in**. The same control appears in the search picker. Your choice applies to both search and the reading-time buttons.
+On Home, choose **Articles only**, **Articles + Bible**, or **Bible only** from **Look in**. Choose a reading-time button to constrain Bible suggestions, then use **Bible topic or passage** to add a topic or enter a reference. Article discovery keeps the existing floating search picker; in mixed mode the Bible finder appears alongside it, independently.
 
 Try these searches:
 
@@ -13,9 +13,9 @@ Try these searches:
 - `5 minutes about forgiveness` suggests passages related to the topic and within the estimated time.
 - `I have 10 minutes` offers starter passages without an AI request.
 
-Use **Browse the Bible** in the picker to choose any of the 66 books and a chapter. A passage can contain a verse range within one chapter, a whole chapter, or up to three consecutive chapters, such as `Matthew 5-7`. Chapter navigation in the reader continues into the next book.
+Use **Browse the Bible** below the Bible finder to choose any of the 66 books and a chapter. A passage can contain a verse range within one chapter, a whole chapter, or up to three consecutive chapters, such as `Matthew 5-7`. Chapter navigation in the reader continues into the next book.
 
-For combined searches, article results and Bible suggestions are retrieved independently. If one fails, the other remains visible with a retry control. Bible-only searches do not query your article library.
+In mixed mode, article results and Bible suggestions are retrieved independently. If one fails, the other remains usable. Bible-only mode hides the article search and recommendation slot.
 
 ## Read and annotate
 
@@ -31,7 +31,9 @@ Turn Bible reading off in **Your account** to remove its discovery controls and 
 
 ## Translation and availability
 
-This release offers the **World English Bible (WEB)**, a public-domain, relatively literal translation. ESV, NASB, NIV, NLT and The Message are listed as unavailable, grouped by translation style. They cannot be activated with an API key alone. See the [translation licensing research](research/bible-translations.md) for the required permissions and provider obligations.
+This release offers the **World English Bible (WEB)**, a public-domain, relatively literal translation. ESV, NASB, NIV, NLT and The Message remain unavailable pending their provider connections and the permissions needed for this app's storage and AI features. They are never silently replaced with WEB. See the [direct access research](research/bible-direct-access.md) for provider-specific access and obligations.
+
+Marginalia was registered on YouVersion on 26 October 2026. The portal shows the app as **In development** and an initial key exists. Biblica (NIV) and Lockman (NASB) fast-track agreements were available but have not been accepted. Public Domain and Creative Commons is the only confirmed active entitlement. Registration is not proof of permission to display or send copyrighted editions to AI, and the key has not been connected to the deployed app.
 
 Text is fetched server-side, one chapter at a time, from [bible-api.com](https://bible-api.com/), then retained in your private library. The app checks the returned translation, book, chapter and requested verse endpoints before saving it. Scripture is escaped before rendering. No whole-Bible import or pre-annotation runs when you enable the feature.
 

@@ -2,8 +2,16 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import type { ReadingScope } from "./bible";
-import { type EmbeddingTarget, embedText } from "./embeddings";
+import { host } from "./articleCard";
+import type { EmbeddingTarget } from "./embeddings";
+import type { LibraryFindMatch } from "./librarySearch";
+import { cachedQueryEmbedding } from "./queryEmbeddingCache";
+import type { Timings } from "./serverTiming";
+
+type LibraryRunner = Pick<
+  ActionCtx,
+  "runQuery" | "runMutation" | "vectorSearch"
+>;
 
 export const libraryRequestSchema = z.object({
   question: z.string().trim().min(1).max(2000),
@@ -26,15 +34,15 @@ const MAX_ARTICLES = 40;
 export const LIBRARY_SYSTEM = `You are the librarian of the reader's personal library in Marginalia, a reading app. The library holds everything they have saved or read, with their own impressions (rating, tags, a line on what stayed with them), notes, highlights and questions.
 
 You help them:
-- find things they half-remember ("that piece about cows last month"), using read dates, topics and their impressions
+- find things they half-remember ("that piece about cows last month"), using finished dates, topics and their impressions
 - recall how they felt about what they read ("what did I love in September?")
-- choose what to read next from what they haven't read yet ("something about science", "I want to read about cars")
+- choose what to read next from what is up next ("something about science", "I want to read about cars")
 
 Rules:
 - Use only the library items given. If nothing fits, say so plainly and suggest a different way to ask.
 - Link every article you mention as [its title](/read/ID), using the id given in square brackets.
 - When their impression or notes are relevant, mention them in their words ("you called it…", "you rated it Loved it").
-- For recommendations, give 2–4 unread picks with one short line each on why it fits, and note the reading time.
+- For recommendations, give 2–4 up next picks with one short line each on why it fits, and note the reading time.
 - You can't change anything in the library. If they want to record how they felt about a piece, tell them to use the star on the article page.
 - Start with a direct one-sentence answer. Stay under 160 words. No headings, no preamble.`;
 
@@ -47,12 +55,9 @@ function day(timestamp: number) {
   });
 }
 
-function host(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return undefined;
-  }
+function fulfilled<T>(result: PromiseSettledResult<T>): T {
+  if (result.status === "rejected") throw result.reason;
+  return result.value;
 }
 
 /**
@@ -60,47 +65,69 @@ function host(url: string) {
  * and formats them with read status, dates and the reader's own impressions.
  */
 export async function retrieveLibraryContext(
-  ctx: ActionCtx,
+  ctx: LibraryRunner,
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
-  scope?: ReadingScope,
+  timings?: Timings,
 ) {
-  const vector = await embedText(embedder, question.slice(0, 4000));
-
+  const [activityResult, hitsResult] = await Promise.allSettled([
+    ctx.runQuery(internal.library.recentActivity, { userId }),
+    (async () => {
+      const { vector, cached, publication } = await cachedQueryEmbedding(
+        ctx,
+        userId,
+        question,
+        embedder,
+      );
+      try {
+        timings?.mark(cached ? "embed-cached" : "embed");
+        embedder.signal?.throwIfAborted();
+        const [articles, impressions, notes, highlights, threads] =
+          await Promise.allSettled([
+            ctx.vectorSearch("articles", "by_embedding", {
+              vector,
+              limit: 24,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("impressions", "by_embedding", {
+              vector,
+              limit: 10,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("userNotes", "by_embedding", {
+              vector,
+              limit: 8,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("highlights", "by_embedding", {
+              vector,
+              limit: 8,
+              filter: (q) => q.eq("userId", userId),
+            }),
+            ctx.vectorSearch("companionThreads", "by_embedding", {
+              vector,
+              limit: 6,
+              filter: (q) => q.eq("userId", userId),
+            }),
+          ]);
+        return [
+          fulfilled(articles),
+          fulfilled(impressions),
+          fulfilled(notes),
+          fulfilled(highlights),
+          fulfilled(threads),
+        ] as const;
+      } finally {
+        await publication;
+      }
+    })(),
+  ]);
+  const activity = fulfilled(activityResult);
+  const hits = fulfilled(hitsResult);
+  embedder.signal?.throwIfAborted();
   const [articleHits, impressionHits, noteHits, highlightHits, threadHits] =
-    await Promise.all([
-      ctx.vectorSearch("articles", "by_embedding", {
-        vector,
-        limit: 24,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("impressions", "by_embedding", {
-        vector,
-        limit: 10,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("userNotes", "by_embedding", {
-        vector,
-        limit: 8,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("highlights", "by_embedding", {
-        vector,
-        limit: 8,
-        filter: (q) => q.eq("userId", userId),
-      }),
-      ctx.vectorSearch("companionThreads", "by_embedding", {
-        vector,
-        limit: 6,
-        filter: (q) => q.eq("userId", userId),
-      }),
-    ]);
-
-  const activity: {
-    impressions: Doc<"impressions">[];
-    interactions: Doc<"articleInteractions">[];
-  } = await ctx.runQuery(internal.library.recentActivity, { userId });
+    hits;
 
   const related: {
     impressions: Doc<"impressions">[];
@@ -114,6 +141,7 @@ export async function retrieveLibraryContext(
     highlightIds: highlightHits.map((h) => h._id),
     threadIds: threadHits.map((h) => h._id),
   });
+  embedder.signal?.throwIfAborted();
 
   // Articles to describe: semantic matches first, then anything the reader's
   // own words point at, then recent rated reads (for "what did I love…")
@@ -137,9 +165,9 @@ export async function retrieveLibraryContext(
     {
       userId,
       articleIds: order,
-      scope,
     },
   );
+  embedder.signal?.throwIfAborted();
 
   const impressionsByArticle = new Map(
     [...activity.impressions, ...related.impressions].map((row) => [
@@ -162,10 +190,10 @@ export async function retrieveLibraryContext(
     const finished = finishedAt.get(article._id);
     const opened = openedAt.get(article._id);
     const status = finished
-      ? `read ${day(finished)}`
+      ? `finished ${day(finished)}`
       : opened
-        ? `started ${day(opened)}, not finished`
-        : "unread";
+        ? `reading since ${day(opened)}`
+        : "up next";
     const meta = [
       article.author,
       host(article.url),
@@ -227,10 +255,10 @@ export async function retrieveLibraryContext(
               author: article.author ?? null,
               minutes: article.estimatedReadMinutes ?? null,
               status: finishedAt.has(article._id)
-                ? "Read"
+                ? "Finished"
                 : openedAt.has(article._id)
-                  ? "Started"
-                  : "Unread",
+                  ? "Reading"
+                  : "Up next",
             },
           ]
         : [],
@@ -238,12 +266,116 @@ export async function retrieveLibraryContext(
   };
 }
 
+/**
+ * What to search the library for. A follow-up like "anything else?" means
+ * nothing on its own, so it is searched together with what the reader already
+ * asked; that keeps the notes and highlights the first answer drew on.
+ */
+export function libraryRetrievalQuery(
+  question: string,
+  history: LibraryRequest["history"],
+): string {
+  const earlier = history
+    .filter((turn) => turn.role === "user")
+    .slice(-3)
+    .map((turn) => turn.content);
+  return [...earlier, question].join("\n").slice(-4000);
+}
+
 export async function buildLibraryContext(
   ctx: ActionCtx,
   userId: string,
   question: string,
   embedder: EmbeddingTarget,
+  history: LibraryRequest["history"] = [],
+  timings?: Timings,
 ): Promise<string> {
-  return (await retrieveLibraryContext(ctx, userId, question, embedder))
-    .context;
+  return (
+    await retrieveLibraryContext(
+      ctx,
+      userId,
+      libraryRetrievalQuery(question, history),
+      embedder,
+      timings,
+    )
+  ).context;
+}
+
+const FIND_LIMIT = 24;
+const STATUS_ORDER: Record<string, number> = {
+  "Up next": 0,
+  Reading: 1,
+  Finished: 2,
+};
+
+/**
+ * The search-only path: embed the question, vector-search the reader's
+ * articles and return them closest first, with no model call. Up next and
+ * Reading pieces come before finished ones, since this answers "what
+ * could I read", and the order is otherwise the vector rank.
+ */
+export async function findLibraryArticles(
+  ctx: LibraryRunner,
+  userId: string,
+  question: string,
+  embedder: EmbeddingTarget,
+  timings: Timings,
+): Promise<{ matches: LibraryFindMatch[]; more: boolean }> {
+  const { vector, cached, publication } = await cachedQueryEmbedding(
+    ctx,
+    userId,
+    question,
+    embedder,
+  );
+  try {
+    timings.mark(cached ? "embed-cached" : "embed");
+    embedder.signal?.throwIfAborted();
+    const hits = await ctx.vectorSearch("articles", "by_embedding", {
+      vector,
+      limit: FIND_LIMIT,
+      filter: (q) => q.eq("userId", userId),
+    });
+    timings.mark("search");
+    embedder.signal?.throwIfAborted();
+    const rows: {
+      articleId: Id<"articles">;
+      title: string;
+      url: string;
+      author: string | null;
+      minutes: number | null;
+      status: string;
+    }[] = await ctx.runQuery(internal.library.findArticles, {
+      userId,
+      articleIds: hits.map((hit) => hit._id),
+    });
+    timings.mark("load");
+    const byId = new Map(rows.map((row) => [row.articleId, row]));
+    const seenUrls = new Set<string>();
+    const ranked = hits.flatMap((hit, rank) => {
+      const row = byId.get(hit._id);
+      // The same page saved twice is one choice.
+      if (!row || seenUrls.has(row.url)) return [];
+      seenUrls.add(row.url);
+      return [{ rank, row }];
+    });
+    ranked.sort(
+      (a, b) =>
+        (STATUS_ORDER[a.row.status] ?? 0) - (STATUS_ORDER[b.row.status] ?? 0) ||
+        a.rank - b.rank,
+    );
+    return {
+      matches: ranked.map(({ row }) => ({
+        articleId: row.articleId,
+        title: row.title,
+        author: row.author,
+        source: host(row.url) ?? null,
+        url: row.url,
+        minutes: row.minutes,
+        status: row.status,
+      })),
+      more: hits.length >= FIND_LIMIT,
+    };
+  } finally {
+    await publication;
+  }
 }

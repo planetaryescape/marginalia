@@ -1,6 +1,10 @@
 # Direct publisher and platform access to requested translations
 
-Checked 2026-10-26. These findings correct the impression that every copyrighted translation requires a separately negotiated, paid agreement before any app use. Published API terms can grant permission; access for display, retention and AI processing still need to be checked separately. No account was created or agreement accepted, and no app code changed during this research.
+Checked 2026-10-26. These findings correct the impression that every copyrighted translation requires a separately negotiated, paid agreement before any app use. Published API terms can grant permission; access for display, retention and AI processing still need to be checked separately.
+
+## Setup performed
+
+After the user signed in and explicitly approved app registration, Marginalia was created once in YouVersion using Codex's Sky computer-use integration in Dia. It persists after reload with status **In development**, and an initial app key exists; its value was not copied into code, chat or logs. The account offers fast-track Biblica (including NIV) and Lockman (including NASB) agreements, but neither has been accepted. Their agreement bodies opened in Google Docs but were not readable through the available desktop interface, so their storage and AI conditions remain unverified. Public Domain and Creative Commons is active. ESV, NLT and The Message entitlements have not been obtained. The live reader must not present these editions as connected.
 
 ## Practical routes
 

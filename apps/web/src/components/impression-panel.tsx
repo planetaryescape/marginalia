@@ -4,6 +4,7 @@ import type { Doc, Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { Star } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { cn } from "@/lib/utils";
 
 export const RATINGS = [
@@ -62,6 +63,7 @@ export function ImpressionPanel({
     setStatus("saving");
     try {
       await save({ articleId, ...patch });
+      invalidateTopicSearchCache();
       setStatus("saved");
     } catch {
       setStatus("error");
@@ -76,7 +78,10 @@ export function ImpressionPanel({
     pendingNote.current = null;
     setStatus("saving");
     void save(pending).then(
-      () => setStatus("saved"),
+      () => {
+        invalidateTopicSearchCache();
+        setStatus("saved");
+      },
       () => {
         if (!pendingNote.current) pendingNote.current = pending;
         setStatus("error");
@@ -128,7 +133,7 @@ export function ImpressionPanel({
                 "relative flex min-w-0 cursor-pointer flex-col items-center gap-1 rounded-lg px-1 py-2 ring-1 transition-colors focus-within:ring-[var(--reader-focus)]",
                 rating === value
                   ? "bg-[var(--pen-soft)] text-[var(--pen)] ring-[var(--pen)]"
-                  : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] ring-[var(--reader-border)] hover:ring-[var(--pen)]",
+                  : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] ring-[var(--reader-border)] hover:ring-[var(--reader-border-strong)]",
               )}
             >
               <input
@@ -186,7 +191,7 @@ export function ImpressionPanel({
               className={cn(
                 "h-7 px-2.5 rounded-full text-[12px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
                 active
-                  ? "bg-[var(--pen-soft)] text-[var(--pen)] ring-1 ring-[var(--pen)]"
+                  ? "bg-[var(--reader-chip)] text-[var(--ink)] ring-1 ring-[var(--ink-muted)]"
                   : "bg-[var(--reader-chip)] text-[var(--reader-fg-soft)] hover:text-[var(--reader-fg)]",
               )}
             >
@@ -212,7 +217,7 @@ export function ImpressionPanel({
         onBlur={() => flushRef.current()}
         placeholder="What stayed with you?"
         aria-label="What stayed with you?"
-        className="mt-3 w-full resize-none rounded-lg bg-[var(--reader-chip)] px-3 py-2 font-serif text-[15px] leading-snug text-[var(--reader-fg)] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)] focus:ring-1 focus:ring-[var(--reader-focus)]"
+        className="mt-3 w-full resize-none rounded-none border-0 border-b border-[var(--reader-border-strong)] bg-transparent px-0 py-2 font-serif text-[15px] leading-snug text-[var(--reader-fg)] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-[var(--reader-muted)] focus:border-[var(--ink-muted)]"
       />
     </div>
   );
@@ -231,17 +236,23 @@ export function ImpressionSummary({
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {impression.rating && (
           <span className="inline-flex items-center gap-1.5 font-medium text-[var(--pen)]">
-            <span className="flex gap-[3px]" aria-hidden>
+            {/* A rating is the reader's judgement, so its stars take the pen colour (D-DES-032) */}
+            <span
+              data-testid="summary-stars"
+              className="inline-flex gap-[2px] leading-none"
+              aria-hidden
+            >
               {RATINGS.map((label, i) => (
-                <span
+                <Star
                   key={label}
-                  className="w-[7px] h-[7px] rounded-[2px]"
-                  style={{
-                    background:
-                      i < (impression.rating ?? 0)
-                        ? "var(--pen)"
-                        : "var(--reader-border-strong)",
-                  }}
+                  size={13}
+                  strokeWidth={1.5}
+                  fill={i < (impression.rating ?? 0) ? "currentColor" : "none"}
+                  className={
+                    i < (impression.rating ?? 0)
+                      ? "text-[var(--pen)]"
+                      : "text-[var(--ink-muted)]"
+                  }
                 />
               ))}
             </span>

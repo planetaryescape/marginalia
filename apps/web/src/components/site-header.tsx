@@ -1,25 +1,8 @@
 "use client";
-import { api } from "@marginalia/backend/convex/_generated/api";
-import { useAction, useQuery } from "convex/react";
-import {
-  ArrowRight,
-  Bookmark,
-  BookOpen,
-  ChartNoAxesColumn,
-  Home,
-  Keyboard,
-  Library,
-  Link2,
-  NotebookPen,
-  UserRound,
-  UsersRound,
-} from "lucide-react";
+import { Home, Library, NotebookPen, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
-import { toast } from "sonner";
-import { InstallApp } from "@/components/install-app";
-import { SourceLink } from "@/components/source-link";
+import { AccountMenu } from "@/components/account-menu";
 import { emitCommand } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -28,204 +11,133 @@ export interface NavItem {
   label: string;
 }
 
-export function useSiteNav(): NavItem[] {
-  const savedCount = useQuery(api.savedArticles.count);
-  return [
-    { href: "/library", label: "Library" },
-    { href: "/notes", label: "Notes" },
-    { href: "/reading", label: "This week" },
-    { href: "/saved", label: savedCount ? `Saved · ${savedCount}` : "Saved" },
-    { href: "/feeds", label: "Sources" },
-  ];
+/**
+ * The rooms in the header and on the phone bar. Desk is the wordmark. Your
+ * reading is never linked from the reader or Notes (D-DES-060).
+ */
+export const ROOMS: NavItem[] = [
+  { href: "/library", label: "Library" },
+  { href: "/notes", label: "Notes" },
+  { href: "/reading", label: "Your reading" },
+];
+
+/**
+ * The settings pages name themselves here instead of in their own column, so
+ * the page title is the only heading a settings page has.
+ */
+export const SETTINGS_PAGES: Record<string, string> = {
+  "/feeds": "Sources",
+  "/readers": "Readers",
+  "/account": "Account",
+};
+
+/** A room is current on its own path and anything beneath it. */
+export function isCurrentRoom(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function PasteLink({ large = false }: { large?: boolean }) {
-  const router = useRouter();
-  const addByUrl = useAction(api.actions.addArticleByUrl.add);
-  const [url, setUrl] = useState("");
-  const [adding, setAdding] = useState(false);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url.trim() || adding) return;
-    setAdding(true);
-    try {
-      const { articleId, alreadyExists } = await addByUrl({ url: url.trim() });
-      toast.success(
-        alreadyExists
-          ? "Already in your library. Opening it."
-          : "Added. Marginalia is on its way.",
-      );
-      setUrl("");
-      router.push(`/read/${articleId}`);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Couldn't fetch that article",
-      );
-    }
-    setAdding(false);
-  };
-
-  return (
-    <form
-      onSubmit={submit}
-      className={cn(
-        "focus-frame flex items-center gap-2 rounded-full bg-[var(--reader-chip)] ring-1 ring-[var(--reader-border)] focus-within:ring-[var(--reader-focus)] transition-shadow",
-        large ? "h-12 pl-5 pr-1.5 w-full max-w-xl" : "h-9 pl-3.5 pr-1 w-full",
-      )}
-    >
-      <Link2
-        size={large ? 16 : 14}
-        className="shrink-0 text-[var(--reader-muted)]"
-      />
-      <input
-        type="url"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="Paste a link to read"
-        aria-label="Paste a link to read"
-        className={cn(
-          "flex-1 min-w-0 bg-transparent outline-none text-[var(--reader-fg)] placeholder:text-[var(--reader-muted)]",
-          large ? "text-[15px]" : "text-[13px]",
-        )}
-      />
-      <button
-        type="submit"
-        disabled={!url.trim() || adding}
-        aria-label="Read"
-        className={cn(
-          "shrink-0 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)] transition-opacity disabled:opacity-25",
-          large ? "h-9 px-4 text-[13px] font-medium gap-1.5" : "w-7 h-7",
-        )}
-      >
-        {large && (adding ? "Fetching…" : "Read")}
-        {!large && <ArrowRight size={13} />}
-        {large && !adding && <ArrowRight size={14} />}
-      </button>
-    </form>
-  );
-}
-
-/** The main destinations, plus Readers for the owner. */
-export function useMainNav(): NavItem[] {
-  const reader = useQuery(api.auth.currentReader, {});
-  const siteNav = useSiteNav();
-  // Access management is the owner's alone; the backend refuses everyone else
-  return reader?.isOwner
-    ? [...siteNav, { href: "/readers", label: "Readers" }]
-    : siteNav;
-}
-
-/** Wordmark, page links and the paste-a-link field, shared by home and library. */
-export function SiteHeader({ showPaste = true }: { showPaste?: boolean }) {
-  const nav = useMainNav();
+/** Wordmark, the three rooms and the account menu, shared by the desk frame. */
+export function SiteHeader() {
   const pathname = usePathname();
+  const settingsPage = SETTINGS_PAGES[pathname];
   return (
     <header className="shrink-0 mx-auto w-full max-w-[1180px] px-5 md:px-10 h-14 md:h-16 flex items-center gap-4 md:gap-6">
       <Link
         href="/"
-        data-reader-transition
-        className="font-serif text-[21px] md:text-[22px] tracking-tight shrink-0"
+        aria-current={pathname === "/" ? "page" : undefined}
+        className={roomClass}
       >
         Marginalia
       </Link>
       <nav
         aria-label="Main navigation"
-        className="hidden md:flex items-center gap-5 text-[13px] text-[var(--reader-muted)]"
+        className="hidden md:flex items-center gap-6 text-[13px] text-[var(--reader-muted)]"
       >
-        {nav.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            data-reader-transition
-            aria-current={pathname === item.href ? "page" : undefined}
-            className="hover:text-[var(--reader-fg)] transition-colors aria-[current=page]:text-[var(--reader-fg)]"
-          >
-            {item.label}
-          </Link>
-        ))}
+        {ROOMS.map((room) => {
+          const current = isCurrentRoom(pathname, room.href);
+          return (
+            <Link
+              key={room.href}
+              href={room.href}
+              aria-current={current ? "page" : undefined}
+              className={cn(
+                "hover:text-[var(--reader-fg)] transition-colors",
+                current &&
+                  "text-[var(--reader-fg)] underline underline-offset-[8px] decoration-[var(--reader-border-strong)]",
+              )}
+            >
+              {room.label}
+            </Link>
+          );
+        })}
       </nav>
-      {showPaste && (
-        <div className="ml-auto w-full max-w-[280px] min-w-0">
-          <PasteLink />
-        </div>
+      {settingsPage && (
+        <p className="ml-auto min-w-0 truncate text-[13px] text-[var(--reader-muted)]">
+          Settings · {settingsPage}
+        </p>
       )}
-      <div className={`flex items-center gap-1 ${showPaste ? "" : "ml-auto"}`}>
-        <Link
-          href="/account"
-          data-reader-transition
-          aria-label="Your account"
-          className="w-11 h-11 md:w-8 md:h-8 flex items-center justify-center text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
-        >
-          <UserRound size={19} />
-        </Link>
-        <SourceLink className="hidden md:flex" />
-        <InstallApp />
-        <button
-          type="button"
-          aria-label="Keyboard shortcuts"
-          aria-keyshortcuts="Shift+/"
-          title="Keyboard shortcuts (?)"
-          onClick={() => emitCommand("open-shortcuts")}
-          className="hidden md:flex shrink-0 h-8 w-8 items-center justify-center rounded-lg text-[var(--reader-muted)] hover:text-[var(--reader-fg)]"
-        >
-          <Keyboard size={17} />
-        </button>
+      <div className={cn("flex items-center", !settingsPage && "ml-auto")}>
+        <AccountMenu />
       </div>
     </header>
   );
 }
 
-export function MobileNav({ items }: { items: NavItem[] }) {
-  const pathname = usePathname();
-  const mobile = [{ href: "/", label: "Home" }, ...items];
-  const icons = {
-    "/": Home,
-    "/library": Library,
-    "/notes": NotebookPen,
-    "/reading": ChartNoAxesColumn,
-    "/saved": Bookmark,
-    "/feeds": BookOpen,
-    "/readers": UsersRound,
+const roomClass =
+  "font-serif text-[21px] md:text-[22px] tracking-tight shrink-0 aria-[current=page]:underline aria-[current=page]:underline-offset-[8px] aria-[current=page]:decoration-[var(--reader-border-strong)]";
+
+/**
+ * Search opens the picker. The picker lives on the desk, so from another room
+ * Search goes to the desk and opens it there.
+ */
+function useOpenFinder(pathname: string) {
+  const router = useRouter();
+  return () => {
+    if (pathname === "/") emitCommand("open-finder");
+    else router.push("/?find=1");
   };
-  // Seven columns are too narrow for every label on the smallest phones;
-  // there the icons stand alone and the labels remain for screen readers
-  const crowded = mobile.length > 6;
+}
+
+/** Four slots: Desk, Library, Notes and Search. Your reading stays in the header. */
+export function MobileNav() {
+  const pathname = usePathname();
+  const openFinder = useOpenFinder(pathname);
+  const slots = [
+    { href: "/", label: "Desk", Icon: Home },
+    { href: "/library", label: "Library", Icon: Library },
+    { href: "/notes", label: "Notes", Icon: NotebookPen },
+  ];
+  const slotClass =
+    "flex flex-col min-h-14 min-w-0 items-center justify-center gap-1 px-0.5 text-center whitespace-nowrap hover:text-[var(--reader-fg)] aria-[current=page]:text-[var(--reader-fg)]";
   return (
     <nav
       aria-label="Main navigation"
-      style={{
-        gridTemplateColumns: `repeat(${mobile.length}, minmax(0, 1fr))`,
-      }}
-      className="mobile-app-nav md:hidden shrink-0 px-1 pb-[env(safe-area-inset-bottom)] grid border-t border-[var(--reader-border)] bg-[var(--reader-surface)] text-[10px] min-[390px]:text-[11px] text-[var(--reader-muted)]"
+      className="mobile-app-nav md:hidden shrink-0 px-1 pb-[env(safe-area-inset-bottom)] grid grid-cols-4 border-t border-[var(--reader-border)] bg-[var(--reader-surface)] text-[11px] text-[var(--reader-muted)]"
     >
-      {mobile.map((item) => {
-        const Icon = icons[item.href as keyof typeof icons];
+      {slots.map(({ href, label, Icon }) => {
+        const current =
+          href === "/" ? pathname === "/" : isCurrentRoom(pathname, href);
         return (
           <Link
-            key={item.href}
-            href={item.href}
-            data-reader-transition
-            aria-current={pathname === item.href ? "page" : undefined}
-            className="flex flex-col min-h-14 min-w-0 items-center justify-center gap-1 px-0.5 text-center whitespace-nowrap hover:text-[var(--reader-fg)] aria-[current=page]:text-[var(--reader-fg)]"
+            key={href}
+            href={href}
+            aria-current={current ? "page" : undefined}
+            className={slotClass}
           >
-            {Icon && (
-              <Icon
-                size={20}
-                strokeWidth={pathname === item.href ? 2.25 : 1.6}
-                aria-hidden
-              />
-            )}
-            <span className={crowded ? "max-[359px]:sr-only" : undefined}>
-              {item.href === "/reading"
-                ? "Activity"
-                : item.href === "/saved"
-                  ? "Saved"
-                  : item.label}
-            </span>
+            <Icon size={20} strokeWidth={current ? 2.25 : 1.6} aria-hidden />
+            <span>{label}</span>
           </Link>
         );
       })}
+      <button
+        type="button"
+        aria-keyshortcuts="/"
+        onClick={openFinder}
+        className={slotClass}
+      >
+        <Search size={20} strokeWidth={1.6} aria-hidden />
+        <span>Search</span>
+      </button>
     </nav>
   );
 }

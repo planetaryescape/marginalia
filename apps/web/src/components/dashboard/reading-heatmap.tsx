@@ -17,7 +17,7 @@ export function ReadingHeatmap({ data }: HeatmapProps) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.1 }}
-      className="p-5 rounded-xl border border-[var(--reader-border)] bg-[var(--reader-surface)]"
+      className="p-5 rounded-lg border border-[var(--reader-border)] bg-[var(--reader-surface)]"
     >
       <h2 className="text-sm font-medium text-[var(--reader-fg)] mb-4">
         When you read

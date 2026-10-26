@@ -8,8 +8,19 @@ const job = v.union(
   v.literal("queue"),
   v.literal("feeds"),
   v.literal("readwise"),
+  v.literal("feedStats"),
+  v.literal("taste"),
+  v.literal("preAnnotate"),
+  v.literal("tagMerge"),
 );
-type Job = "queue" | "feeds" | "readwise";
+type Job =
+  | "queue"
+  | "feeds"
+  | "readwise"
+  | "feedStats"
+  | "taste"
+  | "preAnnotate"
+  | "tagMerge";
 
 const PAGE_SIZE = 25;
 // Spread each library's work out instead of starting every reader at once
@@ -17,6 +28,10 @@ const STAGGER_MS: Record<Job, number> = {
   queue: 500,
   feeds: 10_000,
   readwise: 15_000,
+  feedStats: 500,
+  taste: 2_000,
+  preAnnotate: 10_000,
+  tagMerge: 2_000,
 };
 
 async function scheduleFor(
@@ -28,6 +43,26 @@ async function scheduleFor(
   switch (name) {
     case "queue":
       await ctx.scheduler.runAfter(delayMs, internal.readingQueue.initialize, {
+        userId,
+      });
+      return true;
+    case "feedStats":
+      await ctx.scheduler.runAfter(delayMs, internal.feedStats.backfill, {
+        userId,
+      });
+      return true;
+    case "taste":
+      await ctx.scheduler.runAfter(delayMs, internal.taste.recompute, {
+        userId,
+      });
+      return true;
+    case "preAnnotate":
+      await ctx.scheduler.runAfter(delayMs, internal.preAnnotate.start, {
+        userId,
+      });
+      return true;
+    case "tagMerge":
+      await ctx.scheduler.runAfter(delayMs, internal.tagMerge.compute, {
         userId,
       });
       return true;

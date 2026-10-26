@@ -12,9 +12,10 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { InteractionFeedback } from "@/components/interaction-feedback";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
-import { PageTransitions } from "@/components/page-transitions";
 import { PwaRuntime } from "@/components/pwa-runtime";
+import { ReaderRoomMemory } from "@/components/reader-room-memory";
 import { ConvexClientProvider } from "@/lib/convex";
+import { AltHintProvider } from "@/lib/use-alt-hint";
 import "./globals.css";
 import "@planetaryescape/reader/reader.css";
 
@@ -115,23 +116,25 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <ConvexClientProvider>
-            <a href="#main-content" className="skip-link">
-              Skip to content
-            </a>
-            <div
-              id="main-content"
-              tabIndex={-1}
-              className="min-h-screen outline-none"
-            >
-              {children}
-            </div>
-            <Toaster position="bottom-center" />
-            <KeyboardShortcuts />
-          </ConvexClientProvider>
+          <AltHintProvider>
+            <ConvexClientProvider>
+              <a href="#main-content" className="skip-link">
+                Skip to content
+              </a>
+              <div
+                id="main-content"
+                tabIndex={-1}
+                className="min-h-screen outline-none"
+              >
+                {children}
+              </div>
+              <Toaster position="bottom-center" />
+              <KeyboardShortcuts />
+            </ConvexClientProvider>
+          </AltHintProvider>
           <PwaRuntime />
           <InteractionFeedback />
-          <PageTransitions />
+          <ReaderRoomMemory />
         </ThemeProvider>
       </body>
     </html>

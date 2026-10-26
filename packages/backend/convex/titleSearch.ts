@@ -1,0 +1,67 @@
+import { v } from "convex/values";
+import { query } from "./functions";
+import { host, readStatus } from "./lib/articleCard";
+import { metadataReady, takeCards } from "./lib/articleMetadata";
+
+/**
+ * Preserve the established ranking bound while searching small card records.
+ */
+export const MAX_TITLE_MATCHES = 5;
+const MAX_QUERY = 200;
+const STATUS_ORDER = { "Up next": 0, Reading: 1, Finished: 2 } as const;
+
+/**
+ * The reader's articles whose title matches the typed words, in the shape of
+ * `library/find`'s matches. The picker shows a strong one as its first card
+ * while the query is still being embedded. Same eligibility as find: the
+ * reader's own extracted articles, one per page, unread before read.
+ */
+export const matchTitles = query({
+  args: { query: v.string() },
+  handler: async (ctx, args) => {
+    const text = args.query.trim().slice(0, MAX_QUERY);
+    if (text.length < 2) return [];
+    const userId = ctx.readerId;
+    const source = (await metadataReady(ctx, userId))
+      ? ctx.db
+          .query("articleMetadata")
+          .withSearchIndex("search_title", (q) =>
+            q
+              .search("title", text)
+              .eq("userId", userId)
+              .eq("extractionStatus", "extracted"),
+          )
+      : ctx.db
+          .query("articles")
+          .withSearchIndex("search_title", (q) =>
+            q
+              .search("title", text)
+              .eq("userId", userId)
+              .eq("extractionStatus", "extracted"),
+          );
+    const rows = await takeCards(ctx, userId, source, MAX_TITLE_MATCHES);
+    const seenUrls = new Set<string>();
+    const matches = [];
+    for (const [rank, row] of rows.entries()) {
+      // The same page saved twice is one choice.
+      if (seenUrls.has(row.url)) continue;
+      seenUrls.add(row.url);
+      matches.push({
+        rank,
+        articleId: row._id,
+        title: row.title,
+        author: row.author ?? null,
+        source: host(row.url) ?? null,
+        url: row.url,
+        minutes: row.estimatedReadMinutes ?? null,
+        status: await readStatus(ctx, userId, row._id),
+      });
+    }
+    return matches
+      .sort(
+        (a, b) =>
+          STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.rank - b.rank,
+      )
+      .map(({ rank: _rank, ...match }) => match);
+  },
+});

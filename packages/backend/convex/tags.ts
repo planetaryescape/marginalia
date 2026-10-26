@@ -1,0 +1,564 @@
+import { paginationOptsValidator } from "convex/server";
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import { ownedArticleCard as ownedArticle, requireArticle } from "./access";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  query,
+} from "./functions";
+import {
+  annotationGeneration,
+  annotationPublicationAllowed,
+} from "./lib/manualAnnotations";
+import { isReading } from "./lib/shelfArticle";
+import { metadataLibraryRetained } from "./lib/shelfCounts";
+import {
+  migrateTagAliases,
+  verifyAndActivateTagAliases,
+} from "./lib/tagAliases";
+import {
+  boundedAssignmentView,
+  exactActiveAssignmentTags,
+} from "./lib/tagAssignment";
+import {
+  isTopicKey,
+  MAX_TAGS_PER_ARTICLE,
+  MAX_VOCABULARY_IN_PROMPT,
+  matchTag,
+  normaliseTag,
+  TAG_PROMOTE_AFTER,
+  tagDisplayName,
+} from "./lib/tagMatching";
+import {
+  beginTagVectorProof,
+  stepTagVectorProof,
+  tagVectorProofStatus,
+} from "./lib/tagVectorProof";
+import {
+  migrateTagVectors,
+  verifyAndActivateTagVectors,
+} from "./lib/tagVectors";
+import {
+  migrateTagVocabulary,
+  missingVocabularyEmbeddings,
+  promptVocabulary,
+  TAG_EMBED_BATCH,
+  vocabularyState,
+} from "./lib/tagVocabulary";
+
+/** Active tags on an article, for the pencil chips under its title. */
+export const forArticle = query({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, args) => {
+    if (!(await ownedArticle(ctx, args.articleId, ctx.readerId))) return [];
+    const links = await ctx.db
+      .query("articleTags")
+      .withIndex("by_article", (q) => q.eq("articleId", args.articleId))
+      .take(20);
+    const tags = await Promise.all(links.map((link) => ctx.db.get(link.tagId)));
+    return tags
+      .filter(
+        (tag): tag is Doc<"tags"> =>
+          tag?.userId === ctx.readerId && tag.status === "active",
+      )
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((tag) => ({ _id: tag._id, name: tag.name }));
+  },
+});
+
+// An article row can be close to a megabyte, and each link read here becomes
+// one article read. Limiting the links read per page, not only the items asked
+// for, holds inside an established cursor range too: Convex then ends the page
+// early and the client asks for the next.
+const TOPIC_PAGE_MAX = 12;
+const TOPIC_PAGE_BYTES = 1_000_000;
+const TOPIC_NAME_MAX = 120;
+
+/**
+ * The reader's articles carrying one active topic, newest tagged first, a page
+ * at a time. The topic is found by name, scoped to the caller; an unknown
+ * name or another reader's tag lists nothing.
+ */
+export const articlesForTopic = query({
+  args: { topic: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { topic, paginationOpts }) => {
+    const empty = { page: [], isDone: true, continueCursor: "" };
+    const key = normaliseTag(topic.slice(0, TOPIC_NAME_MAX));
+    if (!key) return empty;
+    const tag = await ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) =>
+        q.eq("userId", ctx.readerId).eq("key", key),
+      )
+      .unique();
+    if (tag?.status !== "active") return empty;
+    const links = await ctx.db
+      .query("articleTags")
+      .withIndex("by_tag", (q) => q.eq("tagId", tag._id))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, TOPIC_PAGE_MAX),
+        maximumRowsRead: TOPIC_PAGE_MAX,
+        maximumBytesRead: TOPIC_PAGE_BYTES,
+      });
+    const page = (
+      await Promise.all(
+        links.page.map(async (link) => {
+          // by_tag is not scoped to a reader, so check the owner of each link
+          if (link.userId !== ctx.readerId) return null;
+          const article = await ownedArticle(ctx, link.articleId, ctx.readerId);
+          if (!article) return null;
+          return {
+            _id: article._id,
+            title: article.title,
+            author: article.author,
+            url: article.url,
+            uploaded: Boolean(article.uploadedFileName),
+            minutes: article.estimatedReadMinutes,
+            annotating: article.annotationStatus === "pending",
+            finished: article.finishedAt !== undefined,
+            // One indexed read per row, and none for a finished article
+            reading: await isReading(ctx, ctx.readerId, article),
+          };
+        }),
+      )
+    ).filter((row) => row !== null);
+    return { ...links, page };
+  },
+});
+
+/** The vocabulary the model chooses from: active tags, most used first. */
+export const vocabulary = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    if (!(await metadataLibraryRetained(ctx, args.userId))) return [];
+    const state = await vocabularyState(ctx, args.userId);
+    if (state?.ready && !state.overflow)
+      return promptVocabulary(ctx, args.userId);
+    // Preserve exact pre-upgrade reads during additive backfill or overflow.
+    // This is deliberately the legacy cost, never a fabricated ready baseline.
+    const tags = await ctx.db
+      .query("tags")
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", args.userId).eq("status", "active"),
+      )
+      .collect();
+    return tags
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+      .slice(0, MAX_VOCABULARY_IN_PROMPT)
+      .map(({ name, key, aliases }) => ({ name, key, aliases }));
+  },
+});
+
+/** Removes an article's tag links and the counts they added. */
+export async function unlinkArticleTags(
+  ctx: MutationCtx,
+  articleId: Id<"articles">,
+) {
+  const links = await ctx.db
+    .query("articleTags")
+    .withIndex("by_article", (q) => q.eq("articleId", articleId))
+    .collect();
+  for (const link of links) {
+    await ctx.db.delete(link._id);
+    const tag = await ctx.db.get(link.tagId);
+    if (tag)
+      await ctx.db.patch("tags", tag._id, {
+        count: Math.max(0, tag.count - 1),
+      });
+  }
+}
+
+/**
+ * Gives an article its tags, replacing any it had. Each proposal is matched
+ * against the reader's vocabulary (lib/tagMatching.ts) inside one transaction,
+ * so two imports proposing the same new tag see each other's rows and counts
+ * are never read stale.
+ */
+export const assign = internalMutation({
+  args: {
+    userId: v.string(),
+    articleId: v.id("articles"),
+    generation: v.optional(annotationGeneration),
+    proposals: v.array(
+      v.object({
+        name: v.string(),
+        description: v.optional(v.string()),
+        // Of name plus description; absent when the library can't embed
+        embedding: v.optional(v.array(v.float64())),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const article = await requireArticle(ctx, args.articleId, args.userId);
+    if (!(await annotationPublicationAllowed(ctx, article, args.generation)))
+      return [];
+    await unlinkArticleTags(ctx, args.articleId);
+
+    const exact = await exactActiveAssignmentTags(
+      ctx,
+      args.userId,
+      args.proposals,
+    );
+    const bounded = exact
+      ? null
+      : await boundedAssignmentView(ctx, args.userId, args.proposals);
+    const known =
+      exact ??
+      (bounded
+        ? []
+        : await ctx.db
+            .query("tags")
+            .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
+            .collect());
+    const getTag = async (id: Id<"tags">) =>
+      bounded ? bounded.get(id) : known.find((t) => t._id === id);
+    const matching = async (
+      proposal: { key: string; embedding?: readonly number[] },
+      exclude?: Id<"tags">,
+    ) =>
+      bounded
+        ? bounded.match(proposal, exclude)
+        : matchTag(
+            proposal,
+            known
+              .filter((t) => t._id !== exclude)
+              .map((tag) => ({
+                id: tag._id,
+                key: tag.key,
+                aliases: tag.aliases,
+                embedding: tag.embedding,
+              })),
+          );
+    const linked = new Set<Id<"tags">>();
+    const now = Date.now();
+
+    const link = async (tagId: Id<"tags">) => {
+      if (linked.has(tagId) || linked.size >= MAX_TAGS_PER_ARTICLE) return;
+      const tag = await getTag(tagId);
+      if (!tag) return;
+      await ctx.db.insert("articleTags", {
+        userId: args.userId,
+        articleId: args.articleId,
+        tagId,
+        createdAt: now,
+      });
+      linked.add(tagId);
+      tag.count += 1;
+      const promote =
+        tag.status === "candidate" && tag.count >= TAG_PROMOTE_AFTER;
+      if (promote) tag.status = "active";
+      await ctx.db.patch("tags", tagId, {
+        count: tag.count,
+        status: tag.status,
+      });
+    };
+
+    for (const proposal of args.proposals) {
+      if (linked.size >= MAX_TAGS_PER_ARTICLE) break;
+      const key = normaliseTag(proposal.name);
+      if (!key) continue;
+      const match = await matching({ key, embedding: proposal.embedding });
+      if (match.kind === "skip") continue;
+      if (match.kind === "existing") {
+        const tag = await getTag(match.tagId);
+        if (
+          tag &&
+          match.alias &&
+          match.alias !== tag.key &&
+          !tag.aliases.includes(match.alias)
+        ) {
+          tag.aliases = [...tag.aliases, match.alias];
+          await ctx.db.patch("tags", tag._id, { aliases: tag.aliases });
+        }
+        await link(match.tagId);
+        // A candidate waiting for promotion keeps its nearest visible tag
+        if (tag?.status === "candidate" && tag.nearestTagId) {
+          if (
+            bounded
+              ? bounded.has(tag.nearestTagId)
+              : known.some((t) => t._id === tag.nearestTagId)
+          )
+            await link(tag.nearestTagId);
+          else {
+            // That tag was merged away: find where its name went (an alias
+            // of the kept tag, or the closest by embedding) and point there
+            const moved = await matching(
+              { key: tag.key, embedding: tag.embedding },
+              tag._id,
+            );
+            const nearest =
+              moved.kind === "existing"
+                ? moved.tagId
+                : moved.kind === "candidate"
+                  ? moved.nearestTagId
+                  : undefined;
+            tag.nearestTagId = nearest;
+            await ctx.db.patch("tags", tag._id, { nearestTagId: nearest });
+            if (nearest) await link(nearest);
+          }
+        }
+        continue;
+      }
+      const id = await ctx.db.insert("tags", {
+        userId: args.userId,
+        name: tagDisplayName(proposal.name) || key,
+        key,
+        description: proposal.description?.trim() || undefined,
+        embedding: proposal.embedding,
+        status: "candidate",
+        count: 0,
+        aliases: [],
+        nearestTagId: match.nearestTagId,
+        createdAt: now,
+      });
+      const created = await ctx.db.get("tags", id);
+      if (created) {
+        if (bounded) bounded.add(created);
+        else known.push(created);
+      }
+      await link(id);
+      // A near miss also takes its nearest tag, so the article is findable meanwhile
+      if (match.nearestTagId) await link(match.nearestTagId);
+    }
+    return [...linked];
+  },
+});
+
+const SEED_PAGE = 50;
+
+/**
+ * Seeds the vocabulary from the reader's vault tags (`noteChunks.tags`), as
+ * active tags named their way: last path segment, lowercased, punctuation
+ * stripped, singularised, folder-like roots dropped (S9). Re-running only adds
+ * what is missing. Pages through the chunks (each holds a 1536-number vector)
+ * and, when the last page is done, schedules the embedding of the new tags.
+ *
+ *   bunx convex run tags:seedFromVault '{"userId":"default_user"}'
+ */
+export const seedFromVault = internalMutation({
+  args: {
+    userId: v.string(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("noteChunks")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .paginate({ numItems: SEED_PAGE, cursor: args.cursor ?? null });
+
+    const names = new Map<string, string>();
+    for (const chunk of page.page)
+      for (const raw of chunk.tags ?? []) {
+        const key = normaliseTag(raw);
+        if (!isTopicKey(key) || names.has(key)) continue;
+        names.set(key, tagDisplayName(raw) || key);
+      }
+
+    let added = 0;
+    for (const [key, name] of names) {
+      const existing = await ctx.db
+        .query("tags")
+        .withIndex("by_user_key", (q) =>
+          q.eq("userId", args.userId).eq("key", key),
+        )
+        .first();
+      if (existing) continue;
+      await ctx.db.insert("tags", {
+        userId: args.userId,
+        name,
+        key,
+        status: "active",
+        count: 0,
+        aliases: [],
+        createdAt: Date.now(),
+      });
+      added++;
+    }
+
+    if (page.isDone)
+      await ctx.scheduler.runAfter(0, internal.actions.embedTags.embedMissing, {
+        userId: args.userId,
+      });
+    else
+      await ctx.scheduler.runAfter(0, internal.tags.seedFromVault, {
+        userId: args.userId,
+        cursor: page.continueCursor,
+      });
+    return { added, done: page.isDone };
+  },
+});
+
+export const migrateVocabulary = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => migrateTagVocabulary(ctx, args.userId),
+});
+
+/** Additive alias projection only; activation is a separate same-snapshot gate. */
+export const migrateAliases = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => migrateTagAliases(ctx, args.userId),
+});
+
+export const verifyAndActivateAliases = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => verifyAndActivateTagAliases(ctx, args.userId),
+});
+
+export const migrateVectors = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => migrateTagVectors(ctx, args.userId),
+});
+
+export const verifyAndActivateVectors = internalMutation({
+  args: { userId: v.string() },
+  handler: (ctx, args) => verifyAndActivateTagVectors(ctx, args.userId),
+});
+
+export const beginVectorProof = internalMutation({
+  args: {
+    userId: v.string(),
+    expectedStateId: v.id("tagVectorState"),
+    expectedRun: v.number(),
+  },
+  handler: (ctx, args) =>
+    beginTagVectorProof(
+      ctx,
+      args.userId,
+      args.expectedStateId,
+      args.expectedRun,
+    ),
+});
+
+export const vectorProofStatus = internalQuery({
+  args: { userId: v.string() },
+  handler: (ctx, args) => tagVectorProofStatus(ctx, args.userId),
+});
+
+export const stepVectorProof = internalMutation({
+  args: { userId: v.string(), token: v.string(), expectedStep: v.number() },
+  handler: (ctx, args) =>
+    stepTagVectorProof(ctx, args.userId, args.token, args.expectedStep),
+});
+
+/** Tags still without an embedding, for the embedding action. */
+export const missingEmbeddings = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    if (!(await metadataLibraryRetained(ctx, args.userId))) return [];
+    const state = await vocabularyState(ctx, args.userId);
+    if (state?.ready && !state.overflow)
+      return missingVocabularyEmbeddings(ctx, args.userId);
+    const tags = await ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) => q.eq("userId", args.userId))
+      .collect();
+    return tags
+      .filter((tag) => !tag.embedding)
+      .slice(0, TAG_EMBED_BATCH)
+      .map((tag) => ({
+        id: tag._id,
+        text: tag.description ? `${tag.name}: ${tag.description}` : tag.name,
+      }));
+  },
+});
+
+/** One-snapshot rollout gate, not a production reader. Refuse an incomplete
+ * canonical page rather than claiming equality for a truncated vocabulary. */
+export const verifyVocabulary = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const state = await vocabularyState(ctx, userId);
+    if (
+      !(await metadataLibraryRetained(ctx, userId)) ||
+      !state?.ready ||
+      state.overflow
+    )
+      return {
+        ready: false,
+        matches: false,
+        complete: false,
+        checked: 0,
+        overflow: state?.overflow ?? 0,
+      };
+    const page = await ctx.db
+      .query("tags")
+      .withIndex("by_user_key", (q) => q.eq("userId", userId))
+      .paginate({
+        cursor: null,
+        numItems: 512,
+        maximumBytesRead: 8 * 1024 * 1024,
+      });
+    if (!page.isDone)
+      return {
+        ready: true,
+        matches: false,
+        complete: false,
+        checked: page.page.length,
+        overflow: 0,
+      };
+    // The legacy active-status index breaks comparator ties by creation/id;
+    // missing-embedding order is already the canonical key index page order.
+    const active = [...page.page]
+      .sort(
+        (a, b) =>
+          a._creationTime - b._creationTime ||
+          (a._id < b._id ? -1 : a._id === b._id ? 0 : 1),
+      )
+      .filter((tag) => tag.status === "active")
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+      .slice(0, MAX_VOCABULARY_IN_PROMPT)
+      .map(({ name, key, aliases }) => ({ name, key, aliases }));
+    const missing = page.page
+      .filter((tag) => !tag.embedding)
+      .slice(0, TAG_EMBED_BATCH)
+      .map((tag) => ({
+        id: tag._id,
+        text: tag.description ? `${tag.name}: ${tag.description}` : tag.name,
+      }));
+    const prompt = await promptVocabulary(ctx, userId);
+    const batch = await missingVocabularyEmbeddings(ctx, userId);
+    return {
+      ready: true,
+      complete: true,
+      checked: page.page.length,
+      overflow: 0,
+      matches:
+        JSON.stringify(active) === JSON.stringify(prompt) &&
+        JSON.stringify(missing) === JSON.stringify(batch),
+    };
+  },
+});
+
+export const setEmbeddings = internalMutation({
+  args: {
+    userId: v.string(),
+    items: v.array(
+      v.object({
+        id: v.id("tags"),
+        embedding: v.array(v.float64()),
+        text: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    if (!(await metadataLibraryRetained(ctx, args.userId))) return;
+    if (args.items.length > TAG_EMBED_BATCH)
+      throw new Error("Tag embedding batch exceeds limit");
+    for (const item of args.items) {
+      const tag = await ctx.db.get("tags", item.id);
+      const text =
+        tag && (tag.description ? `${tag.name}: ${tag.description}` : tag.name);
+      if (
+        tag?.userId === args.userId &&
+        !tag.embedding &&
+        (item.text === undefined || item.text === text)
+      )
+        await ctx.db.patch("tags", item.id, { embedding: item.embedding });
+    }
+  },
+});

@@ -1,3 +1,5 @@
+import { capDwell } from "@marginalia/backend/reading-activity";
+
 export const READING_IDLE_MS = 90_000;
 export interface ReadingSample {
   day: string;
@@ -7,8 +9,17 @@ export interface ReadingSample {
   visibleTimeMs: number;
   timeSpentMs: number;
   maxScrollPercent: number;
+  /** Paragraph at the top of the view at maxScrollPercent */
+  paragraphIndex?: number;
   annotationsOpened: string[];
+  /** Active milliseconds per displayed paragraph number */
+  dwell: Record<string, number>;
+  /** Active time not yet credited to the paragraphs on screen */
+  dwellPending: number;
 }
+export type ReadingSnapshot = Omit<ReadingSample, "dwell" | "dwellPending"> & {
+  dwell?: Record<string, number>;
+};
 export function articleProgress(
   top: number,
   height: number,
@@ -33,6 +44,7 @@ export class ReadingClock {
   private lastActivity: number;
   private visible: boolean;
   private listening = false;
+  private inView: readonly number[] = [];
   constructor(at: number, tick: number, visible: boolean) {
     this.lastAt = at;
     this.lastTick = tick;
@@ -53,6 +65,8 @@ export class ReadingClock {
         timeSpentMs: 0,
         maxScrollPercent: 0,
         annotationsOpened: [],
+        dwell: {},
+        dwellPending: 0,
       };
       this.samples.set(day, s);
     }
@@ -82,11 +96,33 @@ export class ReadingClock {
       s.timeSpentMs += end - from;
       s.visibleTimeMs += visible * share;
       s.activeTimeMs += active * share;
+      // Dwell takes the active share, so it stops when the tab is hidden, the
+      // window loses focus or the reader goes idle, exactly as active time does.
+      // It is only totalled here; the paragraphs are credited by `creditDwell`.
+      s.dwellPending += active * share;
       s.updatedAt = end;
       from = end;
     }
     this.lastAt = Math.max(this.lastAt, at);
     this.lastTick = tick;
+  }
+  /**
+   * Hands the active time gathered since the last credit to the paragraphs
+   * on screen. Called when the set changes, on the timer and before a
+   * snapshot, never from scroll or input, which only call `tick`.
+   */
+  creditDwell() {
+    for (const s of this.samples.values()) {
+      if (s.dwellPending > 0)
+        for (const paragraph of this.inView)
+          s.dwell[paragraph] = (s.dwell[paragraph] ?? 0) + s.dwellPending;
+      s.dwellPending = 0;
+    }
+  }
+  /** The once-a-second timer: advances the clock and credits paragraph dwell. */
+  heartbeat(at: number, tick: number) {
+    this.tick(at, tick);
+    this.creditDwell();
   }
   activity(at: number, tick: number) {
     this.tick(at, tick);
@@ -101,26 +137,54 @@ export class ReadingClock {
     this.tick(at, tick);
     this.listening = listening;
   }
-  progress(percent: number) {
+  /** Sets which paragraphs are on screen; time up to now goes to the previous set. */
+  paragraphs(inView: readonly number[], at: number, tick: number) {
+    this.heartbeat(at, tick);
+    this.inView = [...inView];
+  }
+  progress(percent: number, paragraphIndex?: number) {
     const s = this.sample(this.lastAt);
-    s.maxScrollPercent = Math.max(
-      s.maxScrollPercent,
-      Math.min(100, Math.max(0, percent)),
-    );
+    const clamped = Math.min(100, Math.max(0, percent));
+    // The paragraph is the one at the furthest point, so scrolling back up
+    // leaves it where it was
+    if (clamped >= s.maxScrollPercent) s.paragraphIndex = paragraphIndex;
+    s.maxScrollPercent = Math.max(s.maxScrollPercent, clamped);
   }
   annotation(id: string) {
     const s = this.sample(this.lastAt);
     if (!s.annotationsOpened.includes(id) && s.annotationsOpened.length < 128)
       s.annotationsOpened.push(id);
   }
-  snapshots(at: number, tick: number) {
-    this.tick(at, tick);
-    return [...this.samples.values()].map((s) => ({
-      ...s,
-      annotationsOpened: [...s.annotationsOpened],
-    }));
+  snapshots(at: number, tick: number): ReadingSnapshot[] {
+    this.heartbeat(at, tick);
+    return [...this.samples.values()].map(
+      ({ dwell, dwellPending: _, ...s }) => ({
+        ...s,
+        annotationsOpened: [...s.annotationsOpened],
+        dwell: capDwell(dwell),
+      }),
+    );
   }
-  acknowledge(day: string) {
-    if (day !== localDay(this.lastAt)) this.samples.delete(day);
+  /** Prune only a closed day whose complete cumulative state was delivered. */
+  acknowledge(sent: ReadingSnapshot) {
+    const sample = this.samples.get(sent.day);
+    if (!sample || sent.day === localDay(this.lastAt)) return;
+    const annotations = new Set(sent.annotationsOpened);
+    if (
+      sample.startedAt !== sent.startedAt ||
+      sample.updatedAt > sent.updatedAt ||
+      sample.activeTimeMs > sent.activeTimeMs ||
+      sample.visibleTimeMs > sent.visibleTimeMs ||
+      sample.timeSpentMs > sent.timeSpentMs ||
+      sample.maxScrollPercent > sent.maxScrollPercent ||
+      sample.paragraphIndex !== sent.paragraphIndex ||
+      sample.annotationsOpened.some((id) => !annotations.has(id)) ||
+      sample.dwellPending > 0 ||
+      Object.entries(capDwell(sample.dwell) ?? {}).some(
+        ([key, ms]) => ms > (sent.dwell?.[key] ?? 0),
+      )
+    )
+      return;
+    this.samples.delete(sent.day);
   }
 }

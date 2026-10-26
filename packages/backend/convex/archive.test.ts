@@ -24,6 +24,7 @@ async function fixture() {
       guid: "archive",
       url: "https://example.com/archive",
       title: "Archive fixture",
+      content: "Synthetic readable article.",
       extractionStatus: "extracted",
       annotationStatus: "annotated",
       estimatedReadMinutes: 2,
@@ -169,6 +170,7 @@ describe("manual archive", () => {
 
   it("keeps the queue counts in step", async () => {
     const { t, articleId } = await fixture();
+    await t.mutation(internal.readingQueue.initialize, { userId: OWNER });
     await t.mutation(internal.readingQueue.initialize, { userId: OWNER });
     const waiting = async () => (await t.query(api.home.overview, {})).waiting;
     expect(await waiting()).toBe(1);

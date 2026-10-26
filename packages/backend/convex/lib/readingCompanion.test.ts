@@ -5,6 +5,7 @@ import {
   buildSystemPrompt,
   companionRequestSchema,
   formatArticle,
+  selectContext,
   selectParagraphWindow,
 } from "./readingCompanion";
 
@@ -40,6 +41,406 @@ describe("readingCompanion", () => {
       expect(text.startsWith("# T\n\n[…]")).toBe(true);
       expect(text.trimEnd().endsWith("[…]")).toBe(true);
       expect(text).not.toContain("¶1\n");
+    });
+  });
+
+  describe("passage Ask with long highlighted paragraphs", () => {
+    const ask = (paragraphs: string[], selection: string, end?: number) =>
+      companionRequestSchema.parse({
+        mode: "ask",
+        question: "Why?",
+        title: "T",
+        paragraphs,
+        selection,
+        paragraphIndex: 1,
+        ...(end === undefined ? {} : { paragraphEnd: end }),
+      });
+    const articleChars = (request: ReturnType<typeof ask>) =>
+      formatArticle(
+        "T",
+        request.paragraphs,
+        request.paragraphIndex,
+        selectContext(request),
+      ).length;
+
+    it("cuts one oversized paragraph to the budget and keeps the selection", () => {
+      const long = `${"a".repeat(12_000)}THE SELECTED LINE${"b".repeat(7_983)}`;
+      const request = ask(["before", long, "after"], "THE SELECTED LINE");
+      const text = formatArticle(
+        "T",
+        request.paragraphs,
+        1,
+        selectContext(request),
+      );
+      expect(articleChars(request)).toBeLessThan(16_200);
+      expect(text).toContain("THE SELECTED LINE");
+      expect(text).toContain("¶2 ← contains the highlighted passage\n…");
+    });
+
+    it("shares the budget between two long highlighted paragraphs", () => {
+      const request = ask(
+        ["before", "c".repeat(9_000), "d".repeat(9_000), "after"],
+        "ccc",
+        2,
+      );
+      expect(articleChars(request)).toBeLessThan(16_200);
+      expect(
+        formatArticle("T", request.paragraphs, 1, selectContext(request)),
+      ).toContain("¶3");
+    });
+  });
+
+  describe("passage Ask with a selection across two long paragraphs", () => {
+    it("keeps the end of the first paragraph where the selection starts", () => {
+      const first = `${"a".repeat(19_990)}TAIL_END!`;
+      const second = `HEAD_START!${"b".repeat(19_989)}`;
+      const request = companionRequestSchema.parse({
+        mode: "ask",
+        question: "Why?",
+        title: "T",
+        paragraphs: ["before", first, second, "after"],
+        selection: "TAIL_END! HEAD_START!",
+        paragraphIndex: 1,
+        paragraphEnd: 2,
+      });
+      const text = formatArticle(
+        "T",
+        request.paragraphs,
+        1,
+        selectContext(request),
+      );
+      expect(text).toContain("TAIL_END!");
+      expect(text).toContain("HEAD_START!");
+      expect(text.length).toBeLessThan(16_200);
+    });
+  });
+
+  it("finds a short selection inside a long paragraph", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `${"a".repeat(18_000)}gravity${"b".repeat(1_993)}`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("gravity");
+  });
+
+  it("anchors a short crossing selection at the first paragraph's end", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `Earlier. A false anchor.${"a".repeat(19_957)}UNIQUE_ACTUAL_TAIL.`,
+        `A${"b".repeat(19_999)}`,
+      ],
+      selection: ". A",
+      paragraphIndex: 1,
+      paragraphEnd: 2,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("UNIQUE_ACTUAL_TAIL.");
+  });
+
+  it("keeps the occurrence the reader selected", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `gravity FIRST${"a".repeat(17_000)}gravity SECOND${"b".repeat(2_000)}`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+      occurrence: 1,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("gravity SECOND");
+  });
+
+  it("counts occurrences ignoring case, as the client does", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `Gravity${"x".repeat(1_000)} gravity CHOSEN${"a".repeat(17_000)}gravity LATER${"b".repeat(1_900)}`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+      occurrence: 1,
+    });
+    const text = formatArticle(
+      "T",
+      request.paragraphs,
+      1,
+      selectContext(request),
+    );
+    expect(text).toContain("gravity CHOSEN");
+    expect(text).not.toContain("gravity LATER");
+  });
+
+  it("maps occurrences through characters that lowercase to two", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `${"İ".repeat(7)}${"a".repeat(19_000)} gravity END`,
+      ],
+      selection: "gravity",
+      paragraphIndex: 1,
+    });
+    expect(
+      formatArticle("T", request.paragraphs, 1, selectContext(request)),
+    ).toContain("gravity END");
+  });
+
+  it("lowercases a final sigma as the client does", () => {
+    const request = companionRequestSchema.parse({
+      mode: "ask",
+      question: "Why?",
+      title: "T",
+      paragraphs: [
+        "before",
+        `λογος one ${"x".repeat(1_000)} ΛΟΓΟΣ CHOSEN${"a".repeat(17_000)}λογος LATER${"b".repeat(1_900)}`,
+      ],
+      selection: "λογος",
+      paragraphIndex: 1,
+      occurrence: 1,
+    });
+    const text = formatArticle(
+      "T",
+      request.paragraphs,
+      1,
+      selectContext(request),
+    );
+    expect(text).toContain("ΛΟΓΟΣ CHOSEN");
+    expect(text).not.toContain("λογος LATER");
+  });
+
+  describe("per-tool context", () => {
+    const paragraphs = Array.from({ length: 9 }, (_, i) => `Paragraph ${i}.`);
+    const request = (over: Record<string, string | number | null>) =>
+      companionRequestSchema.parse({
+        mode: "explain",
+        title: "T",
+        paragraphs,
+        selection: "Paragraph 4.",
+        paragraphIndex: 4,
+        ...over,
+      });
+
+    it("gives Define only the sentence's paragraph", () => {
+      expect(selectContext(request({ mode: "define" })).indices).toEqual([4]);
+    });
+
+    it("gives Explain and Simplify the passage and a paragraph either side, and Ask two", () => {
+      for (const mode of ["explain", "simplify"])
+        expect(selectContext(request({ mode })).indices).toEqual([3, 4, 5]);
+      expect(
+        selectContext(request({ mode: "ask", question: "Why?" })).indices,
+      ).toEqual([2, 3, 4, 5, 6]);
+    });
+
+    it("includes every paragraph a passage runs across", () => {
+      const context = selectContext(
+        request({
+          paragraphIndex: 2,
+          selection: "Paragraph 2. Paragraph 3. Paragraph 4.",
+        }),
+      );
+      expect(context.indices).toEqual([1, 2, 3, 4, 5]);
+      expect([...context.marked]).toEqual([2, 3, 4]);
+    });
+
+    it("includes the next paragraph when the selection ends only a few characters into it", () => {
+      const long = [
+        "First paragraph that is comfortably long enough to matter here.",
+        "Second paragraph that is also comfortably long enough to matter.",
+        "Third paragraph, which the selection barely enters, and then goes on.",
+        "Fourth paragraph, untouched by the selection.",
+        "Fifth paragraph, well away.",
+      ];
+      const context = selectContext(
+        companionRequestSchema.parse({
+          mode: "explain",
+          title: "T",
+          paragraphs: long,
+          paragraphIndex: 1,
+          selection: "also comfortably long enough to matter. Thi",
+        }),
+      );
+      expect([...context.marked]).toEqual([1, 2]);
+      expect(context.indices).toEqual([0, 1, 2, 3]);
+    });
+
+    it("includes every paragraph the client says the selection crosses, however short", () => {
+      const blocks = [
+        "An opening paragraph that is long enough to stand alone here.",
+        "Why?",
+        "No.",
+        "A long closing paragraph that the selection does not reach at all.",
+        "Another.",
+      ];
+      const asked = (extra: Record<string, number>) =>
+        selectContext(
+          companionRequestSchema.parse({
+            mode: "explain",
+            title: "T",
+            paragraphs: blocks,
+            paragraphIndex: 1,
+            selection: "Why? No.",
+            ...extra,
+          }),
+        );
+      const told = asked({ paragraphEnd: 2 });
+      expect([...told.marked]).toEqual([1, 2]);
+      expect(told.indices).toEqual([0, 1, 2, 3]);
+      // Old clients send no range, and text matching alone misses blocks this short
+      expect([...asked({}).marked]).toEqual([1]);
+    });
+
+    it("clamps a range end that is out of order or past the article", () => {
+      expect([
+        ...selectContext(
+          request({
+            paragraphIndex: 4,
+            paragraphEnd: 1,
+            selection: "Paragraph 4.",
+          }),
+        ).marked,
+      ]).toEqual([4]);
+      expect(
+        selectContext(
+          request({
+            paragraphIndex: 7,
+            paragraphEnd: 99,
+            selection: "Paragraph 7.",
+          }),
+        ).indices,
+      ).toEqual([6, 7, 8]);
+    });
+
+    it("does not extend when the selection ends exactly at the paragraph's end", () => {
+      const context = selectContext(
+        request({ paragraphIndex: 4, selection: "Paragraph 4." }),
+      );
+      expect([...context.marked]).toEqual([4]);
+    });
+
+    it("stops at the edges of the article", () => {
+      expect(
+        selectContext(request({ paragraphIndex: 0, selection: "Paragraph 0." }))
+          .indices,
+      ).toEqual([0, 1]);
+      expect(
+        selectContext(request({ paragraphIndex: 8, selection: "Paragraph 8." }))
+          .indices,
+      ).toEqual([7, 8]);
+    });
+
+    it("finds the paragraph by its text when the client sent no index", () => {
+      expect(
+        selectContext(request({ mode: "define", paragraphIndex: null }))
+          .indices,
+      ).toEqual([4]);
+    });
+
+    it("keeps today's window for a question about the whole article", () => {
+      const context = selectContext(
+        request({
+          mode: "article",
+          selection: "",
+          paragraphIndex: null,
+          question: "Why?",
+        }),
+      );
+      expect(context.indices).toEqual(paragraphs.map((_, i) => i));
+    });
+
+    it("sends a definition only its paragraph, not the whole article", () => {
+      const { messages } = buildCompanionPrompt(request({ mode: "define" }));
+      const opening = String(messages[0].content);
+      expect(opening).toContain("Paragraph 4.");
+      expect(opening).not.toContain("Paragraph 3.");
+      expect(opening).not.toContain("Paragraph 5.");
+    });
+
+    it("tells Define which usage of a repeated word was selected", () => {
+      const text = (sentence: string, occurrence: number) =>
+        String(
+          buildCompanionPrompt(
+            request({
+              mode: "define",
+              selection: "bass",
+              sentence,
+              occurrence,
+            }),
+          ).messages[0].content,
+        );
+      const first = text("He caught a bass.", 0);
+      const second = text("She played the bass.", 1);
+      expect(first).toContain('in this sentence: "He caught a bass."');
+      expect(first).not.toContain("occurrence");
+      expect(second).toContain('in this sentence: "She played the bass."');
+      expect(second).toContain("occurrence 2 of the selected words");
+      expect(first).not.toBe(second);
+      // Other tools, and old clients that send no sentence, are unchanged
+      expect(
+        String(
+          buildCompanionPrompt(request({ mode: "explain", sentence: "x" }))
+            .messages[0].content,
+        ),
+      ).not.toContain("selected usage");
+      expect(
+        String(
+          buildCompanionPrompt(request({ mode: "define" })).messages[0].content,
+        ),
+      ).not.toContain("selected usage");
+    });
+
+    it("adds the summary as background when there is one", () => {
+      const { messages } = buildCompanionPrompt(request({}), {
+        thesis: "Prices drive demand.",
+        gist: "A tour of markets.",
+      });
+      const opening = String(messages[0].content);
+      expect(opening).toContain("<summary>");
+      expect(opening).toContain("Prices drive demand.");
+      expect(opening).toContain("A tour of markets.");
+      expect(opening.indexOf("<summary>")).toBeLessThan(
+        opening.indexOf("<article>"),
+      );
+      expect(
+        String(buildCompanionPrompt(request({})).messages[0].content),
+      ).not.toContain("<summary>");
+    });
+
+    it("tells each tool how long to be", () => {
+      const text = (mode: string, extra = {}) =>
+        String(
+          buildCompanionPrompt(request({ mode, ...extra })).messages[0].content,
+        );
+      expect(text("define")).toContain("a line or two");
+      expect(text("explain")).toContain("one short paragraph");
+      expect(text("simplify")).toContain("one short paragraph");
+      expect(text("ask", { question: "Why?" })).toContain(
+        "as long as the question needs",
+      );
     });
   });
 

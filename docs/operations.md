@@ -6,6 +6,8 @@ This app has a Vercel frontend and a separate Convex backend. Deploying one does
 
 Personal Convex queries, mutations, actions and companion/Library/checkpoint HTTP endpoints require a live reader session, and each reader reaches only their own library. Better Auth stores credentials in a local Convex component. The owner's library keeps its `default_user` IDs; `readerAccess` binds access to the owner and deployment issuer, and other readers join through owner-approved invites. Other apps use personal API tokens, which reach only their reader's [API endpoints](api.md). Signing out revokes session access, including through an otherwise unexpired JWT. Vault endpoints still use the separate `VAULT_INDEXER_API_KEY`.
 
+Better Auth rate-limits every auth route at 100 requests a minute per client, with counts stored in the database; password sign-in allows 8 and sign-up 3 a minute (`convex/auth.ts`). `/get-session` and `/convex/token` are exempt because every page load calls them and they only answer for a valid session cookie. Keep that exemption if you change the limits: on those routes each check costs a database read and write. An hourly cron sweeps stale sign-in budgets.
+
 **Authentication is deployed.** The October 12 rollout denies anonymous `home:overview` queries and returns 401 from personal/AI HTTP endpoints. Public signup returns 403. The owner confirmed access to the existing library and enrolled a passkey; the final backup verifies one owner binding and passkey record with the setup token consumed. Passkey sign-in after sign-out and phone/PWA access still need testing. See [rollout verification](verification.md#owner-authentication-rollout).
 
 ## Roll out owner authentication
@@ -31,6 +33,8 @@ Schedule a short maintenance window with the owner present. Backend-first deploy
 
 Passkeys are origin-bound. Development at `localhost:3107` or `localhost:3108` uses separate **localhost** credentials; production credentials do not work there. Raw LAN HTTP addresses and Vercel preview aliases are not trusted auth origins. Use the HTTPS reader domain for phone access. For another installation, set `SITE_URL` to its canonical HTTPS origin.
 
+Open the reader at `https://reader.bhekani.com` before signing in with a passkey. The established `marginalia-drab.vercel.app` alias redirects page URLs to that canonical host, preserving the path and query. API routes, Next assets, paths ending in a file extension and `/.well-known/` requests stay on their requested host. Browser fragments such as `#invite=<token>` and `#setup=<token>` are not sent in the HTTP request; the redirect does not add them to its `Location`, so the browser keeps the fragment for the canonical page to handle.
+
 Include owner/auth component records in backups. Rolling back only the frontend does not remove backend auth; reverting to the previous public backend reopens personal content. Do not clear auth tables or detach the owner as a rollback shortcut.
 
 ## Current deployment
@@ -41,7 +45,9 @@ Treat it as live: `convex dev --once` uploads changes to the real reader's backe
 
 Verify the actual web environment and Convex dashboard before deploying. This record describes the observed setup, not a guarantee it remains unchanged.
 
-The current release is deployed at `https://marginalia-mu9g6f5qh-planetaryescape.vercel.app` (2026-10-15, commit `d95edca`, backend and frontend; Vercel functions now run in `dub1` beside Convex; backend updated 2026-10-16 from `fbd775e` so a newly added feed imports at most its three newest posts from the last month; the owner's 19 Readwise Reader RSS subscriptions were added directly, importing only posts published after 2026-10-16 01:03), aliased to the reader domain, with the backend on `stoic-hare-718` after a snapshot export taken just before. It stops suggesting read articles: reading to the end auto-finishes, Up next rows can be archived, finished articles can be marked unread, and Reader archives carry over. Earlier releases included personal API tokens and the [API for other apps](api.md), the statistics/mobile/auth release, the [search rejection and iPhone feedback fixes](verification.md#search-rejections-and-iphone-feedback), the [summary and mobile collision fixes](verification.md#summary-credit-reservation-and-mobile-collisions), and the [docked mobile Ask correction](verification.md#docked-mobile-ask-correction). The shared backend has the matching owner authentication component and retains paced Reader backfill. See [auth rollout verification](verification.md#owner-authentication-rollout). Backfill runs without keeping a browser or local frontend open.
+The last verified release before the annotation-engagement candidate was deployed on 2026-10-25 from commit `d6f1ce3df2f287edae57c5d70ee1e55e1484e5d3` (tree `d615786bf37964ae51d86de4852be7b5420029c5`): backend `stoic-hare-718` and Vercel frontend deployment `dpl_2efKUJ5eLthKYWs2tdk7kzEyMfHN`, aliased to the reader domain.
+
+The earlier 2026-10-16 release at commit `fae6801` followed a snapshot export and added feed-removal choices, including deleting removed articles from Readwise Reader; its earlier backend update from `bb7790c` stopped broken emoji from stalling imports. Before that, the 2026-10-15 release at `d95edca` moved Vercel functions to `dub1` beside Convex, and the 2026-10-16 backend update from `fbd775e` limited a new feed to its three newest posts from the prior month. The owner's 19 Readwise Reader RSS subscriptions were added directly, importing only posts published after 2026-10-16 01:03. Those releases stopped suggesting read articles, allowed Up next rows to be archived and finished articles to be marked unread, and carried over Reader archives. Earlier releases added personal API tokens and the [API for other apps](api.md), statistics/mobile/auth, the [search rejection and iPhone feedback fixes](verification.md#search-rejections-and-iphone-feedback), the [summary and mobile collision fixes](verification.md#summary-credit-reservation-and-mobile-collisions), and the [docked mobile Ask correction](verification.md#docked-mobile-ask-correction). The shared backend has the matching owner authentication component and retains paced Reader backfill. See [auth rollout verification](verification.md#owner-authentication-rollout). Backfill runs without keeping a browser or local frontend open.
 
 ## Deploy
 
@@ -79,7 +85,7 @@ These commands upload and change the public app. `vercel.json` installs with Bun
 After deploy, verify the reader domain, not just the generated deployment URL:
 
 1. Navigate through every main destination; header, palette and mobile active-route indicator remain stable.
-2. Open Home search with `/`; arrow navigation, Enter and Escape work.
+2. Open the desk's search with `/`; arrow navigation, Enter and Escape work.
 3. Read an existing article; annotations, settings and source links appear.
 4. Check Notes and saved activity without changing real content. Test writes only in isolated fixtures or a separate deployment.
 5. Check browser errors, overflow at mobile width and selected light/dark themes.
@@ -89,13 +95,50 @@ To roll back the frontend, promote the previously verified Vercel deployment usi
 
 ## Readwise sync
 
-Sources shows connection, progress and last completed sync. The 15-minute cron starts or resumes a single leased job; successful pages schedule their successor after one minute. It checks every page of Inbox, Later and Shortlist, then highlights, then Archive for documents updated since the last sync (skipped on a first import). A failure retains the cursor and bounded current-page checkpoints; **Sync now** retries after the pacing delay. The watermark advances only after all phases finish. Finishing a linked article archives it in Reader; creating/removing linked highlights changes Reader records.
+Sources shows connection, progress and last completed sync. The 15-minute cron starts or resumes a single leased job; successful pages schedule their successor after one minute. It checks every page of Inbox, Later and Shortlist, then highlights, then Archive for documents updated since the last sync (skipped on a first import). A failure retains the cursor and bounded current-page checkpoints; **Sync now** retries after the pacing delay. The watermark advances only after all phases finish. Finishing, auto-finishing or archiving a linked article from Up next archives it in Reader; **Mark unread** or **Undo** moves it to Later, not back to where it was. Creating/removing linked highlights changes Reader records.
 
-Deploy the backend before the frontend: the new `define` mode requires matching schema and mutation validators. **Backend deployment automatically enables a full backfill on the next Reader cron, including on previously connected accounts, and can incur embedding/annotation costs.** Obtain approval before updating the shared live backend. Removing `READWISE_TOKEN` pauses further sync steps without deleting imports or checkpoints; already scheduled annotation jobs can still run.
+Deploy the backend before the frontend: the new `define` mode requires matching schema and mutation validators. **Backend deployment automatically enables a full backfill on the next Reader cron, including on previously connected accounts, and can incur embedding/annotation costs.** Obtain approval before updating the shared live backend. Removing `READWISE_TOKEN` pauses sync only for an owner library with no saved token; readers who connected from Sources disconnect there. Neither deletes imports or checkpoints, and already scheduled annotation jobs can still run.
 
-Home totals are maintained transactionally in `readingQueueStats`, independent of the ten-item Up next list. Existing article counts and historical finishes are initialized in bounded, resumable pages by `readingQueue:initialize`; the 15-minute initialization cron runs even without Reader. To initialize immediately after an approved deployment, run `bunx convex run readingQueue:initialize '{}'` from `packages/backend`. This writes derived counts and finish markers, not notes or article bodies. Home displays “Counting your library…” until initialization completes. Do not manually delete counters or edit queue-affecting article fields in the dashboard; use the article/session mutations so counts stay consistent.
+Extracted articles with saved text remain readable in Library Up next and the desk's time choices when annotations are skipped, including `no_provider` and short articles. Missing/empty extractions, finished sources and book containers are excluded from ordinary candidates. Books keep their separate next-part picks. Reading these skipped articles does not start an annotation retry; saving a provider key still starts the existing catch-up.
+
+The desk's counts use `readableQueueStats`, independent of the paged Up next shelf. The 15-minute queue initialization cron runs even without Reader. For deployment and recovery, follow [the counter rollout](#readable-queue-counters-use-an-independent-baseline). Do not manually delete counters or edit queue-affecting article fields in the dashboard; use the article/session mutations so counts stay consistent.
+
+Per-feed outcome counts (`feedStats`: offered, opened, finished, skipped) are incremented in the same transaction as each `articleInteractions` insert, and the interaction gets `feedCounted: true` in that transaction. The marker means "decided", whether or not it added to a count, so each interaction is decided by exactly one path. A time cutoff would not do, because Convex creation times do not follow commit order. A reader's first counted interaction creates their `feedStatsBackfill` row and schedules `feedStats:backfill`, which scans their interactions in pages of eight (each page reads full articles) and decides the ones with no marker. Re-running it, running it twice at once, or resetting its cursor adds nothing. After the backend deploy, start it for every active reader with `bunx convex run background:fanOut '{"job":"feedStats"}'` from `packages/backend`. A desk open and the reader page's first checkpoint for the same article and session count as one `opened`; a visit's `finished` retried on another day counts once. Interactions on deleted articles, and articles without a feed, are not counted. Nothing is written for a library that is disabled or being deleted. Paragraph dwell lands in `paragraphDwell`, one row per reading visit and day, keyed by the displayed paragraph number.
+
+What a reader tends to read (rung 5c) is learned, suggested and spent on in four small pieces, all per reader and none acting without them. `tasteProfiles` holds one row of affinities (feed, author, active tag; each capped at 40) recomputed daily at 03:00 UTC and, after a finish, five minutes later (one queued at a time). It reads recent interactions, loves and ratings, then their articles eight at a time, so it never reads more than a page of article bodies per transaction. `suggestions:forWindow` and `moreForWindow` add a taste term of at most two points (a minute of fit) to articles that fit, so it never lifts a pick past one three minutes closer. A daily job at 04:00 UTC (`preAnnotate`) starts the marginalia of up to five deferred articles by taste, only for readers with a provider key and a profile, and logs them in `preAnnotations` with a control sample it passed over. Compare their open rates with `bunx convex run preAnnotate:preAnnotationReport '{"userId":"default_user"}'` from `packages/backend`; only choices at least three days old count (`minAgeMs` changes that). Feed suggestions are read live from `feedStats` (offered at least 15, opened under 10%); Keep is a `suggestionKeeps` row that lapses after 90 days. Tag merge suggestions (`tagMergeSuggestions`) are recomputed daily at 03:30 UTC from active tags by normalised name, then embeddings (0.90 strong, 0.80 suggested). Accepting one moves the links 50 at a time and turns the removed tag into an alias; Keep both is remembered for good. After a deploy, run each job once with `bunx convex run background:fanOut '{"job":"taste"}'`, then `'{"job":"tagMerge"}'`, then (once taste has finished) `'{"job":"preAnnotate"}'`.
 
 Before testing, choose a disposable article in a separate Reader account if possible. Do not delete real Reader documents to verify cleanup. Inspect Convex logs and `readwiseSyncState` after a failure; provider rate limits use bounded retries. Removing the token stops new integration calls but does not delete imported content.
+
+## Readable queue counters use an independent baseline
+
+After backing up and approving the intended backend deployment, resume every active library with:
+
+```sh
+cd packages/backend
+bunx convex run background:fanOut '{"job":"queue"}'
+```
+
+For one library, use `bunx convex run readingQueue:initialize '{"userId":"<library-id>"}'`. These are writes; no live command is needed to verify a candidate locally. The initializer first completes any legacy count/finish-history scan, then scans the readable queue in pages of at most four sources with a 1,500,000-byte pagination ceiling plus one-document overshoot. Successor pages schedule themselves. A legacy `ready: true` does not skip the new scan. Counts stay unavailable until the new scan completes; article lists and reading work during the scan. This migration schedules no AI jobs and does not reimport or change annotation statuses.
+
+Keep `readingQueueStats` and `queueCounted` unchanged in meaning. They retain the annotated/deferred baseline for compatibility. The new namespace starts at zero. Each source's compact `readableQueueEntries` receipt stores the contribution actually applied and its generation; a registered article trigger updates the receipt and new totals in the same transaction as the source write. Backfill uses that same receipt, so retries, imports behind a cursor, archive/restore, finishes and annotation transitions cannot count a source twice. Receipts avoid an additional full-body patch on each article. Source writes that cannot affect a contribution do not touch the totals. Account deletion purges both new tables.
+
+Deploy the backend first. Existing frontend field names and return shapes remain valid, old suggestion status cursors are accepted, and legacy/metadata pagination cursors remain pinned to their original storage. Skipped suggestions append a fourth status range; clients must keep paging after empty intermediate pages. Reload open suggestion lists after a backend rollback because the older backend cannot parse a new skipped-status cursor.
+
+Prefer a forward fix that retains the new trigger, receipt schema and generation. Rolling back the frontend leaves counts intact. To reverse backend behavior safely, retain the additive tables and writer trigger while reverting the read policy; do not deploy a pre-receipt writer alongside readable counters. If an older backend or a raw administrative write has already changed/deleted sources without updating receipts, first deploy a recovery build that restores the new schema/writer trigger but keeps `home.counts` and `home.overview` on legacy counters. Then run:
+
+```sh
+bunx convex run readingQueue:rebuildReadable '{"userId":"<library-id>"}'
+```
+
+This approved recovery mutation clears only the derived readable totals, increments their generation and starts a full bounded scan. Previous-generation receipts contribute zero, including receipts for sources deleted by older code. Live source changes during rebuilding use the new generation. Repeating recovery starts another generation safely, but delays readiness. Keep the compatible schema when rolling back code; do not delete receipts, edit their generations, or subtract a newly computed contribution from the old baseline. Complete this rebuild for every affected library and confirm `readableQueueStats.ready` before publishing the readable-counter queries again; then verify the reader's time choices. Old finish history and legacy totals remain available throughout.
+
+Local synthetic coverage:
+
+```sh
+agent-work run -- bun run --cwd packages/backend test convex/noProviderReading.test.ts convex/readableQueueMigration.test.ts convex/readableCandidates.test.ts convex/readableQueueBudget.test.ts --maxWorkers=3
+```
+
+The fixtures cover the no-key import-to-reader journey, tenant isolation, more than 1,000 existing counted rows, interrupted scans, contribution changes, rollback generations, and native read/write limits. They use no live library, credential or provider requests.
 
 ## Catching up after a key is saved
 
@@ -144,10 +187,12 @@ If Convex logs show `invalid_client`, the client ID or secret is wrong; readers'
 | No annotation output | Check extraction and annotation status; inspect model errors/quota before manually retrying one article |
 | Answer stops mid-stream | Retry; do not treat the incomplete answer as finished. Check provider/network logs |
 | Note says it was not saved | Keep the editor open, restore connectivity and Retry before navigating away |
+| Readwise sync completed but Up next is empty | Confirm extraction has saved text and the article is unfinished. `skipped/no_provider` is readable; deploy the eligibility repair rather than replacing the token or reimporting. If time counts are unavailable, check the readable queue migration and resume its queue job |
 | Reader card disconnected | Connect a Readwise token from the Sources page; it's stored encrypted per reader |
 | Vault request returns 401 | The local and deployment vault keys must match |
 | Vault run exits non-zero | Old file index is preserved for failed replacements; resolve the error and rerun the same vault |
 | Route typecheck refers to an old path | `bun run typecheck` regenerates Next route types before checking |
+| Passkey sign-in fails on a Vercel alias | Open `https://reader.bhekani.com` and confirm the browser address changed there before signing in. Passkeys are scoped to the current origin; the established alias redirects page URLs before the app requests a credential. |
 | `::highlight` build warnings | Known Turbopack CSS parser warning for valid Custom Highlight API selectors; verify the actual marks in the browser |
 
 Logs may contain article titles, URLs and provider error bodies. Do not paste credentials or private passages into public issue reports.

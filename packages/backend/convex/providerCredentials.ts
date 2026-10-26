@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { resumeBooks } from "./bookIndex";
 import { startCatchUp } from "./catchUp";
 import {
   action,
@@ -124,6 +125,8 @@ export const store = internalMutation({
       });
     // Re-run marginalia and embeddings skipped while there was no usable key
     await startCatchUp(ctx, args.userId);
+    // and the books whose indexing stopped for want of one, paced
+    await resumeBooks(ctx, args.userId, { respectCap: true });
     return null;
   },
 });

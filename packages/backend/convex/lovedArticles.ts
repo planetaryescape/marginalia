@@ -1,12 +1,16 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { ownedArticle, requireArticle } from "./access";
+import { ownedArticleCard } from "./access";
 import { mutation, query } from "./functions";
+import { SHELF_PAGE_ROWS, withShelfArticles } from "./lib/shelfArticle";
+import { exactShelfCount } from "./lib/shelfCounts";
 import { nextReviewAt, snoozeReviewAt } from "./lib/spacedRepetition";
 
 export const love = mutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId)))
+      throw new Error("Article not found");
     const existing = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user_article", (q) =>
@@ -114,7 +118,7 @@ export const getDueForReview = query({
 
     const withArticles = await Promise.all(
       loved.map(async (l) => {
-        const article = await ownedArticle(ctx, l.articleId, ctx.readerId);
+        const article = await ownedArticleCard(ctx, l.articleId, ctx.readerId);
         if (!article) return null;
 
         const daysSinceLastRead = l.lastReviewedAt
@@ -129,22 +133,43 @@ export const getDueForReview = query({
   },
 });
 
-// List all loved articles
+/** The Loved shelf a page at a time, newest first, with slim articles. */
+export const page = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const result = await ctx.db
+      .query("lovedArticles")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, SHELF_PAGE_ROWS),
+        maximumRowsRead: SHELF_PAGE_ROWS,
+      });
+    return { ...result, page: await withShelfArticles(ctx, result.page) };
+  },
+});
+
+/** Exact stored memberships; old clients keep their numeric contract. */
+export const count = query({
+  args: {},
+  handler: async (ctx) => {
+    return exactShelfCount(ctx, ctx.readerId, "lovedArticles");
+  },
+});
+
+/**
+ * @deprecated Use `page`. Kept for browser tabs still running the old client
+ * during a deploy; bounded to one page of slim articles.
+ */
 export const listAll = query({
   args: {},
   handler: async (ctx) => {
     const loved = await ctx.db
       .query("lovedArticles")
       .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
-      .collect();
-
-    const withArticles = await Promise.all(
-      loved.map(async (l) => {
-        const article = await ownedArticle(ctx, l.articleId, ctx.readerId);
-        return article ? { ...l, article } : null;
-      }),
-    );
-
-    return withArticles.filter(Boolean);
+      .order("desc")
+      .take(SHELF_PAGE_ROWS);
+    return withShelfArticles(ctx, loved);
   },
 });

@@ -24,7 +24,7 @@ export function ProgressRing({
         r={radius}
         fill="none"
         strokeWidth={strokeWidth}
-        className="stroke-ink-200 dark:stroke-ink-700"
+        className="stroke-[var(--reader-border-strong)]"
       />
       <circle
         cx={size / 2}

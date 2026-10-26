@@ -4,13 +4,15 @@ import {
   ArrowUp,
   BookA,
   BookOpenText,
+  Check,
+  ChevronDown,
   Copy,
+  Feather,
   Globe,
   Highlighter,
   MessageCircleQuestion,
   NotebookPen,
   Underline,
-  Wand2,
   X,
 } from "lucide-react";
 import {
@@ -23,9 +25,10 @@ import {
 import { toast } from "sonner";
 import { type CompanionMode, usePassageHighlight } from "@/lib/companion";
 import type { MarkKind } from "@/lib/highlights";
+import { type MarkColor, SWATCHES } from "@/lib/mark-colours";
 import { passagePlacement } from "@/lib/passage-placement";
 import type { AnswerDepth } from "@/lib/reader-settings";
-import { isTypingTarget, useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 interface SelectionToolbarProps {
@@ -47,6 +50,12 @@ interface SelectionToolbarProps {
   onWebChange: (web: boolean) => void;
   isMarked: (kind: MarkKind, range: Range) => boolean;
   onToggleMark: (kind: MarkKind, range: Range) => void;
+  /** Marks the passage in this colour (or recolours the mark there) and makes it the tool's default. */
+  onMarkInColor: (kind: MarkKind, range: Range, color: MarkColor) => void;
+  /** The colour of the mark already on this passage, if any. */
+  markedColor: (kind: MarkKind, range: Range) => MarkColor | null;
+  /** Each tool's current default colour. */
+  defaultColors: Record<MarkKind, MarkColor>;
 }
 
 const SHORTCUTS: Record<string, CompanionMode | MarkKind> = {
@@ -64,14 +73,12 @@ const MARK_TOOLS = [
     label: "Highlight",
     key: "H",
     Icon: Highlighter,
-    swatch: "var(--highlighter)",
   },
   {
     kind: "underline",
     label: "Underline",
     key: "P",
     Icon: Underline,
-    swatch: "var(--pen)",
   },
 ] as const;
 
@@ -111,6 +118,9 @@ export function SelectionToolbar({
   onWebChange,
   isMarked,
   onToggleMark,
+  onMarkInColor,
+  markedColor,
+  defaultColors,
 }: SelectionToolbarProps) {
   const reducedMotion = useReducedMotion();
   const [range, setRange] = useState<Range | null>(null);
@@ -119,110 +129,132 @@ export function SelectionToolbar({
   );
   const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
+  // The tool whose colour picker is open
+  const [picking, setPicking] = useState<MarkKind | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const rangeRef = useRef<Range | null>(null);
+  const frame = useRef(0);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionChanged = useRef(false);
   const askingRef = useRef(false);
+  // Asking and picking a colour both keep the toolbar open without a selection
+  const holding = asking || picking !== null;
   useLayoutEffect(() => {
-    askingRef.current = asking;
-  }, [asking]);
+    askingRef.current = holding;
+  }, [holding]);
 
   const hide = useCallback(() => {
+    if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+    hideTimer.current = null;
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    rangeRef.current = null;
     setRange(null);
     setPosition(null);
     setAsking(false);
     setQuestion("");
+    setPicking(null);
   }, []);
 
-  const handleSelectionChange = useCallback(() => {
-    if (askingRef.current) return;
-    const selection = window.getSelection();
-    if (
-      !selection ||
-      selection.isCollapsed ||
-      !selection.rangeCount ||
-      !containerRef.current
-    ) {
-      // Small delay before hiding — avoids flicker when clicking the toolbar
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (!askingRef.current && (!sel || sel.isCollapsed)) hide();
-      }, 200);
-      return;
-    }
-
-    const current = selection.getRangeAt(0);
-    if (
-      !containerRef.current.contains(current.commonAncestorContainer) ||
-      selection.toString().trim().length < 2
-    ) {
-      hide();
-      return;
-    }
-
-    const snapshot = current.cloneRange();
-    setRange(snapshot);
-    setPosition(placement(snapshot));
+  const scheduleMeasurement = useCallback(() => {
+    if (!rangeRef.current && !selectionChanged.current) return;
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      if (selectionChanged.current) {
+        selectionChanged.current = false;
+        if (!askingRef.current) {
+          const selection = window.getSelection();
+          if (!selection || selection.isCollapsed || !selection.rangeCount) {
+            if (hideTimer.current === null)
+              hideTimer.current = setTimeout(() => {
+                hideTimer.current = null;
+                if (
+                  !askingRef.current &&
+                  window.getSelection()?.isCollapsed !== false
+                )
+                  hide();
+              }, 200);
+            return;
+          }
+          const current = selection.getRangeAt(0);
+          if (
+            !containerRef.current?.contains(current.commonAncestorContainer) ||
+            selection.toString().trim().length < 2
+          ) {
+            hide();
+            return;
+          }
+          const previous = rangeRef.current;
+          if (
+            !previous ||
+            previous.startContainer !== current.startContainer ||
+            previous.startOffset !== current.startOffset ||
+            previous.endContainer !== current.endContainer ||
+            previous.endOffset !== current.endOffset
+          ) {
+            const snapshot = current.cloneRange();
+            rangeRef.current = snapshot;
+            setRange(snapshot);
+          }
+        }
+      }
+      if (!rangeRef.current) return;
+      const next = placement(rangeRef.current, toolbarRef.current);
+      setPosition((previous) =>
+        previous &&
+        previous.top === next.top &&
+        previous.left === next.left &&
+        previous.below === next.below &&
+        previous.mobile === next.mobile
+          ? previous
+          : next,
+      );
+    });
   }, [containerRef, hide]);
 
   useEffect(() => {
+    const handleSelectionChange = () => {
+      if (askingRef.current) return;
+      if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+      selectionChanged.current = true;
+      scheduleMeasurement();
+    };
     document.addEventListener("selectionchange", handleSelectionChange);
-    return () =>
-      document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [handleSelectionChange]);
-
-  useEffect(() => {
-    const preventDuplicateMenu = (event: MouseEvent) => {
-      if (!window.matchMedia("(pointer: coarse)").matches) return;
-      if (isTypingTarget(event.target)) return;
-      const body = containerRef.current?.querySelector("[data-article-body]");
-      const selection = window.getSelection();
-      if (
-        event.target instanceof Node &&
-        body?.contains(event.target) &&
-        selection &&
-        !selection.isCollapsed &&
-        selection.rangeCount &&
-        selection.toString().trim().length >= 2 &&
-        body.contains(selection.getRangeAt(0).commonAncestorContainer)
-      )
-        event.preventDefault();
-    };
-    document.addEventListener("contextmenu", preventDuplicateMenu);
-    return () =>
-      document.removeEventListener("contextmenu", preventDuplicateMenu);
-  }, [containerRef]);
-
-  // Follow the passage while the page scrolls
-  useEffect(() => {
-    if (!range) return;
-    const reposition = () => setPosition(placement(range, toolbarRef.current));
-    window.addEventListener("scroll", reposition, { passive: true });
-    window.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("scroll", reposition);
+    window.addEventListener("scroll", scheduleMeasurement, { passive: true });
+    window.addEventListener("resize", scheduleMeasurement);
+    window.visualViewport?.addEventListener("resize", scheduleMeasurement);
+    window.visualViewport?.addEventListener("scroll", scheduleMeasurement);
     return () => {
-      window.removeEventListener("scroll", reposition);
-      window.removeEventListener("resize", reposition);
-      window.visualViewport?.removeEventListener("resize", reposition);
-      window.visualViewport?.removeEventListener("scroll", reposition);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      window.removeEventListener("scroll", scheduleMeasurement);
+      window.removeEventListener("resize", scheduleMeasurement);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasurement);
+      window.visualViewport?.removeEventListener("scroll", scheduleMeasurement);
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+      if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+      hideTimer.current = null;
     };
-  }, [range]);
+  }, [scheduleMeasurement]);
   // Re-measure when the Ask editor changes the menu's height.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: asking changes the rendered dimensions.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asking and picking change the rendered dimensions.
   useLayoutEffect(() => {
-    if (range) setPosition(placement(range, toolbarRef.current));
-  }, [range, asking]);
+    scheduleMeasurement();
+  }, [asking, picking, scheduleMeasurement]);
 
   // Typing a question moves focus out of the article, so keep the passage tinted
   usePassageHighlight("companion-pending", asking ? range : null);
 
   useEffect(() => {
-    if (!asking) return;
+    if (!holding) return;
     const onPointerDown = (e: PointerEvent) => {
       if (!toolbarRef.current?.contains(e.target as Node)) hide();
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [asking, hide]);
+  }, [holding, hide]);
 
   const finish = () => {
     window.getSelection()?.removeAllRanges();
@@ -253,6 +285,12 @@ export function SelectionToolbar({
     [range, onToggleMark, hide],
   );
 
+  const pickColor = (kind: MarkKind, color: MarkColor) => {
+    if (!range) return;
+    onMarkInColor(kind, range, color);
+    finish();
+  };
+
   useShortcuts(
     Object.fromEntries(
       Object.entries(SHORTCUTS).map(([key, action]) => [
@@ -271,7 +309,8 @@ export function SelectionToolbar({
           if (!target?.toString().trim()) return;
           if (action === "ask") {
             setRange(target);
-            setPosition(placement(target));
+            rangeRef.current = target;
+            scheduleMeasurement();
             setAsking(true);
           } else {
             if (action === "highlight" || action === "underline")
@@ -282,10 +321,23 @@ export function SelectionToolbar({
         },
       ]),
     ),
-    !asking,
+    !holding,
+    {
+      help: {
+        group: "Reading",
+        keys: [
+          ["e", "Explain the selection or paragraph"],
+          ["s", "Simplify it"],
+          ["d", "Define a word or phrase in context"],
+          ["a", "Ask about it"],
+          ["h", "Highlight it"],
+          ["p", "Pen-mark it"],
+        ],
+      },
+    },
   );
 
-  useShortcuts({ Escape: () => finish() }, Boolean(range) && !asking);
+  useShortcuts({ Escape: () => finish() }, Boolean(range) && !holding);
 
   const submitQuestion = () => {
     if (!range || !question.trim()) return;
@@ -343,11 +395,18 @@ export function SelectionToolbar({
                 : { type: "spring", damping: 30, stiffness: 420 }
             }
             className={cn(
-              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-2xl md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
-              asking && "block",
+              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-lg md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
+              holding && "block",
             )}
           >
-            {asking ? (
+            {picking ? (
+              <ColorPicker
+                kind={picking}
+                selected={markedColor(picking, range) ?? defaultColors[picking]}
+                onPick={(color) => pickColor(picking, color)}
+                onClose={() => setPicking(null)}
+              />
+            ) : asking ? (
               <form
                 className="flex flex-wrap md:flex-nowrap items-center gap-1 px-2 md:pl-3 md:pr-0 w-full md:w-auto"
                 onSubmit={(e) => {
@@ -374,7 +433,7 @@ export function SelectionToolbar({
                   className={cn(
                     "flex items-center gap-1 px-2 h-11 md:h-7 rounded-full text-[12px] transition-colors",
                     web
-                      ? "bg-[var(--pen)] text-white"
+                      ? "bg-[var(--reader-fg)] text-[var(--reader-bg)]"
                       : "opacity-60 hover:opacity-100",
                   )}
                 >
@@ -390,7 +449,7 @@ export function SelectionToolbar({
                       className={cn(
                         "px-2.5 h-11 md:h-6 rounded-full capitalize transition-colors",
                         depth === d
-                          ? "bg-parchment-50 text-ink-950"
+                          ? "bg-[var(--reader-fg)] text-[var(--reader-bg)]"
                           : "opacity-60 hover:opacity-100",
                       )}
                     >
@@ -402,7 +461,7 @@ export function SelectionToolbar({
                   type="submit"
                   disabled={!question.trim()}
                   aria-label="Send question"
-                  className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 flex items-center justify-center rounded-full bg-[var(--pen)] text-white transition-opacity disabled:opacity-40"
+                  className="w-11 h-11 md:w-8 md:h-8 ml-auto md:ml-1 flex items-center justify-center rounded-full bg-[var(--reader-fg)] text-[var(--reader-bg)] transition-opacity disabled:opacity-40"
                 >
                   <ArrowUp size={16} strokeWidth={2.5} />
                 </button>
@@ -417,66 +476,45 @@ export function SelectionToolbar({
               </form>
             ) : (
               <>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("ask")}
-                  title="Ask (A)"
-                >
-                  <MessageCircleQuestion size={14} />
-                  Ask
-                </button>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("explain")}
-                  title="Explain (E)"
-                >
-                  <BookOpenText size={14} />
-                  Explain
-                </button>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("simplify")}
-                  title="Simplify (S)"
-                >
-                  <Wand2 size={14} />
-                  Simplify
-                </button>
-                <button
-                  className={actionClass}
-                  onClick={() => runMode("define")}
-                  title="Define in context (D)"
-                  aria-keyshortcuts="d"
-                >
-                  <BookA size={14} />
-                  Define
-                </button>
-                <span className="hidden md:block w-px h-4 mx-1 bg-current opacity-20" />
-                {MARK_TOOLS.map(({ kind, label, key, Icon, swatch }) => {
+                {MARK_TOOLS.map(({ kind, label, key, Icon }) => {
                   const active = isMarked(kind, range);
+                  const color = markedColor(kind, range) ?? defaultColors[kind];
+                  const swatch = SWATCHES[kind].find((c) => c.id === color);
                   return (
-                    <button
-                      key={kind}
-                      className={cn(
-                        iconClass,
-                        "relative",
-                        active && "opacity-100 bg-white/15",
-                      )}
-                      title={`${active ? "Remove" : label} (${key})`}
-                      aria-label={
-                        active ? `Remove ${label.toLowerCase()}` : label
-                      }
-                      aria-pressed={active}
-                      onClick={() => toggleMark(kind)}
-                    >
-                      <Icon size={14} />
-                      <span className="md:hidden">
-                        {active ? "Remove mark" : label}
-                      </span>
-                      <span
-                        className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-[2px] w-3 rounded-full"
-                        style={{ background: swatch }}
-                      />
-                    </button>
+                    <div key={kind} className="flex items-stretch">
+                      <button
+                        className={cn(
+                          iconClass,
+                          "relative flex-1",
+                          active && "opacity-100 bg-white/15",
+                        )}
+                        title={`${active ? "Remove" : label} (${key})`}
+                        aria-label={
+                          active ? `Remove ${label.toLowerCase()}` : label
+                        }
+                        aria-pressed={active}
+                        onClick={() => toggleMark(kind)}
+                      >
+                        <Icon size={14} />
+                        <span className="md:hidden">
+                          {active ? "Remove mark" : label}
+                        </span>
+                        <span
+                          className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-[2px] w-3 rounded-full"
+                          style={{ background: swatch?.hex }}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex items-center justify-center w-6 md:w-4 rounded-full opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                        title={`${label} colour`}
+                        aria-label={`${label} colour, now ${swatch?.label.toLowerCase()}`}
+                        aria-haspopup="true"
+                        onClick={() => setPicking(kind)}
+                      >
+                        <ChevronDown size={10} />
+                      </button>
+                    </div>
                   );
                 })}
                 <button
@@ -490,6 +528,43 @@ export function SelectionToolbar({
                 >
                   <NotebookPen size={14} />
                   <span className="md:hidden">Note</span>
+                </button>
+                <hr
+                  aria-orientation="vertical"
+                  className="hidden md:block w-px h-4 mx-1 border-0 bg-current opacity-20"
+                />
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("explain")}
+                  title="Explain (E)"
+                >
+                  <BookOpenText size={14} />
+                  Explain
+                </button>
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("simplify")}
+                  title="Simplify (S)"
+                >
+                  <Feather size={14} />
+                  Simplify
+                </button>
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("define")}
+                  title="Define in context (D)"
+                  aria-keyshortcuts="d"
+                >
+                  <BookA size={14} />
+                  Define
+                </button>
+                <button
+                  className={actionClass}
+                  onClick={() => runMode("ask")}
+                  title="Ask (A)"
+                >
+                  <MessageCircleQuestion size={14} />
+                  Ask
                 </button>
                 <button
                   className={iconClass}
@@ -510,5 +585,95 @@ export function SelectionToolbar({
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Four dots for a tool. Arrow keys move between them, Enter or Space picks,
+ * Escape goes back to the toolbar. The selected dot takes focus on open.
+ */
+function ColorPicker({
+  kind,
+  selected,
+  onPick,
+  onClose,
+}: {
+  kind: MarkKind;
+  selected: MarkColor;
+  onPick: (color: MarkColor) => void;
+  onClose: () => void;
+}) {
+  const swatches = SWATCHES[kind];
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const name = kind === "highlight" ? "Highlighter" : "Pen";
+
+  // Focus once, when the picker opens; later selection changes must not steal it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: opens once
+  useEffect(() => {
+    const at = swatches.findIndex((c) => c.id === selected);
+    refs.current[Math.max(at, 0)]?.focus({ preventScroll: true });
+  }, []);
+
+  const move = (from: number, step: number) =>
+    refs.current[(from + step + swatches.length) % swatches.length]?.focus({
+      preventScroll: true,
+    });
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label={`${name} colour`}
+      className="flex items-center gap-1 px-2 h-11 md:h-8"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <span className="text-[12px] opacity-60 pr-1">{name}</span>
+      {swatches.map(({ id, label, hex }, i) => (
+        <button
+          key={id}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          type="button"
+          role="radio"
+          aria-checked={id === selected}
+          aria-label={label}
+          title={label}
+          tabIndex={id === selected ? 0 : -1}
+          onClick={() => onPick(id)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+              e.preventDefault();
+              move(i, 1);
+            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+              e.preventDefault();
+              move(i, -1);
+            }
+          }}
+          className="flex items-center justify-center w-9 h-9 md:w-7 md:h-7 rounded-full transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+        >
+          <span
+            className="flex items-center justify-center w-5 h-5 rounded-full ring-1 ring-black/20"
+            style={{ background: hex }}
+          >
+            {id === selected && (
+              <Check size={12} strokeWidth={3} className="text-black/70" />
+            )}
+          </span>
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-label="Back to passage actions"
+        onClick={onClose}
+        className="ml-1 w-9 h-9 md:w-7 md:h-7 flex items-center justify-center rounded-full opacity-60 hover:opacity-100"
+      >
+        <X size={14} />
+      </button>
+    </div>
   );
 }

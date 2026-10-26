@@ -12,7 +12,9 @@ import {
   ownerMutation,
   ownerQuery,
 } from "./functions";
+import { initializeEmptyMetadata } from "./lib/articleMetadata";
 import { DEFAULT_USER_ID } from "./lib/constants";
+import { initializeEmptyFeedStatus } from "./lib/feedStatus";
 import {
   EMAIL_PATTERN,
   newToken,
@@ -123,6 +125,20 @@ export const listRequests = ownerQuery({
       recent: recent.map(viewRequest),
     };
   },
+});
+
+/** Matches the existing menu's bounded pending count without request details. */
+export const pendingCount = ownerQuery({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) =>
+    (
+      await ctx.db
+        .query("accessRequests")
+        .withIndex("by_status_and_createdAt", (q) => q.eq("status", "pending"))
+        .order("desc")
+        .take(50)
+    ).length,
 });
 
 /**
@@ -314,5 +330,7 @@ export async function claimInvite(
     name: user.name?.trim() || invite.name,
     createdAt: now,
   });
+  await initializeEmptyMetadata(ctx, user._id);
+  await initializeEmptyFeedStatus(ctx, user._id);
   return true;
 }

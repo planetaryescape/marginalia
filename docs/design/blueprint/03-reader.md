@@ -33,7 +33,7 @@ A **collapsed note**:
 
 An **open note** appears on click, Enter, or `o` on the current paragraph:
 
-- The note grows in place into today's margin card, with its full text, quoted line, sources, follow-up and actions.
+- The note grows in place into today's margin card, with its full text, quoted line, sources, follow-up and actions. It stays in the margin column at the column's width and never covers another note: the notes below slide down to make room (`--motion-move`, by transform) and slide back when it closes; the notes above don't move (D-DES-049).
 - It gains a raised surface (`--surface-raised`, 10 px radius) because it now floats.
 - The connector thickens to 1.5 px and the note's line gets a soft `--surface` wash in the text.
 - Only one note is open at a time. Esc or a click on the page collapses it.
@@ -42,7 +42,14 @@ Your own notes and marks show in the margin too, in your pen. A note you wrote a
 
 ### Collisions
 
-When notes would overlap, the later note moves down until it clears the one above, with an 8 px gap. Its connector bends with one elbow to keep pointing at its line. If a note would be pushed more than 240 px below its line, it collapses to a single line ("• question · ¶22") until its neighbour is closed. S2 tests this on the most heavily annotated article in the library at 1280 px and 1440 px.
+When notes would overlap, the later note moves down until it clears the one above, with an 8 px gap. Its connector bends with one elbow to keep pointing at its line. If a note would be pushed more than 240 px below its line, it collapses to a single line ("• question · ¶22") until its neighbour is closed.
+
+S2 measured these rules (result in [09](09-open-questions.md#s2-result-2026-10-16)) and added three:
+
+- **The three-line clamp is load-bearing.** A collapsed note is always about 70 px tall. Unclamped notes drift thousands of pixels at high density; clamped ones stay within one screen.
+- **Notes whose lines sit within 40 px share one stacked note** with one connector. Several notes on one passage is the likely real pattern, and merging cut displaced notes from 51 to 12 in the clustered test.
+- **Nothing hangs below the article.** If the last note would end more than one note-height below the article's last line, every remaining displaced note collapses to one line.
+- **Layout is one measure-then-place pass**, rerun on resize and on type or theme changes, debounced to a frame. 531 notes relayout in about 5 ms, so there's no virtualisation. Anchor each note to the first client rect of its mark, not its paragraph.
 
 ### Arrival
 
@@ -83,7 +90,15 @@ Phones keep today's bottom bar, renamed to the glossary: **Ask · Notes · Liste
 
 ## Front matter
 
-"Summarize this article" stays above the text as one quiet line, not a bordered card: "Summary, key claims and a map, before you start →" in `--type-pencil`. Opening it expands the summary and idea map in place, in pencil, above the text. It never covers the text.
+"Summarize this article" stays above the text as one quiet line, not a bordered card: "Summary, key claims and a map, before you start →" in `--type-pencil`. Opening it expands in place, in pencil, above the text. It never covers the text.
+
+It reads in order of increasing detail, so BK can stop at any layer (D-DES-047):
+
+1. **The one point:** one sentence. Often enough to decide whether to read on. Always present; today `thesis` is optional in `summaries` and shown second, after the gist (`summary-panel.tsx`, origin/main `67798dc`).
+2. **The short summary** (today's `gist`).
+3. **The idea map.**
+
+The idea map is designed, not just generated (D-DES-048). The model is told to keep it legible: about seven ideas at most, built mostly as a tree toward the conclusion, few cross-links, and nothing that adds lines without adding understanding. Layout uses a layered-graph library with crossing minimisation (dagre or elkjs) instead of today's single ordering pass (`idea-map.tsx#L61-L112`), and runs top-down when the map is long.
 
 ## Passage menu
 
@@ -91,7 +106,56 @@ The menu keeps its actions (Ask, Explain, Simplify, Define, Highlight, Underline
 
 - **Order by hand:** first the pen actions that mark the page (Highlight, Underline, Note), then a hairline, then the pencil actions that ask Marginalia (Explain, Simplify, Define, Ask), then Copy.
 - **Highlight:** sweeps the selection (`--motion-sweep`) and adds a pen tick in the margin.
-- **Explain, Simplify, Define and Ask:** each opens its answer as an open note in the margin beside the passage (on phones, in the flow below it), not in a separate panel. Answers write in pencil as they stream. ¶ references in an answer are links that scroll to and briefly wash the cited paragraph.
+- **Explain, Simplify, Define and Ask:** each opens its answer as an open note in the margin beside the passage (on phones, in the flow below it), not in a separate panel. Answers write in pencil as they stream. ¶ references in an answer are links that scroll to and briefly wash the cited paragraph. These tools exist so BK never leaves the page to understand something (D-DES-039).
+- **Kept answers mark their passage in pencil**, a faint `--surface` wash or a `--pencil-rule` underline, never in the highlighter colour. Today `companion-saved` marks look like BK's own highlights, which blurs whose hand is whose (D-DES-020, D-DES-051).
+- **Answers are temporary until kept.** An answer stays in the margin while the article is open, including across a refresh, and disappears when the article is closed. **Keep** on the answer saves it to Notes. A follow-up doesn't keep it. Today every finished answer is saved automatically (`apps/web/src/lib/companion.ts#L204`); that changes (D-DES-045).
+- **Length:** an answer is as long as it needs to be and no longer. A definition is a line; an explanation a short paragraph; Ask runs longer only when the question needs it (D-DES-042).
+
+## Getting back to where you were
+
+Every jump inside the article (a ¶ reference in an answer or card, the paragraph map, a summary or idea-map link) remembers where BK was reading. A quiet pencil chip, "↩ Back to ¶N", appears under the toolbar (above the bottom bar on phones) and returns him to that exact line. Jumps stack, so two jumps go back in two steps. The chip disappears once he's back, including when he scrolls back on his own; plain scrolling never adds an entry (D-DES-053).
+
+## What each tool sees
+
+Every AI call gets the context its question needs, not the whole document (D-DES-054). Annotation reads the first 120,000 characters (`marginaliaContext.ts`), and when the article runs past that, an outline of the headings beyond the cut with a rough size each, so its notes know the shape of the whole piece while anchoring only to text it can see (`lib/articleOutline.ts`, D-DES-068). Ask about a passage sends the passage and its neighbours within a 16,000-character budget, cutting an oversized highlighted paragraph around the selection (`readingCompanion.ts`).
+
+| Tool | Gets |
+|---|---|
+| Define | The sentence and its paragraph, plus the summary |
+| Explain, Simplify | The passage and a paragraph either side, plus the summary |
+| Ask about a passage | The passage, the passages found by searching this document for the question, plus the summary |
+| Ask about the article | The passages found by searching the document, plus the outline (for a book, the chapter summaries) |
+| Annotation | The section being annotated, plus the outline and BK's related notes |
+
+The summary is always there as background: the one point and the short summary are written at import, in the same call that annotates (D-DES-054). The idea map is generated when BK opens it. The summary at the top of the article opens collapsed.
+
+## Books and long documents
+
+A long document is indexed, not sent (D-DES-055). At import it's split into sections (chapters from PDF or HTML headings, else fixed-size parts), each embedded and given a short summary; the section summaries form the outline any call can carry cheaply. Annotation follows the reading: the import pass covers the outline and the first section, and reading alongside (D-DES-041) annotates the section ahead as BK goes. Nothing annotates a whole book up front. The book's one point and short summary come from its section summaries; it may have an idea map per chapter. S7 and S8 (results in [09](09-open-questions.md)) settled the method: `unpdf` in a Convex Node action reading the upload from storage, page by page; structure-aligned reading units of about 1,500–4,000 tokens (about 7 minutes), split at paragraph breaks above about 6,000; about 300-token passages for embeddings. A book's text is stored by section, because a whole book exceeds the article row limit. Scanned PDFs (under about 100 characters a page) are refused with an explanation.
+
+## Links in the article
+
+A link in the article never navigates on click (D-DES-044). It opens a small `.reader-menu` beside the link with the link's title (when known) and domain, then:
+
+1. **Save for later:** imports the page into the library as Saved, which boosts it in picks (D-DES-040).
+2. **Open in background:** last, and it opens a new tab without focusing it.
+
+Modifier-click (⌘ or Ctrl) keeps the browser's own new-tab behaviour for people who reach for it deliberately.
+
+## Connections and discovery
+
+A connection note can point at an article in the library, read or unread, not only at a vault note (D-DES-040). Today a `cross_reference` must cite a vault note (`generateAnnotations.ts#L101`). A connection to an article shows that article's title and reading time and one action, **Save for later**. It is never a link, because following it would leave the page. Saved articles get a boost when picks are made, so the connection finds BK in a later session.
+
+## Reading alongside
+
+Annotation runs in two passes (D-DES-041):
+
+- **On import,** as today (`actions/extractArticle.ts#L113`): the whole article, so the desk can offer it.
+- **While reading:** when BK opens the article, and as he moves through it, Marginalia looks at the part ahead of him with what he has done so far (highlights, questions, notes) and adds notes there. The "Reading alongside you…" line marks where it's working.
+
+The second pass runs only when something has changed (D-DES-046). Each article records when it was last annotated and a fingerprint of what the margin drew on: BK's notes and marks, the library articles it connected to, and the vault. On open, if nothing relevant has arrived since, the margin is current and no model call is made. If something has, only the new material and the passages ahead are annotated; existing notes stay where they are, so the margin never reshuffles under him.
+
+Density replaces the fixed count (D-DES-042). Today the prompt asks for 3–7 notes and the code caps at 10 (`lib/constants.ts#L10`). The new budget is per length of text (for example, on average at most one note per screen of text), with the S2 layout rules keeping crowded passages calm.
 
 ## Ask about this article
 
@@ -99,7 +163,7 @@ The floating "Ask about this article /" pill stays on wide screens, but it must 
 
 ## Notes panel
 
-The side panel stays for the list of all notes on this article (`n`), with three changes:
+The side panel stays for the list of all notes on this article (`n`). It docks beside the text and never blocks the article: BK can scroll, select, highlight and start another note while it's open (D-DES-050). On phones it's a half-height sheet. Three changes remain:
 
 - **Your words lead:** your text in `--type-ui` ink with a 2 px pen rule on its left. A saved AI answer is collapsed to its first line in pencil, with "Marginalia's answer" in meta, and expands on click.
 - **Quoted lines** stay italic serif in `--ink-muted`.
@@ -113,10 +177,12 @@ The end of the article is back matter, in this order:
 2. **Your impression:** stars with labels (D-DES-005), tags as quiet chips, "What stayed with you?" as a borderless field with a hairline under it.
 3. **Done:** the single primary button of the back matter, solid ink.
 
+Nothing moves on automatically (D-DES-038). The back matter is a pause for reflection; BK leaves when he chooses. A reflection he writes on an annotation or in "What stayed with you?" saves automatically, because it's his own writing (D-DES-045).
+
 Pressing Done marks the article finished:
 
 - The page fades over `--motion-page` to wherever the reader came from.
-- On the desk, the article's row leaves Up next and the next pick fills the slot (D-DES-010).
+- On the desk, the next pick fills the slot (D-DES-010).
 - No toast. The article simply isn't offered again.
 - Auto-finish (end reached after 40% of the estimated time) shows a one-line "Finished · Mark unread" note at the bottom of the back matter instead of acting silently.
 

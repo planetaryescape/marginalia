@@ -1,5 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  observeParagraphGeometry,
+  paragraphGeometry,
+} from "./paragraph-geometry";
 import { getArticleBody, getParagraphs, paragraphText } from "./paragraphs";
 
 export interface ReadingPosition {
@@ -23,18 +27,19 @@ export function useReadingPosition(
   useEffect(() => {
     const body = getArticleBody(containerRef.current);
     if (!body) return;
-    let frame = 0;
     let marked: HTMLElement | null = null;
 
     const measure = () => {
-      const paragraphs = getParagraphs(body);
+      const geometry = paragraphGeometry(containerRef.current);
+      if (!geometry) return;
+      const paragraphs = geometry.elements;
       const line = window.innerHeight * 0.4;
       let current: number | null = null;
       let nearest = Number.POSITIVE_INFINITY;
       let firstVisible: number | null = null;
       let lastVisible: number | null = null;
-      paragraphs.forEach((el, i) => {
-        const rect = el.getBoundingClientRect();
+      paragraphs.forEach((_el, i) => {
+        const rect = geometry.rects[i];
         if (rect.bottom > 56 && rect.top < window.innerHeight) {
           firstVisible ??= i;
           lastVisible = i;
@@ -63,17 +68,9 @@ export function useReadingPosition(
       );
     };
 
-    const schedule = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(measure);
-    };
-    schedule();
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
+    const stop = observeParagraphGeometry(containerRef.current, measure);
     return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
+      stop();
       marked?.removeAttribute("data-current");
     };
   }, [containerRef, version]);
@@ -98,7 +95,13 @@ function pickVoice(): SpeechSynthesisVoice | null {
 }
 
 /** Reads the article aloud paragraph by paragraph with the Web Speech API. */
-export function useListen(containerRef: React.RefObject<HTMLElement | null>) {
+export function useListen(
+  containerRef: React.RefObject<HTMLElement | null>,
+  articleId?: string,
+  unitKey?: string | null,
+  content?: string,
+  contentHtml?: string,
+) {
   const [state, setState] = useState<{ index: number | null; paused: boolean }>(
     {
       index: null,
@@ -165,7 +168,12 @@ export function useListen(containerRef: React.RefObject<HTMLElement | null>) {
     });
   }, [supported]);
 
-  useEffect(() => stop, [stop]);
+  // Prose identity, not paragraph geometry or arriving annotations, ends speech.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes invalidate the captured paragraph array
+  useEffect(() => {
+    stop();
+    return stop;
+  }, [stop, articleId, unitKey, content, contentHtml]);
 
   return {
     supported,

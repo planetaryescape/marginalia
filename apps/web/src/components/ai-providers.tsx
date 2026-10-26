@@ -2,8 +2,16 @@
 import { api } from "@marginalia/backend/convex/_generated/api";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
-import { KeyRound } from "lucide-react";
 import { useEffect, useId, useState } from "react";
+import { FAILURE_COPY, failureSentence } from "@/lib/failure-copy";
+import { ConfirmAction } from "./settings-confirm";
+import {
+  fieldControl,
+  primaryControl,
+  quietControl,
+  textControl,
+} from "./settings-controls";
+import { SettingsSection } from "./settings-section";
 
 type Provider = "openrouter" | "openai" | "anthropic";
 
@@ -17,18 +25,19 @@ const PROVIDERS: { id: Provider; name: string; hint: string }[] = [
   { id: "anthropic", name: "Anthropic", hint: "Claude models." },
 ];
 
-function errorMessage(error: unknown) {
-  if (error instanceof ConvexError && typeof error.data === "string")
-    return error.data;
-  return "Couldn't save that key. Try again.";
-}
+/** Only one remove or disconnect is open at a time; touching another control closes it. */
+type Confirming = string | null;
 
 function ProviderRow({
   provider,
   saved,
+  confirming,
+  setConfirming,
 }: {
   provider: (typeof PROVIDERS)[number];
   saved: { last4: string; validatedAt: number } | undefined;
+  confirming: Confirming;
+  setConfirming: (next: Confirming) => void;
 }) {
   const id = useId();
   const save = useAction(api.providerCredentials.save);
@@ -37,8 +46,10 @@ function ProviderRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const confirmKey = `provider:${provider.id}`;
 
   async function submit() {
+    setConfirming(null);
     setBusy(true);
     setError("");
     setStatus("");
@@ -46,7 +57,7 @@ function ProviderRow({
       await save({ provider: provider.id, apiKey: key });
       setStatus(`${provider.name} key saved.`);
     } catch (e) {
-      setError(errorMessage(e));
+      setError(failureSentence(e, FAILURE_COPY.save));
     } finally {
       // The full key never stays in the page once it has been sent
       setKey("");
@@ -55,9 +66,9 @@ function ProviderRow({
   }
 
   return (
-    <div className="py-4 border-b border-[var(--reader-border)]">
+    <div className="border-b border-[var(--reader-border)] py-3">
       {saved ? (
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm">
             <span className="font-medium">{provider.name}</span>
             <span className="text-[var(--reader-muted)]">
@@ -65,17 +76,15 @@ function ProviderRow({
               · Connected, key ending {saved.last4}
             </span>
           </div>
-          <button
-            className="min-h-11 px-3 text-sm"
-            aria-label={`Remove ${provider.name} key`}
-            disabled={busy}
-            onClick={() => {
-              if (
-                !confirm(
-                  `Remove your ${provider.name} key? Features that need it stop until you add a key again.`,
-                )
-              )
-                return;
+          <ConfirmAction
+            label="Remove"
+            ariaLabel={`Remove ${provider.name} key`}
+            question={`Remove your ${provider.name} key? Features that need it stop until you add a key again.`}
+            confirmLabel="Remove"
+            busy={busy}
+            open={confirming === confirmKey}
+            onOpenChange={(open) => setConfirming(open ? confirmKey : null)}
+            onConfirm={() => {
               setBusy(true);
               setStatus("");
               remove({ provider: provider.id })
@@ -85,9 +94,7 @@ function ProviderRow({
                 )
                 .finally(() => setBusy(false));
             }}
-          >
-            Remove
-          </button>
+          />
         </div>
       ) : (
         <form
@@ -107,10 +114,12 @@ function ProviderRow({
             <input
               id={id}
               type="password"
+              name={`${provider.id}-api-key`}
+              data-1p-ignore="true"
               autoComplete="off"
               spellCheck={false}
               placeholder={`${provider.name} API key`}
-              className="app-input max-w-sm flex-1"
+              className={`${fieldControl} max-w-sm flex-1`}
               value={key}
               disabled={busy}
               aria-invalid={Boolean(error)}
@@ -119,7 +128,7 @@ function ProviderRow({
             />
             <button
               type="submit"
-              className="app-button secondary"
+              className={quietControl}
               disabled={busy || !key.trim()}
             >
               {busy ? "Checking…" : "Save"}
@@ -131,7 +140,7 @@ function ProviderRow({
         <p
           id={`${id}-error`}
           role="alert"
-          className="mt-2 text-sm text-annotation-tension"
+          className="mt-2 text-sm text-[var(--danger)]"
         >
           {error}
         </p>
@@ -157,7 +166,13 @@ const CHATGPT_RESULTS: Record<string, string> = {
 };
 
 /** Shown only when the server offers Sign in with ChatGPT. */
-function ChatGPTPlan() {
+function ChatGPTPlan({
+  confirming,
+  setConfirming,
+}: {
+  confirming: Confirming;
+  setConfirming: (next: Confirming) => void;
+}) {
   const state = useQuery(api.chatgpt.connection, {});
   const start = useAction(api.chatgpt.start);
   const disconnect = useAction(api.chatgpt.disconnect);
@@ -180,6 +195,7 @@ function ChatGPTPlan() {
   const connection = state.connection;
 
   async function connect(consent = false) {
+    setConfirming(null);
     setBusy(true);
     setError("");
     setStatus("");
@@ -197,10 +213,10 @@ function ChatGPTPlan() {
   }
 
   return (
-    <div className="py-4 border-b border-[var(--reader-border)]">
+    <div className="border-b border-[var(--reader-border)] py-3">
       {connection ? (
         <>
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm">
               <span className="font-medium">ChatGPT plan</span>
               <span className="text-[var(--reader-muted)]">
@@ -214,16 +230,14 @@ function ChatGPTPlan() {
                 {connection.email ? ` as ${connection.email}` : ""}
               </span>
             </div>
-            <button
-              className="min-h-11 px-3 text-sm"
-              disabled={busy}
-              onClick={() => {
-                if (
-                  !confirm(
-                    "Disconnect ChatGPT? Features using your plan switch to your API keys, if you have any.",
-                  )
-                )
-                  return;
+            <ConfirmAction
+              label="Disconnect"
+              question="Disconnect ChatGPT? Features using your plan switch to your API keys, if you have any."
+              confirmLabel="Disconnect"
+              busy={busy}
+              open={confirming === "chatgpt"}
+              onOpenChange={(open) => setConfirming(open ? "chatgpt" : null)}
+              onConfirm={() => {
                 setBusy(true);
                 setError("");
                 setStatus("");
@@ -238,9 +252,7 @@ function ChatGPTPlan() {
                   .catch(() => setError("Couldn't disconnect ChatGPT."))
                   .finally(() => setBusy(false));
               }}
-            >
-              Disconnect
-            </button>
+            />
           </div>
           {connection.message && (
             <p className="mt-2 text-sm">{connection.message}</p>
@@ -248,7 +260,7 @@ function ChatGPTPlan() {
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
             {connection.status === "reconnect" && (
               <button
-                className="app-button secondary"
+                className={primaryControl}
                 disabled={busy}
                 onClick={() => void connect()}
               >
@@ -257,7 +269,7 @@ function ChatGPTPlan() {
             )}
             {connection.status === "plan_disabled" && (
               <button
-                className="app-button secondary"
+                className={quietControl}
                 disabled={busy}
                 onClick={() => void connect(true)}
               >
@@ -268,7 +280,7 @@ function ChatGPTPlan() {
               href={CHATGPT_USAGE_URL}
               target="_blank"
               rel="noreferrer"
-              className="underline underline-offset-2"
+              className={textControl}
             >
               ChatGPT usage
             </a>
@@ -285,7 +297,7 @@ function ChatGPTPlan() {
             </span>
           </p>
           <button
-            className="app-button secondary mt-2"
+            className={`${quietControl} mt-2`}
             disabled={busy}
             onClick={() => void connect()}
           >
@@ -294,7 +306,7 @@ function ChatGPTPlan() {
         </div>
       )}
       {error && (
-        <p role="alert" className="mt-2 text-sm text-annotation-tension">
+        <p role="alert" className="mt-2 text-sm text-[var(--danger)]">
           {error}
         </p>
       )}
@@ -310,27 +322,28 @@ function ChatGPTPlan() {
 export function AiProviders() {
   const saved = useQuery(api.providerCredentials.list, {});
   const capabilities = useQuery(api.providerCredentials.capabilities, {});
+  const [confirming, setConfirming] = useState<Confirming>(null);
   return (
-    <section className="account-section">
-      <h2 className="flex items-center gap-2 font-serif text-2xl">
-        <KeyRound size={22} />
-        AI providers
-      </h2>
-      <p className="text-sm text-[var(--reader-muted)] my-3">
-        Answers, summaries and marginalia use your own key. It's checked with
-        the provider, stored encrypted and never shown again. Search and Ask
-        your library need an OpenAI or OpenRouter key.
-      </p>
-      {PROVIDERS.map((provider) => (
-        <ProviderRow
-          key={provider.id}
-          provider={provider}
-          saved={saved?.find((row) => row.provider === provider.id)}
-        />
-      ))}
-      {capabilities?.chatgptAvailable && <ChatGPTPlan />}
+    <SettingsSection
+      title="AI providers and models"
+      description="Answers, summaries and marginalia use your own key. It's checked with the provider, stored encrypted and never shown again. Search and Ask your library need an OpenAI or OpenRouter key."
+    >
+      <div>
+        {PROVIDERS.map((provider) => (
+          <ProviderRow
+            key={provider.id}
+            provider={provider}
+            saved={saved?.find((row) => row.provider === provider.id)}
+            confirming={confirming}
+            setConfirming={setConfirming}
+          />
+        ))}
+        {capabilities?.chatgptAvailable && (
+          <ChatGPTPlan confirming={confirming} setConfirming={setConfirming} />
+        )}
+      </div>
       <CatchUpStatus />
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -351,7 +364,7 @@ function CatchUpStatus() {
       : "",
   ].filter(Boolean);
   return (
-    <p role="status" className="mt-4 text-sm text-[var(--reader-muted)]">
+    <p role="status" className="text-[13px] text-[var(--reader-muted)]">
       Catching up on what was saved without a key
       {done.length ? `: ${done.join(" and ")} so far.` : "…"}
     </p>

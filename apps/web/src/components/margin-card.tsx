@@ -8,9 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { MIN_GUTTER, measureGutter } from "@/lib/margin-mode";
 import { cn } from "@/lib/utils";
-
-const MIN_GUTTER = 300;
 
 type Layout =
   | {
@@ -31,13 +30,7 @@ function computeLayout(
 ): Layout {
   const article = container.getBoundingClientRect();
   // The docked notes pane owns the right edge while it is open.
-  const notesInset =
-    Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue(
-        "--notes-inset",
-      ),
-    ) || 0;
-  const gutter = window.innerWidth - notesInset - article.right;
+  const gutter = measureGutter(container);
   if (gutter < MIN_GUTTER) return { kind: "sheet" };
   if (pinned) {
     return {
@@ -57,8 +50,8 @@ function computeLayout(
   return {
     kind: "margin",
     top,
-    left: article.right + window.scrollX + 8,
-    width: Math.min(380, gutter - 40),
+    left: article.right + window.scrollX + 16,
+    width: Math.min(340, gutter - 32),
     lineFrom: article.right + window.scrollX - 20,
   };
 }
@@ -76,7 +69,7 @@ export function MarginCard({
   layoutVersion,
   anchorKey,
   getAnchorRect,
-  accent = "var(--pen)",
+  accent = "var(--pencil)",
   title,
   label,
   paragraphIndex,
@@ -86,6 +79,7 @@ export function MarginCard({
   footer,
   scrollKey,
   pinned = false,
+  inline = false,
 }: {
   containerRef: React.RefObject<HTMLElement | null>;
   /** Bump to re-measure, e.g. after text settings change. */
@@ -105,6 +99,8 @@ export function MarginCard({
   scrollKey?: unknown;
   /** Stays fixed in the margin instead of following a passage (whole-article questions). */
   pinned?: boolean;
+  /** Rendered by the caller in the margin column, which sets its position and width. */
+  inline?: boolean;
 }) {
   const [layout, setLayout] = useState<Layout | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -113,7 +109,7 @@ export function MarginCard({
   useLayoutEffect(() => {
     anchorRef.current = getAnchorRect;
   }, [getAnchorRect]);
-  const hasLayout = layout !== null;
+  const hasLayout = inline || layout !== null;
   useEffect(() => {
     if (!hasLayout) return;
     const previous = document.activeElement;
@@ -131,6 +127,7 @@ export function MarginCard({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `anchorKey` and `layoutVersion` ask for a re-measure
   useLayoutEffect(() => {
+    if (inline) return;
     const measure = () => {
       const container = containerRef.current;
       if (container) {
@@ -142,7 +139,7 @@ export function MarginCard({
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [containerRef, anchorKey, layoutVersion, pinned]);
+  }, [containerRef, anchorKey, layoutVersion, pinned, inline]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -168,15 +165,16 @@ export function MarginCard({
     }
   }, [scrollKey, scrollsInside]);
 
-  if (!layout) return null;
+  if (!layout && !inline) return null;
+  const kind = inline || !layout ? "margin" : layout.kind;
 
   const card = (
     <motion.div
       ref={cardRef}
       initial={{
         opacity: 0,
-        x: layout.kind === "margin" ? 10 : 0,
-        y: layout.kind === "sheet" ? 16 : 0,
+        x: kind === "margin" && !inline ? 10 : 0,
+        y: kind === "sheet" ? 16 : 0,
       }}
       animate={{ opacity: 1, x: 0, y: 0 }}
       transition={{ type: "spring", damping: 30, stiffness: 320 }}
@@ -185,18 +183,20 @@ export function MarginCard({
       style={{ "--card-accent": accent } as React.CSSProperties}
       className={cn(
         "relative font-sans flex flex-col bg-[var(--reader-surface)] text-[var(--reader-fg)]",
-        "ring-1 ring-[var(--reader-border)] shadow-[0_18px_50px_-20px_rgba(0,0,0,0.35)]",
-        layout.kind === "margin"
-          ? "rounded-r-xl rounded-l-[3px] border-l-2 border-l-[var(--card-accent)]"
-          : layout.kind === "pinned"
+        kind !== "margin" &&
+          "ring-1 ring-[var(--reader-border)] shadow-[0_18px_50px_-20px_rgba(0,0,0,0.35)]",
+        kind === "margin"
+          ? // Raised like .reader-menu: a hairline, and a shadow only on light themes.
+            "margin-card-raised rounded-[10px] border border-[var(--reader-border)]"
+          : kind === "pinned"
             ? "rounded-r-xl rounded-l-[3px] border-l-2 border-l-[var(--card-accent)] max-h-[calc(100vh-96px)]"
-            : "rounded-2xl border-t-2 border-t-[var(--card-accent)] max-h-[calc(var(--app-viewport-height)-6rem)]",
+            : "rounded-lg border-t-2 border-t-[var(--card-accent)] max-h-[calc(var(--app-viewport-height)-6rem)]",
       )}
     >
       <div
         className={cn(
           "px-4 pt-3 pb-2",
-          layout.kind !== "margin" && "min-h-0 overflow-y-auto",
+          kind !== "margin" && "min-h-0 overflow-y-auto",
         )}
       >
         <div className="flex items-center gap-2 mb-2.5">
@@ -228,7 +228,9 @@ export function MarginCard({
     </motion.div>
   );
 
-  if (layout.kind === "pinned") {
+  if (inline) return card;
+
+  if (layout?.kind === "pinned") {
     return (
       <div
         className="fixed z-30 top-[72px]"
@@ -239,13 +241,15 @@ export function MarginCard({
     );
   }
 
-  if (layout.kind === "sheet") {
+  if (layout?.kind === "sheet") {
     return (
       <div className="fixed z-40 [html[data-notes-open]_&]:z-[55] bottom-[calc(var(--app-keyboard-inset)+env(safe-area-inset-bottom)+0.75rem)] right-3 left-3 sm:left-auto sm:right-[calc(var(--notes-inset)+0.75rem)] sm:w-[400px]">
         {card}
       </div>
     );
   }
+
+  if (!layout) return null;
 
   return (
     <div
@@ -265,8 +269,7 @@ export function MarginCard({
         }
         aria-hidden
       >
-        <span className="w-[5px] h-[5px] -ml-[2px] rounded-full bg-[var(--card-accent)]" />
-        <span className="flex-1 h-px bg-[var(--card-accent)] opacity-50" />
+        <span className="flex-1 h-[1.5px] bg-[var(--pencil)]" />
       </div>
       <div
         className="absolute"

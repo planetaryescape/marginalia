@@ -1,7 +1,60 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { ownedArticle, requireArticle } from "./access";
+import { ownedArticleCard } from "./access";
 import { mutation, query } from "./functions";
+import {
+  SHELF_ID_BOUND,
+  SHELF_PAGE_ROWS,
+  withShelfArticles,
+} from "./lib/shelfArticle";
+import { exactShelfCount } from "./lib/shelfCounts";
 
+/** The Saved shelf a page at a time, newest first, with slim articles. */
+export const page = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const result = await ctx.db
+      .query("savedArticles")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, SHELF_PAGE_ROWS),
+        maximumRowsRead: SHELF_PAGE_ROWS,
+      });
+    return { ...result, page: await withShelfArticles(ctx, result.page) };
+  },
+});
+
+/** Which articles the reader has saved, for marking rows elsewhere. */
+export const savedIds = query({
+  args: {},
+  handler: async (ctx) => {
+    const saved = await ctx.db
+      .query("savedArticles")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .take(SHELF_ID_BOUND);
+    return saved.map((s) => s.articleId);
+  },
+});
+
+/** A visible card's membership, without loading a bounded global ID list. */
+export const isSaved = query({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, { articleId }) =>
+    (await ctx.db
+      .query("savedArticles")
+      .withIndex("by_user_article", (q) =>
+        q.eq("userId", ctx.readerId).eq("articleId", articleId),
+      )
+      .first()) !== null,
+});
+
+/**
+ * @deprecated Use `page`. Kept for browser tabs still running the old client
+ * during a deploy; bounded to one page of slim articles.
+ */
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -9,23 +62,16 @@ export const list = query({
       .query("savedArticles")
       .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
       .order("desc")
-      .take(50);
-
-    const articles = await Promise.all(
-      saved.map(async (s) => {
-        const article = await ownedArticle(ctx, s.articleId, ctx.readerId);
-        return article ? { ...s, article } : null;
-      }),
-    );
-
-    return articles.filter(Boolean);
+      .take(SHELF_PAGE_ROWS);
+    return withShelfArticles(ctx, saved);
   },
 });
 
 export const save = mutation({
   args: { articleId: v.id("articles") },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    if (!(await ownedArticleCard(ctx, args.articleId, ctx.readerId)))
+      throw new Error("Article not found");
     const existing = await ctx.db
       .query("savedArticles")
       .withIndex("by_user_article", (q) =>
@@ -62,10 +108,6 @@ export const unsave = mutation({
 export const count = query({
   args: {},
   handler: async (ctx) => {
-    const saved = await ctx.db
-      .query("savedArticles")
-      .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
-      .collect();
-    return saved.length;
+    return exactShelfCount(ctx, ctx.readerId, "savedArticles");
   },
 });

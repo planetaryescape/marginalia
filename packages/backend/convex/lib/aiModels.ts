@@ -1,7 +1,12 @@
 "use node";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+import {
+  APICallError,
+  generateObject,
+  NoObjectGeneratedError,
+  RetryError,
+} from "ai";
 import { ConvexError } from "convex/values";
 import { toJSONSchema, type ZodType } from "zod";
 import {
@@ -10,9 +15,23 @@ import {
   isTerminalChatGPTError,
 } from "./chatgptResponses";
 import { PROVIDER_NAMES, type Provider } from "./providers";
+import { resolveTarget } from "./providerTarget";
+import { interruptible, requestAttempt } from "./requestControl";
 import type { ProviderTarget } from "./router";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+/** AI SDK RetryError exposes the actual final provider error as lastError. */
+export function underlyingAIError(error: unknown): unknown {
+  const seen = new Set<RetryError>();
+  while (RetryError.isInstance(error) && !seen.has(error)) {
+    seen.add(error);
+    const last = error.lastError;
+    if (last === undefined || last === error) break;
+    error = last;
+  }
+  return error;
+}
 
 /** An AI SDK model that calls the target's provider with the reader's own key. */
 function languageModel(target: ProviderTarget & { provider: Provider }) {
@@ -43,6 +62,26 @@ function isAuthError(error: unknown): boolean {
   return status === 401 || status === 403;
 }
 
+/**
+ * An answer the provider sent with a success status that couldn't be read or
+ * parsed. The AI SDK throws an APICallError at that status: "Failed to process
+ * successful response" when the body fails mid-read, and "Invalid JSON
+ * response" when it isn't JSON. It marks both non-retryable, so the SDK never
+ * retries them; a truncated or garbled body is a transient fault, so it's
+ * handled like an unparseable answer.
+ */
+function isUnusableSuccessBody(error: unknown): boolean {
+  if (!APICallError.isInstance(error)) return false;
+  const status = error.statusCode;
+  return status !== undefined && status >= 200 && status < 300;
+}
+
+function isUnparseableAnswer(error: unknown): boolean {
+  return (
+    NoObjectGeneratedError.isInstance(error) || isUnusableSuccessBody(error)
+  );
+}
+
 function isRetryableError(error: unknown): boolean {
   const status = statusOf(error);
   if (status === 429 || (status && status >= 500 && status < 600)) return true;
@@ -54,73 +93,148 @@ function isRetryableError(error: unknown): boolean {
 }
 
 export async function generateObjectWithFallback<T>(options: {
-  schema: ZodType<T, any, any>;
+  schema: ZodType<T>;
   prompt?: string;
   system?: string;
   /** The reader's own models, tried in order after a retryable failure. */
   targets: ProviderTarget[];
   /** Bound output reservation for tasks that need only a short response. */
   maxOutputTokens?: number;
-  abortSignal?: AbortSignal;
   /** Told about each failure, so a ChatGPT connection can record its state. */
   onFailure?: (error: unknown) => Promise<void>;
+  signal?: AbortSignal;
+  /** Per-model structured generation deadline, including parse retries. */
+  deadlineMs?: number;
 }): Promise<{ object: T; modelId: string }> {
   if (!options.targets.length)
     throw new Error("No AI model is available for this library");
   let lastError: unknown;
   for (const [index, target] of options.targets.entries()) {
-    options.abortSignal?.throwIfAborted();
-    const isLast = index === options.targets.length - 1;
-    if (target.provider === "chatgpt") {
+    options.signal?.throwIfAborted();
+    const attempt = requestAttempt(
+      options.signal,
+      options.deadlineMs ?? 240_000,
+    );
+    try {
+      const isLast = index === options.targets.length - 1;
+      if (target.provider === "chatgpt") {
+        try {
+          const resolved = await resolveTarget(target);
+          attempt.signal.throwIfAborted();
+          return {
+            object: await interruptible(
+              generateWithChatGPT(resolved, {
+                ...options,
+                signal: attempt.signal,
+              }),
+              attempt.signal,
+            ),
+            modelId: target.id,
+          };
+        } catch (caught) {
+          attempt.abort(caught);
+          options.signal?.throwIfAborted();
+          const error = underlyingAIError(caught);
+          lastError = error;
+          await options.onFailure?.(error).catch(() => {});
+          // The plan's own limits are the reader's to see, not a reason to
+          // quietly spend one of their API keys instead
+          if (isTerminalChatGPTError(error))
+            throw new ConvexError(error.readerMessage);
+          if (!isLast) {
+            console.error(`${target.id} failed`);
+            continue;
+          }
+          if (error instanceof ChatGPTRequestError)
+            throw new ConvexError(error.readerMessage);
+          throw error;
+        }
+      }
       try {
         return {
-          object: await generateWithChatGPT(target, options),
+          object: await interruptible(
+            generateParsedObject<T>(
+              target.id,
+              languageModel({ ...target, provider: target.provider }),
+              { ...options, signal: attempt.signal },
+            ),
+            attempt.signal,
+          ),
           modelId: target.id,
         };
-      } catch (error) {
-        options.abortSignal?.throwIfAborted();
+      } catch (caught) {
+        attempt.abort(caught);
+        options.signal?.throwIfAborted();
+        const error = underlyingAIError(caught);
         lastError = error;
-        await options.onFailure?.(error).catch(() => {});
-        // The plan's own limits are the reader's to see, not a reason to
-        // quietly spend one of their API keys instead
-        if (isTerminalChatGPTError(error))
-          throw new ConvexError(error.readerMessage);
-        if (!isLast) {
-          console.error(`${target.id} failed`, error);
+        // A refused key may belong to one of the reader's providers; another may still work
+        if (isAuthError(error)) {
+          if (isLast)
+            throw new ConvexError(
+              `${PROVIDER_NAMES[target.provider]} didn't accept your saved key. Update it in Your account.`,
+            );
           continue;
         }
-        if (error instanceof ChatGPTRequestError)
-          throw new ConvexError(error.readerMessage);
+        if (
+          (isRetryableError(error) ||
+            isUnparseableAnswer(error) ||
+            (error instanceof DOMException && error.name === "TimeoutError")) &&
+          !isLast
+        )
+          continue;
         throw error;
       }
-    }
-    try {
-      const result = await (generateObject as any)({
-        model: languageModel({ ...target, provider: target.provider }),
-        schema: options.schema,
-        prompt: options.prompt,
-        system: options.system,
-        maxOutputTokens: options.maxOutputTokens,
-        abortSignal: options.abortSignal,
-      });
-      return { object: result.object as T, modelId: target.id };
-    } catch (error) {
-      options.abortSignal?.throwIfAborted();
-      lastError = error;
-      // A refused key may belong to one of the reader's providers; another may still work
-      if (isAuthError(error)) {
-        if (isLast)
-          throw new ConvexError(
-            `${PROVIDER_NAMES[target.provider]} didn't accept your saved key. Update it in Your account.`,
-          );
-        continue;
-      }
-      if (isRetryableError(error) && !isLast) continue;
-      throw error;
+    } finally {
+      attempt.abort();
+      attempt.dispose();
     }
   }
   throw lastError;
 }
+
+/**
+ * One model call, asked a second time when its answer doesn't parse. A model
+ * now and then falls into repeating words inside a string until it runs out of
+ * tokens; that is a sampling accident, so the same model usually answers
+ * cleanly when asked again. A success response with a truncated body is the
+ * same kind of fault, so it gets the same second ask.
+ */
+async function generateParsedObject<T>(
+  modelId: string,
+  model: ReturnType<typeof languageModel>,
+  options: {
+    schema: ZodType<T>;
+    prompt?: string;
+    system?: string;
+    maxOutputTokens?: number;
+    signal: AbortSignal;
+  },
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    options.signal.throwIfAborted();
+    try {
+      const result = await generateObject<ZodType<T>, "object">({
+        model,
+        output: "object",
+        schema: options.schema,
+        prompt: options.prompt ?? "",
+        system: options.system,
+        maxOutputTokens: options.maxOutputTokens,
+        abortSignal: options.signal,
+        // The application owns fallback and parse retry; avoid hidden SDK spend.
+        maxRetries: 0,
+      });
+      return options.schema.parse(result.object);
+    } catch (caught) {
+      options.signal.throwIfAborted();
+      const error = underlyingAIError(caught);
+      if (attempt >= PARSE_ATTEMPTS || !isUnparseableAnswer(error)) throw error;
+      console.warn(`${modelId} answered unusably; asking again`);
+    }
+  }
+}
+
+const PARSE_ATTEMPTS = 2;
 
 /**
  * Plan usage streams through the Responses API with no output cap, so the
@@ -129,12 +243,13 @@ export async function generateObjectWithFallback<T>(options: {
 async function generateWithChatGPT<T>(
   target: ProviderTarget,
   options: {
-    schema: ZodType<T, any, any>;
+    schema: ZodType<T>;
     prompt?: string;
     system?: string;
-    abortSignal?: AbortSignal;
+    signal: AbortSignal;
   },
 ): Promise<T> {
+  options.signal.throwIfAborted();
   const content = await completeResponses({
     accessToken: target.apiKey,
     model: target.model,
@@ -144,8 +259,8 @@ async function generateWithChatGPT<T>(
         : []),
       { role: "user", content: options.prompt ?? "" },
     ],
-    jsonSchema: toJSONSchema(options.schema as any),
-    signal: options.abortSignal,
+    jsonSchema: toJSONSchema(options.schema),
+    signal: options.signal,
   });
   return options.schema.parse(JSON.parse(content));
 }

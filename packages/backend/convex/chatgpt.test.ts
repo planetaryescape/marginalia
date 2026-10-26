@@ -618,6 +618,81 @@ async function expireSoon(t: Pick<Client, "run">) {
 }
 
 describe("refreshing ChatGPT tokens", () => {
+  it("Stop abandons a waiter but lets a rotating refresh finish for another request", async () => {
+    enable();
+    const t = await ownerTest(modules);
+    await connect(t);
+    await expireSoon(t);
+    let started!: () => void;
+    let finish!: () => void;
+    const refreshing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const mock = mockOpenAI({
+      [TOKEN_URL]: async () => {
+        started();
+        await release;
+        return Response.json({
+          access_token: "rotated-access",
+          refresh_token: "rotated-refresh",
+          expires_in: 3600,
+          scope: FULL_SCOPE,
+        });
+      },
+    });
+    const controller = new AbortController();
+    const stopped = t.fetch("/api/companion", {
+      method: "POST",
+      body: companionBody,
+      signal: controller.signal,
+    });
+    await refreshing;
+    const other = companion(t);
+    controller.abort();
+    expect((await stopped).status).toBe(499);
+    finish();
+    expect(await (await other).text()).toBe("From your plan.");
+    expect(mock.calls.filter((call) => call.url === TOKEN_URL)).toHaveLength(1);
+    const [row] = await connectionRows(t);
+    expect(
+      await openTokens(OWNER, { ciphertext: row.ciphertext!, iv: row.iv! }),
+    ).toMatchObject({
+      access_token: "rotated-access",
+      refresh_token: "rotated-refresh",
+    });
+    expect(
+      mock.calls.filter((call) => call.url === RESPONSES_URL),
+    ).toHaveLength(1);
+  });
+  it("does not refresh a plan for find or an API-key-only selected chain", async () => {
+    enable();
+    const t = await ownerTest(modules);
+    await connect(t);
+    await expireSoon(t);
+    await saveTestCredential(t, OWNER, "openai", READER_OPENAI);
+    const embedding = Array.from({ length: 1536 }, () => 1);
+    const mock = mockOpenAI({
+      "https://api.openai.com/v1/embeddings": () =>
+        Response.json({ data: [{ index: 0, embedding }] }),
+      "https://api.openai.com/v1/chat/completions": () =>
+        new Response(
+          'data: {"choices":[{"delta":{"content":"API answer"}}]}\n\ndata: [DONE]\n\n',
+        ),
+      [TOKEN_URL]: () => {
+        throw new Error("Unneeded plan refresh");
+      },
+    });
+    const found = await t.fetch("/api/library/find", {
+      method: "POST",
+      body: JSON.stringify({ question: "fixture" }),
+    });
+    expect(found.status).toBe(200);
+    expect(await (await companion(t)).text()).toBe("API answer");
+    expect(mock.calls.filter((call) => call.url === TOKEN_URL)).toHaveLength(0);
+  });
   it("refreshes a token about to expire and stores the rotated tokens together", async () => {
     enable();
     const t = await ownerTest(modules);
@@ -707,7 +782,7 @@ describe("refreshing ChatGPT tokens", () => {
       [TOKEN_URL]: () => Response.json({ error: code }, { status: 400 }),
     });
     const response = await companion(t);
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(401);
     expect(mock.calls.some((c) => c.url === RESPONSES_URL)).toBe(false);
     const [row] = await connectionRows(t);
     expect(row.status).toBe("reconnect");

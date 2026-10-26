@@ -1,13 +1,30 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { ownedArticle, requireArticle } from "./access";
+import { libraryIsActive, ownedArticle, requireArticle } from "./access";
+import { countFeedOutcome } from "./feedStats";
 import { mutation, query } from "./functions";
+import { bookPartCard } from "./lib/articleMetadata";
+import {
+  initializeEmptyResume,
+  mergeResume,
+  resumeArticle,
+  resumeState,
+} from "./lib/readingResume";
+import { ensureReadingSession } from "./lib/readingSession";
 import { updateQueueStats } from "./readingQueue";
+import { queueTasteRefresh } from "./taste";
 
 export const create = mutation({
-  args: { requestedMinutes: v.number() },
+  args: { requestedMinutes: v.number(), clientKey: v.optional(v.string()) },
   handler: async (ctx, args) => {
+    if (args.clientKey)
+      return ensureReadingSession(
+        ctx,
+        ctx.readerId,
+        args.clientKey,
+        args.requestedMinutes,
+      );
     return ctx.db.insert("sessions", {
       userId: ctx.readerId,
       requestedMinutes: args.requestedMinutes,
@@ -22,6 +39,20 @@ export const getById = query({
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
     return session?.userId === ctx.readerId ? session : null;
+  },
+});
+
+/** Resolves a background desk session without making opening wait for it. */
+export const getByClientKey = query({
+  args: { clientKey: v.string() },
+  handler: async (ctx, { clientKey }) => {
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_userId_and_clientKey", (q) =>
+        q.eq("userId", ctx.readerId).eq("clientKey", clientKey),
+      )
+      .unique();
+    return session ? { sessionId: session._id } : null;
   },
 });
 
@@ -47,6 +78,12 @@ export const updateStatus = mutation({
     if (updates.articleId)
       await requireArticle(ctx, updates.articleId, ctx.readerId);
     const patch: any = { ...updates };
+    // A delayed desk open cannot undo a quick acknowledged Done.
+    if (
+      session.readingStatus === "completed" &&
+      updates.readingStatus === "reading"
+    )
+      return;
     if (
       updates.readingStatus === "completed" ||
       updates.readingStatus === "abandoned"
@@ -78,13 +115,15 @@ export const recordInteraction = mutation({
     tabHiddenCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireArticle(ctx, args.articleId, ctx.readerId);
+    const article = await requireArticle(ctx, args.articleId, ctx.readerId);
     if (args.sessionId) {
       const session = await ctx.db.get(args.sessionId);
       if (session?.userId !== ctx.readerId)
         throw new Error("Session not found");
     }
-    await ctx.db.insert("articleInteractions", {
+    await initializeEmptyResume(ctx, ctx.readerId);
+    const now = Date.now();
+    const interactionId = await ctx.db.insert("articleInteractions", {
       userId: ctx.readerId,
       articleId: args.articleId,
       sessionId: args.sessionId,
@@ -96,10 +135,23 @@ export const recordInteraction = mutation({
       annotationsOpened: args.annotationsOpened,
       totalScrollEvents: args.totalScrollEvents,
       tabHiddenCount: args.tabHiddenCount,
-      createdAt: Date.now(),
+      createdAt: now,
     });
+    if (args.action === "opened" || args.action === "abandoned")
+      await mergeResume(
+        ctx,
+        article,
+        {
+          articleId: article._id,
+          updatedAt: now,
+          maxScrollPercent: args.maxScrollPercent ?? args.scrollPercentage ?? 0,
+        },
+        false,
+      );
+    await countFeedOutcome(ctx, article, interactionId);
     // Finishing an article that came from Readwise Reader archives it there
     if (args.action === "finished") {
+      await queueTasteRefresh(ctx, ctx.readerId);
       const before = await ctx.db.get(args.articleId);
       if (before && before.finishedAt === undefined) {
         await ctx.db.patch(before._id, { finishedAt: Date.now() });
@@ -115,6 +167,103 @@ export const recordInteraction = mutation({
         },
       );
     }
+  },
+});
+
+/** Versioned compact consumer; the full legacy callable below remains unchanged. */
+export const getContinue = query({
+  args: {},
+  handler: async (ctx) => {
+    if (!(await libraryIsActive(ctx, ctx.readerId)))
+      throw new Error("This library is no longer active.");
+    const state = await resumeState(ctx, ctx.readerId);
+    if (!state) {
+      const activity = await ctx.db
+        .query("readingActivity")
+        .withIndex("by_user_started", (q) => q.eq("userId", ctx.readerId))
+        .first();
+      const interaction = activity
+        ? null
+        : await ctx.db
+            .query("articleInteractions")
+            .withIndex("by_user", (q) => q.eq("userId", ctx.readerId))
+            .first();
+      return { ready: !activity && !interaction, item: null };
+    }
+    if (state.phase !== "done") return { ready: false, item: null };
+    const candidates = await ctx.db
+      .query("readingResumes")
+      .withIndex(
+        "by_userId_and_eligible_and_lastActivityAt_and_articleId",
+        (q) => q.eq("userId", ctx.readerId).eq("eligible", true),
+      )
+      .order("desc")
+      .take(8);
+    for (const row of candidates) {
+      const article = await resumeArticle(ctx, ctx.readerId, row.articleId);
+      if (!article || article.finishedAt !== undefined) continue;
+      const card = { _id: row.articleId, title: article.title };
+      if (article.bookUnitCount !== undefined) {
+        const book = await ctx.db
+          .query("books")
+          .withIndex("by_userId_and_articleId", (q) =>
+            q.eq("userId", ctx.readerId).eq("articleId", row.articleId),
+          )
+          .unique();
+        if (!book || book.finished || book.unitCount < 1) continue;
+        const done = book.furthestUnit >= 0 && book.furthestScroll >= 95;
+        if (done && book.furthestUnit + 1 >= book.unitCount) continue;
+        const index = done
+          ? book.furthestUnit + 1
+          : Math.max(0, book.furthestUnit);
+        const unit = await bookPartCard(
+          ctx,
+          ctx.readerId,
+          row.articleId,
+          index,
+        );
+        if (!unit) continue;
+        const scroll = done || book.furthestUnit < 0 ? 0 : book.furthestScroll;
+        return {
+          ready: true,
+          item: {
+            article: card,
+            scrollPercent: scroll,
+            remainingMinutes: Math.max(
+              1,
+              Math.round(unit.minutes * (1 - scroll / 100)),
+            ),
+            unitIndex: index,
+            paragraphIndex: done ? undefined : book.furthestParagraph,
+            part: {
+              number: index + 1,
+              count: book.unitCount,
+              title: unit.title,
+            },
+          },
+        };
+      }
+      if (row.maxScrollPercent >= 90) continue;
+      return {
+        ready: true,
+        item: {
+          article: card,
+          scrollPercent: row.maxScrollPercent,
+          paragraphIndex: row.paragraphIndex,
+          remainingMinutes: article.estimatedReadMinutes
+            ? Math.max(
+                1,
+                Math.round(
+                  article.estimatedReadMinutes *
+                    (1 - row.maxScrollPercent / 100),
+                ),
+              )
+            : null,
+        },
+      };
+    }
+    // Bounded exceptional stale/invalid candidates must not imply an empty library.
+    return { ready: candidates.length < 8, item: null };
   },
 });
 
@@ -159,6 +308,52 @@ export const getInProgress = query({
 
       const article = await ownedArticle(ctx, articleId, ctx.readerId);
       if (!article) continue;
+      // Reopening a finished article logs a newer "opened" than its
+      // "finished", so the article's own state decides, not the log order
+      if (article.finishedAt !== undefined) continue;
+
+      // A book continues in the part being read: its minutes, not the book's
+      const book = article.bookUnitCount
+        ? await ctx.db
+            .query("books")
+            .withIndex("by_userId_and_articleId", (q) =>
+              q.eq("userId", ctx.readerId).eq("articleId", article._id),
+            )
+            .unique()
+        : null;
+      if (book) {
+        // A part read to its end hands on to the next one
+        const done = book.furthestUnit >= 0 && book.furthestScroll >= 95;
+        const next =
+          done && book.furthestUnit + 1 < book.unitCount
+            ? book.furthestUnit + 1
+            : null;
+        const index = next ?? Math.max(0, book.furthestUnit);
+        const unit = await ctx.db
+          .query("bookUnits")
+          .withIndex("by_userId_and_articleId_and_index", (q) =>
+            q
+              .eq("userId", ctx.readerId)
+              .eq("articleId", article._id)
+              .eq("index", index),
+          )
+          .unique();
+        const scroll =
+          next !== null ? 0 : book.furthestUnit >= 0 ? book.furthestScroll : 0;
+        return {
+          article,
+          scrollPercent: scroll,
+          remainingMinutes: unit
+            ? Math.max(
+                1,
+                Math.round(unit.estimatedReadMinutes * (1 - scroll / 100)),
+              )
+            : null,
+          part: unit
+            ? { number: index + 1, count: book.unitCount, title: unit.title }
+            : undefined,
+        };
+      }
 
       const remainingMin = article.estimatedReadMinutes
         ? Math.max(
@@ -180,7 +375,7 @@ export const getInProgress = query({
   },
 });
 
-// Used by selectArticle action
+// Kept for the isolation tests, which check a reader sees none of another account's interactions
 export const listRecentInteractions = query({
   args: {},
   handler: async (ctx) => {

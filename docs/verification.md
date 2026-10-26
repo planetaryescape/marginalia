@@ -1,6 +1,6 @@
 # Polish-pass verification
 
-This record covers the October 2026 web/backend polish pass. It separates executed checks from work that still needs a product or deployment decision.
+This record covers the October 2026 web/backend polish pass. It separates executed checks from work that still needs a product or deployment decision. Entries use the names of their day: the desk was then called Home, and Up next sat on it.
 
 ## Reader backfill and contextual Define
 
@@ -20,7 +20,7 @@ This record covers the October 2026 web/backend polish pass. It separates execut
 - Ran `readingQueue:initialize` and `readwise:syncNow`. Home shows whole-library totals (108 waiting at inspection); Sources reports active Inbox backfill, progressing from 5 to 10 documents checked with no sync error. Those first items were already imported; this verifies continuation, not completion of the full backfill. Embedding/annotation costs are now enabled.
 - Live browser checks verify Home, Sources progress and the article's Define toolbar. Define sends `mode: "define"`, the selected term, paragraph index and 45 article paragraphs. The companion request was intercepted and rejected before reaching a provider or creating a saved thread; live answer quality remains unverified. No uncaught browser errors were reported, and the inspected reader has no horizontal overflow at 390×844.
 - The deployed manifest responds with HTTP 200. Rebuilt the local production frontend against the matching backend, restarted it at `http://localhost:3107` and verified HTTP 200. Both builds retain the previously recorded warnings.
-- Physical-phone installation, native selection, keyboard, speech and background/resume checks remain outstanding. No Git remote is configured, so commits have not been pushed.
+- Physical-phone installation, native selection, keyboard, speech and background/resume checks remain outstanding. No Git remote was configured then, so commits had not been pushed.
 
 ## Reading statistics, mobile actions and owner authentication
 
@@ -37,7 +37,7 @@ This follow-up is deployed. The checks below describe pre-rollout verification; 
 
 ### Owner authentication rollout
 
-- Deployed after the owner's "deploy everything" approval on October 12. `bun run check` passed with 148 tests; the Vercel production build passed. Changes remain uncommitted; no Git remote is configured.
+- Deployed after the owner's "deploy everything" approval on October 12. `bun run check` passed with 148 tests; the Vercel production build passed. Changes remained uncommitted; no Git remote was configured then.
 - Exported the live backend with file storage before deployment to `marginalia-before-auth.zip`. Provisioned `BETTER_AUTH_SECRET` from a verified 1Password Private item named `Marginalia backend authentication`; set `SITE_URL=https://reader.bhekani.com`. Corrected a trailing newline in Vercel's cloud URL and added its matching site URL.
 - Built Vercel Production without switching the reader domain, deployed Convex `stoic-hare-718` with the local Better Auth component, then promoted `https://marginalia-3tfjjl82z-planetaryescape.vercel.app` and explicitly assigned `reader.bhekani.com`. Vercel lists it as Ready / Production. Convex's strict deployment typecheck option stopped because the CLI expects `convex/tsconfig.json`; the project's successful typecheck uses `packages/backend/tsconfig.json`. The normal `--typecheck try` deployment succeeded.
 - Live anonymous `home:overview` is denied; `auth:currentOwner` returns null. Engagement, companion, Library and Library-search HTTP endpoints return 401 before payload/provider work. Uninvited signup returns 403. Session lookup returns 200 / null, anonymous JWT issuance returns 401, and passkey options require device verification with `rpId: reader.bhekani.com`.
@@ -104,7 +104,7 @@ Regression tests exercise failed/overlapping autosaves, invalid stored preferenc
 
 - React Doctor's changed-file score improved from **54 to 70**, with its reported errors removed. Remaining warnings concern legacy animation imports, fixed-array keys, localized dates, sequential OPML writes, complexity and a small promise/ref allocation. They are not a claim that the entire reader has been rewritten.
 - Anti-slop reports two `unknown` input parameters in schema parsers (`parseReaderSettings`, `parseEmbeddings`). These functions **are the untrusted I/O boundary** and immediately parse with the existing Zod dependency. Narrowing the signatures before parsing would pretend storage/provider data was trusted. No rule was disabled to hide them.
-- A clean source snapshot was checked, not a remote clone: this checkout has no Git remote.
+- A clean source snapshot was checked, not a remote clone: this checkout had no Git remote then.
 - No real paid model call or destructive Reader/vault test was needed. HTTP/mutation regressions use isolated Convex fixtures and fake provider responses; an untouched editor verifies focus without creating a test note.
 
 Automated audits do not prove accessibility on every browser or device. Read [limitations](limitations.md) for access control, offline durability and large-library work still outstanding; consult [operations](operations.md) before deploying.

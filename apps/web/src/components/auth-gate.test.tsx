@@ -20,7 +20,9 @@ vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));
-vi.mock("@/lib/auth-client", () => ({ authClient: {} }));
+vi.mock("@/lib/auth-client", () => ({
+  authClient: { useSession: () => ({ data: null }) },
+}));
 vi.mock("@/lib/reader-settings", () => ({
   useReaderSettings: () => ({ settings: { theme: "ink" } }),
 }));

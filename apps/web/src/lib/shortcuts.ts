@@ -1,10 +1,50 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
-export type ShortcutHandler = (event: KeyboardEvent) => void;
+/** Returning `false` leaves the key to the browser (arrows keep scrolling, buttons keep Enter). */
+// biome-ignore lint/suspicious/noConfusingVoidType: most handlers return nothing (or whatever router.push returns)
+export type ShortcutHandler = (event: KeyboardEvent) => void | false;
 export type ShortcutMap = Record<string, ShortcutHandler>;
 
-const registrations = new Set<{ current: ShortcutMap }>();
+/** What a registration adds to the `?` sheet: only keys that work right now. */
+export type ShortcutHelp = { group: string; keys: [string, string][] };
+export type ShortcutOptions = {
+  help?: ShortcutHelp;
+  /** Consulted after every other registration, so a page's own key wins. */
+  fallback?: boolean;
+};
+
+type Registration = { current: ShortcutMap };
+const registrations = new Set<Registration>();
+const registrationOptions = new WeakMap<Registration, ShortcutOptions>();
+const helpListeners = new Set<() => void>();
+let helpSnapshot: ShortcutHelp[] = [];
+
+function publishHelp() {
+  const merged = new Map<string, [string, string][]>();
+  for (const ref of registrations) {
+    const help = registrationOptions.get(ref)?.help;
+    if (!help) continue;
+    const keys = merged.get(help.group) ?? [];
+    for (const entry of help.keys)
+      if (!keys.some(([k]) => k === entry[0])) keys.push(entry);
+    merged.set(help.group, keys);
+  }
+  helpSnapshot = [...merged].map(([group, keys]) => ({ group, keys }));
+  for (const listener of helpListeners) listener();
+}
+
+/** The help groups of every mounted, enabled registration. */
+export function useActiveShortcutHelp(): ShortcutHelp[] {
+  return useSyncExternalStore(
+    (listener) => {
+      helpListeners.add(listener);
+      return () => helpListeners.delete(listener);
+    },
+    () => helpSnapshot,
+    () => helpSnapshot,
+  );
+}
 let pending: string | null = null;
 let pendingTimer = 0;
 
@@ -16,6 +56,14 @@ export function isTypingTarget(target: EventTarget | null): boolean {
         "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
       ),
     )
+  );
+}
+
+/** Enter and Space on a focused link or button belong to that control. */
+export function isOnControl(event: KeyboardEvent): boolean {
+  return (
+    event.target instanceof HTMLElement &&
+    event.target.closest("a, button, summary, [role='button']") !== null
   );
 }
 
@@ -51,7 +99,13 @@ function onKeyDown(event: KeyboardEvent) {
     clearSequence();
     return;
   }
-  const maps = [...registrations].map((ref) => ref.current);
+  const maps = [...registrations]
+    .sort(
+      (a, b) =>
+        Number(registrationOptions.get(a)?.fallback ?? false) -
+        Number(registrationOptions.get(b)?.fallback ?? false),
+    )
+    .map((ref) => ref.current);
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
   if (
     document.documentElement.dataset.keyboardShortcuts === "off" &&
@@ -61,15 +115,21 @@ function onKeyDown(event: KeyboardEvent) {
     clearSequence();
     return;
   }
-  const find = (key: string) => maps.find((map) => map[key])?.[key];
-  if (pending) {
-    const handler = find(`${pending} ${key}`);
-    clearSequence();
-    if (handler) {
-      event.preventDefault();
-      handler(event);
-      return;
+  // The first registration that doesn't decline the key takes it.
+  const run = (name: string) => {
+    for (const map of maps) {
+      const handler = map[name];
+      if (handler && handler(event) !== false) {
+        event.preventDefault();
+        return true;
+      }
     }
+    return false;
+  };
+  if (pending) {
+    const sequence = `${pending} ${key}`;
+    clearSequence();
+    if (maps.some((map) => map[sequence]) && run(sequence)) return;
   }
   if (
     maps.some((map) =>
@@ -81,32 +141,43 @@ function onKeyDown(event: KeyboardEvent) {
     pendingTimer = window.setTimeout(clearSequence, 1200);
     return;
   }
-  const handler = find(key);
-  if (handler) {
-    // Don't steal Space/Enter, arrow keys or other native control behaviors.
-    event.preventDefault();
-    handler(event);
-  }
+  run(key);
 }
 
-export function useShortcuts(map: ShortcutMap, enabled = true) {
+export function useShortcuts(
+  map: ShortcutMap,
+  enabled = true,
+  options: ShortcutOptions = {},
+) {
   const ref = useRef(map);
   ref.current = map;
+  // The sheet content is static per call site, so its text is the dependency
+  const helpKey = options.help ? JSON.stringify(options.help) : "";
+  const fallback = Boolean(options.fallback);
   useEffect(() => {
     if (!enabled) return;
-    return registerShortcuts(ref);
-  }, [enabled]);
+    return registerShortcuts(ref, {
+      help: helpKey ? JSON.parse(helpKey) : undefined,
+      fallback,
+    });
+  }, [enabled, helpKey, fallback]);
 }
 
 /** Shared registration also used by the dispatcher regression tests. */
-export function registerShortcuts(ref: { current: ShortcutMap }) {
+export function registerShortcuts(
+  ref: { current: ShortcutMap },
+  options: ShortcutOptions = {},
+) {
   registrations.add(ref);
+  registrationOptions.set(ref, options);
+  publishHelp();
   if (registrations.size === 1) {
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", clearSequence);
   }
   return () => {
     registrations.delete(ref);
+    publishHelp();
     clearSequence();
     if (!registrations.size) {
       document.removeEventListener("keydown", onKeyDown);
@@ -115,7 +186,11 @@ export function registerShortcuts(ref: { current: ShortcutMap }) {
   };
 }
 
-type Command = "open-settings" | "toggle-summary" | "open-shortcuts";
+type Command =
+  | "open-settings"
+  | "toggle-summary"
+  | "open-shortcuts"
+  | "open-finder";
 export function emitCommand(name: Command) {
   document.dispatchEvent(new CustomEvent(`marginalia:${name}`));
 }

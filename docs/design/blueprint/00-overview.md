@@ -1,5 +1,45 @@
 # 00: Overview
 
+## The foundation: AI as a thinking partner
+
+BK, 2026-10-16: "This whole app fits in the philosophy I believe in that AI should be a thinking partner. It's not thinking for me and I'm not thinking for it and just telling it what to do. It's thinking with me and we're working together. It's augmenting my thinking" (D-DES-051)
+
+Every other decision in this blueprint is a case of this one. There are two common ways to put AI into a reading app, and Marginalia rejects both:
+
+- **AI that thinks for you.** It summarises the article so you don't have to read it, tells you what to conclude, and keeps everything it said. You end up holding its opinions instead of your own.
+- **AI you think for.** It waits for instructions, and you do the work of turning your curiosity into prompts. It's a tool you operate, not a mind beside yours.
+
+Marginalia is the third kind: it **thinks with you**. You and it read the same article at the same time. It brings what you'd want from a well-read friend sitting beside you: what this connects to in your own notes and library, where the argument is strong, where it's weak, what it assumes, what it doesn't say, and a question back to you. You bring the judgement. The verdict stays yours, and the thinking is sharper for the company.
+
+### What it asks of every part of the product
+
+- **It takes the triage, so your attention goes to thinking.** The desk offers one article you can finish instead of a pile to sort (D-DES-033). Sorting a backlog is work a partner can take off your hands. Deciding what you think can't be.
+- **It argues fairly.** A partner who only agrees isn't thinking with you, and nor is one who only objects. The margin leans toward pushback, close to balance, and says where the argument holds as well as where it fails (D-DES-038). It names fallacies, assumptions and the crux so you can judge, not so it can judge for you.
+- **It asks as well as answers.** The question-for-you kind and the "Before you go" question are where it hands the thinking back to you. They're never dropped to make room for more answers.
+- **It stays beside you.** Its tools answer on the page, next to the passage, so understanding a word or a claim never takes you somewhere else (D-DES-039).
+- **Its words are help; yours are the record.** What Marginalia says is temporary until you choose to keep it. What you write is kept automatically (D-DES-045). Its voice is pencil and yours is pen, so on the page you can always tell its suggestions from your conclusions, and yours win the eye (D-DES-018, D-DES-020).
+- **It never concludes for you.** It never pre-fills "What stayed with you?", summarises your view back to you, or rates an article on your behalf. A strongest point and a weakest assumption are offered; what you make of them is yours. The summary exists to help you decide whether to read (D-DES-047), never to stand in for reading.
+- **It knows what you think, not just what you've read.** Your notes, highlights, reflections and past questions shape what it notices (D-DES-041). That's what makes it a partner rather than a generic assistant.
+- **It speaks only as long as it needs to.** A partner who talks too much takes over the thinking (D-DES-042).
+
+### How to tell whether a feature respects it
+
+Before building anything, ask three questions:
+
+1. **Who does the thinking?** If the feature replaces BK's judgement (concluding, deciding or summarising his view), it's wrong. If it gives him something to think with, it's right.
+2. **Does it keep him reading?** If it pulls attention off the page or turns reading into managing, it's wrong.
+3. **Whose hand is it?** Marginalia's contribution is pencil and temporary. BK's is pen and permanent. A feature that blurs the two is wrong.
+
+## Why Marginalia exists
+
+BK, 2026-10-16: "when i was using readwise reader when i land I am overwhelmed with a tonne of articles I need to read and i dn't know where to start. picking a time is great because sometimes I just have 5 mins to read and I don't want to start soemthing and then be stopped midway, etc. It's a better way to get something to read and read it." (D-DES-033)
+
+A read-later pile turns reading into triage: you land, see everything you haven't read, and don't know where to start. Marginalia answers one question instead: *how much time do you have?* It then hands over one thing you can finish in that time. The pile stays out of sight. Everything else (the margin notes, your marks, the library) serves reading that one thing well.
+
+There are three ways in, and all end in the same moment: one article, its reading time, and a reason to read it. Say how much time you have; say what you want to read about (D-DES-036); or bring the thing itself, a link or a PDF (D-DES-043).
+
+Once an article is open, the reader has three jobs (D-DES-037, D-DES-039): keep you on the page, keep you reading and reflecting, and keep you from being too impressionable. A well-written article wins agreement it hasn't earned. Marginalia's pencil is a critical friend in the margin: it leans toward pushback, close to balance, and it never sends you somewhere else to understand something.
+
 ## What this blueprint is
 
 Marginalia works. It imports articles from feeds, Readwise Reader, pasted links and an API. It writes AI margin notes against the reader's own notes, picks articles for a time window, and keeps highlights, notes, ratings and reading activity. What it lacks is design: a single idea of what the product is, a hierarchy on each screen, and one way of doing each thing. BK, 2026-10-16: "focus on the design aspect. The functions but i don't think the design was considered" (D-DES-001).
@@ -12,10 +52,16 @@ The first user is BK, who reads in the Night theme on a desktop and on his phone
 
 ## What it should feel like
 
-Reading a good book that a well-read friend has already been through with a pencil. The author's text is untouched and central. Quiet pencil notes sit in the margin beside the lines they're about, and the reader's own pen marks are the most vivid thing on the page. It's fast enough that "I have ten minutes" turns into reading within a second (D-DES-009), and calm enough that nothing asks for attention except the next good thing to read. The full concept is "Print, pencil and pen" in [02](02-design-concept.md) (D-DES-018, Q1).
+Reading a good book that a well-read friend has already been through with a pencil. The author's text is untouched and central. Quiet pencil notes sit in the margin beside the lines they're about, and the reader's own pen marks are the most vivid thing on the page. It's fast enough that "I have ten minutes" turns into reading within a second (D-DES-009), and calm enough that nothing asks for attention except the next good thing to read. The full concept is "Print, pencil and pen" in [02](02-design-concept.md) (D-DES-018, D-DES-029).
 
 ## Principles
 
+**Foundation:** AI as a thinking partner, never thinking for BK nor waiting to be told (D-DES-051). The principles below follow from it.
+
+0. **Never show the pile; offer what fits.** The desk shows one thing you can finish in the time you have, never the size of the backlog. An article longer than the window is offered only when nothing fits, and labelled as longer (D-DES-033, D-DES-034).
+0a. **Stay on the page.** Every tool answers beside the text. Nothing in the reader sends you away by default; links offer choices first and open in a background tab only if you ask (D-DES-039, D-DES-044).
+0b. **A critical friend, not a fan.** The margin leans toward pushback, close to balance: tensions, fallacies, assumptions and gaps, next to what the argument gets right (D-DES-038).
+0c. **Kept on purpose.** What Marginalia says is temporary until you keep it. What you write is kept automatically (D-DES-045).
 1. **The page is the hero.** Nothing covers the text except a menu the reader asked for. The reader spends hours on this screen.
 2. **Colour belongs to a hand.** Ink for print and chrome, pencil for Marginalia, pen for the reader (D-DES-020). If everything is coloured, the reader's marks can't stand out.
 3. **Beside the line, or at the ends.** Notes about a passage sit in the margin next to it; notes about the whole article sit before or after it (D-DES-019). That's where a reader looks for them.
@@ -29,14 +75,14 @@ Reading a good book that a well-read friend has already been through with a penc
 
 - **Design concept and tokens:** the type scale, the colour layers (`--ink`, `--pencil`, `--pen`, kind colours), motion tokens, control roles. See [02](02-design-concept.md).
 - **Reader:** margin sidenotes, toolbar, front and back matter, passage menu, notes panel, finishing, phone flow. See [03](03-reader.md).
-- **Desk:** hierarchy, time choices, the pick on the desk, Continue, Up next, empty and error states. See [04](04-desk.md).
+- **Desk:** hierarchy, time choices, the pick on the desk, Continue, topic search, bringing your own, empty and error states. See [04](04-desk.md).
 - **Rooms:** Library with shelves, Notes as the commonplace book, Your week. See [05](05-library-notes-week.md).
 - **Settings:** the avatar menu, one form pattern, Sources, Account, Readers. See [06](06-sources-and-settings.md).
 - **Platforms:** the desktop web app and the phone PWA, in all six themes.
 
 ## Non-goals
 
-- New features (D-DES-001). Vault sync from GitHub, splitting heavy article fields and the other performance steps proposed on 2026-10-15 are separate work.
+- New features beyond the ones BK asked for in this blueprint. D-DES-001 began as "design only"; BK has since asked for the reading-alongside pass (D-DES-041), PDF import (D-DES-043), the link menu (D-DES-044) and library connections (D-DES-040), each recorded with his words. Vault sync from GitHub, splitting heavy article fields and the other performance steps proposed on 2026-10-15 are separate work.
 - A data migration, or replacing saved notes, marks or history (D-DES-013).
 - A new type family or palette (D-DES-017).
 - Offline reading (`docs/limitations.md`). Deferred, not rejected.

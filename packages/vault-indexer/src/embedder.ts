@@ -1,114 +1,95 @@
-const OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
-const MODEL = "openai/text-embedding-3-small";
-const BATCH_SIZE = 10;
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
+import { MAX_CHUNK_BYTES } from "./chunker";
+import { HttpError, type RequestOptions, requestJson } from "./network";
 
 export interface EmbeddingResult {
-  index: number; // Index in the original texts array
+  index: number;
   embedding: number[];
 }
 
-/**
- * Embed chunks, skipping failures gracefully.
- * Returns results paired with their original index so the caller
- * knows which chunks succeeded.
- */
+function parseEmbeddings(value: unknown, count: number): number[][] {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("data" in value) ||
+    !Array.isArray(value.data) ||
+    value.data.length !== count
+  )
+    throw new Error("Invalid embedding response");
+  const results = new Map<number, number[]>();
+  for (const row of value.data) {
+    if (
+      typeof row !== "object" ||
+      row === null ||
+      !Number.isInteger(row.index) ||
+      row.index < 0 ||
+      row.index >= count ||
+      results.has(row.index) ||
+      !Array.isArray(row.embedding) ||
+      row.embedding.length !== 1536 ||
+      row.embedding.some(
+        (n: unknown) => typeof n !== "number" || !Number.isFinite(n),
+      )
+    )
+      throw new Error("Invalid embedding response");
+    results.set(row.index, row.embedding);
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const embedding = results.get(index);
+    if (!embedding) throw new Error("Missing embedding");
+    return embedding;
+  });
+}
+
+/** Invalid individual inputs never poison neighboring valid chunks. */
 export async function embedChunks(
   texts: string[],
   apiKey: string,
+  options: RequestOptions = {},
 ): Promise<EmbeddingResult[]> {
+  const valid = texts
+    .map((text, index) => ({ text, index }))
+    .filter(
+      ({ text }) =>
+        text.trim().length > 0 &&
+        Buffer.byteLength(text, "utf8") <= MAX_CHUNK_BYTES,
+    );
   const results: EmbeddingResult[] = [];
-  let succeeded = 0;
-  let failed = 0;
-
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(texts.length / BATCH_SIZE);
-    console.log(
-      `  Embedding batch ${batchNum}/${totalBatches} (${batch.length} chunks)`,
-    );
-
+  for (let i = 0; i < valid.length; i += 10) {
+    options.signal?.throwIfAborted();
+    const batch = valid.slice(i, i + 10);
     try {
-      const embeddings = await embedWithRetry(batch, apiKey);
-      for (let j = 0; j < embeddings.length; j++) {
-        results.push({ index: i + j, embedding: embeddings[j] });
-      }
-      succeeded += embeddings.length;
+      const raw = await requestJson(
+        "https://openrouter.ai/api/v1/embeddings",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            input: batch.map(({ text }) => text),
+            model: "openai/text-embedding-3-small",
+          }),
+        },
+        options,
+      );
+      const embeddings = parseEmbeddings(raw, batch.length);
+      for (const [index, embedding] of embeddings.entries())
+        results.push({ index: batch[index].index, embedding });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      options.signal?.throwIfAborted();
+      if (
+        error instanceof HttpError &&
+        (error.status === 401 || error.status === 403)
+      )
+        throw error;
       console.warn(
-        `  Batch ${batchNum} failed permanently, skipping ${batch.length} chunks: ${msg}`,
+        `Embedding batch failed; keeping affected files unchanged (${error instanceof Error ? error.message : "request failed"})`,
       );
-      failed += batch.length;
-    }
-
-    // Rate limit buffer
-    if (i + BATCH_SIZE < texts.length) {
-      await new Promise((r) => setTimeout(r, 300));
+      // The caller checkpoints whole files. Once a batch fails, more paid work
+      // cannot complete this file; release it and allow the next file to run.
+      break;
     }
   }
-
-  console.log(`  Embeddings done: ${succeeded} succeeded, ${failed} failed`);
   return results;
-}
-
-async function embedWithRetry(
-  texts: string[],
-  apiKey: string,
-  attempt = 1,
-): Promise<number[][]> {
-  const response = await fetch(OPENROUTER_EMBEDDINGS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      input: texts,
-      model: MODEL,
-    }),
-  });
-
-  const raw = await response.text();
-
-  if (!response.ok) {
-    if (attempt < MAX_RETRIES) {
-      console.warn(
-        `    Attempt ${attempt} failed (${response.status}), retrying...`,
-      );
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
-      return embedWithRetry(texts, apiKey, attempt + 1);
-    }
-    throw new Error(`${response.status} ${raw.slice(0, 200)}`);
-  }
-
-  let data: any;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    if (attempt < MAX_RETRIES) {
-      console.warn(`    Attempt ${attempt} returned invalid JSON, retrying...`);
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
-      return embedWithRetry(texts, apiKey, attempt + 1);
-    }
-    throw new Error(`Invalid JSON: ${raw.slice(0, 200)}`);
-  }
-
-  if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
-    if (attempt < MAX_RETRIES) {
-      console.warn(
-        `    Attempt ${attempt} returned unexpected shape, retrying...`,
-      );
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
-      return embedWithRetry(texts, apiKey, attempt + 1);
-    }
-    throw new Error(
-      `Unexpected response: ${JSON.stringify(data).slice(0, 200)}`,
-    );
-  }
-
-  const sorted = [...data.data].sort((a: any, b: any) => a.index - b.index);
-  return sorted.map((d: any) => d.embedding);
 }

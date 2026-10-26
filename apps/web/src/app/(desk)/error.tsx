@@ -21,8 +21,8 @@ export default function DeskError({
         >
           Try again
         </button>
-        <Link href="/" className="text-[var(--pen)] hover:underline">
-          Back to Home
+        <Link href="/" className="quiet-link">
+          Back to Desk
         </Link>
       </div>
     </DeskPage>

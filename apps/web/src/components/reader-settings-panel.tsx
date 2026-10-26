@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { type ReactNode, useState } from "react";
-import { toast } from "sonner";
+import { type ReactNode, useEffect, useState } from "react";
+import { InlineError } from "@/components/in-place";
 import {
   DROP_CAP_FAMILIES,
   DROP_CAP_LINES,
@@ -29,7 +29,9 @@ import {
   TYPEFACE_FAMILIES,
   type Typeface,
 } from "@/lib/reader-settings";
+import { THEMES } from "@/lib/reader-themes";
 import { useCommand } from "@/lib/shortcuts";
+import { useSetMarkDefault } from "@/lib/use-mark-default";
 import { cn } from "@/lib/utils";
 
 type ModelRole = "annotations" | "quick" | "deep";
@@ -86,16 +88,6 @@ function ModelRow({
     </Row>
   );
 }
-
-const THEMES: { id: ReaderTheme; label: string; bg: string; fg: string }[] = [
-  { id: "auto", label: "Auto", bg: "#faf8f5", fg: "#201d1b" },
-  { id: "paper", label: "Paper", bg: "#faf8f5", fg: "#201d1b" },
-  { id: "sepia", label: "Sepia", bg: "#f3ead8", fg: "#4a3b2a" },
-  { id: "snow", label: "Snow", bg: "#ffffff", fg: "#1a1a1a" },
-  { id: "dusk", label: "Dusk", bg: "#34302c", fg: "#f1ece6" },
-  { id: "night", label: "Night", bg: "#201d1b", fg: "#e7e5e3" },
-  { id: "ink", label: "Ink", bg: "#0e1014", fg: "#dde1e8" },
-];
 
 const PENS: { id: PenColor; label: string; hex: string }[] = [
   { id: "vermilion", label: "Vermilion", hex: "#d1492b" },
@@ -235,9 +227,9 @@ function ToggleTile({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "flex items-center justify-center gap-2 h-10 rounded-xl text-[13px] font-medium transition-colors border",
+        "flex items-center justify-center gap-2 h-10 rounded-lg text-[13px] font-medium transition-colors border",
         active
-          ? "bg-[var(--pen-soft)] text-[var(--pen)] border-transparent"
+          ? "bg-[var(--reader-chip)] text-[var(--ink)] border-[var(--reader-border-strong)]"
           : "border-[var(--reader-border)] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)]",
       )}
     >
@@ -247,27 +239,44 @@ function ToggleTile({
   );
 }
 
+export interface ReaderSettingsPanelProps {
+  settings: ReaderSettings;
+  update: (patch: Partial<ReaderSettings>) => void;
+  resetText: () => void;
+  listening: boolean;
+  onToggleListen: () => void;
+  /** Lets the toolbar keep itself shown while the panel is open. */
+  onOpenChange?: (open: boolean) => void;
+}
+
 export function ReaderSettingsPanel({
   settings,
   update,
   resetText,
   listening,
   onToggleListen,
-}: {
-  settings: ReaderSettings;
-  update: (patch: Partial<ReaderSettings>) => void;
-  resetText: () => void;
-  listening: boolean;
-  onToggleListen: () => void;
-}) {
+  onOpenChange,
+}: ReaderSettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("look");
   const [open, setOpen] = useState(false);
+  // Changing a tool's default never repaints marks already made
+  const setMarkDefault = useSetMarkDefault();
+  // The `,` shortcut opens the panel without going through Radix's callback
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
   useCommand("open-settings", () => setOpen(true));
   const models = useQuery(api.userSettings.getModels, {});
   const setModelMutation = useMutation(api.userSettings.setModel);
+  // A refused change stays under the models, with Retry; the select shows the saved model again
+  const [modelFailed, setModelFailed] = useState<{
+    role: ModelRole;
+    model: string;
+  } | null>(null);
   const setModel = (role: ModelRole, model: string) => {
+    setModelFailed(null);
     setModelMutation({ role, model }).catch(() =>
-      toast.error("Couldn't change the model"),
+      setModelFailed({ role, model }),
     );
   };
   const { setTheme } = useTheme();
@@ -285,7 +294,7 @@ export function ReaderSettingsPanel({
       <Popover.Trigger asChild>
         <button
           aria-keyshortcuts=","
-          className="h-11 min-w-11 sm:h-8 sm:min-w-0 px-2.5 flex items-center justify-center rounded-full font-serif text-[15px] text-[var(--reader-muted)] hover:text-[var(--reader-fg)] hover:bg-[var(--reader-chip)] data-[state=open]:bg-[var(--reader-chip)] transition-colors"
+          className="h-11 min-w-11 sm:h-9 sm:min-w-9 px-2.5 flex items-center justify-center rounded-md font-serif text-[15px] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--reader-chip)] data-[state=open]:bg-[var(--reader-chip)] data-[state=open]:text-[var(--ink)] transition-colors"
           title="Reading settings"
           aria-label="Reading settings"
         >
@@ -297,7 +306,7 @@ export function ReaderSettingsPanel({
           align="end"
           sideOffset={10}
           collisionPadding={12}
-          className="reader-popover z-50 w-[360px] max-w-[calc(100vw-24px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain rounded-2xl p-4 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
+          className="reader-popover z-50 w-[360px] max-w-[calc(100vw-24px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain rounded-lg p-4 font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] ring-1 ring-[var(--reader-border)] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.45)] outline-none"
         >
           <Segmented
             value={tab}
@@ -378,14 +387,16 @@ export function ReaderSettingsPanel({
                 shape="dot"
                 value={settings.pen}
                 options={PENS}
-                onChange={(pen) => update({ pen })}
+                onChange={(pen) => void setMarkDefault("underline", pen)}
               />
               <SwatchRow
                 label="Highlighter"
                 shape="marker"
                 value={settings.highlighter}
                 options={HIGHLIGHTERS}
-                onChange={(highlighter) => update({ highlighter })}
+                onChange={(highlighter) =>
+                  void setMarkDefault("highlight", highlighter)
+                }
               />
 
               <div className="h-px bg-[var(--reader-border)]" />
@@ -435,7 +446,7 @@ export function ReaderSettingsPanel({
                         aria-pressed={active}
                         onClick={() => update({ typeface: face.id })}
                         className={cn(
-                          "flex flex-col items-center justify-center h-[62px] rounded-xl border transition-colors",
+                          "flex flex-col items-center justify-center h-[62px] rounded-lg border transition-colors",
                           active
                             ? "border-[var(--reader-fg)] bg-[var(--reader-chip)]"
                             : "border-[var(--reader-border)] hover:bg-[var(--reader-chip)]",
@@ -571,7 +582,7 @@ export function ReaderSettingsPanel({
                         aria-pressed={active}
                         onClick={() => update({ dropCap: option.id })}
                         className={cn(
-                          "flex flex-col items-center justify-center h-[62px] rounded-xl border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
+                          "flex flex-col items-center justify-center h-[62px] rounded-lg border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--reader-focus)]",
                           active
                             ? "border-[var(--reader-fg)] bg-[var(--reader-chip)]"
                             : "border-[var(--reader-border)] hover:bg-[var(--reader-chip)]",
@@ -581,7 +592,7 @@ export function ReaderSettingsPanel({
                           className={cn(
                             "text-[24px] leading-none",
                             option.family
-                              ? "text-[var(--pen)]"
+                              ? "text-[var(--ink)]"
                               : "text-[var(--reader-muted)]",
                           )}
                           style={{
@@ -721,6 +732,14 @@ export function ReaderSettingsPanel({
                     models={models}
                     onChange={setModel}
                   />
+                  {modelFailed && (
+                    <InlineError
+                      message="Couldn't change the model."
+                      onRetry={() =>
+                        setModel(modelFailed.role, modelFailed.model)
+                      }
+                    />
+                  )}
                   <p className="text-[11.5px] leading-relaxed text-[var(--reader-muted)]">
                     Marginalia writes the automatic notes, the end-of-article
                     reflection and summaries. Changes apply to the next one it

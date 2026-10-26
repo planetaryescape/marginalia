@@ -71,6 +71,11 @@ export const MODEL_CATALOG: readonly CatalogModel[] = [
   entry("openrouter", "deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
   entry("openrouter", "openai/gpt-6-luna", "GPT-6 Luna"),
   entry("openrouter", "google/gemini-3.8-flash", "Gemini 3.8 Flash"),
+  // Stronger and slower, for readers who want depth over speed
+  entry("openrouter", "anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"),
+  // OpenRouter has no GPT-6 Terra yet; this alias always runs the newest
+  // Terra (GPT-5.6 Terra on 2026-10-16) and moves up when 6 Terra lands
+  entry("openrouter", "~openai/gpt-terra-latest", "GPT Terra (latest)"),
   entry("openai", "gpt-6-luna", "GPT-6 Luna"),
   entry("openai", "gpt-6.1-sol", "GPT-6.1 Sol"),
   entry("anthropic", "claude-haiku-5-5", "Claude Haiku 5.5"),
@@ -187,4 +192,23 @@ export function providerFailure(status: number, body: string): Error {
   if (status === 401 || status === 403)
     return new Error(`Provider refused the key (${status})`);
   return new Error(`Provider returned ${status}: ${body.slice(0, 500)}`);
+}
+
+/**
+ * Whether a call failed because the provider refused the reader's key (401 or
+ * 403): from an embeddings request, a model call, or the model fallback's own
+ * "didn't accept your saved key" error. Such a failure is the key's, not the
+ * work's, so it pauses indexing instead of spending a try.
+ */
+export function isAuthFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const status = (error as { statusCode?: unknown }).statusCode;
+  if (status === 401 || status === 403) return true;
+  const data = (error as { data?: unknown }).data;
+  const message =
+    typeof data === "string" ? data : (error as { message?: unknown }).message;
+  return (
+    typeof message === "string" &&
+    /refused the key|didn't accept your saved key/.test(message)
+  );
 }

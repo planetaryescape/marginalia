@@ -9,6 +9,8 @@ import {
   type Provider,
   providerFailure,
 } from "./providers";
+import { resolveTarget, type TargetCredential } from "./providerTarget";
+import { interruptible, requestAttempt } from "./requestControl";
 import { dataLines, parseJson as parse, type ResponseBody } from "./sse";
 
 const CHAT_URLS: Record<Exclude<Provider, "anthropic">, string> = {
@@ -30,15 +32,16 @@ export interface ChatMessage {
 }
 
 /** Which provider and model to call, with the reader's own key. */
-export interface ChatTarget {
+export interface ChatTarget extends TargetCredential {
   provider: ModelProvider;
   model: string;
-  apiKey: string;
 }
 
 export type StreamEvent =
   | { type: "text"; text: string }
   | { type: "citation"; url: string; title?: string }
+  /** The model stopped because it hit the output cap, not because it was done. */
+  | { type: "truncated" }
   | { type: "error"; error: unknown };
 
 function anthropicHeaders(apiKey: string) {
@@ -112,11 +115,13 @@ function chatRequest(
 async function* chatCompletionEvents(
   body: ResponseBody,
 ): AsyncGenerator<StreamEvent> {
+  let truncated = false;
   for await (const data of dataLines(body)) {
-    if (data === "[DONE]") return;
+    if (data === "[DONE]") break;
     const chunk = parse<{
       error?: unknown;
       choices?: {
+        finish_reason?: string | null;
         delta?: {
           content?: string | null;
           annotations?: {
@@ -132,6 +137,7 @@ async function* chatCompletionEvents(
       return;
     }
     const delta = chunk.choices?.[0]?.delta;
+    if (chunk.choices?.[0]?.finish_reason === "length") truncated = true;
     if (delta?.content) yield { type: "text", text: delta.content };
     for (const annotation of delta?.annotations ?? []) {
       if (annotation.type === "url_citation" && annotation.url_citation) {
@@ -139,23 +145,30 @@ async function* chatCompletionEvents(
       }
     }
   }
+  if (truncated) yield { type: "truncated" };
 }
 
 async function* anthropicEvents(
   body: ResponseBody,
 ): AsyncGenerator<StreamEvent> {
+  let truncated = false;
   for await (const data of dataLines(body)) {
     const event = parse<{
       type?: string;
       error?: unknown;
-      delta?: { type?: string; text?: string };
+      delta?: { type?: string; text?: string; stop_reason?: string };
     }>(data);
     if (!event) continue;
     if (event.type === "error") {
       yield { type: "error", error: event.error };
       return;
     }
-    if (event.type === "message_stop") return;
+    if (
+      event.type === "message_delta" &&
+      event.delta?.stop_reason === "max_tokens"
+    )
+      truncated = true;
+    if (event.type === "message_stop") break;
     if (
       event.type === "content_block_delta" &&
       event.delta?.type === "text_delta" &&
@@ -163,6 +176,7 @@ async function* anthropicEvents(
     )
       yield { type: "text", text: event.delta.text };
   }
+  if (truncated) yield { type: "truncated" };
 }
 
 export async function* streamChat({
@@ -178,6 +192,9 @@ export async function* streamChat({
   maxTokens: number;
   signal?: AbortSignal;
 }): AsyncGenerator<StreamEvent> {
+  signal?.throwIfAborted();
+  target = await resolveTarget(target);
+  signal?.throwIfAborted();
   // A ChatGPT plan answers through the Responses API, without hosted tools
   // or an output cap
   if (target.provider === "chatgpt") {
@@ -218,7 +235,25 @@ export async function* streamChat({
  * One non-streaming JSON answer. OpenRouter and OpenAI enforce the schema;
  * Anthropic follows the system prompt's JSON instructions.
  */
-export async function completeJson({
+export async function completeJson(
+  options: Parameters<typeof completeJsonRequest>[0],
+) {
+  options.signal?.throwIfAborted();
+  const target = await resolveTarget(options.target);
+  options = { ...options, target };
+  const attempt = requestAttempt(options.signal, 60_000);
+  try {
+    return await interruptible(
+      completeJsonRequest({ ...options, signal: attempt.signal }),
+      attempt.signal,
+    );
+  } finally {
+    attempt.abort();
+    attempt.dispose();
+  }
+}
+
+async function completeJsonRequest({
   target,
   messages,
   maxTokens,
@@ -231,6 +266,7 @@ export async function completeJson({
   jsonSchema: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<{ content: string; truncated: boolean }> {
+  signal?.throwIfAborted();
   if (target.provider === "chatgpt")
     return {
       content: await completeResponses({

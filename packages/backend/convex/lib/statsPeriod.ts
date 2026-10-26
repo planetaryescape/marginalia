@@ -24,7 +24,7 @@ export function dayKey(at: number, timeZone: string) {
   const p = localParts(at, timeZone);
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
-function localToUtc(local: number, timeZone: string) {
+export function localToUtc(local: number, timeZone: string) {
   let guess = local;
   for (let i = 0; i < 4; i++) {
     const p = localParts(guess, timeZone);

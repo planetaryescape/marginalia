@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { LegalFooter } from "@/components/legal-footer";
 import { SourceLink } from "@/components/source-link";
 import { authClient } from "@/lib/auth-client";
+import { rearmAuth } from "@/lib/auth-retry";
 import { useReaderSettings } from "@/lib/reader-settings";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 
@@ -51,6 +52,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
 function ReaderAccessGate({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  // Better Auth's own answer: a session here while Convex says signed out
+  // means a token fetch failed, not that the reader signed out
+  const { data: session } = authClient.useSession();
+  const stalled = !isLoading && !isAuthenticated && Boolean(session);
+  const slow = useAfter(isLoading, SLOW_MS);
   const reader = useQuery(
     api.auth.currentReader,
     isAuthenticated ? {} : "skip",
@@ -67,10 +73,20 @@ function ReaderAccessGate({ children }: { children: ReactNode }) {
     checked.current = true;
     if (isAuthenticated) setFragment(null);
   }, [fragment, isLoading, isAuthenticated]);
+  if (stalled) return <Reconnect />;
   if (isLoading || (isAuthenticated && reader === undefined))
     return (
       <div className="auth-screen" role="status">
         Opening your reader…
+        {slow && (
+          <button
+            type="button"
+            className="mt-6 text-sm underline decoration-[var(--pencil-rule)] underline-offset-4"
+            onClick={() => window.location.reload()}
+          >
+            Try again
+          </button>
+        )}
       </div>
     );
   if (isAuthenticated && reader) return children;
@@ -94,6 +110,93 @@ function ReaderAccessGate({ children }: { children: ReactNode }) {
       </main>
     );
   return <SignIn fragment={fragment} />;
+}
+
+/** How long opening may take before a way to try again appears. */
+const SLOW_MS = 10_000;
+/** How long a reconnect waits before trying by itself. */
+const AUTO_RETRY_MS = 3_000;
+
+/** True once `active` has held for `ms`; false again as soon as it stops. */
+function useAfter(active: boolean, ms: number): boolean {
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    setLate(false);
+    if (!active) return;
+    const timer = setTimeout(() => setLate(true), ms);
+    return () => clearTimeout(timer);
+  }, [active, ms]);
+  return late;
+}
+
+/**
+ * Signed in, but the library connection lost its token (a deploy switching
+ * over, a sleeping laptop, a dropped network). Tries once by itself, then
+ * offers to, rather than asking the reader to sign in again.
+ */
+// The screen remounts each time a retry fails, so the count lives outside it
+let autoRetries = 0;
+const MAX_AUTO_RETRIES = 2;
+const RELOAD_KEY = "marginalia:reconnect-reload";
+const RELOAD_EVERY_MS = 60_000;
+
+/**
+ * Re-arming Convex auth fixes a token lost in passing; a page whose
+ * connection stays refused after that recovers on a full reload (seen live
+ * after a deploy). Reloads at most once a minute, so it can never loop.
+ */
+export function reloadOnce(
+  storage: Pick<Storage, "getItem" | "setItem"> = sessionStorage,
+  reload: () => void = () => window.location.reload(),
+  now = Date.now(),
+): boolean {
+  let last = 0;
+  try {
+    last = Number(storage.getItem(RELOAD_KEY) ?? 0);
+  } catch {}
+  if (now - last < RELOAD_EVERY_MS) return false;
+  try {
+    storage.setItem(RELOAD_KEY, String(now));
+  } catch {}
+  reload();
+  return true;
+}
+
+function Reconnect() {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (autoRetries < MAX_AUTO_RETRIES) {
+        autoRetries++;
+        rearmAuth();
+      } else reloadOnce();
+    }, AUTO_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <main className="auth-screen" role="status">
+      <div className="w-full max-w-sm">
+        <p className="font-serif text-2xl mb-10">Marginalia</p>
+        <p className="text-sm text-[var(--reader-muted)] mb-7">
+          Reconnecting to your library…
+        </p>
+        <button
+          type="button"
+          className="app-button w-full"
+          onClick={() => window.location.reload()}
+        >
+          Try again
+        </button>
+        {/* If the library keeps refusing this session, signing in afresh is the way out */}
+        <button
+          type="button"
+          className="mt-4 w-full text-sm text-[var(--reader-muted)] underline decoration-[var(--pencil-rule)] underline-offset-4"
+          onClick={() => authClient.signOut()}
+        >
+          Sign out
+        </button>
+      </div>
+    </main>
+  );
 }
 
 function SignIn({ fragment }: { fragment: FragmentTokens | null }) {
@@ -319,7 +422,7 @@ function SignIn({ fragment }: { fragment: FragmentTokens | null }) {
           </p>
         )}
       </div>
-      <SourceLink variant="text" className="mt-10" />
+      <SourceLink className="mt-10" />
       <LegalFooter />
     </main>
   );
@@ -417,7 +520,7 @@ export function RequestAccess({ onBack }: { onBack: () => void }) {
           </p>
         )}
       </div>
-      <SourceLink variant="text" className="mt-10" />
+      <SourceLink className="mt-10" />
       <LegalFooter />
     </main>
   );

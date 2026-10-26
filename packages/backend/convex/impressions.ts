@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { ownedArticle, requireArticle } from "./access";
+import { ownedArticleCard as ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
 
 export const RATING_LABELS = [
@@ -74,6 +74,20 @@ export const save = mutation({
       );
     }
     return impressionId;
+  },
+});
+
+/** Same bounded eligibility as listRecent, without fetching any articles. */
+export const recentCount = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("impressions")
+      .withIndex("by_user_updated", (q) => q.eq("userId", ctx.readerId))
+      .order("desc")
+      .take(100);
+    return rows.filter((row) => row.rating || row.tags.length || row.note)
+      .length;
   },
 });
 

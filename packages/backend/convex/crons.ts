@@ -34,4 +34,37 @@ crons.interval(
   {},
 );
 
+// Uploads nobody imported (documentImports.ts)
+crons.interval(
+  "remove abandoned uploads",
+  { minutes: 60 },
+  internal.documentImports.sweepUploads,
+  {},
+);
+
+// What each reader tends to read, then the long articles worth annotating
+// ahead of time (D-DES-056, D-DES-057). The profile runs first so the choice
+// uses today's; the finish of an article also queues a refresh of its own.
+crons.daily(
+  "recompute reading taste",
+  { hourUTC: 3, minuteUTC: 0 },
+  internal.background.fanOut,
+  { job: "taste" },
+);
+
+crons.daily(
+  "annotate likely reads ahead",
+  { hourUTC: 4, minuteUTC: 0 },
+  internal.background.fanOut,
+  { job: "preAnnotate" },
+);
+
+// Tag pairs that look like one topic, as suggestions only (D-DES-059)
+crons.daily(
+  "suggest tag merges",
+  { hourUTC: 3, minuteUTC: 30 },
+  internal.background.fanOut,
+  { job: "tagMerge" },
+);
+
 export default crons;

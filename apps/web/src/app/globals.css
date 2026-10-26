@@ -71,12 +71,10 @@
   }
 
   body {
-    @apply bg-parchment-50 text-ink-950 font-serif antialiased;
+    @apply font-serif antialiased;
+    background-color: var(--reader-bg);
+    color: var(--reader-fg);
     font-feature-settings: "liga" 1, "calt" 1, "kern" 1;
-  }
-
-  .dark body {
-    @apply bg-ink-950 text-parchment-100;
   }
 }
 
@@ -107,6 +105,19 @@
   border-bottom-color: theme("colors.annotation.question");
 }
 
+/* The wider sheet layout still underlines; the underline follows the kind. */
+.annotation-mark[data-type="fallacy"],
+.annotation-mark[data-type="assumption"],
+.annotation-mark[data-type="unsupported"],
+.annotation-mark[data-type="other_explanation"] {
+  border-bottom-color: theme("colors.annotation.tension");
+}
+
+.annotation-mark[data-type="strong_point"],
+.annotation-mark[data-type="crux"] {
+  border-bottom-color: theme("colors.annotation.context");
+}
+
 /* Weight tiers */
 .annotation-mark[data-weight="resonant"] {
   border-bottom-width: 3px;
@@ -121,14 +132,363 @@
   opacity: 0.5;
 }
 
+/* Margin notes. Where the margin shows sidenotes (wide) or a kind dot (phone),
+   the underline and number that used to mark annotated lines go away. */
+.annotation-mark[data-type="cross_reference"] { --kind-color: var(--kind-connection); }
+.annotation-mark[data-type="context"] { --kind-color: var(--kind-context); }
+.annotation-mark[data-type="tension"] { --kind-color: var(--kind-tension); }
+.annotation-mark[data-type="question"] { --kind-color: var(--kind-question); }
+.annotation-mark[data-type="fallacy"] { --kind-color: var(--kind-fallacy); }
+.annotation-mark[data-type="assumption"] { --kind-color: var(--kind-assumption); }
+.annotation-mark[data-type="unsupported"] { --kind-color: var(--kind-unsupported); }
+.annotation-mark[data-type="other_explanation"] { --kind-color: var(--kind-other-explanation); }
+.annotation-mark[data-type="strong_point"] { --kind-color: var(--kind-strong-point); }
+.annotation-mark[data-type="crux"] { --kind-color: var(--kind-crux); }
+
+article[data-margin="sidenotes"] .annotation-mark,
+article[data-margin="phone"] .annotation-mark {
+  border-bottom-width: 0;
+  padding-bottom: 0;
+  opacity: 1;
+  border-radius: 2px;
+}
+
+article[data-margin="sidenotes"] .annotation-mark sup,
+article[data-margin="phone"] .annotation-mark sup {
+  display: none;
+}
+
+article[data-margin="sidenotes"] .annotation-mark:focus-visible,
+article[data-margin="phone"] .annotation-mark:focus-visible {
+  outline: 1px solid var(--reader-focus);
+  outline-offset: 3px;
+}
+
+/* The open note's passage, washed in the note's own kind colour: clearly
+   there, and never the reader's pen or highlighter. */
+article[data-margin="sidenotes"] .annotation-mark[data-active][data-type] {
+  background: color-mix(in srgb, var(--kind-color) 20%, transparent) !important;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--kind-color) 70%, transparent);
+}
+
+article[data-margin="phone"] .annotation-mark::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--kind-color);
+  vertical-align: 0.1em;
+  user-select: none;
+}
+
+article[data-margin="phone"] .annotation-mark[data-annotation-part]:not([data-annotation-last])::after {
+  content: none;
+}
+
+.sidenote-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.sidenote {
+  position: absolute;
+  left: var(--sidenote-left);
+  width: var(--sidenote-width);
+  color: var(--pencil);
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  pointer-events: auto;
+}
+
+.sidenote[data-placed="false"] {
+  visibility: hidden;
+}
+
+.sidenote[data-hand="pen"] {
+  --sidenote-rule: var(--pen);
+  color: var(--ink-soft);
+}
+
+.sidenote[data-hand="pen"] .sidenote-kind {
+  color: var(--pen);
+}
+
+/* Notes slide to their new place with a transform (set by the layout), never by top. */
+.sidenote {
+  transition: transform var(--motion-move);
+}
+
+/* The open annotation's card fills the note's slot in the column. */
+.sidenote-card-closing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  animation: sidenote-card-fade var(--motion-move) forwards;
+}
+@keyframes sidenote-card-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.sidenote-card {
+  width: 100%;
+}
+
+.sidenote-hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: opacity var(--motion-quick) 240ms;
+}
+
+.sidenote-hit:focus-visible {
+  outline: 1px solid var(--reader-focus);
+  outline-offset: 3px;
+}
+
+.sidenote-body {
+  display: block;
+}
+
+.sidenote-kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The kind's name carries its colour; the family after it stays muted. */
+.sidenote-kind[data-family] {
+  color: var(--kind-color);
+}
+.sidenote-family {
+  color: var(--ink-muted);
+  letter-spacing: 0.04em;
+}
+
+.sidenote-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kind-color, var(--ink-muted));
+}
+
+.sidenote-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.sidenote-line {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Collapsed: the full body stays measurable (scrollHeight) but unseen. */
+.sidenote[data-collapsed="true"] .sidenote-body {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.sidenote[data-collapsed="true"] .sidenote-line {
+  display: flex;
+}
+
+.sidenote-connector {
+  position: absolute;
+  top: 6px;
+  left: -28px;
+  width: 24px;
+  height: 0;
+  border-top: 1px solid var(--sidenote-rule, var(--pencil-rule));
+  transform-origin: left center;
+  transition: transform var(--motion-move);
+  pointer-events: none;
+}
+
+/* A displaced note keeps pointing at its line: down the column edge, then across. */
+.sidenote-connector[data-bent="true"] {
+  top: calc(6px - var(--elbow));
+  height: var(--elbow);
+  border-top: 0;
+  border-left: 1px solid var(--sidenote-rule, var(--pencil-rule));
+  border-bottom: 1px solid var(--sidenote-rule, var(--pencil-rule));
+}
+
+/* Arrival: the connector draws, then the text fades in. */
+.sidenote[data-arrived="false"] .sidenote-connector {
+  transform: scaleX(0);
+}
+
+.sidenote[data-arrived="false"] .sidenote-hit {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidenote-tick {
+  position: absolute;
+  left: calc(var(--sidenote-left) - 28px);
+  width: 8px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--tick-colour, var(--pen));
+  /* Highlighter colours are translucent; the tick takes the same hue at full
+     strength so a yellow mark's tick is still easy to see */
+  background: rgb(from var(--tick-colour, var(--pen)) r g b / 1);
+}
+
+.sidenote-waiting {
+  pointer-events: none;
+}
+
+.sidenote-pencil {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.sidenote-pencil path {
+  fill: none;
+  stroke: var(--pencil);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  animation: sidenote-write 2.4s ease-in-out infinite;
+}
+
+.sidenote-waiting-text {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+@keyframes sidenote-write {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidenote,
+  .sidenote-connector,
+  .sidenote-hit {
+    transition: none;
+  }
+
+  .sidenote-pencil path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Phone: the note unfolds under its paragraph. */
+.note-unfold-host {
+  margin: -0.75rem 0 1.5rem;
+}
+
+.note-unfold {
+  margin-left: 15px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--pencil-rule);
+  color: var(--pencil);
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* Whole-article answers waiting, folded, where there is no margin column */
+.note-unfold-folded {
+  margin: 0 0 1.5rem 15px;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--pencil-rule);
+  list-style: none;
+  color: var(--pencil);
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.note-unfold-folded button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.note-unfold-folded .note-unfold-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.note-unfold-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.note-unfold-actions button {
+  min-height: 36px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+
+/* Open sidenote card: raised like a menu, shadow only on light themes. */
+html:not(.dark) .margin-card-raised {
+  box-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.25);
+}
+
+html.dark .margin-card-raised {
+  border-color: var(--reader-border-strong);
+}
+
 /* Reading progress bar */
 .reading-progress {
   @apply fixed top-0 left-0 h-0.5 z-50 transition-all duration-150;
-  background: linear-gradient(
-    90deg,
-    theme("colors.annotation.crossref"),
-    theme("colors.annotation.question")
-  );
+  background: var(--ink-muted);
+  opacity: 0.7;
 }
 
 /* Smooth scroll for reading */
@@ -176,16 +536,17 @@ html {
 .account-section { padding-block: 24px; border-top: 1px solid var(--reader-border); }
 .mobile-menu-action { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 10px; font-family: var(--font-dm-sans), sans-serif; font-size: 14px; text-align: left; }
 .mobile-menu-action:hover { background: var(--reader-chip); }
+/* A list row answers hover and keyboard focus with a soft surface, never a coloured or underlined title (02, Shared patterns) */
+.list-row-surface { border-radius: 6px; transition: background-color var(--motion-press); }
+.list-row-surface:hover,
+.list-row-surface:focus-visible,
+.list-row-surface:has(:focus-visible) { background-color: var(--reader-chip); }
 .mobile-reader-bar { position: fixed; z-index: 30; inset-inline: 0; bottom: 0; display: flex; align-items: center; padding: 6px max(12px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--reader-surface); border-top: 1px solid var(--reader-border); font-family: var(--font-dm-sans), sans-serif; }
 .mobile-reader-bar button { flex: 1; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; line-height: 14px; color: var(--reader-fg); border-radius: 10px; }
 .mobile-reader-bar button:last-child { background: var(--reader-chip); }
 .mobile-reader-bar button:disabled { opacity: 0.5; }
 .desk-route { scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 @media (prefers-reduced-motion: no-preference) {
-  ::view-transition-old(root) { animation: view-away 140ms ease-out both; }
-  ::view-transition-new(root) { animation: view-arrive 180ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-  @keyframes view-away { to { opacity: 0; } }
-  @keyframes view-arrive { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
   .desk-route { animation: desk-arrival 160ms cubic-bezier(0.16, 1, 0.3, 1); }
   @keyframes desk-arrival { from { opacity: 0.7; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 }
@@ -251,7 +612,7 @@ html {
   float: left;
   height: 0;
   pointer-events: none;
-  @apply text-ink-300 dark:text-ink-600;
+  color: color-mix(in srgb, var(--reader-fg) 35%, transparent);
 }
 
 .tiptap ul {
@@ -263,7 +624,8 @@ html {
 }
 
 .tiptap blockquote {
-  @apply border-l-2 border-ink-300 dark:border-ink-600 pl-3 italic;
+  @apply border-l-2 pl-3 italic;
+  border-left-color: var(--reader-border-strong);
 }
 
 .tiptap strong {
@@ -286,6 +648,17 @@ html[data-reader-theme="paper"] {
   --reader-border: rgba(32, 29, 27, 0.1);
   --reader-border-strong: rgba(32, 29, 27, 0.2);
   --reader-chip: rgba(32, 29, 27, 0.05);
+  --pencil: #5e5751;
+  --kind-tension: #945e43;
+  --kind-fallacy: #94512f;
+  --kind-assumption: #9d5a3b;
+  --kind-unsupported: #9a5941;
+  --kind-other-explanation: #9c5a38;
+  --kind-strong-point: #58714c;
+  --kind-crux: #597048;
+  --kind-connection: #4b6e83;
+  --kind-context: #5a6a83;
+  --kind-question: #72609d;
 }
 
 .dark,
@@ -298,6 +671,17 @@ html[data-reader-theme="night"] {
   --reader-border: rgba(255, 255, 255, 0.08);
   --reader-border-strong: rgba(255, 255, 255, 0.17);
   --reader-chip: rgba(255, 255, 255, 0.06);
+  --pencil: #bdb3aa;
+  --kind-tension: #c08c72;
+  --kind-fallacy: #ce8864;
+  --kind-assumption: #c7886b;
+  --kind-unsupported: #c48873;
+  --kind-other-explanation: #c98a69;
+  --kind-strong-point: #92ad85;
+  --kind-crux: #95af83;
+  --kind-connection: #7ea0b4;
+  --kind-context: #8998ae;
+  --kind-question: #9d90bb;
 }
 
 html[data-reader-theme="sepia"] {
@@ -309,6 +693,17 @@ html[data-reader-theme="sepia"] {
   --reader-border: rgba(74, 59, 42, 0.14);
   --reader-border-strong: rgba(74, 59, 42, 0.26);
   --reader-chip: rgba(74, 59, 42, 0.07);
+  --pencil: #5f4f3e;
+  --kind-tension: #8a573e;
+  --kind-fallacy: #94512f;
+  --kind-assumption: #8e5135;
+  --kind-unsupported: #90523c;
+  --kind-other-explanation: #8d5133;
+  --kind-strong-point: #516846;
+  --kind-crux: #516742;
+  --kind-connection: #466579;
+  --kind-context: #53637a;
+  --kind-question: #6b5a93;
 }
 
 html[data-reader-theme="snow"] {
@@ -320,6 +715,17 @@ html[data-reader-theme="snow"] {
   --reader-border: rgba(0, 0, 0, 0.09);
   --reader-border-strong: rgba(0, 0, 0, 0.18);
   --reader-chip: rgba(0, 0, 0, 0.045);
+  --pencil: #55555c;
+  --kind-tension: #986045;
+  --kind-fallacy: #94512f;
+  --kind-assumption: #a15c3c;
+  --kind-unsupported: #a25d44;
+  --kind-other-explanation: #9c5a38;
+  --kind-strong-point: #5a744e;
+  --kind-crux: #5e764c;
+  --kind-connection: #4f7389;
+  --kind-context: #5e6f89;
+  --kind-question: #7766a1;
 }
 
 /* A softer dark: warm charcoal rather than near-black */
@@ -332,6 +738,17 @@ html[data-reader-theme="dusk"] {
   --reader-border: rgba(255, 255, 255, 0.09);
   --reader-border-strong: rgba(255, 255, 255, 0.18);
   --reader-chip: rgba(255, 255, 255, 0.07);
+  --pencil: #c8bfb5;
+  --kind-tension: #cea692;
+  --kind-fallacy: #d8a083;
+  --kind-assumption: #d4a38c;
+  --kind-unsupported: #d2a493;
+  --kind-other-explanation: #d4a187;
+  --kind-strong-point: #9ab38e;
+  --kind-crux: #9db58c;
+  --kind-connection: #94b0c1;
+  --kind-context: #a1adbf;
+  --kind-question: #b3aacb;
 }
 
 html[data-reader-theme="ink"] {
@@ -343,33 +760,99 @@ html[data-reader-theme="ink"] {
   --reader-border: rgba(255, 255, 255, 0.08);
   --reader-border-strong: rgba(255, 255, 255, 0.16);
   --reader-chip: rgba(255, 255, 255, 0.06);
+  --pencil: #aab1bd;
+  --kind-tension: #c08c72;
+  --kind-fallacy: #ce8864;
+  --kind-assumption: #c7886b;
+  --kind-unsupported: #c3856f;
+  --kind-other-explanation: #c98a69;
+  --kind-strong-point: #92ad85;
+  --kind-crux: #95af83;
+  --kind-connection: #7ea0b4;
+  --kind-context: #8695ac;
+  --kind-question: #9284b3;
+}
+
+/* Print, pencil and pen (blueprint 02). Ink is the author and the chrome, pencil
+   is Marginalia, and --pen is the reader's own colour: their marks only. */
+:root {
+  --ink: var(--reader-fg);
+  --ink-soft: var(--reader-fg-soft);
+  --ink-muted: var(--reader-muted);
+  --pencil-rule: color-mix(in srgb, var(--reader-fg) 18%, transparent);
+  --vault: #5f7a52;
+  --danger: #b0503a;
+  --motion-press: 90ms ease-out;
+  --motion-quick: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-move: 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Page and sweep are split so a delay or a group duration can use the bare time */
+  --page-duration: 320ms;
+  --page-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-page: var(--page-duration) var(--page-ease);
+  --sweep-duration: 180ms;
+  --motion-sweep: var(--sweep-duration) linear;
+}
+html.dark,
+html[data-reader-theme="night"],
+html[data-reader-theme="dusk"],
+html[data-reader-theme="ink"] {
+  --pencil-rule: color-mix(in srgb, var(--reader-fg) 22%, transparent);
+  --vault: #93a888;
+  --danger: #e07a5f;
 }
 
 :root {
-  --pen: #3b63d9;
   --reader-focus: color-mix(in srgb, var(--reader-fg) 65%, var(--reader-bg));
-  --highlighter: rgba(246, 205, 72, 0.45);
   --reader-annotated: #b07050;
   --reader-font: var(--font-newsreader), Georgia, serif;
   --reader-size: 20px;
   --reader-leading: 1.8;
 }
-html[data-pen="vermilion"] { --pen: #d1492b; }
-html[data-pen="forest"] { --pen: #2f7d47; }
-html[data-pen="graphite"] { --pen: #555555; }
-html.dark { --pen: #7d9cf5; }
-html.dark[data-pen="vermilion"] { --pen: #ec7556; }
-html.dark[data-pen="forest"] { --pen: #62b07a; }
-html.dark[data-pen="graphite"] { --pen: #b5b0ab; }
+/* Every mark colour, tuned per theme. --pen and --highlighter are the reader's
+   defaults and point at one of these; a mark with its own colour uses its entry
+   directly (data-color, or a ::highlight(mark-<colour>) name). */
+:root {
+  --mark-yellow: rgba(246, 205, 72, 0.45);
+  --mark-green: rgba(120, 200, 112, 0.4);
+  --mark-blue: rgba(110, 165, 240, 0.38);
+  --mark-pink: rgba(240, 130, 180, 0.36);
+  --mark-cobalt: #3b63d9;
+  --mark-vermilion: #d1492b;
+  --mark-forest: #2f7d47;
+  --mark-graphite: #555555;
+}
+html.dark,
+html[data-reader-theme="night"],
+html[data-reader-theme="dusk"],
+html[data-reader-theme="ink"] {
+  --mark-yellow: rgba(246, 205, 72, 0.26);
+  --mark-green: rgba(120, 200, 112, 0.26);
+  --mark-blue: rgba(110, 165, 240, 0.28);
+  --mark-pink: rgba(240, 130, 180, 0.26);
+  --mark-cobalt: #7d9cf5;
+  --mark-vermilion: #ec7556;
+  --mark-forest: #62b07a;
+  --mark-graphite: #b5b0ab;
+}
+:root { --pen: var(--mark-cobalt); --highlighter: var(--mark-yellow); }
+html[data-pen="vermilion"] { --pen: var(--mark-vermilion); }
+html[data-pen="forest"] { --pen: var(--mark-forest); }
+html[data-pen="graphite"] { --pen: var(--mark-graphite); }
+html[data-highlighter="green"] { --highlighter: var(--mark-green); }
+html[data-highlighter="blue"] { --highlighter: var(--mark-blue); }
+html[data-highlighter="pink"] { --highlighter: var(--mark-pink); }
 html { --pen-soft: color-mix(in srgb, var(--pen) 12%, transparent); }
 
-html[data-highlighter="green"] { --highlighter: rgba(120, 200, 112, 0.4); }
-html[data-highlighter="blue"] { --highlighter: rgba(110, 165, 240, 0.38); }
-html[data-highlighter="pink"] { --highlighter: rgba(240, 130, 180, 0.36); }
-html.dark { --highlighter: rgba(246, 205, 72, 0.26); }
-html.dark[data-highlighter="green"] { --highlighter: rgba(120, 200, 112, 0.26); }
-html.dark[data-highlighter="blue"] { --highlighter: rgba(110, 165, 240, 0.28); }
-html.dark[data-highlighter="pink"] { --highlighter: rgba(240, 130, 180, 0.26); }
+/* An element showing one mark in its own colour: set data-color, read --mark. */
+[data-color] { --mark: var(--highlighter); }
+[data-color="yellow"] { --mark: var(--mark-yellow); }
+[data-color="green"] { --mark: var(--mark-green); }
+[data-color="blue"] { --mark: var(--mark-blue); }
+[data-color="pink"] { --mark: var(--mark-pink); }
+[data-color="vermilion"] { --mark: var(--mark-vermilion); }
+[data-color="cobalt"] { --mark: var(--mark-cobalt); }
+[data-color="forest"] { --mark: var(--mark-forest); }
+[data-color="graphite"] { --mark: var(--mark-graphite); }
 
 html[data-reader-theme] body {
   background: var(--reader-bg);
@@ -384,11 +867,13 @@ html[data-reader-theme] .reader-prose {
   --tw-prose-headings: var(--reader-fg);
   --tw-prose-bold: var(--reader-fg);
   --tw-prose-quotes: var(--reader-fg-soft);
-  --tw-prose-links: var(--pen);
+  --tw-prose-links: var(--ink);
   --tw-prose-bullets: var(--reader-muted);
   --tw-prose-counters: var(--reader-muted);
   --tw-prose-hr: var(--reader-border);
   --tw-prose-quote-borders: var(--reader-border-strong);
+  --tw-prose-pre-bg: var(--reader-chip);
+  --tw-prose-pre-code: var(--reader-fg);
   font-family: var(--reader-font);
   font-size: var(--reader-size);
 }
@@ -402,8 +887,15 @@ html[data-reader-theme] .reader-prose :is(p, li) {
   line-height: var(--reader-leading);
 }
 
+/* Links are print, not the reader's mark: ink with a pencil rule that darkens on hover */
 html[data-reader-theme] .reader-prose a {
-  color: var(--pen);
+  color: var(--ink);
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+
+html[data-reader-theme] .reader-prose a:hover {
+  text-decoration-color: var(--ink);
 }
 
 html[data-reader-theme] .reader-prose :not(pre) > code {
@@ -453,7 +945,7 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 }
 
 .reader-numbers [data-current]::before {
-  color: var(--pen);
+  color: var(--ink);
   opacity: 1;
 }
 
@@ -475,27 +967,64 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 
 /* ───────────────────────── Reader: companion ───────────────────────── */
 
+/* Marginalia's marks are pencil, never the highlighter: ::highlight allows the text-decoration longhands (MDN) */
 ::highlight(companion-passage),
-::highlight(companion-pending),
+::highlight(companion-pending) {
+  background-color: color-mix(in srgb, var(--reader-fg) 6%, transparent);
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--pencil-rule);
+  text-decoration-thickness: 1.5px;
+}
+
+/* Highlighter and pen tools. The reader package registers user-highlight and
+   user-underline for every mark; Marginalia paints each mark under its own
+   colour's name instead (use-mark-paint.ts), so those two stay unpainted. The
+   package's stylesheet loads after this one, so the extra `html` is what wins. */
+html ::highlight(user-highlight),
+html ::highlight(user-underline) {
+  background-color: transparent;
+  text-decoration: none;
+}
+
+::highlight(mark-yellow) { background-color: var(--mark-yellow); color: inherit; }
+::highlight(mark-green) { background-color: var(--mark-green); color: inherit; }
+::highlight(mark-blue) { background-color: var(--mark-blue); color: inherit; }
+::highlight(mark-pink) { background-color: var(--mark-pink); color: inherit; }
+::highlight(mark-vermilion) { text-decoration: underline 2px var(--mark-vermilion); }
+::highlight(mark-cobalt) { text-decoration: underline 2px var(--mark-cobalt); }
+::highlight(mark-forest) { text-decoration: underline 2px var(--mark-forest); }
+::highlight(mark-graphite) { text-decoration: underline 2px var(--mark-graphite); }
+
+/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */
+::highlight(companion-saved),
 ::highlight(companion-saved-hover) {
-  background-color: var(--highlighter);
+  background-color: transparent;
   color: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--pencil-rule);
+  text-decoration-thickness: 1.5px;
 }
 
-/* Highlighter and pen tools */
-::highlight(user-highlight) {
-  background-color: var(--highlighter);
-  color: inherit;
+/* The impression wash after ★ or r; the reader's pen never marks it */
+@keyframes impression-wash {
+  from { background-color: var(--reader-chip); }
+  to { background-color: var(--reader-surface); }
 }
-
-::highlight(user-underline) {
-  text-decoration: underline 2px var(--pen);
+.impression-wash {
+  animation: impression-wash 600ms ease-out;
 }
-
-/* Saved Ask / Explain / Simplify passages: a lighter wash of the highlighter */
-::highlight(companion-saved) {
-  background-color: color-mix(in srgb, var(--highlighter) 45%, transparent);
-  color: inherit;
+@keyframes impression-wash-reduced {
+  0%, 83.333% { background-color: var(--reader-chip); }
+  100% { background-color: var(--reader-surface); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The tint holds for 600 ms, then clears over 120 ms */
+  .impression-wash {
+    animation: impression-wash-reduced 720ms ease-out;
+  }
 }
 
 /* The auto annotation whose card is open */
@@ -515,15 +1044,6 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   background: color-mix(in srgb, #8b7bb0 18%, transparent) !important;
 }
 
-.companion-lead {
-  background: var(--highlighter);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-  padding: 0.08em 0.2em;
-  margin: 0 -0.2em;
-  border-radius: 3px;
-}
-
 @keyframes caret-blink {
   50% {
     opacity: 0;
@@ -537,7 +1057,7 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   margin-left: 3px;
   vertical-align: -0.14em;
   border-radius: 1px;
-  background: var(--pen);
+  background: var(--pencil);
   animation: caret-blink 1s steps(2, start) infinite;
 }
 
@@ -561,6 +1081,55 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   animation: companion-shimmer 1.4s linear infinite;
 }
 
+/* Settings: an indeterminate bar for a sync or check in progress. Ink at low
+   alpha with a soft highlight moving across; never the pen colour. */
+.sync-bar {
+  position: relative;
+  overflow: hidden;
+  /* Clearly visible while work runs; a hairline read as nothing happening */
+  height: 4px;
+  margin-bottom: 0.75rem;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.sync-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--ink) 85%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: sync-bar-sweep 1.2s linear infinite;
+}
+@keyframes sync-bar-sweep {
+  from { background-position: -100% 0; }
+  to { background-position: 200% 0; }
+}
+.sync-bar[data-determinate]::after { display: none; animation: none; }
+.sync-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  transform-origin: left;
+  transition: transform var(--motion-move);
+}
+.sync-bar-text {
+  display: block;
+  margin: -0.25rem 0 0.75rem;
+  font-size: 13px;
+  color: var(--reader-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-bar { background: color-mix(in srgb, var(--ink) 40%, transparent); }
+  .sync-bar::after { display: none; animation: none; }
+  .sync-bar-fill { transition: none; }
+}
+
 /* ───────────────────────── Reader: controls ───────────────────────── */
 
 @keyframes popover-in {
@@ -575,8 +1144,49 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   transform-origin: var(--radix-popover-content-transform-origin);
 }
 
+/* The reader toolbar fades while reading. Focus inside it, the pointer near the
+   top, an open menu or the notes pane keep it shown (use-toolbar-fade.ts). */
+.reader-toolbar {
+  transition: opacity var(--motion-quick);
+}
+
+.reader-toolbar[data-hidden="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Menus raised above the page: surface with a hairline, and a shadow only on light themes */
+.reader-menu {
+  background: var(--reader-surface);
+  color: var(--reader-fg);
+  border: 1px solid var(--reader-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.25);
+}
+
+html.dark .reader-menu {
+  border-color: var(--reader-border-strong);
+  box-shadow: none;
+}
+
+.reader-menu[data-state="open"] {
+  animation: popover-in var(--motion-quick);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+}
+
+.quiet-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+
+.quiet-link:hover {
+  text-decoration-color: var(--ink);
+}
+
 .reader-range {
-  accent-color: var(--pen);
+  accent-color: var(--ink);
   height: 4px;
   min-width: 0;
   cursor: pointer;
@@ -587,7 +1197,8 @@ html[data-reader-theme] .reader-indented .reader-prose p {
      themes a near-white pill was the brightest thing on screen, so it becomes
      a raised surface a step above the reader's panels instead. */
   .reader-float {
-    @apply bg-ink-950 text-parchment-50;
+    background-color: var(--reader-fg);
+    color: var(--reader-bg);
   }
   .dark .reader-float {
     background-color: color-mix(in srgb, var(--reader-surface) 82%, white);
@@ -626,8 +1237,9 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   .para-flash {
     animation: none;
   }
-  .reader-popover { animation: none !important; }
-  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+  .reader-popover,
+  .reader-menu { animation: none !important; }
+  .reader-toolbar { transition: none; }
 }
 
 /* ───────────────────────── Reader: summary ───────────────────────── */
@@ -669,7 +1281,7 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   font-family: var(--dropcap-font);
   font-weight: 500;
   font-style: normal;
-  color: var(--pen);
+  color: var(--ink);
   -webkit-initial-letter: var(--dropcap-lines);
   initial-letter: var(--dropcap-lines);
   margin-right: 0.12em;
@@ -693,4 +1305,203 @@ html[data-reader-theme] .reader-indented .reader-prose p {
     line-height: 0.82;
     margin: 0.08em 0.1em 0 0;
   }
+}
+
+/* "Back to ¶N" after an in-article jump: pencil on the menu surface, never over the text column's centre line */
+.reader-return-chip {
+  /* Never over the text: wide screens put it in the empty left margin above the paragraph map. */
+  position: fixed;
+  z-index: 35;
+  left: 1.5rem;
+  bottom: 1.5rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font: 400 13px/1.5 "DM Sans", system-ui, sans-serif;
+  color: var(--pencil);
+  cursor: pointer;
+}
+@media (min-width: 1024px) {
+  /* The map (.reader-map) is fixed at left 1.5rem, vertically centred, 300px tall. */
+  .reader-return-chip {
+    bottom: auto;
+    top: calc(50% - 150px - 2.75rem);
+  }
+}
+@media (max-width: 639px) {
+  .reader-return-chip {
+    bottom: calc(5rem + env(safe-area-inset-bottom));
+    left: 1rem;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .reader-return-chip {
+    animation: reader-return-in var(--motion-move);
+  }
+}
+@keyframes reader-return-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Ideas that join the map come in softly; users who ask for less motion see them at once */
+@media (prefers-reduced-motion: no-preference) {
+  .idea-enter {
+    animation: idea-enter var(--motion-move) both;
+  }
+}
+@keyframes idea-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ───────────────────────── Moving between pages (rung 7) ─────────────────────────
+   React's <ViewTransition> starts the browser transition on a navigation; the
+   navigation's type (open-article, finish-article) picks the choreography. A
+   browser without View Transitions swaps instantly and runs none of this. */
+
+@keyframes vt-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes vt-fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* Clicks reach the live page while the snapshots play */
+::view-transition { pointer-events: none; }
+/* The page background stays under the groups while the old root has gone and the new one has not arrived */
+:root::view-transition { background-color: var(--reader-bg); }
+
+/* The title: one group travelling from the desk row to the reader heading */
+::view-transition-group(.article-title) {
+  animation-duration: var(--page-duration);
+  animation-timing-function: var(--page-ease);
+}
+/* The two snapshots differ in size and wrapping, so they overlap only briefly instead of ghosting */
+::view-transition-old(.article-title) { animation: vt-fade-out 192ms linear both; }
+::view-transition-new(.article-title) { animation: vt-fade-in 224ms linear 96ms both; }
+
+/* The toolbar has its own group above the title and is never moved */
+::view-transition-group(.reader-toolbar) { z-index: 100; animation: none; }
+::view-transition-old(.reader-toolbar) { animation: vt-fade-out var(--motion-page) both; }
+::view-transition-new(.reader-toolbar) { animation: vt-fade-in var(--motion-quick) 160ms both; }
+
+/* Opening: the desk dissolves, then the body fades in after the title lands */
+:root:active-view-transition-type(open-article)::view-transition-old(root) {
+  animation: vt-fade-out var(--motion-quick) both;
+}
+:root:active-view-transition-type(open-article)::view-transition-new(root) {
+  animation: vt-fade-in var(--motion-move) var(--page-duration) both;
+}
+
+/* Finishing: the reader turns back to the desk with a soft cross-fade */
+:root:active-view-transition-type(finish-article)::view-transition-old(root) {
+  animation: vt-fade-out var(--motion-page) both;
+}
+:root:active-view-transition-type(finish-article)::view-transition-new(root) {
+  animation: vt-fade-in var(--motion-page) both;
+}
+
+/* The reader's live elements fade in as the article arrives behind the morph */
+@media (prefers-reduced-motion: no-preference) {
+  .reader-toolbar { animation: vt-fade-in var(--motion-quick) backwards; }
+  .reader-arriving > :not(header) { animation: vt-fade-in var(--motion-move) backwards; }
+
+  /* After Done the next pick slides into the slot once the page has turned */
+  [data-arrival="finish"] > * {
+    animation: slot-arrive var(--motion-move) var(--page-duration) backwards;
+  }
+  [data-arrival="finish-swap"] > * { animation: slot-arrive var(--motion-move) backwards; }
+  @keyframes slot-arrive {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* A new highlight's pen tick appears once the sweep has passed */
+  .sidenote-tick { animation: vt-fade-in var(--motion-quick) var(--sweep-duration) backwards; }
+}
+
+/* Shared patterns: Saved, errors and the change wash, at the place that changed */
+.saved-mark {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  /* 160 ms in, 1.6 s held, 160 ms out */
+  animation: saved-mark 1920ms linear both;
+}
+.saved-mark[data-hold] { animation: vt-fade-in var(--motion-quick) both; }
+@keyframes saved-mark {
+  0% { opacity: 0; }
+  8.333%, 91.667% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.inline-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  font-size: 14.5px;
+  color: var(--ink);
+  animation: vt-fade-in var(--motion-quick) backwards;
+}
+.inline-error-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.inline-error-retry {
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-decoration-color: var(--pencil-rule);
+  text-underline-offset: 3px;
+}
+.inline-error-retry:hover { color: var(--ink); }
+.inline-error-retry:disabled { opacity: 0.5; }
+
+.change-wash[data-washing] { animation: change-wash 600ms ease-out; }
+/* A dictionary letter jump: a little stronger than the change wash, so a word
+   already on screen still shows where the click landed */
+.letter-jump[data-washing] { animation: letter-jump 600ms ease-out; }
+@keyframes letter-jump {
+  from { background-color: color-mix(in srgb, var(--reader-fg) 12%, transparent); }
+  to { background-color: transparent; }
+}
+@keyframes change-wash {
+  from { background-color: var(--reader-chip); }
+  to { background-color: transparent; }
+}
+@keyframes change-wash-reduced {
+  0%, 83.333% { background-color: var(--reader-chip); }
+  100% { background-color: transparent; }
+}
+
+/* Reduced motion: no travel. The route swaps at once, and each state change is a 120 ms fade at most */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+  :root:active-view-transition-type(finish-article)::view-transition-old(root),
+  ::view-transition-old(.reader-toolbar) {
+    animation: vt-fade-out 120ms ease-out both !important;
+  }
+  :root:active-view-transition-type(finish-article)::view-transition-new(root) {
+    animation: vt-fade-in 120ms ease-out both !important;
+  }
+
+  .reader-arriving > :not(header) { animation: vt-fade-in 120ms ease-out backwards; }
+  [data-arrival^="finish"] > * { animation: vt-fade-in 120ms ease-out 120ms backwards; }
+
+  .saved-mark { animation: saved-mark-reduced 1840ms linear both; }
+  .saved-mark[data-hold] { animation: vt-fade-in 120ms ease-out both; }
+  .inline-error { animation: vt-fade-in 120ms ease-out backwards; }
+  .change-wash[data-washing] { animation: change-wash-reduced 720ms ease-out; }
+  .letter-jump[data-washing] { animation: none; background-color: color-mix(in srgb, var(--reader-fg) 12%, transparent); }
+}
+@keyframes saved-mark-reduced {
+  0% { opacity: 0; }
+  6.522%, 93.478% { opacity: 1; }
+  100% { opacity: 0; }
 }

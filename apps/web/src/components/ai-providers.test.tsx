@@ -32,6 +32,10 @@ describe("ChatGPT plan in AI providers", () => {
     const html = renderToStaticMarkup(<AiProviders />);
     expect(html).toContain("OpenAI");
     expect(html).not.toContain("ChatGPT");
+    const secretInputs = html.match(/<input[^>]*type="password"[^>]*>/g);
+    expect(secretInputs).toHaveLength(3);
+    for (const input of secretInputs ?? [])
+      expect(input).toContain('data-1p-ignore="true"');
   });
 
   it("offers Continue with ChatGPT when the server enables it", () => {

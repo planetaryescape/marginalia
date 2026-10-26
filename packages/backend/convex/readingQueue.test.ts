@@ -18,6 +18,7 @@ describe("whole-library reading queue counts", () => {
             guid: `item-${i}`,
             url: `https://example.com/${i}`,
             title: `Piece ${i}`,
+            content: "Synthetic readable article.",
             extractionStatus: "extracted",
             annotationStatus: "annotated",
             estimatedReadMinutes: i % 2 ? 15 : 4,
@@ -40,11 +41,22 @@ describe("whole-library reading queue counts", () => {
         });
       return ids;
     });
-    expect((await t.query(api.home.overview, {})).waiting).toBeNull();
-    for (let i = 0; i < 40; i++)
+    expect((await t.query(api.home.counts, {})).waiting).toBeNull();
+    for (let i = 0; i < 160; i++)
       await t.mutation(internal.readingQueue.initialize, {
         userId: "default_user",
       });
+    // The card migration is independent of the pre-existing queue counter scan.
+    for (let i = 0; i < 50; i++) {
+      if (
+        (
+          await t.mutation(internal.articleMetadata.backfill, {
+            userId: "default_user",
+          })
+        ).complete
+      )
+        break;
+    }
     const overview = await t.query(api.home.overview, {});
     expect(overview).toMatchObject({
       countsReady: true,

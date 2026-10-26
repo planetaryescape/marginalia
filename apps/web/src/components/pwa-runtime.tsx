@@ -45,7 +45,7 @@ export function PwaRuntime() {
   return offline ? (
     <div
       role="status"
-      className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+4rem)] z-[60] mx-auto max-w-lg rounded-xl bg-[var(--reader-surface)] p-3 font-sans text-sm text-[var(--reader-fg)] ring-1 ring-[var(--reader-border-strong)] shadow-lg"
+      className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+4rem)] z-[60] mx-auto max-w-lg rounded-lg bg-[var(--reader-surface)] p-3 font-sans text-sm text-[var(--reader-fg)] ring-1 ring-[var(--reader-border-strong)] shadow-lg"
     >
       Offline. Keep unsaved notes open until you reconnect and they say Saved.
     </div>

@@ -126,7 +126,7 @@ export const suggest = action({
       targets,
       onFailure: ai.noteFailure,
       maxOutputTokens: 1000,
-      abortSignal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(25_000),
     });
     const seen = new Set<string>();
     const passages = object.passages.flatMap((p) => {

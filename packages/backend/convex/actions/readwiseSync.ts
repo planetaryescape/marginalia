@@ -2,7 +2,7 @@
 import type { FunctionArgs } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { ingestArticle } from "../lib/ingest";
 import {
@@ -70,7 +70,12 @@ export const sync = internalAction({
         withHtmlContent: !highlightPhase && !archivePhase,
         limit: highlightPhase || archivePhase ? 20 : 5,
       });
+      if (highlightPhase && page.results.length > 20)
+        throw new Error("Reader highlight page exceeds checkpoint limit");
       let imported = 0;
+      // Only this phase reuses parent resolution/readiness. Imports probe exact
+      // candidates instead of rescanning every vector-bearing mark each time.
+      const highlightParents = new Map<string, Id<"articles">>();
       const processed = new Set(state.pageProcessedIds);
       const record = async (
         documentId: string,
@@ -106,16 +111,32 @@ export const sync = internalAction({
           continue;
         }
         if (highlightPhase) {
-          const text = doc.content?.trim();
-          if (!doc.parent_id || !text) {
+          const text =
+            typeof doc.content === "string" ? doc.content.trim() : "";
+          if (typeof doc.parent_id !== "string" || !doc.parent_id || !text) {
             await record(doc.id, "ignored");
             continue;
           }
-          const article: Doc<"articles"> | null = await ctx.runQuery(
-            internal.readwise.findArticle,
-            { userId, readerDocumentId: doc.parent_id },
-          );
-          if (!article) {
+          if (!highlightParents.has(doc.parent_id)) {
+            const article: Doc<"articles"> | null = await ctx.runQuery(
+              internal.readwise.findArticle,
+              { userId, readerDocumentId: doc.parent_id },
+            );
+            if (article) {
+              const prepared = await ctx.runMutation(
+                internal.readwise.prepareHighlightIdentities,
+                { userId, articleId: article._id },
+              );
+              if (!prepared.ready && !prepared.unavailable)
+                throw new Error(
+                  "Preparing highlight identities; resume this page",
+                );
+              if (prepared.ready)
+                highlightParents.set(doc.parent_id, article._id);
+            }
+          }
+          const articleId = highlightParents.get(doc.parent_id);
+          if (!articleId) {
             await record(doc.id, "ignored");
             continue;
           }
@@ -123,9 +144,11 @@ export const sync = internalAction({
             internal.readwise.importHighlight,
             {
               userId,
-              articleId: article._id,
+              articleId,
               readerHighlightId: doc.id,
               text,
+              syncToken: token,
+              readerDocumentId: doc.parent_id,
             },
           );
           await record(doc.id, added ? "highlight" : "ignored");
@@ -244,6 +267,42 @@ export const deleteHighlight = internalAction({
     } catch (error) {
       console.error(
         `Couldn't delete highlight ${args.readerHighlightId} in Reader:`,
+        error,
+      );
+    }
+  },
+});
+
+const READER_DELETE_ATTEMPTS = 5;
+
+/** Deletes an article's Reader document after its feed's articles are removed. */
+export const deleteReaderDocument = internalAction({
+  args: {
+    userId: v.string(),
+    readerDocumentId: v.string(),
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const readwise = await readwiseTokenFor(ctx, args.userId);
+    if (!readwise) return;
+    try {
+      await deleteDocument(readwise, args.readerDocumentId);
+    } catch (error) {
+      const attempt = args.attempt ?? 1;
+      // Otherwise a later Reader backfill would import the article again
+      if (
+        error instanceof ReadwiseRateLimitError &&
+        attempt < READER_DELETE_ATTEMPTS
+      ) {
+        await ctx.scheduler.runAfter(
+          error.retryAfterMs,
+          internal.actions.readwiseSync.deleteReaderDocument,
+          { ...args, attempt: attempt + 1 },
+        );
+        return;
+      }
+      console.error(
+        `Couldn't delete document ${args.readerDocumentId} in Reader:`,
         error,
       );
     }

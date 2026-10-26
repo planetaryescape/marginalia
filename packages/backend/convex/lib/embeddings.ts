@@ -2,10 +2,13 @@
 // runtime can use them as well as Node actions.
 import { z } from "zod";
 import { type EmbeddingProvider, providerFailure } from "./providers";
+import { interruptible, requestAttempt } from "./requestControl";
 
 export interface EmbeddingTarget {
   provider: EmbeddingProvider;
   apiKey: string;
+  /** Carries caller cancellation through article/book preparation too. */
+  signal?: AbortSignal;
 }
 
 // The same model either way, so vectors stay compatible with the 1536-dimension indexes
@@ -19,6 +22,11 @@ const ENDPOINTS: Record<EmbeddingProvider, { url: string; model: string }> = {
     model: "openai/text-embedding-3-small",
   },
 };
+
+/** Stored with cached vectors, so a model change can't serve the old model's vectors. */
+export function embeddingModel(provider: EmbeddingProvider): string {
+  return ENDPOINTS[provider].model;
+}
 
 const responseSchema = z.object({
   data: z.array(
@@ -54,24 +62,37 @@ export async function embedTexts(
   target: EmbeddingTarget,
   texts: string[],
 ): Promise<number[][]> {
+  target.signal?.throwIfAborted();
   if (!texts.length) return [];
-  const { url, model } = ENDPOINTS[target.provider];
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${target.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ input: texts, model }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  if (!response.ok) {
-    throw providerFailure(
-      response.status,
-      await response.text().catch(() => ""),
+  const attempt = requestAttempt(target.signal, 30_000);
+  try {
+    const { url, model } = ENDPOINTS[target.provider];
+    const response = await interruptible(
+      fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${target.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ input: texts, model }),
+        signal: attempt.signal,
+      }),
+      attempt.signal,
     );
-  }
 
-  return parseEmbeddings(await response.json(), texts.length);
+    if (!response.ok) {
+      throw providerFailure(
+        response.status,
+        await interruptible(response.text(), attempt.signal),
+      );
+    }
+
+    return parseEmbeddings(
+      await interruptible(response.json(), attempt.signal),
+      texts.length,
+    );
+  } finally {
+    attempt.abort();
+    attempt.dispose();
+  }
 }

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ownerTest } from "../test/owner";
 import { internal } from "./_generated/api";
 
@@ -7,7 +7,11 @@ const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
 const DAY = 86_400_000;
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 type Post = { id: number; daysAgo: number };
 
@@ -42,8 +46,23 @@ async function fixture() {
       createdAt: Date.now(),
     }),
   );
-  const poll = () =>
-    t.action(internal.actions.pollFeeds.pollAllFeeds, { userId: OWNER });
+  const poll = async () => {
+    await t.action(internal.actions.pollFeeds.pollAllFeeds, { userId: OWNER });
+    await t.mutation(internal.feedPolling.dispatch, {});
+    for (let n = 0; n < 10; n++) {
+      const states = await t.run((ctx) =>
+        ctx.db.query("feedPollStates").collect(),
+      );
+      const ready = states.filter((s) => s.leaseUntil && !s.started);
+      if (!ready.length) break;
+      for (const state of ready)
+        await t.action(internal.actions.pollFeeds.pollClaimedFeed, {
+          stateId: state._id,
+          generation: state.generation,
+        });
+      await t.mutation(internal.feedPolling.dispatch, {});
+    }
+  };
   const titles = () =>
     t.run(async (ctx) =>
       (await ctx.db.query("articles").collect()).map((a) => a.title).sort(),
@@ -70,6 +89,57 @@ describe("polling a newly added feed", () => {
     serve([{ id: 0, daysAgo: 0 }, ...sixPosts]);
     await poll();
     expect(await titles()).toEqual(["Post 0", "Post 1", "Post 2", "Post 3"]);
+  });
+
+  it("imports recent posts from a large archive without rejecting the feed", async () => {
+    const { t, poll, titles } = await fixture();
+    // Recent entries are at the end, not in the first 200 XML items.
+    serve([
+      ...Array.from({ length: 432 }, (_, n) => ({
+        id: n + 10,
+        daysAgo: n + 40,
+      })),
+      ...sixPosts,
+    ]);
+    await poll();
+    expect(await titles()).toEqual(["Post 1", "Post 2", "Post 3"]);
+    const [feed] = await t.run((ctx) => ctx.db.query("feeds").collect());
+    expect(feed.lastError).toBeUndefined();
+    expect(feed.lastFetchedAt).toBeDefined();
+
+    await poll();
+    expect(await titles()).toEqual(["Post 1", "Post 2", "Post 3"]);
+  });
+
+  it("keeps a rolling month cutoff when an existing feed has no import floor", async () => {
+    const { t, poll, titles } = await fixture();
+    await t.run(async (ctx) => {
+      const feed = await ctx.db.query("feeds").first();
+      if (!feed) throw new Error("Missing feed");
+      await ctx.db.patch(feed._id, { lastFetchedAt: Date.now() - DAY });
+    });
+    serve([
+      { id: 1, daysAgo: 1 },
+      { id: 2, daysAgo: 40 },
+    ]);
+    await poll();
+    expect(await titles()).toEqual(["Post 1"]);
+  });
+
+  it("does not backfill undated archives on subsequent polls", async () => {
+    const { poll, titles } = await fixture();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            `<rss version="2.0"><channel><title>Undated</title>${Array.from({ length: 20 }, (_, n) => `<item><guid>post-${n}</guid><title>Post ${n}</title></item>`).join("")}</channel></rss>`,
+          ),
+      ),
+    );
+    await poll();
+    await poll();
+    expect(await titles()).toEqual(["Post 0", "Post 1", "Post 2"]);
   });
 
   it("leaves out posts older than a month, so a quiet feed adds nothing", async () => {

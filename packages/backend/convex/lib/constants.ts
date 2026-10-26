@@ -7,7 +7,7 @@ export const WORDS_PER_MINUTE = 220;
 // Annotation quality thresholds
 // Matches the 0.5 "specific and useful" floor in the annotation prompt's scoring scale
 export const MIN_RELEVANCE_SCORE = 0.5;
-export const MAX_ANNOTATIONS_PER_ARTICLE = 10;
+// How many notes an article gets is budgeted by its length: lib/annotationGate.ts
 
 // Feed polling
 export const FEED_POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes

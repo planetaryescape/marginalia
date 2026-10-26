@@ -67,6 +67,24 @@ function readwiseApi() {
 }
 
 describe("background fan-out", () => {
+  it("fans the taste, ahead-of-time annotation and tag-merge jobs out to the owner and active readers only", async () => {
+    const { t, readerLibraryId } = await secondReaderTest(modules);
+    const disabled = await addReader(t, {
+      email: "disabled-taste@example.com",
+      status: "disabled",
+    });
+    for (const [job, name] of [
+      ["taste", "taste:recompute"],
+      ["preAnnotate", "preAnnotate:start"],
+      ["tagMerge", "tagMerge:compute"],
+    ] as const) {
+      await t.mutation(internal.background.fanOut, { job });
+      const users = await scheduled(t, name);
+      expect(new Set(users)).toEqual(new Set([OWNER, readerLibraryId]));
+      expect(users).not.toContain(disabled.libraryId);
+    }
+  });
+
   it("schedules feed polling and queue setup for the owner and active readers only", async () => {
     const { t, readerLibraryId } = await secondReaderTest(modules);
     const disabled = await addReader(t, {

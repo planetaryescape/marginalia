@@ -3,9 +3,9 @@
 // articles skipped with skipReason "no_provider". Saving a key starts
 // it. Each step queues at most PAGE jobs and waits BATCH_DELAY_MS before the
 // next, so a large library is caught up slowly rather than all at once.
-import { v } from "convex/values";
+import { getConvexSize, v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { setAnnotationStatus } from "./articles";
 import {
   internalMutation,
@@ -13,6 +13,7 @@ import {
   type QueryCtx,
   query,
 } from "./functions";
+import { libraryIndexText } from "./lib/importJobs";
 import { embeddingProvider } from "./lib/providers";
 import { readerProviders } from "./lib/readerAI";
 import { spendReaderLimit } from "./limits";
@@ -25,6 +26,13 @@ export const BATCH_DELAY_MS = 45_000;
 export const JOB_STAGGER_MS = 3_000;
 /** Non-empty pages checked per step when they hold nothing to do. */
 const SCAN_PAGES = 5;
+const MAX_DOCUMENT_BYTES = 1024 * 1024;
+// Leave 4 MiB of the transaction's 16 MiB for auth/routing, limits, queue stats,
+// generated metadata and scheduling. These costs are cumulative across phases.
+const BODY_BUDGET_BYTES = 12 * MAX_DOCUMENT_BYTES;
+// Scan + before/after gets + two patches, each charging native old reads,
+// trigger old/new reads and a full write: eleven copies, plus one spare.
+const ANNOTATION_BODY_COPIES = 12;
 /** Retry after the reader's hourly catch-up budget runs out. */
 const LIMIT_RETRY_MS = 10 * 60_000;
 
@@ -54,6 +62,56 @@ interface Page {
   cursor: number | undefined;
   done: boolean;
   read: number;
+}
+
+type CatchUpDocument = Doc<
+  "articles" | "userNotes" | "highlights" | "companionThreads" | "impressions"
+>;
+type ScanBudget = { used: number; exhausted: boolean };
+
+async function readOne<Row extends CatchUpDocument>(
+  source: (after: number | undefined) => Promise<Row[]>,
+  after: number | undefined,
+  budget: ScanBudget,
+): Promise<Row | null> {
+  // Reserve a whole possible document before reading it, not after a PAGE-sized
+  // fetch. A document already read but not accepted remains behind the cursor.
+  if (budget.used + MAX_DOCUMENT_BYTES > BODY_BUDGET_BYTES) {
+    budget.exhausted = true;
+    return null;
+  }
+  const [row] = await source(after);
+  if (!row) return null;
+  budget.used += getConvexSize(row);
+  return row;
+}
+
+async function readPage<Row extends CatchUpDocument>(
+  source: (after: number | undefined) => Promise<Row[]>,
+  jobFor: (row: Row) => Job | null,
+  cursor: number | undefined,
+  budget: ScanBudget,
+): Promise<Page> {
+  const jobs: Job[] = [];
+  let read = 0;
+  for (let i = 0; i < PAGE; i++) {
+    const row = await readOne(source, cursor, budget);
+    if (!row) return { jobs, cursor, read, done: !budget.exhausted };
+    read++;
+    const job = jobFor(row);
+    const writes =
+      job?.kind === "annotate"
+        ? (ANNOTATION_BODY_COPIES - 1) * getConvexSize(row)
+        : 0;
+    if (budget.used + writes > BODY_BUDGET_BYTES) {
+      budget.exhausted = true;
+      return { jobs, cursor, read, done: false };
+    }
+    budget.used += writes;
+    cursor = row._creationTime;
+    if (job) jobs.push(job);
+  }
+  return { jobs, cursor, read, done: false };
 }
 
 function catchUpRow(ctx: Db, userId: string) {
@@ -86,114 +144,155 @@ async function scan(
   userId: string,
   phase: Phase,
   cursor: number | undefined,
+  budget: ScanBudget,
 ): Promise<Page> {
-  const after = <T extends { _creationTime: number }>(rows: T[]) => ({
-    cursor: rows.length ? rows[rows.length - 1]._creationTime : cursor,
-    done: rows.length < PAGE,
-    read: rows.length,
-  });
   switch (phase) {
     case "annotate": {
-      const rows = await ctx.db
-        .query("articles")
-        .withIndex("by_userId_and_annotationStatus_and_skipReason", (q) => {
-          const range = q
-            .eq("userId", userId)
-            .eq("annotationStatus", "skipped")
-            .eq("skipReason", "no_provider");
-          return cursor === undefined
-            ? range
-            : range.gt("_creationTime", cursor);
-        })
-        .take(PAGE);
-      return {
-        jobs: rows.map((row) => ({ kind: "annotate", id: row._id })),
-        ...after(rows),
-      };
+      return readPage(
+        (after) =>
+          ctx.db
+            .query("articles")
+            .withIndex("by_userId_and_annotationStatus_and_skipReason", (q) => {
+              const range = q
+                .eq("userId", userId)
+                .eq("annotationStatus", "skipped")
+                .eq("skipReason", "no_provider");
+              return after === undefined
+                ? range
+                : range.gt("_creationTime", after);
+            })
+            .take(1),
+        (row) => ({ kind: "annotate", id: row._id }),
+        cursor,
+        budget,
+      );
     }
     case "articles": {
-      const rows = await ctx.db
-        .query("articles")
-        .withIndex("by_user", (q) =>
-          cursor === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", cursor),
-        )
-        .take(PAGE);
-      return {
-        jobs: rows
-          .filter((row) => !row.embedding && row.content)
-          .map((row) => ({ kind: "article", id: row._id })),
-        ...after(rows),
-      };
+      const sources = ([undefined, "unavailable"] as const).map(
+        (status) => (after: number | undefined) =>
+          ctx.db
+            .query("articles")
+            .withIndex("by_catch_up_article", (q) => {
+              const range = q
+                .eq("userId", userId)
+                .eq("extractionStatus", "extracted")
+                .eq("embeddedAt", undefined)
+                .eq("libraryIndex.status", status);
+              return after === undefined
+                ? range
+                : range.gt("_creationTime", after);
+            })
+            .take(1),
+      );
+      // Merge two one-row lookaheads, not two pages of article bodies. Neither
+      // range can advance the shared cursor past an unread older candidate.
+      const heads: (Doc<"articles"> | null)[] = [];
+      let read = 0;
+      for (const source of sources) {
+        const row = await readOne(source, cursor, budget);
+        heads.push(row);
+        if (row) read++;
+        if (budget.exhausted) return { jobs: [], cursor, read, done: false };
+      }
+      const jobs: Job[] = [];
+      for (let i = 0; i < PAGE; i++) {
+        const first = heads[0];
+        const second = heads[1];
+        if (!first && !second) return { jobs, cursor, read, done: true };
+        const at =
+          !second || (first && first._creationTime <= second._creationTime)
+            ? 0
+            : 1;
+        const row = heads[at];
+        if (!row) throw new Error("Missing catch-up candidate");
+        cursor = row._creationTime;
+        if (!row.embedding && libraryIndexText(row))
+          jobs.push({ kind: "article", id: row._id });
+        if (i === PAGE - 1) break;
+        heads[at] = await readOne(sources[at], cursor, budget);
+        if (heads[at]) read++;
+        if (budget.exhausted) return { jobs, cursor, read, done: false };
+      }
+      return { jobs, cursor, read, done: false };
     }
     case "notes": {
-      const rows = await ctx.db
-        .query("userNotes")
-        .withIndex("by_user", (q) =>
-          cursor === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", cursor),
-        )
-        .take(PAGE);
-      return {
-        jobs: rows
-          .filter((row) => !row.embedding && row.contentPlain)
-          .map((row) => ({ kind: "note", id: row._id })),
-        ...after(rows),
-      };
+      return readPage(
+        (after) =>
+          ctx.db
+            .query("userNotes")
+            .withIndex("by_user", (q) =>
+              after === undefined
+                ? q.eq("userId", userId)
+                : q.eq("userId", userId).gt("_creationTime", after),
+            )
+            .take(1),
+        (row) =>
+          !row.embedding &&
+          row.contentPlain &&
+          row.noteIndex?.status !== "failed"
+            ? { kind: "note", id: row._id }
+            : null,
+        cursor,
+        budget,
+      );
     }
     case "highlights": {
-      const rows = await ctx.db
-        .query("highlights")
-        .withIndex("by_userId", (q) =>
-          cursor === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", cursor),
-        )
-        .take(PAGE);
-      return {
-        jobs: rows
-          .filter((row) => !row.embedding && row.text)
-          .map((row) => ({ kind: "highlight", id: row._id })),
-        ...after(rows),
-      };
+      return readPage(
+        (after) =>
+          ctx.db
+            .query("highlights")
+            .withIndex("by_userId", (q) =>
+              after === undefined
+                ? q.eq("userId", userId)
+                : q.eq("userId", userId).gt("_creationTime", after),
+            )
+            .take(1),
+        (row) =>
+          !row.embedding && row.text
+            ? { kind: "highlight", id: row._id }
+            : null,
+        cursor,
+        budget,
+      );
     }
     case "threads": {
-      const rows = await ctx.db
-        .query("companionThreads")
-        .withIndex("by_user", (q) =>
-          cursor === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", cursor),
-        )
-        .take(PAGE);
-      return {
-        jobs: rows
-          .filter((row) => !row.embedding)
-          .map((row) => ({ kind: "thread", id: row._id })),
-        ...after(rows),
-      };
+      return readPage(
+        (after) =>
+          ctx.db
+            .query("companionThreads")
+            .withIndex("by_user", (q) =>
+              after === undefined
+                ? q.eq("userId", userId)
+                : q.eq("userId", userId).gt("_creationTime", after),
+            )
+            .take(1),
+        (row) => (!row.embedding ? { kind: "thread", id: row._id } : null),
+        cursor,
+        budget,
+      );
     }
     case "impressions": {
-      const rows = await ctx.db
-        .query("impressions")
-        .withIndex("by_userId", (q) =>
-          cursor === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", cursor),
-        )
-        .take(PAGE);
-      return {
-        jobs: rows
-          .filter((row) => !row.embedding)
-          .map((row) => ({
-            kind: "impression",
-            id: row._id,
-            updatedAt: row.updatedAt,
-          })),
-        ...after(rows),
-      };
+      return readPage(
+        (after) =>
+          ctx.db
+            .query("impressions")
+            .withIndex("by_userId", (q) =>
+              after === undefined
+                ? q.eq("userId", userId)
+                : q.eq("userId", userId).gt("_creationTime", after),
+            )
+            .take(1),
+        (row) =>
+          !row.embedding
+            ? {
+                kind: "impression",
+                id: row._id,
+                updatedAt: row.updatedAt,
+              }
+            : null,
+        cursor,
+        budget,
+      );
     }
   }
 }
@@ -212,11 +311,9 @@ async function queue(ctx: MutationCtx, job: Job, delayMs: number) {
       );
       return;
     case "article":
-      await ctx.scheduler.runAfter(
-        delayMs,
-        internal.actions.embedArticle.embed,
-        { articleId: job.id },
-      );
+      await ctx.scheduler.runAfter(delayMs, internal.libraryIndex.enqueue, {
+        articleId: job.id,
+      });
       return;
     case "note":
       await ctx.scheduler.runAfter(
@@ -306,85 +403,92 @@ export const start = internalMutation({
 });
 
 /** Queues one batch, then schedules the next. Only the current run advances. */
+export async function advanceCatchUp(
+  ctx: MutationCtx,
+  args: { userId: string; runId: number },
+): Promise<null> {
+  const row = await catchUpRow(ctx, args.userId);
+  if (!row?.running || row.runId !== args.runId) return null;
+  const now = Date.now();
+  const finish = () =>
+    ctx.db.patch("catchUpState", row._id, {
+      running: false,
+      finishedAt: now,
+      updatedAt: now,
+    });
+  if (!(await isLive(ctx, args.userId))) {
+    await finish();
+    return null;
+  }
+  // Checked every batch: a key removed mid-run stops that kind of work
+  const can = await capabilities(ctx, args.userId);
+  let phase = row.phase;
+  let cursor = row.cursor;
+  let jobs: Job[] = [];
+  let scanned = 0;
+  const budget: ScanBudget = { used: 0, exhausted: false };
+  while (phase < PHASES.length && scanned < SCAN_PAGES && !budget.exhausted) {
+    const name = PHASES[phase];
+    const allowed = name === "annotate" ? can.text : can.embed;
+    if (!allowed) {
+      phase++;
+      cursor = undefined;
+      continue;
+    }
+    const page = await scan(ctx, args.userId, name, cursor, budget);
+    if (page.read) scanned++;
+    if (page.jobs.length) {
+      jobs = page.jobs;
+      // Leave the cursor where it was until the batch is allowed to run
+      if (!(await spendReaderLimit(ctx, args.userId, "catchUp"))) {
+        await ctx.db.patch("catchUpState", row._id, {
+          phase,
+          cursor,
+          updatedAt: now,
+        });
+        await ctx.scheduler.runAfter(
+          LIMIT_RETRY_MS,
+          internal.catchUp.step,
+          args,
+        );
+        return null;
+      }
+    }
+    if (page.done) {
+      phase++;
+      cursor = undefined;
+    } else cursor = page.cursor;
+    if (jobs.length) break;
+  }
+
+  if (!jobs.length && phase >= PHASES.length) {
+    await finish();
+    return null;
+  }
+  for (const [index, job] of jobs.entries())
+    await queue(ctx, job, index * JOB_STAGGER_MS);
+  const annotations = jobs.filter((job) => job.kind === "annotate").length;
+  await ctx.db.patch("catchUpState", row._id, {
+    phase,
+    cursor,
+    articlesQueued: row.articlesQueued + annotations,
+    itemsQueued: row.itemsQueued + jobs.length - annotations,
+    updatedAt: now,
+  });
+  // Read-only continuation advances its cursor without spending a provider
+  // batch. A byte-limited candidate stays behind the cursor for the next step.
+  await ctx.scheduler.runAfter(
+    jobs.length ? BATCH_DELAY_MS : 0,
+    internal.catchUp.step,
+    args,
+  );
+  return null;
+}
+
 export const step = internalMutation({
   args: { userId: v.string(), runId: v.number() },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await catchUpRow(ctx, args.userId);
-    if (!row?.running || row.runId !== args.runId) return null;
-    const now = Date.now();
-    const finish = () =>
-      ctx.db.patch("catchUpState", row._id, {
-        running: false,
-        finishedAt: now,
-        updatedAt: now,
-      });
-    if (!(await isLive(ctx, args.userId))) {
-      await finish();
-      return null;
-    }
-    // Checked every batch: a key removed mid-run stops that kind of work
-    const can = await capabilities(ctx, args.userId);
-    let phase = row.phase;
-    let cursor = row.cursor;
-    let jobs: Job[] = [];
-    let scanned = 0;
-    while (phase < PHASES.length && scanned < SCAN_PAGES) {
-      const name = PHASES[phase];
-      const allowed = name === "annotate" ? can.text : can.embed;
-      if (!allowed) {
-        phase++;
-        cursor = undefined;
-        continue;
-      }
-      const page = await scan(ctx, args.userId, name, cursor);
-      if (page.read) scanned++;
-      if (page.jobs.length) {
-        jobs = page.jobs;
-        // Leave the cursor where it was until the batch is allowed to run
-        if (!(await spendReaderLimit(ctx, args.userId, "catchUp"))) {
-          await ctx.db.patch("catchUpState", row._id, {
-            phase,
-            cursor,
-            updatedAt: now,
-          });
-          await ctx.scheduler.runAfter(
-            LIMIT_RETRY_MS,
-            internal.catchUp.step,
-            args,
-          );
-          return null;
-        }
-      }
-      if (page.done) {
-        phase++;
-        cursor = undefined;
-      } else cursor = page.cursor;
-      if (jobs.length) break;
-    }
-
-    if (!jobs.length && phase >= PHASES.length) {
-      await finish();
-      return null;
-    }
-    for (const [index, job] of jobs.entries())
-      await queue(ctx, job, index * JOB_STAGGER_MS);
-    const annotations = jobs.filter((job) => job.kind === "annotate").length;
-    await ctx.db.patch("catchUpState", row._id, {
-      phase,
-      cursor,
-      articlesQueued: row.articlesQueued + annotations,
-      itemsQueued: row.itemsQueued + jobs.length - annotations,
-      updatedAt: now,
-    });
-    // Nothing queued means only empty pages were checked: carry on now
-    await ctx.scheduler.runAfter(
-      jobs.length ? BATCH_DELAY_MS : 0,
-      internal.catchUp.step,
-      args,
-    );
-    return null;
-  },
+  handler: advanceCatchUp,
 });
 
 /** For the account page: what the running catch-up has queued so far. */

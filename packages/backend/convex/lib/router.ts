@@ -2,6 +2,8 @@
 // come only from that library's own saved credentials (plus the owner's
 // transition key); a request never falls back to another reader's key. A
 // ChatGPT plan, when the server offers it, is the reader's own connection too.
+
+import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import { ChatGPTRequestError } from "./chatgptResponses";
@@ -15,9 +17,10 @@ import {
   type ModelRole,
   modelChain,
 } from "./providers";
+import type { TargetCredential } from "./providerTarget";
 
 /** For a ChatGPT model, `apiKey` is the reader's fresh plan access token. */
-export type ProviderTarget = CatalogModel & { apiKey: string };
+export type ProviderTarget = CatalogModel & TargetCredential;
 
 export interface ReaderAI {
   providers: ModelProvider[];
@@ -34,8 +37,16 @@ type Runner = Pick<ActionCtx, "runQuery" | "runMutation">;
 export async function loadReaderAI(
   ctx: Runner,
   userId: string,
-  { text = true }: { text?: boolean } = {},
+  {
+    text = true,
+    signal,
+  }: {
+    text?: boolean;
+    roles?: ModelRole[];
+    signal?: AbortSignal;
+  } = {},
 ): Promise<ReaderAI> {
+  signal?.throwIfAborted();
   const routing = await ctx.runQuery(internal.providerCredentials.routing, {
     userId,
   });
@@ -51,29 +62,49 @@ export async function loadReaderAI(
 
   // Embedding-only callers don't need the plan, so they never refresh its token
   const chatgptModels = routing.chatgptModels ?? [];
-  if (text && routing.chatgptModels) {
-    try {
-      const token = await chatgptAccessToken(ctx, userId);
-      if (token) keys.set("chatgpt", token);
-    } catch (error) {
-      console.error("ChatGPT is unavailable for this request", error);
-    }
-  }
-  const providers = [...keys.keys()];
+  const availableProviders: ModelProvider[] = [
+    ...keys.keys(),
+    ...(routing.chatgptModels ? ["chatgpt" as const] : []),
+  ];
+  // Deliberately not tied to caller cancellation: rotating refresh tokens must
+  // finish publishing under their lease even when the caller presses Stop.
+  let planToken: Promise<string> | undefined;
+  const resolvePlan = () => {
+    planToken ??= chatgptAccessToken(ctx, userId)
+      .catch((error) => {
+        if (error instanceof ConvexError)
+          throw new ChatGPTRequestError(401, "invalid_client");
+        throw error;
+      })
+      .then((token) => {
+        if (!token) throw new ChatGPTRequestError(401, "invalid_user");
+        return token;
+      });
+    return planToken;
+  };
+  const providers = text ? availableProviders : [...keys.keys()];
+  signal?.throwIfAborted();
 
   return {
     providers,
     chain: (role) =>
       modelChain(routing.models[role], role, providers, chatgptModels).map(
-        (model) => ({
-          ...model,
-          apiKey: keys.get(model.provider) ?? "",
-        }),
+        (model) => {
+          const target: ProviderTarget = {
+            ...model,
+            apiKey: keys.get(model.provider) ?? "",
+          };
+          if (model.provider === "chatgpt") target.resolveApiKey = resolvePlan;
+          return target;
+        },
       ),
     embedder: () => {
       const provider = embeddingProvider(providers);
       const apiKey = provider && keys.get(provider);
-      return provider && apiKey ? { provider, apiKey } : null;
+      if (!provider || !apiKey) return null;
+      const target: EmbeddingTarget = { provider, apiKey };
+      if (signal) target.signal = signal;
+      return target;
     },
     noteFailure: async (error) => {
       if (!(error instanceof ChatGPTRequestError)) return;

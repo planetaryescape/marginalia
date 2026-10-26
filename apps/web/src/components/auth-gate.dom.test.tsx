@@ -2,7 +2,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ALREADY_SIGNED_IN, AuthGate, takeFragmentTokens } from "./auth-gate";
+import {
+  ALREADY_SIGNED_IN,
+  AuthGate,
+  reloadOnce,
+  takeFragmentTokens,
+} from "./auth-gate";
 
 const state = vi.hoisted(() => ({
   authenticated: false,
@@ -20,9 +25,16 @@ vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast }));
+const session = vi.hoisted(() => ({ data: null as object | null }));
+const rearm = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth-client", () => ({
-  authClient: { signUp: { email: signUp }, signIn: {} },
+  authClient: {
+    signUp: { email: signUp },
+    signIn: {},
+    useSession: () => ({ data: session.data }),
+  },
 }));
+vi.mock("@/lib/auth-retry", () => ({ rearmAuth: rearm }));
 vi.mock("@/lib/reader-settings", () => ({
   useReaderSettings: () => ({ settings: { theme: "ink" } }),
 }));
@@ -39,6 +51,7 @@ afterEach(async () => {
   document.body.innerHTML = "";
   state.authenticated = false;
   state.reader = undefined;
+  session.data = null;
   history.replaceState(null, "", "/");
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -91,5 +104,48 @@ describe("one-time tokens in the URL", () => {
     expect(document.body.textContent).toContain("Set up your reader");
     expect(document.querySelector('input[name="name"]')).not.toBeNull();
     expect(toast).not.toHaveBeenCalled();
+  });
+});
+
+describe("a lost token is not a sign-out", () => {
+  it("offers to reconnect, not to sign in, while a session exists", async () => {
+    session.data = { session: { id: "s" } };
+    await act(async () => root.render(<AuthGate>reading</AuthGate>));
+    expect(document.body.textContent).toContain("Reconnecting to your library");
+    expect(document.body.textContent).not.toContain("Sign in");
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (b) => b.textContent === "Try again",
+      ),
+    ).toBe(true);
+  });
+
+  it("retries once by itself after a moment", async () => {
+    vi.useFakeTimers();
+    session.data = { session: { id: "s" } };
+    await act(async () => root.render(<AuthGate>reading</AuthGate>));
+    await act(async () => vi.advanceTimersByTime(3_000));
+    expect(rearm).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("still shows sign-in when there is no session", async () => {
+    await act(async () => root.render(<AuthGate>reading</AuthGate>));
+    expect(document.body.textContent).not.toContain("Reconnecting");
+  });
+});
+
+describe("reloading a refused connection", () => {
+  it("reloads once, then not again within a minute", () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    const reload = vi.fn();
+    expect(reloadOnce(storage, reload, 1_000_000)).toBe(true);
+    expect(reloadOnce(storage, reload, 1_030_000)).toBe(false);
+    expect(reloadOnce(storage, reload, 1_070_000)).toBe(true);
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 });

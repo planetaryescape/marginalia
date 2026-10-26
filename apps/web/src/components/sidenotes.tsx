@@ -1,0 +1,808 @@
+"use client";
+
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { MarkKind } from "@/lib/highlights";
+import {
+  type AnnotationKind,
+  kindLabel,
+  kindOf,
+  plainNote,
+} from "@/lib/margin-kinds";
+import {
+  type LayoutNote,
+  layoutMargin,
+  type Placement,
+} from "@/lib/margin-layout";
+import { type MarginMode, measureGutter } from "@/lib/margin-mode";
+import { type MarkColor, markColor } from "@/lib/mark-colours";
+import { getArticleBody, getParagraphs } from "@/lib/paragraphs";
+import type { ReaderSettings } from "@/lib/reader-settings";
+import { findTextRange } from "@/lib/text-range";
+import { usePrefersReducedMotion } from "@/lib/use-margin-mode";
+
+const COLLAPSED_HEIGHT = 20;
+const MAX_WIDTH = 300;
+/** The bottom 40% of the viewport is outside the zone, so a note arrives as its line rises into the upper 60%. */
+const ARRIVAL_ROOT_MARGIN = "0px 0px -40% 0px";
+/** Aligns the connector (6px into the note) with the middle of the line. */
+const CONNECTOR_OFFSET = 6;
+
+export interface SidenoteAnnotation {
+  _id: string;
+  type: AnnotationKind;
+  content: string;
+  fallacyName?: string;
+  articleRefId?: string;
+}
+
+export interface SidenoteUserNote {
+  _id: string;
+  selectedText: string;
+  contentPlain: string;
+  annotationId?: string;
+}
+
+/** One of Marginalia's answers to the reader: temporary, or kept. */
+export interface SidenoteAnswer {
+  id: string;
+  /** "Define", "Explain", … with " · kept" once the answer is kept. */
+  label: string;
+  /** The first line of the answer. */
+  text: string;
+  /** The passage it answers; empty for a question about the whole article. */
+  selection: string;
+  paragraphIndex: number | null;
+}
+
+interface SidenoteMark {
+  doc: { _id: string; kind: MarkKind; color?: MarkColor | null };
+  range: Range;
+}
+
+type Entry =
+  | {
+      key: string;
+      kind: "annotation";
+      id: string;
+      type: AnnotationKind;
+      fallacyName?: string;
+      articleRefId?: string;
+      text: string;
+    }
+  | {
+      key: string;
+      kind: "note";
+      id: string;
+      text: string;
+      selectedText: string;
+    }
+  | {
+      key: string;
+      kind: "answer";
+      id: string;
+      label: string;
+      text: string;
+      selection: string;
+      paragraphIndex: number | null;
+    }
+  | { key: "waiting"; kind: "waiting" };
+
+interface LayoutState {
+  placements: Record<string, Placement>;
+  labels: Record<string, string>;
+  ticks: { key: string; top: number; color: MarkColor }[];
+}
+
+const EMPTY: LayoutState = { placements: {}, labels: {}, ticks: [] };
+
+/**
+ * The motion token's duration and easing, so the slot's height and the notes'
+ * slide run on one clock. The fallback is the token in globals.css.
+ */
+function moveTiming(): { duration: number; easing: string } {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--motion-move")
+    .trim();
+  const match = /^(\d+)ms\s+(.+)$/.exec(raw);
+  return match
+    ? { duration: Number(match[1]), easing: match[2] }
+    : { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" };
+}
+
+/**
+ * A note's natural height. An open note measures its card, which keeps its
+ * height while the slot around it is animating.
+ */
+function naturalHeight(el: HTMLElement): number {
+  return el.dataset.open === "true"
+    ? (el.querySelector<HTMLElement>(".sidenote-card")?.offsetHeight ??
+        el.offsetHeight)
+    : (el.querySelector<HTMLElement>(".sidenote-hit")?.offsetHeight ??
+        el.offsetHeight);
+}
+
+function firstRect(rects: DOMRectList | DOMRect[] | undefined): DOMRect | null {
+  const rect = rects?.[0];
+  return rect && (rect.width > 0 || rect.height > 0) ? rect : null;
+}
+
+const textId = (key: string) => `sidenote-text-${key.replace(/[^\w-]/g, "_")}`;
+
+export function Sidenotes({
+  containerRef,
+  mode,
+  version,
+  layoutKey,
+  annotations,
+  userNotes,
+  marks,
+  waiting,
+  waitingAnchor,
+  openId,
+  answers,
+  openAnswerId,
+  onOpenAnswer,
+  onClose,
+  onOpenNotes,
+  openCard,
+}: {
+  containerRef: React.RefObject<HTMLElement | null>;
+  mode: MarginMode;
+  /** Prose epoch: bumps when the article DOM changes, not on geometry-only resize. */
+  version: number;
+  /** Changes with text settings that move lines without resizing the article. */
+  layoutKey: ReaderSettings;
+  annotations: SidenoteAnnotation[] | undefined;
+  userNotes: SidenoteUserNote[] | undefined;
+  marks: SidenoteMark[];
+  /** Annotation is still running for this article. */
+  waiting: boolean;
+  /**
+   * Opening words of the section being written while the reader is partway
+   * through; the waiting line sits there instead of at the top.
+   */
+  waitingAnchor?: string | null;
+  /** The annotation whose card is open, if any. */
+  openId: string | null;
+  /** Marginalia's answers, each a note beside its passage. */
+  answers?: SidenoteAnswer[];
+  /** The answer whose card is open, if any; only one note is open at a time. */
+  openAnswerId?: string | null;
+  onOpenAnswer?: (id: string) => void;
+  onClose: () => void;
+  onOpenNotes: () => void;
+  /** The open note's card; it takes the note's place in the column. */
+  openCard?: ReactNode;
+}) {
+  const active = mode === "sidenotes";
+  const layerRef = useRef<HTMLDivElement>(null);
+  const nodes = useRef(new Map<string, HTMLElement>());
+  const [layout, setLayout] = useState<LayoutState>(EMPTY);
+  const layoutJson = useRef("");
+  const reduced = usePrefersReducedMotion();
+  const [arrived, setArrived] = useState<ReadonlySet<string>>(new Set());
+
+  const openKey = openAnswerId
+    ? `c:${openAnswerId}`
+    : openId
+      ? `a:${openId}`
+      : undefined;
+
+  const entries = useMemo<Entry[]>(() => {
+    const list: Entry[] = [];
+    if (waiting) list.push({ key: "waiting", kind: "waiting" });
+    // Whole-article answers come first: they sit at the top of the margin.
+    for (const a of answers ?? []) {
+      list.push({ key: `c:${a.id}`, kind: "answer", ...a });
+    }
+    for (const a of annotations ?? []) {
+      list.push({
+        key: `a:${a._id}`,
+        kind: "annotation",
+        id: a._id,
+        type: a.type,
+        fallacyName: a.fallacyName,
+        articleRefId: a.articleRefId,
+        text: plainNote(a.content),
+      });
+    }
+    // Reflections on an annotation live inside that annotation's card.
+    // Offsets are never saved by the reader today, so notes anchor by the
+    // passage they quote, the way highlights do.
+    for (const n of userNotes ?? []) {
+      const first = n.contentPlain.split("\n").find((l) => l.trim()) ?? "";
+      if (n.annotationId || !n.selectedText.trim() || !first) continue;
+      list.push({
+        key: `n:${n._id}`,
+        kind: "note",
+        id: n._id,
+        text: first.trim(),
+        selectedText: n.selectedText,
+      });
+    }
+    return list;
+  }, [annotations, answers, userNotes, waiting]);
+
+  // Resolved ranges survive layout passes; they only go stale with the HTML.
+  const ranges = useRef<{ key: string; map: Map<string, Range | null> }>({
+    key: "",
+    map: new Map(),
+  });
+
+  const run = useCallback(() => {
+    const layer = layerRef.current;
+    const container = containerRef.current;
+    const body = getArticleBody(container);
+    if (!layer || !container || !body) return;
+
+    const gutter = measureGutter(container);
+    const left = container.getBoundingClientRect().right + window.scrollX + 8;
+    layer.style.setProperty("--sidenote-left", `${left}px`);
+    layer.style.setProperty(
+      "--sidenote-width",
+      `${Math.min(MAX_WIDTH, gutter - 48)}px`,
+    );
+
+    const rangeKey = `${version}|${entries.map((e) => e.key).join(",")}`;
+    if (ranges.current.key !== rangeKey) {
+      ranges.current = { key: rangeKey, map: new Map() };
+    }
+    const scrollY = window.scrollY;
+    const centred = (rect: DOMRect) =>
+      rect.top + scrollY + rect.height / 2 - CONNECTOR_OFFSET;
+
+    const notes: LayoutNote[] = [];
+    const labels: Record<string, string> = {};
+    for (const entry of entries) {
+      const el = nodes.current.get(entry.key);
+      if (!el) continue;
+      let rect: DOMRect | null = null;
+      let host: Element | null = null;
+      if (entry.kind === "annotation") {
+        host = body.querySelector(
+          `[data-annotation-id="${CSS.escape(entry.id)}"]`,
+        );
+        rect = firstRect(host?.getClientRects());
+      } else if (entry.kind === "answer") {
+        if (entry.paragraphIndex === null && !entry.selection) {
+          // A question about the whole piece: the top of the article's margin.
+          host = body.querySelector("[data-para]") ?? body;
+          rect = firstRect(host.getClientRects());
+        } else {
+          let range = ranges.current.map.get(entry.key);
+          if (range === undefined) {
+            range = findTextRange(
+              body,
+              entry.selection,
+              entry.paragraphIndex === null
+                ? null
+                : getParagraphs(body)[entry.paragraphIndex],
+            );
+            ranges.current.map.set(entry.key, range);
+          }
+          rect = firstRect(range?.getClientRects());
+          host =
+            range?.startContainer instanceof Element
+              ? range.startContainer
+              : (range?.startContainer.parentElement ?? null);
+          // A passage whose text can no longer be found still has its
+          // paragraph: the answer sits there rather than not appearing at all
+          if (!rect && entry.paragraphIndex !== null) {
+            host = getParagraphs(body)[entry.paragraphIndex] ?? null;
+            rect = firstRect(host?.getClientRects());
+          }
+        }
+      } else if (entry.kind === "note") {
+        let range = ranges.current.map.get(entry.key);
+        if (range === undefined) {
+          range = findTextRange(body, entry.selectedText);
+          ranges.current.map.set(entry.key, range);
+        }
+        rect = firstRect(range?.getClientRects());
+        host =
+          range?.startContainer instanceof Element
+            ? range.startContainer
+            : (range?.startContainer.parentElement ?? null);
+      } else {
+        // The waiting line: at the section being written, else the top
+        const range = waitingAnchor ? findTextRange(body, waitingAnchor) : null;
+        if (range) {
+          rect = firstRect(range.getClientRects());
+          host =
+            range.startContainer instanceof Element
+              ? range.startContainer
+              : range.startContainer.parentElement;
+        } else {
+          host = body.querySelector("[data-para]") ?? body;
+          rect = firstRect(host.getClientRects());
+        }
+      }
+      if (!rect) continue;
+      const para = host?.closest<HTMLElement>("[data-para]")?.dataset.para;
+      if (para) labels[entry.key] = `¶${para}`;
+      // The open card is the whole note; a collapsed note measures its hidden body.
+      const isOpenNote = el.dataset.open === "true";
+      const height = isOpenNote
+        ? naturalHeight(el)
+        : (el.querySelector<HTMLElement>(".sidenote-body")?.scrollHeight ??
+          COLLAPSED_HEIGHT);
+      notes.push({
+        id: entry.key,
+        anchor:
+          entry.kind === "waiting" ||
+          (entry.kind === "answer" && !entry.selection)
+            ? rect.top + scrollY
+            : centred(rect),
+        height,
+        collapsedHeight: entry.kind === "waiting" ? height : COLLAPSED_HEIGHT,
+        hand: entry.kind === "note" ? "pen" : "pencil",
+        mergeable:
+          entry.kind !== "waiting" &&
+          !(entry.kind === "answer" && !entry.selection) &&
+          !isOpenNote,
+      });
+    }
+
+    const placements = layoutMargin(notes, {
+      contentEnd: body.getBoundingClientRect().bottom + scrollY,
+      openId: openKey,
+    });
+    const ticks = marks.flatMap((m) => {
+      const rect = m.range.startContainer.isConnected
+        ? firstRect(m.range.getClientRects())
+        : null;
+      return rect
+        ? [
+            {
+              key: m.doc._id,
+              top: rect.top + scrollY + rect.height / 2 - 1,
+              color: markColor(m.doc, layoutKey),
+            },
+          ]
+        : [];
+    });
+
+    const next: LayoutState = {
+      placements: Object.fromEntries(placements.map((p) => [p.id, p])),
+      labels,
+      ticks,
+    };
+    const json = `${openKey ?? ""}|${JSON.stringify(next)}`;
+    if (json === layoutJson.current) return;
+    layoutJson.current = json;
+    setLayout(next);
+  }, [
+    containerRef,
+    entries,
+    marks,
+    version,
+    openKey,
+    waitingAnchor,
+    layoutKey,
+  ]);
+
+  const frame = useRef(0);
+  const schedule = useCallback(() => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      run();
+    });
+  }, [run]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `layoutKey` asks for a re-measure
+  useLayoutEffect(() => {
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    if (active) run();
+  }, [active, run, layoutKey]);
+
+  // The open card grows as its content streams in, and the notes below follow its height.
+  useEffect(() => {
+    const el = openKey ? nodes.current.get(openKey) : undefined;
+    if (!active || !el) return;
+    // Observe the card itself: its size is its content's, not the animated slot's.
+    const resize = new ResizeObserver(schedule);
+    resize.observe(el.querySelector<HTMLElement>(".sidenote-card") ?? el);
+    return () => resize.disconnect();
+  }, [active, openKey, schedule]);
+
+  // Notes that move slide from where they were, so they never jump. A note that
+  // opens or closes also grows or shrinks its slot over the same duration and
+  // easing, so the slide and the height stay in step.
+  const lastTops = useRef(new Map<string, number>());
+  const slots = useRef(
+    new Map<string, { open: boolean; height: number; animation?: Animation }>(),
+  );
+  // The card of the note being closed stays mounted, fading, until its slot has shrunk.
+  const lastCards = useRef(new Map<string, ReactNode>());
+  useLayoutEffect(() => {
+    if (openKey && openCard) lastCards.current.set(openKey, openCard);
+  });
+  const [closing, setClosing] = useState<{
+    key: string;
+    card: ReactNode;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    // All geometry (including interrupted slot heights) precedes any motion writes.
+    const measured = [...nodes.current].map(([key, el]) => ({
+      key,
+      el,
+      open: el.dataset.open === "true",
+      height: naturalHeight(el),
+      from:
+        slots.current.get(key)?.animation?.playState === "running"
+          ? el.offsetHeight
+          : slots.current.get(key)?.height,
+    }));
+    const timing = moveTiming();
+    const moved: HTMLElement[] = [];
+    for (const [key, placement] of Object.entries(layout.placements)) {
+      const previous = lastTops.current.get(key);
+      lastTops.current.set(key, placement.top);
+      const el = nodes.current.get(key);
+      if (
+        !el ||
+        reduced ||
+        previous === undefined ||
+        previous === placement.top
+      )
+        continue;
+      el.style.transition = "none";
+      el.style.transform = `translateY(${previous - placement.top}px)`;
+      moved.push(el);
+    }
+    // One shared FLIP barrier, not a synchronous layout per moved note.
+    if (moved.length && layerRef.current) void layerRef.current.offsetHeight;
+    for (const el of moved) {
+      el.style.transition = "";
+      el.style.transform = "";
+    }
+    for (const { key, el, open, height: to, from } of measured) {
+      const slot = slots.current.get(key);
+      if (!slot) {
+        slots.current.set(key, { open, height: to });
+        continue;
+      }
+      if (slot.open === open) {
+        // Track the settled height so the next open or close starts from it.
+        if (slot.animation?.playState !== "running") slot.height = to;
+        continue;
+      }
+      // Measure from the height it settled at, then animate to the new one.
+      slot.open = open;
+      slot.animation?.cancel();
+      const unmountClosing = () =>
+        setClosing((current) => (current?.key === key ? null : current));
+      if (open) unmountClosing();
+      if (!reduced) {
+        el.style.overflow = "hidden";
+        if (!open) setClosing({ key, card: lastCards.current.get(key) });
+        const animation = el.animate(
+          [{ height: `${from ?? slot.height}px` }, { height: `${to}px` }],
+          timing,
+        );
+        slot.animation = animation;
+        animation.finished.then(
+          () => {
+            if (slot.animation !== animation) return;
+            el.style.overflow = "";
+            unmountClosing();
+          },
+          // Cancelled by a newer change, which owns the overflow now.
+          () => {
+            if (slot.animation === animation) unmountClosing();
+          },
+        );
+      } else {
+        slot.animation = undefined;
+        el.style.overflow = "";
+        unmountClosing();
+      }
+      slot.height = to;
+    }
+  }, [layout, reduced]);
+
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(frame.current);
+      for (const slot of slots.current.values()) {
+        const animation = slot.animation;
+        slot.animation = undefined;
+        animation?.cancel();
+      }
+    },
+    [],
+  );
+
+  // Anything that moves lines without a React update: resize, the notes pane, web fonts.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!active || !container) return;
+    let disposed = false;
+    window.addEventListener("resize", schedule);
+    const resize = new ResizeObserver(schedule);
+    resize.observe(container);
+    document.fonts?.ready.then(() => {
+      if (!disposed) schedule();
+    });
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+      window.removeEventListener("resize", schedule);
+      resize.disconnect();
+    };
+  }, [active, containerRef, schedule]);
+
+  // The mark is where keyboard and screen reader users meet a note, so it carries the note's text.
+  const placedKeys = Object.keys(layout.placements).join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` signals the article HTML was replaced
+  useEffect(() => {
+    const body = getArticleBody(containerRef.current);
+    if (!active || !body) return;
+    const described: Element[] = [];
+    for (const key of placedKeys.split(",")) {
+      if (!key.startsWith("a:")) continue;
+      const mark = body.querySelector(
+        `[data-annotation-id="${CSS.escape(key.slice(2))}"]`,
+      );
+      mark?.setAttribute("aria-describedby", textId(key));
+      if (mark) described.push(mark);
+    }
+    return () => {
+      for (const mark of described) mark.removeAttribute("aria-describedby");
+    };
+  }, [active, containerRef, placedKeys, version]);
+
+  // A note arrives once, when its line first rises into view.
+  useEffect(() => {
+    if (!active || reduced) return;
+    const pending = placedKeys
+      .split(",")
+      .filter((key) => key && key !== "waiting" && !arrived.has(key));
+    if (!pending.length) return;
+    const observer = new IntersectionObserver(
+      (records) => {
+        const fresh = records
+          .filter(
+            (r) =>
+              r.isIntersecting ||
+              // Already scrolled past: nothing left to animate.
+              r.boundingClientRect.bottom < (r.rootBounds?.top ?? 0),
+          )
+          .map((r) =>
+            r.target instanceof HTMLElement ? r.target.dataset.key : undefined,
+          )
+          .filter((key): key is string => Boolean(key));
+        if (!fresh.length) return;
+        setArrived((prev) => new Set([...prev, ...fresh]));
+      },
+      { rootMargin: ARRIVAL_ROOT_MARGIN },
+    );
+    for (const key of pending) {
+      const el = nodes.current.get(key);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [active, reduced, placedKeys, arrived]);
+
+  const openMark = (id: string) =>
+    getArticleBody(containerRef.current)
+      ?.querySelector<HTMLElement>(`[data-annotation-id="${CSS.escape(id)}"]`)
+      // Same path as the `o` shortcut: the renderer opens the card and marks it viewed.
+      ?.click();
+
+  // A click on the page closes the open note.
+  useEffect(() => {
+    if (!active || !openKey) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (
+        !target?.closest ||
+        target.closest(
+          ".annotation-mark, .sidenote, [role='dialog'], [role='menu'], [data-radix-popper-content-wrapper]",
+        )
+      )
+        return;
+      if (!window.getSelection()?.isCollapsed) return;
+      onClose();
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [active, openKey, onClose]);
+
+  // Closing hands focus back to the note the card grew from.
+  const lastOpen = useRef<string | null>(null);
+  useEffect(() => {
+    const closed = lastOpen.current;
+    lastOpen.current = openKey ?? null;
+    if (!closed || openKey) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body) return;
+    nodes.current
+      .get(closed)
+      ?.querySelector<HTMLElement>(".sidenote-hit")
+      ?.focus({ preventScroll: true });
+  }, [openKey]);
+
+  if (!active) return null;
+
+  const register = (key: string) => (el: HTMLElement | null) => {
+    if (el) nodes.current.set(key, el);
+    else nodes.current.delete(key);
+  };
+
+  return (
+    <div ref={layerRef} className="sidenote-layer" data-sidenotes>
+      {entries.map((entry) => {
+        const placement = layout.placements[entry.key];
+        const isNote = entry.kind === "note";
+        const isAnswer = entry.kind === "answer";
+        // A kind this build doesn't know draws as a plain pencil note
+        const kind =
+          entry.kind === "annotation" ? kindOf(entry.type) : undefined;
+        const detail =
+          entry.kind === "annotation" ? kindLabel(entry.type, entry) : null;
+        const label = isNote
+          ? "your note"
+          : entry.kind === "answer"
+            ? entry.label
+            : (detail?.name ?? "");
+        const paragraph = layout.labels[entry.key];
+        const isOpen = entry.key === openKey;
+        const isClosing = closing?.key === entry.key && !isOpen;
+        const isArrived =
+          reduced ||
+          isOpen ||
+          entry.kind === "waiting" ||
+          arrived.has(entry.key);
+        const common = {
+          ref: register(entry.key),
+          "data-key": entry.key,
+          "data-placed": placement ? "true" : "false",
+          "data-arrived": isArrived ? "true" : "false",
+          // SAFETY: custom properties are valid inline style keys; React types only know CSS properties.
+          style: {
+            top: placement?.top ?? 0,
+            "--elbow": `${placement?.elbow ?? 0}px`,
+          } as React.CSSProperties,
+        };
+
+        if (entry.kind === "waiting") {
+          return (
+            <div
+              key={entry.key}
+              {...common}
+              className="sidenote sidenote-waiting"
+              role="status"
+            >
+              <span className="sidenote-body">
+                <svg
+                  width="220"
+                  height="14"
+                  viewBox="0 0 220 14"
+                  aria-hidden="true"
+                  className="sidenote-pencil"
+                >
+                  <path d="M2 8 C 30 1, 50 13, 80 6 S 130 1, 160 8 S 200 11, 218 5" />
+                </svg>
+                <span className="sidenote-waiting-text">
+                  Reading alongside you…
+                </span>
+              </span>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            key={entry.key}
+            {...common}
+            className="sidenote"
+            data-hand={isNote ? "pen" : "pencil"}
+            data-collapsed={placement?.collapsed ? "true" : "false"}
+            data-open={isOpen ? "true" : "false"}
+            // SAFETY: custom properties are valid inline style keys; React types only know CSS properties.
+            style={
+              {
+                ...common.style,
+                "--kind-color": kind?.color,
+              } as React.CSSProperties
+            }
+          >
+            {isOpen && openCard ? (
+              <div className="sidenote-card">{openCard}</div>
+            ) : (
+              <>
+                {isClosing && (
+                  <div
+                    className="sidenote-card sidenote-card-closing"
+                    aria-hidden="true"
+                    inert
+                  >
+                    {closing.card}
+                  </div>
+                )}
+                {(placement?.connector ?? true) && (
+                  <span
+                    className="sidenote-connector"
+                    data-bent={
+                      placement && placement.elbow > 1 ? "true" : "false"
+                    }
+                    aria-hidden="true"
+                  />
+                )}
+                <button
+                  type="button"
+                  className="sidenote-hit"
+                  // Marks are the keyboard stop for annotations (they carry this
+                  // text via aria-describedby); your own notes and answers have no
+                  // mark, so they take a stop of their own.
+                  tabIndex={isNote || isAnswer ? 0 : -1}
+                  // Hidden, not removed: the slot measures this collapsed text as it shrinks.
+                  style={isClosing ? { visibility: "hidden" } : undefined}
+                  aria-label={`${label}: ${entry.text}`}
+                  onClick={() =>
+                    isNote
+                      ? onOpenNotes()
+                      : isAnswer
+                        ? onOpenAnswer?.(entry.id)
+                        : openMark(entry.id)
+                  }
+                >
+                  <span className="sidenote-body">
+                    <span className="sidenote-kind" data-family={kind?.family}>
+                      {kind && (
+                        <i className="sidenote-dot" aria-hidden="true" />
+                      )}
+                      {/* One run of text, so a long label wraps with its family instead of beside it */}
+                      <span className="min-w-0">
+                        {label}
+                        {detail?.family && (
+                          <span className="sidenote-family">
+                            {" · "}
+                            {detail.family}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="sidenote-text" id={textId(entry.key)}>
+                      {entry.text}
+                    </span>
+                  </span>
+                  <span className="sidenote-line" aria-hidden="true">
+                    <i className="sidenote-dot" />
+                    {label}
+                    {paragraph ? ` · ${paragraph}` : ""}
+                  </span>
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })}
+      {layout.ticks.map((tick) => (
+        <span
+          key={tick.key}
+          className="sidenote-tick"
+          style={{
+            top: tick.top,
+            // The variable is set on the tick, so the CSS fallback is --pen.
+            ["--tick-colour" as string]: `var(--mark-${tick.color})`,
+          }}
+          aria-hidden="true"
+        />
+      ))}
+    </div>
+  );
+}

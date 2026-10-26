@@ -10,6 +10,10 @@
     "./bible": "./convex/lib/bible.ts",
     "./reading-activity": "./convex/lib/readingActivity.ts",
     "./library-search": "./convex/lib/librarySearch.ts",
+    "./local-context": "./convex/lib/localContext.ts",
+    "./prepared-representation": "./convex/lib/preparedRepresentation.ts",
+    "./reading-sections": "./convex/lib/readingSections.ts",
+    "./mark-colours": "./convex/lib/markColours.ts",
     "./*": "./convex/*",
     "./_generated/*": "./convex/_generated/*",
     "./convex/_generated/api": "./convex/_generated/api.js",
@@ -34,6 +38,7 @@
     "convex-helpers": "0.1.126",
     "jose": "^6.2.12",
     "rss-parser": "^3.13.0",
+    "unpdf": "1.8.1",
     "zod": "^4"
   },
   "devDependencies": {

@@ -83,7 +83,7 @@ export function BibleSettings() {
                 >
                   {translation.code.toUpperCase()} · {translation.name} ·{" "}
                   {translation.style}
-                  {translation.available ? "" : " — not yet licensed"}
+                  {translation.available ? "" : " — setup required"}
                 </option>
               ))}
             </select>
@@ -91,8 +91,8 @@ export function BibleSettings() {
           <p className="max-w-xl text-sm text-[var(--reader-muted)]">
             The World English Bible is public domain. ESV and NASB (literal),
             NIV (balanced), NLT (thought-for-thought), and The Message
-            (paraphrase) need suitable publisher permissions before they can be
-            offered with AI marginalia.
+            (paraphrase) require provider setup and verification of the rights
+            for text storage and AI use. They are never replaced with WEB.
           </p>
           <p className="text-sm text-[var(--reader-muted)]">
             Turning this off removes Bible discovery and access without deleting
