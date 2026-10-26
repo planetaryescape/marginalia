@@ -35,6 +35,8 @@ Controls floating over the page use `.reader-float`: an ink pill on light themes
 
 ## Control roles
 
+Bible readings keep study controls out of the text column: comparison is a toolbar icon, while browsing and word study live in a toolbar popover. Chapter chevrons flank the title. Publisher attribution and the WEB AI-source disclosure follow the passage in legible 12px fine print. Bible summaries remain available through the toolbar, without an introductory teaser occupying reading space.
+
 Settings controls come from `src/components/settings-controls.ts`, not ad hoc styles:
 
 - `primaryControl`: one per section at most, the action the section exists for.

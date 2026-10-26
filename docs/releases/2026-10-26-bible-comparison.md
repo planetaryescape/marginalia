@@ -14,7 +14,7 @@ Real server-side adapter requests retrieved NIV 2011 and NASB 2020 for `John 3:1
 
 - Two distinct versions, each within one chapter; headings, verse labels and footnotes remain in the API-provided HTML.
 - Current copyright notices are required before display, with publisher links and the applicable Lockman permission notice.
-- Licensed passage bodies are transient action output, never saved article bodies or AI inputs. Each display edition has a separately stored, explicitly labeled WEB study source. Selected quotations can be retained in personal notes/highlights, but automatic quotations are excluded from embeddings and AI recall. Your own note prose can still be indexed.
+- Licensed passage bodies are never saved article bodies or AI inputs; the caching follow-up below adds a separate policy-limited server response cache. Each display edition has a separately stored, explicitly labeled WEB study source. Selected quotations can be retained in personal notes/highlights, but automatic quotations are excluded from embeddings and AI recall. Your own note prose can still be indexed.
 - One display lease per reader retires older comparison views, including across devices. Disconnected clients hide the text. A slower, older request cannot retire a newer comparison. Opt-out deletes the lease and wins in-flight publication.
 - Reader ownership is derived from authentication. Licensed text cannot be saved through the internal article-creation path, and legacy licensed article rows are excluded from article access and annotation publication.
 - The service worker still caches only its offline fallback, not Scripture or API responses. Licensed display is omitted from print output.
@@ -36,6 +36,26 @@ Authenticated browser end-to-end and desktop/mobile visual verification of this 
 Runtime source **`85c006e`** is deployed as **`dpl_AMGB6mX2AEoy82PvxPHgUXqw7p5X`**, confirmed **Ready / Production**, aliased to **https://reader.bhekani.com**. The backend was updated deliberately on the existing `dev:stoic-hare-718` deployment with `CONVEX_DEPLOYMENT=dev:stoic-hare-718 bunx convex dev --once --typecheck enable`. Do not use a bare `convex deploy`, which targets a different deployment.
 
 The superseded separate comparison runtime was `085a779`, deployed as `dpl_BrjivBPYHDtBzth1d63ugtNewmHc`.
+
+### Passage-opening latency follow-up
+
+A reported slow desk opening exposed a redundant licensed-text preflight. Live Convex completion logs showed `openReading` taking **3.05 seconds**, followed by an **80 ms** reader bootstrap and `readComparison` taking **2.56 seconds**. The initial action downloaded a passage, metadata and font stylesheet, discarded the display body, then fetched the WEB source; the reader subsequently downloaded the licensed display again. Desk suggestions themselves contain references, not prepared passage bodies.
+
+The opening action now validates configuration and request bounds locally, then reuses or creates only the WEB study source. Existing saved study sources reopen without external requests at that stage. The normal reader remains responsible for the single licensed-display fetch, including current entitlements, footnotes, attribution and display-lease checks. Regression tests assert no licensed fetch before navigation and no external requests for reopening a saved study source. This removes the duplicate provider wait without adding a licensed-text cache. The measured baseline is not a post-fix browser latency guarantee; a fresh licensed display still depends on provider response time.
+
+### Content-first layout and shared caching follow-up
+
+The follow-up moves comparison, browsing and word study to the toolbar, replaces chapter buttons with title-flanking chevrons, puts attribution/source disclosure after the passage in fine print, and removes the closed Bible-summary teaser. Summaries and idea maps are still requested from the toolbar. Summary inputs are additionally normalized to authoritative WEB on the backend, not just on the client.
+
+The earlier blanket `no-store` policy was unnecessarily restrictive. Live YouVersion responses explicitly advertise `Cache-Control: public, max-age=3600` for NIV passage text and edition metadata, and `public, max-age=86400` for the font stylesheet. The implementation now shares validated server responses across readers for no longer than those lifetimes, subtracts `Age`/response age, and excludes private, no-store, no-cache or unknown-Vary responses. Cache keys separate app credentials by hash and exact request path. WEB chapters have a seven-day shared cache. Expired rows are unreadable immediately and purged in bounded hourly batches; no licensed cache data becomes an article or AI source. This is HTTP-authorized caching, not permission for a week-long NIV cache or offline web downloads.
+
+The adapter timing harness using real NIV/Psalms 23 responses measured **379 ms / 3 upstream requests** cold and **0.25 ms / 0 upstream requests** warm with an in-process cache implementation. This isolates provider/cache behavior; it is not an end-to-end production-reader timing. Integration tests exercise the persistent Convex cache across two authenticated readers, including expiry and connection-disable behavior.
+
+Desktop and 390px-mobile layouts were inspected using an isolated fixture built from the actual reader components and production CSS with public-domain WEB text, without bypassing app authentication. At 390px the passage body begins at approximately 194px, source fine print follows the passage, and the document has no horizontal overflow. The toolbar popover stays within the mobile viewport. This is component/layout verification, not a claim of signed-in production end-to-end verification.
+
+Follow-up verification: **1,764 backend tests**, **1,205 web tests**, workspace typecheck and production build pass. The component fixture has no confirmed WCAG A/AA violations; the scanner's open-control reference was checked against the actual DOM. The mechanical design detector reports no findings. React Doctor flags the deliberate effect that opens Bible tools when a comparison fails; this exposes the error instead of leaving an apparently inactive toolbar toggle. Existing summary dependency and CSS `::highlight` build warnings remain non-blocking.
+
+Runtime source **`e1571af`** is deployed as **`dpl_5nBu1P7pgzbQf4GCvpCD5FWMPj83`**, confirmed **Ready / Production** and aliased to **https://reader.bhekani.com**. The existing `dev:stoic-hare-718` backend includes the shared cache and bounded hourly expiration cleanup. No user notes or highlights were migrated or deleted.
 
 A pre-update Convex snapshot including file storage was exported at timestamp `1793015308845860544`, available in the `stoic-hare-718` snapshot dashboard. The schema update adds a small display-lease table and an annotation skip reason; no existing article, note or source is deleted. To stop licensed access, unset the enable flag; do not restore the data snapshot merely to disable this feature.
 

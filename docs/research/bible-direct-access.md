@@ -4,6 +4,8 @@ Checked 2026-10-26. These findings correct the impression that every copyrighted
 
 Implementation update: the app is now Live with verified entitled NIV/NASB access. The intended reader integration displays licensed text transiently in the normal reader and uses a separately labeled public-domain WEB source for AI. Comparison is explicitly opt-in there, not a separate reading experience. The earlier account-vetting notes below describe the sequence of checks, not the current portal status. See the [reading guide](../bible-reading.md) and [release verification](../releases/2026-10-26-bible-comparison.md).
 
+Caching follow-up: direct inspection of the live passage and metadata response headers confirmed shared one-hour HTTP caching; the font stylesheet permits one day. This supports a policy-limited shared server response cache, distinct from saved reading/AI sources. It does not establish permission for a week-long NIV cache. The public-domain WEB source is cached separately for seven days.
+
 ## Setup performed
 
 After the user signed in and explicitly approved app registration, Marginalia was created once in YouVersion using Codex's Sky computer-use integration in Dia. Its initial status was **In development**; the operator subsequently made it **Live**, as verified below. Its initial app key has not been copied into code, chat or logs.
