@@ -15,7 +15,7 @@ import { sha256Hex } from "./tokens";
 export const MANUAL_ANNOTATION_LEASE_MS = 20 * 60_000;
 export const MANUAL_ANNOTATION_ATTEMPTS = 3;
 // Explicit Bible reannotation treats prompt-only changes as new input.
-export const BIBLE_ANNOTATION_PROMPT_VERSION = 1;
+export const BIBLE_ANNOTATION_PROMPT_VERSION = 2;
 export const annotationGeneration = v.object({ run: v.number() });
 export const manualAnnotationState = defineTable({
   userId: v.string(),

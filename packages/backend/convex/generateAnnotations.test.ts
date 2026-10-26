@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   saveTestCredential,
   secondReaderTest,
@@ -17,6 +18,7 @@ import {
   resolveNotePath,
   SCRIPTURE_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
+  scriptureAnnotationCandidateSchema,
 } from "./actions/generateAnnotations";
 import { annotationBudget } from "./lib/annotationGate";
 
@@ -30,6 +32,10 @@ const SENTENCES = [
   "Written culture matters most to remote teams.",
 ];
 const CONTENT = SENTENCES.join(" ").concat(" ", "Filler sentence. ".repeat(60));
+const schemaWithoutDescriptions = (schema: z.ZodType) =>
+  JSON.stringify(z.toJSONSchema(schema), (key, value) =>
+    key === "description" ? undefined : value,
+  );
 
 beforeEach(() => {
   vi.stubEnv("PROVIDER_KEYS_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
@@ -144,6 +150,29 @@ describe("the annotation prompt and schema", () => {
     );
     expect(prompt).not.toMatch(/Aim for about|no more than \d+ notes/);
     expect(prompt).toContain("thesis, gist and one to three tags");
+    expect(schemaWithoutDescriptions(scriptureAnnotationCandidateSchema)).toBe(
+      schemaWithoutDescriptions(annotationCandidateSchema),
+    );
+    const scriptureSchemaInstructions = JSON.stringify(
+      z.toJSONSchema(scriptureAnnotationCandidateSchema),
+    );
+    expect(scriptureSchemaInstructions).toContain(
+      "grounded only in the supplied text and evidence",
+    );
+    expect(scriptureSchemaInstructions).toContain(
+      "Otherwise say no particular assumption or uncertainty is evidenced",
+    );
+    expect(scriptureSchemaInstructions).toContain(
+      "Otherwise say no supported alternative is evidenced",
+    );
+    expect(z.toJSONSchema(annotationCandidateSchema)).toMatchObject({
+      properties: {
+        thesis: {
+          description:
+            "The article's main point in one sentence, under 25 words. Always give one.",
+        },
+      },
+    });
     expect(
       buildUserPrompt({
         title: "Article",
@@ -298,6 +327,7 @@ describe("generateForArticle", () => {
     const fixture = { ...f, target, ...ids };
     await options.before?.(fixture);
     const prompts: string[] = [];
+    const requests: unknown[] = [];
     vi.stubGlobal(
       "fetch",
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -309,6 +339,7 @@ describe("generateForArticle", () => {
               embedding: vector,
             })),
           });
+        requests.push(request);
         prompts.push(JSON.stringify(request.messages));
         return Response.json({
           id: "x",
@@ -337,7 +368,7 @@ describe("generateForArticle", () => {
         .withIndex("by_article", (q) => q.eq("articleId", target))
         .collect(),
     );
-    return { ...fixture, prompts, notes };
+    return { ...fixture, prompts, requests, notes };
   }
   type Fixture = Awaited<ReturnType<typeof secondReaderTest>> & {
     target: Id<"articles">;
@@ -422,6 +453,13 @@ describe("generateForArticle", () => {
     expect(result.prompts[0]).not.toContain("Secret owner article");
     expect(result.prompts[0]).not.toContain(result.foreign);
     expect(result.prompts[0]).toContain("Aim for about 2 notes");
+    const ordinaryRequest = JSON.stringify(result.requests[0]);
+    expect(ordinaryRequest).toContain(
+      "The article's main point in one sentence, under 25 words. Always give one.",
+    );
+    expect(ordinaryRequest).not.toContain(
+      "grounded only in the supplied text and evidence",
+    );
 
     expect(
       await result.t.run((ctx) => ctx.db.get(result.target)),
@@ -584,6 +622,17 @@ describe("generateForArticle", () => {
       /there is no target count, minimum or pushback share/i,
     );
     expect(result.prompts[0]).not.toContain("Aim for about");
+    const scriptureRequest = JSON.stringify(result.requests[0]);
+    expect(scriptureRequest).toContain(
+      "grounded only in the supplied text and evidence",
+    );
+    expect(scriptureRequest).toContain(
+      "no particular assumption or uncertainty is evidenced",
+    );
+    expect(scriptureRequest).toContain("no supported alternative is evidenced");
+    expect(scriptureRequest).not.toContain(
+      "The article's main point in one sentence",
+    );
     expect(result.notes.map((note) => note.content)).toEqual([
       "This observation follows from the supplied verse.",
     ]);

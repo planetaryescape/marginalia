@@ -135,6 +135,45 @@ export const annotationCandidateSchema = z.object({
   }),
 });
 
+/** Same response and storage shape, with reflection guidance for Scripture. */
+export const scriptureAnnotationCandidateSchema =
+  annotationCandidateSchema.extend({
+    thesis: z
+      .string()
+      .optional()
+      .describe(
+        "The passage's central point in one sentence, grounded only in the supplied text and evidence. Do not add background or claims the passage does not make.",
+      ),
+    gist: z
+      .string()
+      .optional()
+      .describe(
+        "A brief summary of what the supplied passage says and, if useful, a clearly marked interpretation. Add no unsupported historical, cultural, theological or cross-passage claims.",
+      ),
+    reflection: z.object({
+      strongestPoint: z
+        .string()
+        .describe(
+          "A significant feature supported by the supplied passage; distinguish direct observation from interpretation. If none stands out, say so plainly.",
+        ),
+      weakestAssumption: z
+        .string()
+        .describe(
+          "A real assumption or uncertainty only when the supplied passage or evidence supports it. Otherwise say no particular assumption or uncertainty is evidenced; do not invent a defect.",
+        ),
+      credibleCounterview: z
+        .string()
+        .describe(
+          "A credible alternative reading only when supported by the supplied passage or evidence. Otherwise say no supported alternative is evidenced; do not manufacture an objection or treat genre as a flaw.",
+        ),
+      questionForYou: z
+        .string()
+        .describe(
+          "A focused interpretive or application question grounded in the supplied passage or reader context. It need not challenge the passage; if none is supported, say so.",
+        ),
+    }),
+  });
+
 export const SYSTEM_PROMPT = `You are a critical friend in the margin of a personal reading app. Beside the reader, you say where the argument is strong, where it is weak and what it connects to. The reader is intelligent and easily won over by a well-written piece, so your job is to slow down premature agreement without being contrarian.
 
 You will receive:
@@ -206,13 +245,13 @@ The reflection box appears after the article. Its job is to slow down premature 
 
 export const SCRIPTURE_SYSTEM_PROMPT = `You are a careful reader of the supplied Bible study text, writing sparse margin notes that help this reader understand the passage. Read it according to its supplied literary genre and immediate context. A poem, prayer, lament, narrative, law, prophecy and letter call for different questions; do not force an argument critique onto a passage that is doing something else.
 
-Distinguish what the text says, what you infer from it, and how a reader might apply it. Use textual, literary, historical or intertextual methods only when they clarify a consequential feature of this passage. A disagreement deserves a note only when it could change understanding and the evidence supplied here supports discussing it. A sound passage needs no manufactured objection. Return zero annotations when nothing is useful; there is no minimum number or desired share of any kind.
+Distinguish what the text says directly, what you infer from it, and how a reader might apply it. Use textual or literary observations grounded in this passage; do not add historical, cultural, administrative, cultic, theological or other background claims, or claims about another passage, unless that evidence is explicitly supplied here. Familiarity or plausibility is not evidence. Mark interpretation as interpretation. A disagreement deserves a note only when supplied evidence supports it; when no alternative or uncertainty is evidenced, say so instead of inventing one. A sound passage needs no manufactured objection. Return zero annotations when nothing is useful; there is no minimum number or desired share of any kind.
 
-The study text is public-domain World English Bible (WEB); another edition may be displayed. Anchor only to exact text in the supplied WEB source. A displayed edition is not evidence for this analysis. Do not say WEB wording is identical to another edition. Do not invent scholars, scholarly consensus, manuscript readings, etymologies, original-language word alignments or other-passage context. Make no named scholarly claim unless it is supported by supplied, inspected evidence. If that evidence is absent, leave the claim out. A cross_reference must point to a real vault note or library article offered in the context; never invent a target.
+The study text is public-domain World English Bible (WEB); another edition may be displayed. Anchor only to exact text in the supplied WEB source. A displayed edition is not evidence for this analysis. Do not say WEB wording is identical to another edition. Do not infer historical practices, cultural conventions, administrative arrangements, cultic rules or claims about other passages from familiarity with Scripture. Do not invent scholars, scholarly consensus, manuscript readings, etymologies, original-language word alignments or other-passage context. Make no named scholarly claim unless it is supported by supplied, inspected evidence. If that evidence is absent, leave the claim out. A cross_reference must point to a real vault note or library article offered in the context; never invent a target.
 
 Use the existing annotation kinds only when they fit: context for useful supplied context; strong_point for a significant textual feature; tension for a consequential interpretive tension supported by evidence; question for a focused question arising from the passage; cross_reference only for an offered target. Every anchorText must be an exact verbatim substring of the supplied WEB text. Keep notes concise, specific and worth the interruption; do not repeat the verse or make a generic devotional observation.
 
-Return the existing schema, including thesis, gist, tags, annotations and reflection. The reflection can identify a significant strength, a real assumption or uncertainty, a credible alternative reading, and a question about the reader's interpretive assumptions or application. It need not claim that a poem or other passage contains a defect. Preserve the distinction between observation, interpretation and application, and do not present application as the passage's only meaning.`;
+Return the Scripture-specific schema, including thesis, gist, tags, annotations and reflection. Its reflection fields may state that no supported assumption, uncertainty, alternative reading or question is evidenced. Preserve the distinction between observation, interpretation and application, and do not present application as the passage's only meaning.`;
 
 /** The user message: the article, its context and this article's note budget. */
 export function buildUserPrompt(input: {
@@ -277,7 +316,7 @@ ${input.vocabulary.length ? input.vocabulary.join("\n") : "None yet."}
 
 ## Reading
 
-Use the supplied genre and context. Return only findings that change or enrich understanding; zero annotations is valid. There is no target count, minimum or pushback share. Keep any summary, tags and reflection grounded in the supplied text and evidence. Also return the thesis, gist and one to three tags.`;
+Use the supplied genre and context. Base every claim only on the supplied passage and evidence; do not fill gaps with familiar historical, cultural, administrative, cultic, theological or cross-passage background. Separate direct observation from interpretation. Return only findings that change or enrich understanding; zero annotations is valid. There is no target count, minimum or pushback share. If no alternative reading or uncertainty is evidenced, say so rather than inventing one. Keep any summary, tags and reflection grounded in the supplied text and evidence. Also return the thesis, gist and one to three tags.`;
 }
 
 /** Resolves a note path the model wrote to the vault path it was shown. */
@@ -505,7 +544,9 @@ async function annotateArticle(
     };
     const { object, modelId } =
       await generateObjectWithFallback<AnnotationResult>({
-        schema: annotationCandidateSchema,
+        schema: article.bible
+          ? scriptureAnnotationCandidateSchema
+          : annotationCandidateSchema,
         system: article.bible ? SCRIPTURE_SYSTEM_PROMPT : SYSTEM_PROMPT,
         prompt: article.bible
           ? buildScriptureUserPrompt(promptInput)
