@@ -57,6 +57,22 @@ Follow-up verification: **1,764 backend tests**, **1,205 web tests**, workspace 
 
 Runtime source **`e1571af`** is deployed as **`dpl_5nBu1P7pgzbQf4GCvpCD5FWMPj83`**, confirmed **Ready / Production** and aliased to **https://reader.bhekani.com**. The existing `dev:stoic-hare-718` backend includes the shared cache and bounded hourly expiration cleanup. No user notes or highlights were migrated or deleted.
 
+### Restore the standard reader contract
+
+The content-first follow-up overreached: it hid the normal summary entry point, while an earlier Bible-specific annotation path suppressed bottom reflections. Neither exclusion was requested. The correction restores the standard summary entry, header, reading settings and reflection workflow. Optional chapter navigation moves into Bible tools rather than rearranging the title. Shared caching, source fine print and opt-in comparison remain intact.
+
+Bible annotations now use the ordinary article-generation prompt and reflection persistence, with an additional WEB source-identification safeguard. Already-annotated Bible readings missing reflections are queued once for reflection-only repair when opened. The repair inserts only the missing reflection: existing marginalia, viewed/dismissed state, personal notes and saved reflection responses are preserved. Adopted readings acquire a new generation input through the existing revision fence rather than bypassing it. This runs in the background and does not gate passage display. Readings without a connected AI provider follow the normal skipped-provider/catch-up path.
+
+### Loading structure and startup correction
+
+Live logs recorded an article bootstrap at **293 ms**, followed by licensed text delivery at **3.57 seconds**, even with valid shared cache entries. The Node action made sequential cross-runtime calls for authorization, opt-in, rate limit, lease acquisition, cache lookup and final lease verification. Text delivery now runs in the default Convex runtime through `bibleReading:readComparison`; opt-in, rate limit and lease acquisition share one transaction. The existing Node endpoint remains available for older clients. Shared HTTP expiry, edition identity, attribution and final opt-out/newer-display checks are unchanged.
+
+The visible ordinary desk pick also prewarms the authorized reader-bootstrap subscription and reader route. It does not prefetch licensed wording, optional annotations or AI output. Reader loading, including authentication on `/read/` routes, now shares the loaded column geometry and reserves title, metadata, summary and body positions. Known authorized titles remain visible during text delivery. The desk skeleton reserves its action row instead of ending after the title and metadata.
+
+Verification for runtime **`64b0636`**: **1,767 backend tests**, **1,208 web tests**, typecheck and production build passed. Desktop and mobile actual-component fixtures using production CSS had identical title coordinates and text-start coordinates between loading and loaded states, with no horizontal overflow. The fixture passed WCAG A/AA automated checks after matching production's `lang` attribute. React Doctor reported two non-blocking component-size/complexity warnings; existing CSS `::highlight` build warnings remain. A new signed-in production opening time has **not** been measured.
+
+Deployment **`dpl_6E4XfLv7ksVrbUQEeG7oNgPeNXZN`** is confirmed **Ready / Production**, aliased to **https://reader.bhekani.com**. The existing `dev:stoic-hare-718` backend was updated explicitly; no schema migration or bulk rewrite ran.
+
 A pre-update Convex snapshot including file storage was exported at timestamp `1793015308845860544`, available in the `stoic-hare-718` snapshot dashboard. The schema update adds a small display-lease table and an annotation skip reason; no existing article, note or source is deleted. To stop licensed access, unset the enable flag; do not restore the data snapshot merely to disable this feature.
 
 See [the reading guide](../bible-reading.md) for user-facing behavior and [direct-access findings](../research/bible-direct-access.md) for provider setup history.

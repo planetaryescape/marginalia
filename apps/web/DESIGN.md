@@ -35,7 +35,7 @@ Controls floating over the page use `.reader-float`: an ink pill on light themes
 
 ## Control roles
 
-Bible readings keep study controls out of the text column: comparison is a toolbar icon, while browsing and word study live in a toolbar popover. Chapter chevrons flank the title. Publisher attribution and the WEB AI-source disclosure follow the passage in legible 12px fine print. Bible summaries remain available through the toolbar, without an introductory teaser occupying reading space.
+Bible passages use the standard article reader: the same header, summary entry point, bottom reflections and reading settings. Comparison is an optional toolbar icon; chapter navigation, browsing and word study live in its Bible-tools popover, without rearranging the reading column. Publisher attribution and the WEB AI-source disclosure follow the passage in legible 12px fine print. Adding a content source is not permission to hide or replace existing reader features.
 
 Settings controls come from `src/components/settings-controls.ts`, not ad hoc styles:
 
@@ -56,7 +56,10 @@ A new feature reuses these.
 - **This changed:** `ChangeWash` gives a changed row a `--reader-chip` tint for 600 ms (`useChangeWash` in `src/lib/use-timed-flag.ts`). A value present on first render does not wash.
 - **Errors:** `InlineError` puts one sentence and Retry where the action was, with a `--danger` dot. The page around it keeps working. Toasts are for background work with no place on screen, and for Undo.
 - **Waiting:** a skeleton in the shape of the real layout, never a centred spinner. The pick's skeleton appears after 150 ms. Background checks use `SyncBar` with visible status text: shimmer for an unknown total, solid fill for a measured percentage, and no movement under reduced motion. Sources keeps the overall bar visible while scrolling and shows waiting/checking states beside each feed.
+
 - **Destructive:** a quiet button that turns into a confirmation in place.
+
+Reader loading uses the same column class, heading type, metadata slot, summary position and configured text size/leading as the loaded article. Keep a known heading visible during text delivery; deep links reserve its space. Authentication loading on a reader route uses that same structure but never reveals a remembered private heading before authorization. Desk pick loading reserves the metadata and action row as well as the title. Do not replace these with an unrelated stack of bars.
 
 ## Motion
 
