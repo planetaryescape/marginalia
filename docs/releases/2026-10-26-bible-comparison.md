@@ -73,6 +73,14 @@ Verification for runtime **`64b0636`**: **1,767 backend tests**, **1,208 web tes
 
 Deployment **`dpl_6E4XfLv7ksVrbUQEeG7oNgPeNXZN`** is confirmed **Ready / Production**, aliased to **https://reader.bhekani.com**. The existing `dev:stoic-hare-718` backend was updated explicitly; no schema migration or bulk rewrite ran.
 
+### Summary source-identity correction
+
+A production screenshot and matching request logs exposed a failure missed by the earlier legacy-client test: the summary action added a WEB label to the title before validating the current client's saved-source proof. The title no longer matched the saved article, so summary admission rejected it before generation. The label now belongs only in the AI prompt. The reader also preserves an absent WEB HTML field rather than falling back to licensed display HTML when hashing its source. Source freshness checks remain enforced; stale inputs still fail before a model call.
+
+Regression coverage now exercises current and legacy clients, missing WEB HTML, completed-request reuse, stale-source rejection, and short error messages with retry instead of raw Convex traces. **1,768 backend tests**, **1,210 web tests**, typecheck and production build passed. Runtime **`ce31fa3`** is deployed as **`dpl_AYK6tnpBwPSkbNF47jwGkWMcx2Q9`**, confirmed **Ready / Production** at **https://reader.bhekani.com**, with the existing backend explicitly updated. Signed-in production summary generation has not been independently replayed.
+
+The same live log sample recorded the new `bibleReading:readComparison` text-delivery action at **99 ms**, versus the earlier **3.57-second** Node action sample. These are individual server-action timings, not browser opening times or a controlled benchmark.
+
 A pre-update Convex snapshot including file storage was exported at timestamp `1793015308845860544`, available in the `stoic-hare-718` snapshot dashboard. The schema update adds a small display-lease table and an annotation skip reason; no existing article, note or source is deleted. To stop licensed access, unset the enable flag; do not restore the data snapshot merely to disable this feature.
 
 See [the reading guide](../bible-reading.md) for user-facing behavior and [direct-access findings](../research/bible-direct-access.md) for provider setup history.
