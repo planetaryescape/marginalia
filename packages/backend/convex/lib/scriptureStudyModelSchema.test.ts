@@ -2,9 +2,27 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { generateObjectWithFallback } from "./aiModels";
 import { resultSchema } from "./scriptureStudy";
-import { studyProviderSchema } from "./scriptureStudyModelSchema";
+import { studyFollowUpSchema } from "./scriptureStudyFollowUps";
+import {
+  studyObjectProviderSchema,
+  studyProviderSchema,
+} from "./scriptureStudyModelSchema";
 
 afterEach(() => vi.unstubAllGlobals());
+it.each([
+  "openai:gpt-6",
+  "openrouter:google/gemini-3.8-flash",
+])("serializes the refined follow-up schema for %s without losing local citation checks", (model) => {
+  const local = studyFollowUpSchema(["web-1"]);
+  expect(() => studyObjectProviderSchema(model, local)).not.toThrow();
+  expect(
+    local.safeParse({
+      answer: "An unsupported positive explanation",
+      evidenceCoverage: "in_saved_sources",
+      evidenceIds: [],
+    }).success,
+  ).toBe(false);
+});
 
 function hasArrayCap(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
@@ -165,10 +183,69 @@ it.each([
   expect(resultSchema.safeParse(object).success).toBe(false);
 });
 
-it("leaves other models on the original bounded schema", () => {
-  expect(studyProviderSchema("openai:gpt-5")).toBeUndefined();
+it("uses the required-property adapter for OpenAI and leaves Anthropic on the bounded local schema", () => {
+  expect(studyProviderSchema("openai:gpt-5")).toBeDefined();
+  expect(studyProviderSchema("openrouter:openai/gpt-5")).toBeDefined();
   expect(studyProviderSchema("anthropic:claude-sonnet-4")).toBeUndefined();
   expect(
     studyProviderSchema("openrouter:anthropic/claude-sonnet-4"),
   ).toBeUndefined();
+});
+it("sends required object properties to OpenAI strict structured output, including nullable teaching and nested headings", async () => {
+  const fetch = vi.fn(
+    async (_url: Parameters<typeof globalThis.fetch>[0], init: RequestInit) => {
+      const request = JSON.parse(String(init.body));
+      const schema = request.response_format.json_schema.schema;
+      if (
+        !schema.required.includes("teaching") ||
+        !schema.properties.findings.items.required.includes("heading")
+      )
+        return Response.json(
+          {
+            error: {
+              message: "Strict schema requires every property in required",
+              code: "invalid_json_schema",
+            },
+          },
+          { status: 400 },
+        );
+      return Response.json({
+        id: "fixture",
+        object: "chat.completion",
+        created: 1,
+        model: "gpt-6",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: '{"findings":[],"teaching":null}',
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+    },
+  );
+  vi.stubGlobal("fetch", fetch);
+  await expect(
+    generateObjectWithFallback({
+      schema: resultSchema,
+      providerSchema: studyProviderSchema("openai:gpt-6"),
+      targets: [
+        {
+          id: "openai:gpt-6",
+          name: "OpenAI fixture",
+          provider: "openai",
+          model: "gpt-6",
+          apiKey: "fixture-key",
+        },
+      ],
+      prompt: "Public transport fixture; return no findings.",
+      maxOutputTokens: 6000,
+      maxParseAttempts: 1,
+    }),
+  ).resolves.toMatchObject({ object: { findings: [], teaching: null } });
+  expect(fetch).toHaveBeenCalledTimes(1);
 });

@@ -3,35 +3,46 @@ import { type JSONSchema7, jsonSchema } from "ai";
 import { toJSONSchema, type ZodType } from "zod";
 import { resultSchema } from "./scriptureStudy";
 
-function withoutArrayCaps(schema: JSONSchema7): JSONSchema7;
-function withoutArrayCaps(schema: JSONSchema7 | boolean): JSONSchema7 | boolean;
-function withoutArrayCaps(
+type StudyWireProvider = "gemini" | "openai";
+function providerWire(
+  schema: JSONSchema7,
+  provider: StudyWireProvider,
+): JSONSchema7;
+function providerWire(
   schema: JSONSchema7 | boolean,
+  provider: StudyWireProvider,
+): JSONSchema7 | boolean;
+function providerWire(
+  schema: JSONSchema7 | boolean,
+  provider: StudyWireProvider,
 ): JSONSchema7 | boolean {
-  if (typeof schema === "boolean") return schema;
+  if (schema === true || schema === false) return schema;
   const wire = { ...schema };
-  delete wire.maxItems;
+  if (provider === "gemini") delete wire.maxItems;
+  const visit = (child: JSONSchema7 | boolean) => providerWire(child, provider);
   if (wire.properties) {
     wire.properties = Object.fromEntries(
       Object.entries(wire.properties).map(([name, value]) => [
         name,
-        withoutArrayCaps(value),
+        visit(value),
       ]),
     );
+    // Requiring a local optional field narrows the accepted output; it does not
+    // invent a value or weaken local validation. Teaching already allows null.
+    if (provider === "openai") wire.required = Object.keys(wire.properties);
   }
   if (wire.items) {
     wire.items = Array.isArray(wire.items)
-      ? wire.items.map(withoutArrayCaps)
-      : withoutArrayCaps(wire.items);
+      ? wire.items.map(visit)
+      : visit(wire.items);
   }
   for (const key of ["anyOf", "oneOf", "allOf"] as const) {
-    if (wire[key]) wire[key] = wire[key].map(withoutArrayCaps);
+    if (wire[key]) wire[key] = wire[key].map(visit);
   }
   return wire;
 }
 
-/** Google's Study grammar rejects the nested maxItems bounds. Keep those bounds
- * in SDK validation and publication, not in this provider's response grammar. */
+/** Provider grammar differences stay on the wire; local bounds remain authoritative. */
 export function studyProviderSchema(modelId: string) {
   return studyObjectProviderSchema(modelId, resultSchema);
 }
@@ -40,12 +51,17 @@ export function studyObjectProviderSchema<T>(
   modelId: string,
   local: ZodType<T>,
 ) {
-  if (!modelId.startsWith("openrouter:google/gemini-")) return undefined;
+  const provider = modelId.startsWith("openrouter:google/gemini-")
+    ? "gemini"
+    : modelId.startsWith("openai:") || modelId.startsWith("openrouter:openai/")
+      ? "openai"
+      : null;
+  if (!provider) return undefined;
   // SAFETY: Zod emits draft-7 JSON Schema here, matching the SDK's JSONSchema7 contract.
   const schema = toJSONSchema(local, {
     target: "draft-7",
   }) as JSONSchema7;
-  const wire = withoutArrayCaps(schema);
+  const wire = providerWire(schema, provider);
   return jsonSchema<T>(wire, {
     validate(value) {
       const parsed = local.safeParse(value);
