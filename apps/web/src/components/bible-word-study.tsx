@@ -1,6 +1,7 @@
 "use client";
 import { parseBibleReference } from "@marginalia/backend/bible";
 import { api } from "@marginalia/backend/convex/_generated/api";
+import { englishDefinition } from "@marginalia/backend/english-definition";
 import { useAction } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -293,28 +294,32 @@ export function BibleWordStudy({
 }
 
 function EnglishWordMeaning({ word }: { word: string }) {
-  const define = useAction(api.actions.bible.defineEnglishWord);
-  const [result, setResult] = useState<FunctionReturnType<
-    typeof api.actions.bible.defineEnglishWord
+  const [result, setResult] = useState<Awaited<
+    ReturnType<typeof englishDefinition>
   > | null>(null);
   const [error, setError] = useState("");
   const generation = useRef(0);
+  const controller = useRef<AbortController | null>(null);
   const load = useCallback(async () => {
     const request = ++generation.current;
+    controller.current?.abort();
+    const current = new AbortController();
+    controller.current = current;
     setResult(null);
     setError("");
     try {
-      const value = await define({ word });
+      const value = await englishDefinition(word, current.signal);
       if (generation.current === request) setResult(value);
     } catch {
       if (generation.current === request)
         setError("The English dictionary is unavailable.");
     }
-  }, [define, word]);
+  }, [word]);
   useEffect(() => {
     void load();
     return () => {
       generation.current++;
+      controller.current?.abort();
     };
   }, [load]);
   return (

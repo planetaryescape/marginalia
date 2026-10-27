@@ -33,6 +33,11 @@ it("returns attributed ordinary English meanings without a model or verse contex
     "https://api.dictionaryapi.dev/api/v2/entries/en/comfort",
   );
   expect(fetch.mock.calls[0][1].body).toBeUndefined();
+  expect(fetch.mock.calls[0][1]).toMatchObject({
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+    redirect: "error",
+  });
 });
 it("does not transmit phrases, URLs or arbitrary display context to the dictionary", async () => {
   const fetch = vi.fn();

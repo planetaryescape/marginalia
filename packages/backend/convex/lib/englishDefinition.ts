@@ -22,7 +22,10 @@ const entrySchema = z.object({
 
 /** Only a single English headword leaves the app, never the displayed verse.
  * Dictionary meanings are not evidence of alignment to an original-language token. */
-export async function englishDefinition(selection: string) {
+export async function englishDefinition(
+  selection: string,
+  signal?: AbortSignal,
+) {
   const word = selection.trim().toLowerCase();
   if (!/^[a-z]+(?:['’-][a-z]+)*$/.test(word) || word.length > 80)
     return { word: selection.slice(0, 200), entries: [] };
@@ -30,7 +33,11 @@ export async function englishDefinition(selection: string) {
     `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
     {
       redirect: "error",
-      signal: AbortSignal.timeout(8_000),
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(8_000)])
+        : AbortSignal.timeout(8_000),
     },
   );
   if (response.status === 404) return { word, entries: [] };
