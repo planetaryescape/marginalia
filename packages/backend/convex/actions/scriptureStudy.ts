@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../functions";
-import { generateObjectWithFallback } from "../lib/aiModels";
+import { generateObjectWithFallback, underlyingAIError } from "../lib/aiModels";
 import { parseBibleReference } from "../lib/bible";
 import { fetchBiblePassage } from "../lib/bibleProvider";
 import { sharedBibleCache } from "../lib/bibleResourceCache";
@@ -17,6 +17,7 @@ import {
   selectedReference,
   selectedVerses,
 } from "../lib/scriptureStudy";
+import { studyFailureDiagnostic } from "../lib/scriptureStudyDiagnostics";
 import { SCRIPTURE_STUDY_SOURCE_NOTICES } from "../lib/scriptureStudySourceShared";
 import {
   loadAdditionalStudyEvidence,
@@ -145,6 +146,7 @@ export const generate = internalAction({
     const evidence: StudyEvidence[] = [];
     const files = new Map<string, Promise<string>>();
     let failureCode = "retrieval_or_generation_failed";
+    let phase: "setup" | "retrieval" | "generation" | "publication" = "setup";
     const add = async (
       item: Omit<StudyEvidence, "contentHash" | "retrievedAt">,
     ) => {
@@ -185,6 +187,7 @@ export const generate = internalAction({
         );
       }
       const ref = selectedReference(claim.selection, claim.articleReference);
+      phase = "retrieval";
       const contextRef = parseBibleReference(`${ref.book} ${ref.chapter}`);
       if (!contextRef) throw new Error("Could not fetch selected WEB context.");
       const permitted = await interruptible(
@@ -587,6 +590,7 @@ export const generate = internalAction({
       if (!inputKey) throw new Error("Study stopped before generation.");
       await check();
       await check();
+      phase = "generation";
       const result = await generateObjectWithFallback({
         schema: resultSchema,
         targets: [target],
@@ -605,6 +609,7 @@ export const generate = internalAction({
         }),
       });
       await check();
+      phase = "publication";
       const didPublish = await ctx.runMutation(
         internal.scriptureStudyRuns.publish,
         {
@@ -616,7 +621,18 @@ export const generate = internalAction({
         },
       );
       if (!didPublish) throw new Error("Study publication was fenced.");
-    } catch {
+    } catch (error) {
+      if (!attempt.signal.aborted) {
+        console.error(
+          JSON.stringify({
+            event: "scripture_study_failed",
+            runId,
+            phase,
+            modelId: claim.modelId,
+            ...studyFailureDiagnostic(underlyingAIError(error)),
+          }),
+        );
+      }
       await ctx.runMutation(internal.scriptureStudyRuns.fail, {
         runId,
         claimToken,
