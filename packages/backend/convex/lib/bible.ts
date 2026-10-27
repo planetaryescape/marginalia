@@ -172,6 +172,10 @@ export function parseBibleSearchReference(
   if (name.length < 5) return null;
   const near = (a: string, b: string) => {
     if (a[0]?.match(/[1-3]/)?.[0] !== b[0]?.match(/[1-3]/)?.[0]) return false;
+    // Doubling the wrong consonant can take two edits (collosians, Phillipians).
+    // Only discovery tolerates this, and the caller still requires one book match.
+    const singleLetters = (value: string) => value.replace(/([a-z])\1+/g, "$1");
+    if (singleLetters(a) === singleLetters(b)) return true;
     if (Math.abs(a.length - b.length) > 1) return false;
     if (a.length !== b.length) {
       const [short, long] = a.length < b.length ? [a, b] : [b, a];

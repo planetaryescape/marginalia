@@ -210,6 +210,36 @@ describe("topic picker", () => {
   it.each([
     "bible",
     "mixed",
+  ] as const)("shows collosians 2 immediately in %s even when remote search never answers", async (scope) => {
+    suggestBible.mockImplementation(() => new Promise(() => {}));
+    await show({ scope, windowMinutes: 1 });
+    await type("collosians 2");
+    const immediateTitle = title();
+    await settle(250);
+    expect(immediateTitle).toBe("Colossians 2");
+    expect(suggestBible).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
+    await settle(8000);
+    expect(title()).toBe("Colossians 2");
+    expect(suggestBible).not.toHaveBeenCalled();
+    await key("Enter");
+    expect(openBible).toHaveBeenCalledWith({ reference: "Colossians 2" });
+  });
+  it("shows the direct reference without waiting for an older in-flight topic search", async () => {
+    suggestBible.mockImplementation(() => new Promise(() => {}));
+    await show({ scope: "bible" });
+    await type("collosians");
+    await settle(250);
+    expect(suggestBible).toHaveBeenCalledTimes(1);
+    await type("collosians 2");
+    expect(title()).toBe("Colossians 2");
+    await settle(8000);
+    expect(suggestBible).toHaveBeenCalledTimes(1);
+    expect(title()).toBe("Colossians 2");
+  });
+  it.each([
+    "bible",
+    "mixed",
   ] as const)("shows a direct typo-corrected reference immediately in %s without a server or model search", async (scope) => {
     await show({ scope, windowMinutes: 1 });
     await type("colosians 2");
