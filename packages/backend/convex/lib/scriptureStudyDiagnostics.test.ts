@@ -2,6 +2,44 @@ import { describe, expect, it } from "vitest";
 import { studyFailureDiagnostic } from "./scriptureStudyDiagnostics";
 
 describe("study failure diagnostics", () => {
+  it("classifies array-wrapped Google errors and field violations", () => {
+    const error = Object.assign(new Error("Provider returned error"), {
+      statusCode: 400,
+      responseBody: JSON.stringify({
+        error: {
+          message: "Provider returned error",
+          metadata: {
+            raw: JSON.stringify([
+              {
+                error: {
+                  message: "Request contains an invalid argument.",
+                  details: [
+                    {
+                      fieldViolations: [
+                        {
+                          field: "generation_config.responseSchema.$schema",
+                          description:
+                            "Unsupported property: secret private source",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ]),
+          },
+        },
+      }),
+    });
+    const diagnostic = studyFailureDiagnostic(error);
+    expect(diagnostic.signals).toContain("schema");
+    expect(diagnostic.parameters).toEqual(
+      expect.arrayContaining(["$schema", "responseSchema"]),
+    );
+    expect(JSON.stringify(diagnostic)).not.toMatch(
+      /secret|private source|generation_config/,
+    );
+  });
   it("classifies a nested provider rejection without exposing its message", () => {
     const error = Object.assign(new Error("Provider returned error"), {
       statusCode: 400,
@@ -50,8 +88,13 @@ describe("study failure diagnostics", () => {
     const error = Object.assign(new Error("Provider returned error"), {
       responseBody: "private".repeat(3000),
     });
-    expect(studyFailureDiagnostic(error).signals).toEqual([]);
+    expect(studyFailureDiagnostic(error).signals).toEqual(["provider_rejection"]);
     expect(studyFailureDiagnostic(error).parameters).toEqual([]);
+  });
+  it("bounds cyclic provider objects", () => {
+    const data: { error?: unknown } = {};
+    data.error = data;
+    expect(studyFailureDiagnostic({ data }).parameters).toEqual([]);
   });
 
   it("recognizes quota failures and bounds unknown metadata", () => {
