@@ -64,7 +64,7 @@ Press `?` for the current shortcut sheet. Single-key shortcuts pause while typin
 | --- | --- | --- |
 | Everywhere | `g d` or `g h`, `g l`, `g n`, `g r` or `g w`, `g s` | Desk, Library, Notes, Your reading, Saved shelf |
 | Everywhere | `/`, `Escape` | Search (the desk's bar, or the page's own search), close the active card, panel or menu |
-| Desk | `/`, `↑`/`↓`, `Enter` | Open search, move through results, submit a search (or open a focused result) |
+| Desk | `/`, `↑`/`↓`, `Enter` | Open finder, move through live results, open the selected result |
 | Desk | `f`, `1`–`4`, `c`, `Escape` | Cycle source, choose a time, continue reading, clear the chosen time |
 | Desk, with a pick | `Enter` or `o`, `n` or `→`, `←`, `s` | Read now, another pick, previous pick, save for later |
 | Lists | `j`/`k`, `Enter` | Move through rows (arrows too, once a row has focus) and open one |

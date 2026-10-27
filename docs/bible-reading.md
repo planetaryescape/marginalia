@@ -4,7 +4,7 @@ Enable **Your account → Bible reading → Enable Bible reading**. The setting 
 
 ## Find a passage
 
-On Home, use the **Look in** source toggle to choose **Articles only**, **Articles + Bible**, or **Bible only**. The same **Search** entry point and dialog handle every source. Type a topic or passage and choose **Search** (or press Enter); typing alone does not start a topic search. Results name their source and use the same card pattern. Choose a reading-time button before searching to constrain results; its selected time remains until cleared. `/` opens the finder and `F` cycles the enabled source choices. These single-key shortcuts pause while typing or while a modal is open, and respect the account's shortcut opt-out.
+On Home, use the **Look in** source toggle to choose **Articles only**, **Articles + Bible**, or **Bible only**. The same finder handles every source: type a topic or passage and results appear after a short pause. The current result is ready to open with Enter; arrows move through the cards and matching notes. Paste a link and press Enter to save and read it. Choose a reading-time button on Home to constrain results; the selected time remains until cleared and reading durations stay visible on the result cards. `/` opens the finder and `F` cycles the enabled source choices. These single-key shortcuts pause while typing or while a modal is open, and respect the account's shortcut opt-out.
 
 Try these searches:
 
