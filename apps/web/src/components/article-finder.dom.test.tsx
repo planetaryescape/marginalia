@@ -286,7 +286,8 @@ describe("topic picker", () => {
 
   it("does not search while typing; Search and Enter submit the explicit topic query", async () => {
     await show();
-    const input = host.querySelector("input") as HTMLInputElement;
+    const input = host.querySelector("input");
+    if (!input) throw new Error("Expected the finder input");
     const set = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       "value",

@@ -6,7 +6,7 @@ import { useAction, useMutation } from "convex/react";
 import { Link2, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PdfPickerButton } from "@/components/desk/pdf-picker";
 import {
@@ -159,8 +159,6 @@ export function ArticleFinder({
   const text = query.trim();
   const queryRef = useRef(text);
   const scopeRef = useRef(scope);
-  queryRef.current = text;
-  scopeRef.current = scope;
   const isLink = URL_PATTERN.test(text);
   const limit = limitCleared ? null : windowMinutes;
   const submissionKey = (
@@ -173,7 +171,11 @@ export function ArticleFinder({
     submitted.scope === scope &&
     submitted.minutes === limit;
   const activeKey = activeSubmission ? submissionKey(text, scope, limit) : null;
-  intentRef.current = open ? activeKey : null;
+  useLayoutEffect(() => {
+    queryRef.current = text;
+    scopeRef.current = scope;
+    intentRef.current = open ? activeKey : null;
+  }, [text, scope, open, activeKey]);
   const searching =
     open &&
     activeSubmission &&
@@ -457,7 +459,7 @@ export function ArticleFinder({
             setPosition(0);
             setNoteIndex(null);
           }}
-          className="focus-frame flex items-center gap-3 px-4 py-3.5 border-b border-[var(--reader-border)]"
+          className="focus-frame grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3.5 border-b border-[var(--reader-border)] md:flex"
         >
           {isLink ? (
             <Link2 size={19} className="shrink-0 text-[var(--reader-muted)]" />
@@ -504,7 +506,7 @@ export function ArticleFinder({
               type="button"
               onClick={clearLimit}
               aria-label={`Clear the ${limit} minute limit`}
-              className="shrink-0 rounded-full bg-[var(--reader-chip)] px-2.5 py-0.5 text-[12.5px] text-[var(--reader-fg-soft)]"
+              className="col-span-4 row-start-2 justify-self-start shrink-0 rounded-full bg-[var(--reader-chip)] px-2.5 py-0.5 text-[12.5px] text-[var(--reader-fg-soft)]"
             >
               within {limit} min ×
             </button>
