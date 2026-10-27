@@ -6,6 +6,7 @@ import {
   generateObject,
   NoObjectGeneratedError,
   RetryError,
+  type Schema,
 } from "ai";
 import { ConvexError } from "convex/values";
 import { toJSONSchema, type ZodType } from "zod";
@@ -94,6 +95,8 @@ function isRetryableError(error: unknown): boolean {
 
 export async function generateObjectWithFallback<T>(options: {
   schema: ZodType<T>;
+  /** Optional provider wire schema; the full local schema remains authoritative. */
+  providerSchema?: Schema<T>;
   prompt?: string;
   system?: string;
   /** The reader's own models, tried in order after a retryable failure. */
@@ -204,6 +207,7 @@ async function generateParsedObject<T>(
   model: ReturnType<typeof languageModel>,
   options: {
     schema: ZodType<T>;
+    providerSchema?: Schema<T>;
     prompt?: string;
     system?: string;
     maxOutputTokens?: number;
@@ -213,10 +217,10 @@ async function generateParsedObject<T>(
   for (let attempt = 1; ; attempt++) {
     options.signal.throwIfAborted();
     try {
-      const result = await generateObject<ZodType<T>, "object">({
+      const result = await generateObject<ZodType<T> | Schema<T>, "object">({
         model,
         output: "object",
-        schema: options.schema,
+        schema: options.providerSchema ?? options.schema,
         prompt: options.prompt ?? "",
         system: options.system,
         maxOutputTokens: options.maxOutputTokens,
