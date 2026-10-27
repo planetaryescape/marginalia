@@ -24,6 +24,29 @@ afterEach(() => {
 });
 
 describe("Scripture Study scope from the actual selected endpoints", () => {
+  it("resolves a final coherent paragraph when the browser ends the highlight just after the passage body", () => {
+    const body = fixture(
+      '<div class="p"><span class="yv-v" v="20"></span><span class="yv-vlbl">20</span><span id="first">Since you died with Christ.</span> <span class="yv-v" v="21"></span><span>Do not handle.</span> <span class="yv-v" v="22"></span><span>Human teachings.</span> <span class="yv-v" v="23"></span><mark><span class="yv-vlbl">23</span><span>Regulations and wisdom.</span><sup>1</sup></mark></div>',
+    );
+    const range = document.createRange();
+    range.setStart(document.querySelector("#first")!.firstChild!, 0);
+    range.setEnd(body.parentElement!, 1);
+    expect(range.toString()).toContain("Regulations and wisdom.");
+    expect(
+      resolveStudySelection(
+        "Colossians 2",
+        "2:20 Source twenty.\n\n2:21 Source twenty-one.\n\n2:22 Source twenty-two.\n\n2:23 Source twenty-three.",
+        body,
+        range,
+      ),
+    ).toEqual({
+      referenceKey: "COL.2.20-COL.2.23",
+      startVerseId: "COL.2.20",
+      endVerseId: "COL.2.23",
+      versificationId: "web",
+    });
+  });
+
   it("resolves empty numeric verse markers across continued blocks and excludes footnote bodies", () => {
     const body = fixture(
       '<div class="q1"><span class="yv-v" v="4"></span><span class="yv-vlbl">4</span><span id="first">Displayed beginning</span><span class="yv-n">Footnote, not evidence</span></div><div class="q2"><span id="continued">continued text</span></div><div class="q1"><span class="yv-v" v="5"></span><span id="middle">Next displayed verse</span></div><div class="q1"><span class="yv-v" v="6"></span><span id="last">Displayed ending</span></div>',
@@ -59,6 +82,35 @@ describe("Scripture Study scope from the actual selected endpoints", () => {
         selected("#first", "#last", 0),
       )?.referenceKey,
     ).toBe("PSA.23.4");
+  });
+
+  it("accepts whitespace-only outer boundaries without mutating the caller's range", () => {
+    const body = fixture('<p id="PSA.23.4">Four</p>');
+    body.before(document.createTextNode("\n "));
+    body.after(document.createTextNode("\n "));
+    const range = document.createRange();
+    range.selectNodeContents(body.parentElement!);
+    const before = range.cloneRange();
+    expect(
+      resolveStudySelection("Psalms 23", SOURCE, body, range)?.referenceKey,
+    ).toBe("PSA.23.4");
+    expect(range.compareBoundaryPoints(Range.START_TO_START, before)).toBe(0);
+    expect(range.compareBoundaryPoints(Range.END_TO_END, before)).toBe(0);
+  });
+
+  it.each([
+    "before",
+    "after",
+  ])("rejects actual non-passage text %s the primary body", (side) => {
+    const body = fixture('<p id="PSA.23.4">Four</p>');
+    const outside = document.createElement("p");
+    outside.textContent =
+      "Summary or comparison wording is not the primary passage";
+    if (side === "before") body.before(outside);
+    else body.after(outside);
+    const range = document.createRange();
+    range.selectNodeContents(body.parentElement!);
+    expect(resolveStudySelection("Psalms 23", SOURCE, body, range)).toBeNull();
   });
 
   it("uses real WEB paragraph identities without requiring a licensed display", () => {
