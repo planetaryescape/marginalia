@@ -15,6 +15,7 @@ import {
   findings,
   selection,
   studyFixture,
+  teaching,
 } from "../test/scriptureStudy";
 
 const setup = () => studyFixture(modules);
@@ -28,6 +29,94 @@ afterEach(() => {
 });
 
 describe("selected Scripture Study public lifecycle", () => {
+  it("distinguishes a legacy result without teaching from a new degraded teaching without regenerating it", async () => {
+    const { t, args, model } = await setup();
+    const run = await t.mutation(api.scriptureStudy.start, args);
+    await t.action(internal.actions.scriptureStudy.generate, {
+      runId: run.runId,
+    });
+    await t.run((ctx) =>
+      ctx.db.patch(run.runId, {
+        teaching: undefined,
+        version: "selected-study-context-repair-v2",
+        outcome: "partial",
+        generation: {
+          modelAttempts: 2,
+          repairAttempted: true,
+          correctedCitations: 0,
+          omittedFindings: 1,
+        },
+      }),
+    );
+    expect(
+      (await t.query(api.scriptureStudy.get, { studyId: run.studyId }))
+        .publishedRun?.teachingState,
+    ).toBe("legacy");
+    expect(model).toHaveBeenCalledTimes(1);
+  });
+  it("retrieves useful same-book Scripture connections rather than discarding them", async () => {
+    const { t, args, fetch } = await setup();
+    const original = fetch.getMockImplementation();
+    if (!original) throw new Error("Missing source fixture");
+    fetch.mockImplementation(async (input) => {
+      const response = await original(input);
+      if (new URL(input).pathname.endsWith("43.content.json")) {
+        const notes = await response.json();
+        notes[0].content =
+          '<p>See the continuation.</p><data class="bible-ref" data-start-ref="43001004" data-end-ref="43001004">John 1:4</data>';
+        return Response.json(notes);
+      }
+      return response;
+    });
+    const run = await t.mutation(api.scriptureStudy.start, args);
+    await t.action(internal.actions.scriptureStudy.generate, {
+      runId: run.runId,
+    });
+    expect(
+      await t.query(api.scriptureStudy.evidence, {
+        runId: run.runId,
+        evidenceId: "related-1",
+      }),
+    ).toMatchObject({
+      referenceKey: "JHN.1.4",
+      excerpt: expect.stringContaining("Public WEB verse four"),
+    });
+  });
+  it("independently rejects an invented teaching citation at the publication boundary", async () => {
+    const { t, args, model } = await setup();
+    const run = await t.mutation(api.scriptureStudy.start, args);
+    model.mockImplementationOnce(async (options) => {
+      const state = await t.run((ctx) => ctx.db.get(run.runId));
+      if (!state?.claimToken || !state.inputKey)
+        throw new Error("Missing publication lease");
+      await expect(
+        t.mutation(internal.scriptureStudyRuns.publish, {
+          runId: run.runId,
+          claimToken: state.claimToken,
+          inputKey: state.inputKey,
+          modelId: state.modelId,
+          resultJson: JSON.stringify({
+            findings,
+            teaching: {
+              ...teaching,
+              context: {
+                ...teaching.context,
+                evidenceIds: ["invented-source"],
+              },
+            },
+          }),
+        }),
+      ).rejects.toThrow("Unknown evidence");
+      return { object: { findings, teaching }, modelId: options.targets[0].id };
+    });
+    await t.action(internal.actions.scriptureStudy.generate, {
+      runId: run.runId,
+    });
+    expect(
+      (await t.query(api.scriptureStudy.get, { studyId: run.studyId }))
+        .publishedRun?.teaching,
+    ).toEqual(teaching);
+  });
   it("retrieves adjacent permitted context even when the saved reading is only the selected range", async () => {
     const { t, args, model } = await setup();
     const narrowed = content.split("\n\n").slice(0, 2).join("\n\n");
@@ -68,6 +157,7 @@ describe("selected Scripture Study public lifecycle", () => {
     const { t, args, fetch, model } = await setup();
     model.mockImplementationOnce(async (options) => ({
       object: {
+        teaching,
         findings: [
           {
             ...findings[0],
@@ -101,7 +191,7 @@ describe("selected Scripture Study public lifecycle", () => {
     expect(result.activeRun).toBeNull();
     expect(result.publishedRun).toMatchObject({
       status: "complete",
-      outcome: "partial",
+      outcome: "findings",
     });
     expect(
       result.publishedRun?.coverage.find((c) => c.lens === "textual_criticism")
@@ -258,7 +348,7 @@ describe("selected Scripture Study public lifecycle", () => {
       evidenceIds: ["web-1", "source-2"],
     };
     model.mockImplementationOnce(async (options) => ({
-      object: { findings: [textualFinding] },
+      object: { findings: [textualFinding], teaching },
       modelId: options.targets[0].id,
     }));
     const valid = await t.mutation(api.scriptureStudy.start, changedArgs);

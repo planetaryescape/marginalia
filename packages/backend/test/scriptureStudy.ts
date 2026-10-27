@@ -29,6 +29,30 @@ export const findings = [
     relatedPassages: [],
   },
 ];
+export const teaching = {
+  title: "Read the opening as a connected passage",
+  centralReading: {
+    text: "The repeated phrase connects the supplied verses rather than starting an unrelated claim.",
+    evidenceIds: ["web-1"],
+  },
+  context: {
+    text: "This synthetic fixture supplies an opening and its immediate continuation, not historical background.",
+    evidenceIds: ["web-1"],
+  },
+  application: {
+    principle: {
+      text: "The repetition asks the reader to relate the two sentences.",
+      evidenceIds: ["web-1"],
+    },
+    today:
+      "For example, read both sentences together before building a claim from one phrase.",
+    boundary: {
+      text: "A repeated phrase alone does not establish that every context uses it the same way.",
+      evidenceIds: ["web-1"],
+    },
+    derivedFromFindingIds: ["word-repetition"],
+  },
+};
 function providers() {
   return vi.fn(async (input: string) => {
     const url = new URL(input);
@@ -99,8 +123,11 @@ function providers() {
     throw new Error(`Unexpected retrieval origin: ${url.hostname}`);
   });
 }
-export async function studyFixture(modules: Parameters<typeof ownerTest>[0]) {
-  const t = await ownerTest(modules);
+export async function studyFixture(
+  modules: Parameters<typeof ownerTest>[0],
+  client?: Awaited<ReturnType<typeof ownerTest>>,
+) {
+  const t = client ?? (await ownerTest(modules));
   await t.mutation(api.bible.setPreferences, { enabled: true });
   await saveTestCredential(t, "default_user", "anthropic", "synthetic-key");
   const articleId = await t.run((ctx) =>
@@ -147,7 +174,7 @@ export async function studyFixture(modules: Parameters<typeof ownerTest>[0]) {
   const model = vi
     .spyOn(aiModels, "generateObjectWithFallback")
     .mockImplementation(async (options) => ({
-      object: { findings },
+      object: { findings, teaching },
       modelId: options.targets[0].id,
     }));
   const args = {

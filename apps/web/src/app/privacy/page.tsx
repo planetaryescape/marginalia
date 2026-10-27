@@ -9,7 +9,10 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy">
+    <LegalPage
+      title="Privacy Policy"
+      updatedAt={{ dateTime: "2026-10-27", label: "27 October 2026" }}
+    >
       <p>
         Marginalia is a free, invite-only reading app operated by Bhekani
         Khumalo. This policy describes this service, not independently hosted
@@ -66,13 +69,19 @@ export default function PrivacyPage() {
         not limited to messages you explicitly send in chat.
       </p>
       <p>
-        Deep Study sends the selected public-domain WEB verses, bounded WEB
-        context and permitted source excerpts to your configured AI provider. It
-        saves the selection, source identities, retrieved evidence and result in
-        your private library. It does not use the licensed Bible display wording
-        as study evidence. Keeping a cited reference saves its reference, reason
-        and source connection; it does not fetch that passage or contact an AI
-        provider.
+        Deep Study sends public-domain WEB verses, chapter context, relevant
+        saved note prose and permitted source excerpts to your configured AI
+        provider. Notes provide personal context, not instructions or scholarly
+        evidence. Unsaved drafts, highlights and selected wording from a
+        licensed display are not included as study context. It saves the
+        selection, source identities, retrieved evidence and result in your
+        private library. It does not use the licensed Bible display wording as
+        study evidence. Follow-up questions send your question, recent
+        conversation and the saved study and sources to the provider; completed
+        questions and answers stay with that study. See{" "}
+        <Link href="/help/deep-study">How Deep study works</Link>. Keeping a
+        cited reference saves its reference, reason and source connection; it
+        does not fetch that passage or contact an AI provider.
       </p>
       <p>
         Providers apply their own privacy, retention and model-training terms.

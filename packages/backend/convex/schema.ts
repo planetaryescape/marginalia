@@ -25,7 +25,9 @@ import {
   outcomeValidator,
   runStatusValidator,
   selectionValidator,
+  teachingValidator,
 } from "./lib/scriptureStudy";
+import { studyAnswerValidator } from "./lib/scriptureStudyFollowUps";
 import { tagAliasTables } from "./lib/tagAliasSchema";
 import { tagVectorTables } from "./lib/tagVectorSchema";
 import { tagVocabularyTables } from "./lib/tagVocabularySchema";
@@ -47,6 +49,28 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  scriptureStudyFollowUps: defineTable({
+    userId: v.string(),
+    runId: v.id("scriptureStudyRuns"),
+    requestKey: v.string(),
+    question: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("complete"),
+      v.literal("cancelled"),
+      v.literal("failed"),
+    ),
+    leaseUntil: v.number(),
+    modelPolicyHash: v.string(),
+    credentialHash: v.string(),
+    modelId: v.string(),
+    token: v.optional(v.string()),
+    answer: v.optional(studyAnswerValidator),
+  })
+    .index("by_runId", ["runId"])
+    .index("by_userId_and_requestKey", ["userId", "requestKey"])
+    .index("by_userId", ["userId"]),
   ...scriptureKeepTables,
   scriptureStudyRequests: defineTable({
     userId: v.string(),
@@ -98,6 +122,7 @@ export default defineSchema({
     coverage: v.optional(v.array(coverageValidator)),
     evidence: v.optional(v.array(evidenceValidator)),
     contextSummary: v.optional(contextSummaryValidator),
+    teaching: v.optional(teachingValidator),
     contextHash: v.optional(v.string()),
     generation: v.optional(generationValidator),
     purgeAt: v.optional(v.number()),

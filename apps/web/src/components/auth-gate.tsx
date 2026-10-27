@@ -58,7 +58,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   useReaderTheme(settings);
   const pathname = usePathname();
   // Only these static notices are public; every reading route stays gated.
-  if (pathname === "/privacy" || pathname === "/terms") return children;
+  if (
+    pathname === "/privacy" ||
+    pathname === "/terms" ||
+    pathname === "/help/deep-study"
+  )
+    return children;
   return <ReaderAccessGate>{children}</ReaderAccessGate>;
 }
 

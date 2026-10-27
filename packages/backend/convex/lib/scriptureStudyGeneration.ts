@@ -19,6 +19,7 @@ import type {
   studyChapterContext,
 } from "./scriptureStudyContext";
 import { studyProviderSchema } from "./scriptureStudyModelSchema";
+import { STUDY_TEACHING_PROMPT } from "./scriptureStudyPrompt";
 
 const FEEDBACK = {
   "Invalid finding identity or WEB quotation.": {
@@ -56,6 +57,20 @@ const FEEDBACK = {
     instruction:
       "Shorten the findings to fit the output limit without losing their verified evidence.",
   },
+  "Teaching paragraphs must cite supplied WEB evidence.": {
+    code: "unsupported_teaching",
+    instruction:
+      "Ground every teaching paragraph in supplied WEB evidence and cite it; omit unsupported claims.",
+  },
+  "A teaching requires verified findings.": {
+    code: "unsupported_teaching",
+    instruction: "Return teaching: null when there are no verified findings.",
+  },
+  "Application must derive from verified finding steps.": {
+    code: "unsupported_application",
+    instruction:
+      "Use only published draft findingIds in application.derivedFromFindingIds; show the warranted bridge from those steps, or omit the unsupported teaching.",
+  },
 } as const;
 type Feedback = { findingId?: string; code: string; instruction: string };
 
@@ -74,6 +89,7 @@ export function reviewStudyDraft(
   const feedback: Feedback[] = [];
   for (const original of draft.findings) {
     let finding = original;
+    let corrected = false;
     const anchors = evidence.filter(
       (item) =>
         item.source.id === "web" &&
@@ -95,7 +111,7 @@ export function reviewStudyDraft(
         ...original,
         evidenceIds: [...original.evidenceIds, anchors[0].evidenceId],
       };
-      correctedCitations++;
+      corrected = true;
     }
     amended.push(finding);
     try {
@@ -106,6 +122,7 @@ export function reviewStudyDraft(
         selection,
       );
       accepted.push(finding);
+      if (corrected) correctedCitations++;
     } catch (error) {
       const detail =
         error instanceof Error
@@ -117,9 +134,31 @@ export function reviewStudyDraft(
       feedback.push({ findingId: finding.findingId, ...detail });
     }
   }
+  // Do not retain an overarching explanation whose supporting steps were omitted.
+  const complete: StudyResult = { ...draft, findings: amended };
+  if (draft.teaching) {
+    try {
+      validateResult(
+        { findings: accepted, teaching: draft.teaching },
+        evidence,
+        verses,
+        selection,
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? Object.entries(FEEDBACK).find(
+              ([message]) => message === error.message,
+            )?.[1]
+          : null;
+      if (!detail) throw error;
+      feedback.push(detail);
+    }
+  }
+  const verified: StudyResult = { findings: accepted };
   return {
-    draft: { findings: amended },
-    accepted: { findings: accepted },
+    draft: complete,
+    accepted: verified,
     feedback,
     correctedCitations,
   };
@@ -193,7 +232,7 @@ export async function generateStudyWithRepair(options: {
         deadlineMs: Math.max(1, options.leaseUntil - Date.now()),
         signal: options.signal,
         onFailure: options.onFailure,
-        system: STUDY_SYSTEM_PROMPT,
+        system: `${STUDY_SYSTEM_PROMPT}\n${STUDY_TEACHING_PROMPT}`,
         prompt: JSON.stringify(prompt),
       });
       draft = resultSchema.parse(result.object);
@@ -226,8 +265,22 @@ export async function generateStudyWithRepair(options: {
       options.verses,
       options.input.selection,
     );
-    if (reviewed.accepted.findings.length) verifiedFallback = reviewed;
     feedback = reviewed.feedback;
+    if (draft.findings.length && !draft.teaching)
+      feedback.push({
+        code: "missing_teaching",
+        instruction:
+          "Add a connected teaching with centralReading, context and justified application (principle, nullable today illustration, boundary, derivedFromFindingIds). Cite WEB evidence on textual claims, not the modern illustration. Do not merely relabel or repeat the findings.",
+      });
+    if (
+      reviewed.accepted.findings.length &&
+      feedback.length &&
+      reviewed.accepted.findings.length >=
+        (verifiedFallback?.accepted.findings.length ?? 0)
+    )
+      verifiedFallback = reviewed;
+    // A repair's empty result must not erase an already verified subset.
+    if (!draft.findings.length && attempt > 1) break;
     if (!feedback.length)
       return {
         object: reviewed.draft,
@@ -249,7 +302,10 @@ export async function generateStudyWithRepair(options: {
         modelAttempts: STUDY_LIMITS.modelAttempts,
         repairAttempted: true,
         correctedCitations: verifiedFallback.correctedCitations,
-        omittedFindings: verifiedFallback.feedback.length,
+        omittedFindings: verifiedFallback.feedback.filter(
+          (item) => item.findingId,
+        ).length,
+        teachingOmitted: true,
       },
     };
   throw new StudyRepairExhaustedError();

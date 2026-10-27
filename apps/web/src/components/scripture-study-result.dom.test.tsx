@@ -2,6 +2,7 @@
 import type {
   StudyEvidence,
   StudyFinding,
+  StudyTeaching,
 } from "@marginalia/backend/scripture-study";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -78,6 +79,92 @@ function button(text: string) {
 }
 
 describe("Study findings stay in the reading", () => {
+  it("reads as one study with visible interpretation and application, and one named Sources disclosure", () => {
+    const p = (text: string) => ({ text, evidenceIds: ["web-selection"] });
+    const teaching: StudyTeaching = {
+      title: "Presence amid danger",
+      centralReading: p(
+        "The psalm finds confidence in presence, not an absence of danger.",
+      ),
+      context: p(
+        "The speaker's description becomes a direct address to the shepherd.",
+      ),
+      application: {
+        principle: p(
+          "The address grounds confidence in the shepherd's presence.",
+        ),
+        today:
+          "A reader might pray honestly about fear rather than pretend it is absent.",
+        boundary: p(
+          "The valley is still present; this does not promise a life without danger.",
+        ),
+        derivedFromFindingIds: ["address-shift"],
+      },
+    };
+    const inspect = vi.fn(() => <ScriptureStudyEvidence evidence={evidence} />);
+    act(() =>
+      root.render(
+        <ScriptureStudyResult
+          findings={[
+            {
+              ...finding,
+              heading: "From description to prayer",
+              interpretations: [
+                {
+                  position:
+                    "A supplied source understands this as direct address.",
+                  evidenceIds: ["commentary-note"],
+                  limitations: ["Only one commentary position was supplied."],
+                },
+              ],
+            },
+          ]}
+          teaching={teaching}
+          sources={[
+            {
+              evidenceId: "web-selection",
+              title: "World English Bible",
+              referenceKey: "PSA.23.4-PSA.23.6",
+            },
+            {
+              evidenceId: "commentary-note",
+              title: "Aquifer Open Study Notes",
+              referenceKey: "PSA.23.4",
+            },
+          ]}
+          outcome="findings"
+          renderEvidence={inspect}
+          onAnchor={vi.fn()}
+          onKeep={vi.fn()}
+        />,
+      ),
+    );
+    expect(host.querySelectorAll("details")).toHaveLength(1);
+    expect(host.querySelector("summary")?.textContent).toBe("Sources");
+    expect(host.querySelector("details")?.open).toBe(false);
+    expect(host.querySelector("h2")?.textContent).toBe("Presence amid danger");
+    expect(
+      host.querySelector('[aria-label="Reading this passage today"]')
+        ?.textContent,
+    ).toContain("this does not promise a life without danger");
+    expect(
+      host
+        .querySelector('[aria-label="Literary shape"]')
+        ?.querySelector("details"),
+    ).toBeNull();
+    expect(host.textContent).toContain(
+      "Only one commentary position was supplied",
+    );
+    expect(host.textContent).not.toContain("commentary-note");
+    expect(inspect).not.toHaveBeenCalled();
+    const citation = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Source 2: Aquifer Open Study Notes · Psalms 23:4"]',
+    );
+    expect(citation).not.toBeNull();
+    act(() => citation?.click());
+    expect(host.querySelector("details")?.open).toBe(true);
+    expect(inspect).toHaveBeenCalledWith("commentary-note");
+  });
   it("opens saved evidence only on demand and jumps to the actual anchor", () => {
     const inspect = vi.fn(() => <ScriptureStudyEvidence evidence={evidence} />);
     const jump = vi.fn();
@@ -189,5 +276,24 @@ describe("Study findings stay in the reading", () => {
     expect(studyReferenceLabel("PSA.23.4-PSA.23.6")).toBe("Psalms 23:4–6");
     expect(studyReferenceLabel("JHN.1.18")).toBe("John 1:18");
     expect(studyReferenceLabel("constructor")).toBe("constructor");
+  });
+  it("does not render an empty Sources drawer or source zero when a saved source is unavailable", () => {
+    act(() =>
+      root.render(
+        <ScriptureStudyResult
+          findings={[]}
+          outcome="insufficient_evidence"
+          onAnchor={vi.fn()}
+          onKeep={vi.fn()}
+          renderEvidence={() => null}
+          renderFollowUps={(citations) => (
+            <div>{citations(["missing-source"])}</div>
+          )}
+        />,
+      ),
+    );
+    expect(host.querySelector("details")).toBeNull();
+    expect(host.textContent).not.toContain("[0]");
+    expect(host.textContent).toContain("Saved source unavailable");
   });
 });

@@ -1,9 +1,11 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
+import type { StudyTeaching } from "@marginalia/backend/scripture-study";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { Skeleton, SkeletonBar } from "./in-place";
+import { ScriptureStudyFollowUps } from "./scripture-study-follow-ups";
 import {
   ScriptureStudyEvidence,
   ScriptureStudyResult,
@@ -32,6 +34,7 @@ export function ScriptureStudyContent({
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const mounted = useRef(true);
+  const operation = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -45,7 +48,8 @@ export function ScriptureStudyContent({
   }, [onRun, runId, studyId]);
   const running = run?.status === "running" || run?.status === "queued";
   const replace = async () => {
-    if (busy || running) return;
+    if (operation.current || running) return;
+    operation.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -67,49 +71,50 @@ export function ScriptureStudyContent({
             : "The study could not start. Try again.",
         );
     } finally {
+      operation.current = false;
       if (mounted.current) setBusy(false);
     }
   };
   const stop = async () => {
-    if (!runId || busy) return;
+    if (!runId || operation.current) return;
+    operation.current = true;
     setBusy(true);
     setError(null);
     try {
       await cancel({ studyId, runId });
     } catch {
-      setError("Cancellation could not be confirmed. Try Stop again.");
+      if (mounted.current)
+        setError("Cancellation could not be confirmed. Try Stop again.");
     } finally {
-      setBusy(false);
+      operation.current = false;
+      if (mounted.current) setBusy(false);
     }
   };
   const forget = async () => {
-    if (busy) return;
+    if (operation.current) return;
+    operation.current = true;
     setBusy(true);
     setError(null);
     try {
       await remove({ studyId });
-      onRemoved();
+      if (mounted.current) onRemoved();
     } catch {
-      setError("This study could not be deleted. Try again.");
+      if (mounted.current)
+        setError("This study could not be deleted. Try again.");
     } finally {
-      setBusy(false);
+      operation.current = false;
+      if (mounted.current) setBusy(false);
     }
   };
   if (!study) return <StudySkeleton />;
   return (
     <>
-      <p className="mb-6 font-sans text-[14px] leading-relaxed text-[var(--ink-muted)]">
-        This study covers the containing verses, using WEB evidence. The wording
-        in your displayed edition may differ; no English-to-original-word
-        alignment is assumed. Saved notes from this chapter may be used as
-        personal context, never as instructions or scholarly evidence.
-      </p>
       {running && (
         <div className="mb-8">
           <p role="status" className="font-sans text-[14px]">
             {run.status === "queued"
               ? "Study queued."
-              : "Reviewing permitted evidence and preparing findings."}{" "}
+              : "Preparing your study."}{" "}
             You can keep reading.
           </p>
           <button
@@ -132,44 +137,31 @@ export function ScriptureStudyContent({
       {run && (run.status === "failed" || run.status === "cancelled") && (
         <p role="status" className="mb-5 font-sans text-[14px] leading-relaxed">
           {run.status === "cancelled"
-            ? "This study was stopped. Already submitted provider work may still incur cost."
+            ? "Study stopped."
             : run.errorCode === "model_output_limit_unavailable"
               ? "Your selected deep model cannot enforce this study's output limit. Choose a compatible API model in reading settings, then select the verses again."
               : run.errorCode === "findings_not_verified"
-                ? "The study could not verify its findings after the bounded correction attempt. No unverified findings were published; any previous completed result remains below."
-                : "This study could not finish. You can retry explicitly; any previous completed result remains below."}
+                ? "We couldn’t verify this study. You can try again."
+                : "This study could not finish. You can try again."}
+          {run.status === "failed" &&
+            study.publishedRun &&
+            " Your previous study is still available below."}
         </p>
       )}
       {study.publishedRun &&
-        (study.publishedRun.coverage.some((item) =>
-          item.reviewedSourceIds.includes("aquifer-open-study-notes"),
-        ) ? (
-          <p className="mb-6 border-l border-[var(--pencil-rule)] pl-4 font-sans text-[13px] leading-relaxed text-[var(--ink-muted)]">
-            These findings include AI-generated adaptations of Aquifer Open
-            Study Notes, adapted by Mission Mutual © 2026 from Tyndale Open
-            Study Notes © 2023 Tyndale House Publishers. The adapted findings
-            and note excerpts are offered under{" "}
-            <a
-              href="https://creativecommons.org/licenses/by-sa/4.0/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-4"
-            >
-              CC BY-SA 4.0
-            </a>
-            . Changes include excerpting, plain-text conversion and AI analysis.
-            This source license does not change the app’s license.
-          </p>
-        ) : null)}
-      {study.publishedRun &&
-        (study.publishedRun.generation?.omittedFindings ? (
+        (study.publishedRun.generation?.omittedFindings ||
+        study.publishedRun.teachingState === "omitted" ? (
           <p
             role="status"
             className="mb-5 font-sans text-[14px] leading-relaxed"
           >
-            This is a partial result.{" "}
-            {study.publishedRun.generation.omittedFindings} finding(s) could not
-            be verified after correction and were omitted.
+            {study.publishedRun.generation?.omittedFindings
+              ? study.publishedRun.generation.omittedFindings === 1
+                ? "One finding was left out because it could not be verified."
+                : `${study.publishedRun.generation.omittedFindings} findings were left out because they could not be verified.`
+              : "The connected teaching could not be verified."}
+            {study.publishedRun.teachingState === "omitted" &&
+              " Only the verified observations are shown; the connected teaching was withheld."}
           </p>
         ) : null)}
       {study.publishedRun && (
@@ -177,6 +169,8 @@ export function ScriptureStudyContent({
           key={study.publishedRun.runId}
           runId={study.publishedRun.runId}
           outcome={study.publishedRun.outcome}
+          teaching={study.publishedRun.teaching}
+          sources={study.publishedRun.sources}
           onAnchor={onAnchor}
         />
       )}
@@ -185,6 +179,26 @@ export function ScriptureStudyContent({
           <summary className="cursor-pointer text-[var(--pencil)]">
             Coverage and limits
           </summary>
+          {study.publishedRun.coverage.some((item) =>
+            item.reviewedSourceIds.includes("aquifer-open-study-notes"),
+          ) && (
+            <p className="mt-4 border-l border-[var(--pencil-rule)] pl-4 text-[13px] text-[var(--ink-muted)]">
+              This study includes AI-generated adaptations of Aquifer Open Study
+              Notes, adapted by Mission Mutual © 2026 from Tyndale Open Study
+              Notes © 2023 Tyndale House Publishers. Study commentary, follow-up
+              answers and note excerpts based on this source are offered under{" "}
+              <a
+                href="https://creativecommons.org/licenses/by-sa/4.0/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-4"
+              >
+                CC BY-SA 4.0
+              </a>
+              . Changes include excerpting, plain-text conversion and AI
+              analysis. This source license does not change the app’s license.
+            </p>
+          )}
           {study.publishedRun.contextSummary && (
             <div className="mt-4 space-y-2">
               <p>
@@ -256,7 +270,7 @@ export function ScriptureStudyContent({
         )}
         {confirmRemove ? (
           <span>
-            Delete this study?{" "}
+            Delete this study? Your notes and marks will stay.{" "}
             <button
               type="button"
               disabled={busy}
@@ -279,9 +293,15 @@ export function ScriptureStudyContent({
           </button>
         )}
         <p className="mt-3 text-[12px] leading-relaxed text-[var(--ink-muted)]">
-          Reopening this saved result does not generate again. Refresh and Retry
-          are new bounded requests. Deleting a study does not delete your notes
-          or marks.
+          <a
+            href="/help/deep-study"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-4"
+          >
+            How Deep study works
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
         </p>
         {error && (
           <p role="alert" className="mt-3 text-[var(--danger)]">
@@ -296,10 +316,14 @@ export function ScriptureStudyContent({
 function PublishedStudy({
   runId,
   outcome,
+  teaching,
+  sources,
   onAnchor,
 }: {
   runId: Id<"scriptureStudyRuns">;
   outcome: string | null;
+  teaching?: StudyTeaching | null;
+  sources?: { evidenceId: string; title: string; referenceKey: string }[];
   onAnchor: (verseId: string) => void;
 }) {
   const result = useQuery(api.scriptureStudy.findings, {
@@ -311,6 +335,11 @@ function PublishedStudy({
   return (
     <ScriptureStudyResult
       findings={result.page}
+      teaching={teaching}
+      sources={sources}
+      renderFollowUps={(citations) => (
+        <ScriptureStudyFollowUps runId={runId} renderCitations={citations} />
+      )}
       outcome={outcome}
       onAnchor={onAnchor}
       renderEvidence={(evidenceId) => (

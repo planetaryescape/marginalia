@@ -5,9 +5,11 @@ import { LegalFooter } from "./legal-footer";
 export function LegalPage({
   title,
   children,
+  updatedAt = { dateTime: "2026-10-26", label: "26 October 2026" },
 }: {
   title: string;
   children: ReactNode;
+  updatedAt?: { dateTime: string; label: string } | null;
 }) {
   return (
     <div className="min-h-dvh bg-[var(--reader-bg)] text-[var(--reader-fg)] font-sans">
@@ -23,9 +25,12 @@ export function LegalPage({
         <h1 className="font-serif text-4xl sm:text-5xl text-balance">
           {title}
         </h1>
-        <p className="mt-4 text-sm text-[var(--reader-fg-soft)]">
-          Last updated: <time dateTime="2026-10-26">26 October 2026</time>
-        </p>
+        {updatedAt && (
+          <p className="mt-4 text-sm text-[var(--reader-fg-soft)]">
+            Last updated:{" "}
+            <time dateTime={updatedAt.dateTime}>{updatedAt.label}</time>
+          </p>
+        )}
         <article className="mt-10 space-y-5 text-base leading-7 text-[var(--reader-fg-soft)] [&_h2]:pt-6 [&_h2]:font-serif [&_h2]:text-2xl [&_h2]:text-[var(--reader-fg)] [&_a]:underline [&_a]:underline-offset-4 [&_ul]:list-disc [&_ul]:space-y-3 [&_ul]:pl-5">
           {children}
         </article>

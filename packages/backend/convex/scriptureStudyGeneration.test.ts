@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { NoObjectGeneratedError } from "ai";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { findings, studyFixture } from "../test/scriptureStudy";
+import { findings, studyFixture, teaching } from "../test/scriptureStudy";
 import { api, internal } from "./_generated/api";
 
 const dispatched = vi.fn();
@@ -71,6 +71,86 @@ it("publishes legitimate empty output through the actual generation helper", asy
       .publishedRun,
   ).toMatchObject({ status: "complete", outcome: "no_meaningful_findings" });
 });
+it("does not mistake fully cited but disconnected findings for a completed teaching", async () => {
+  const { t, args, model } = await studyFixture(modules);
+  model.mockRestore();
+  dispatched.mockResolvedValue({ object: { findings } });
+  const run = await t.mutation(api.scriptureStudy.start, args);
+  await t.action(internal.actions.scriptureStudy.generate, {
+    runId: run.runId,
+  });
+  expect(dispatched).toHaveBeenCalledTimes(2);
+  expect(
+    JSON.parse(dispatched.mock.calls[1][0].prompt).validationFeedback,
+  ).toMatchObject([{ code: "missing_teaching" }]);
+  const result = await t.query(api.scriptureStudy.get, {
+    studyId: run.studyId,
+  });
+  expect(result.publishedRun).toMatchObject({
+    outcome: "partial",
+    teaching: null,
+    teachingState: "omitted",
+    generation: { teachingOmitted: true },
+  });
+  expect(result.activeRun).toBeNull();
+});
+
+it.each([
+  "empty",
+  "fixed_without_teaching",
+  "fixed_with_invalid_teaching",
+] as const)("retains the best verified steps after a repair returns %s", async (kind) => {
+  const { t, args, model } = await studyFixture(modules);
+  model.mockRestore();
+  const second = { ...findings[0], findingId: "second-step" };
+  dispatched.mockResolvedValueOnce({
+    object: {
+      findings: [
+        findings[0],
+        { ...second, anchor: { ...second.anchor, quote: "INVALID_QUOTE" } },
+      ],
+    },
+  });
+  dispatched.mockResolvedValueOnce({
+    object:
+      kind === "empty"
+        ? { findings: [], teaching: null }
+        : kind === "fixed_with_invalid_teaching"
+          ? {
+              findings: [findings[0], second],
+              teaching: {
+                ...teaching,
+                context: { ...teaching.context, evidenceIds: ["invented"] },
+              },
+            }
+          : { findings: [findings[0], second] },
+  });
+  const run = await t.mutation(api.scriptureStudy.start, args);
+  await t.action(internal.actions.scriptureStudy.generate, {
+    runId: run.runId,
+  });
+  const saved = await t.query(api.scriptureStudy.get, { studyId: run.studyId });
+  expect(saved.publishedRun).toMatchObject({
+    outcome: "partial",
+    teaching: null,
+    teachingState: "omitted",
+    generation: {
+      teachingOmitted: true,
+      omittedFindings: kind === "empty" ? 1 : 0,
+    },
+  });
+  expect(
+    (
+      await t.query(api.scriptureStudy.findings, {
+        runId: run.runId,
+        paginationOpts: { numItems: 6, cursor: null },
+      })
+    ).page.map((f) => f.findingId),
+  ).toEqual(
+    kind === "empty" ? ["word-repetition"] : ["word-repetition", "second-step"],
+  );
+  expect(dispatched).toHaveBeenCalledTimes(2);
+});
 
 it("repairs a domain-invalid draft with concrete feedback before publication, within two SDK calls", async () => {
   const { t, args, model } = await studyFixture(modules);
@@ -89,7 +169,7 @@ it("repairs a domain-invalid draft with concrete feedback before publication, wi
         ],
       },
     })
-    .mockResolvedValueOnce({ object: { findings } });
+    .mockResolvedValueOnce({ object: { findings, teaching } });
   const run = await t.mutation(api.scriptureStudy.start, args);
   await t.action(internal.actions.scriptureStudy.generate, {
     runId: run.runId,
@@ -130,12 +210,59 @@ it("repairs a domain-invalid draft with concrete feedback before publication, wi
   for (const [options] of dispatched.mock.calls)
     expect(options.maxRetries).toBe(0);
 });
+it.each([
+  "malformed",
+  "unverified",
+] as const)("preserves an earlier publication when %s output is followed by an empty repair", async (kind) => {
+  const { t, args, model } = await studyFixture(modules);
+  model.mockRestore();
+  dispatched.mockResolvedValueOnce({ object: { findings, teaching } });
+  const run = await t.mutation(api.scriptureStudy.start, args);
+  await t.action(internal.actions.scriptureStudy.generate, {
+    runId: run.runId,
+  });
+  const refresh = await t.mutation(api.scriptureStudy.refresh, {
+    studyId: run.studyId,
+    publishedRunId: run.runId,
+    requestKey: "empty-repair-refresh",
+  });
+  dispatched.mockResolvedValueOnce({
+    object:
+      kind === "malformed"
+        ? { findings: "not-an-array" }
+        : {
+            findings: [
+              {
+                ...findings[0],
+                anchor: { ...findings[0].anchor, quote: "UNVERIFIED_QUOTE" },
+              },
+            ],
+            teaching,
+          },
+  });
+  dispatched.mockResolvedValueOnce({
+    object: { findings: [], teaching: null },
+  });
+  await t.action(internal.actions.scriptureStudy.generate, {
+    runId: refresh.runId,
+  });
+  const saved = await t.query(api.scriptureStudy.get, { studyId: run.studyId });
+  expect(saved.publishedRun?.runId).toBe(run.runId);
+  expect(saved.activeRun).toMatchObject({
+    status: "failed",
+    errorCode: "findings_not_verified",
+  });
+  expect(dispatched).toHaveBeenCalledTimes(3);
+});
 
 it("attaches only a uniquely verified selected-WEB anchor citation without another model call", async () => {
   const { t, args, model } = await studyFixture(modules);
   model.mockRestore();
   dispatched.mockResolvedValue({
-    object: { findings: [{ ...findings[0], evidenceIds: ["source-3"] }] },
+    object: {
+      findings: [{ ...findings[0], evidenceIds: ["source-3"] }],
+      teaching,
+    },
   });
   const run = await t.mutation(api.scriptureStudy.start, args);
   await t.action(internal.actions.scriptureStudy.generate, {
@@ -310,7 +437,7 @@ it("does not dispatch a repair or publish after the run is cancelled", async () 
 it("preserves the published result when a refreshed study exhausts both correction attempts", async () => {
   const { t, args, model } = await studyFixture(modules);
   model.mockRestore();
-  dispatched.mockResolvedValueOnce({ object: { findings } });
+  dispatched.mockResolvedValueOnce({ object: { findings, teaching } });
   const initial = await t.mutation(api.scriptureStudy.start, args);
   await t.action(internal.actions.scriptureStudy.generate, {
     runId: initial.runId,

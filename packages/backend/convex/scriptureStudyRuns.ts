@@ -9,6 +9,7 @@ import {
   resultSchema,
   STUDY_LIMITS,
   STUDY_SOURCE_REGISTRY,
+  STUDY_VERSION,
   studyCoverage,
   validateResult,
 } from "./lib/scriptureStudy";
@@ -261,6 +262,22 @@ export const publish = internalMutation({
         args.generation.correctedCitations > STUDY_LIMITS.findings)
     )
       throw new Error("Invalid study generation bounds.");
+    if (
+      args.generation &&
+      ((args.generation.teachingOmitted && result.teaching) ||
+        (args.generation.omittedFindings > 0 &&
+          !args.generation.teachingOmitted))
+    )
+      throw new Error(
+        "Omitted steps require withholding the connected teaching.",
+      );
+    if (
+      run.version === STUDY_VERSION &&
+      result.findings.length &&
+      !result.teaching &&
+      !args.generation?.teachingOmitted
+    )
+      throw new Error("A completed study requires a connected teaching.");
     for (const [order, finding] of result.findings.entries())
       await ctx.db.insert("scriptureStudyFindings", {
         userId: run.userId,
@@ -279,9 +296,14 @@ export const publish = internalMutation({
     await ctx.db.patch(run._id, {
       status: "complete",
       finishedAt: Date.now(),
-      outcome: result.findings.length ? "partial" : "no_meaningful_findings",
-      coverage: studyCoverage(result.findings, run.evidence),
+      outcome: result.findings.length
+        ? result.teaching
+          ? "findings"
+          : "partial"
+        : "no_meaningful_findings",
+      coverage: studyCoverage(result.findings, run.evidence, result.teaching),
       generation: args.generation,
+      teaching: result.teaching ?? undefined,
       purgeAt: undefined,
     });
     await ctx.db.patch(current.study._id, {
