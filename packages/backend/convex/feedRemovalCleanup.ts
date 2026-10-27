@@ -8,6 +8,7 @@ import {
 } from "./lib/feedRemoval";
 import { resumeFeedRemoval } from "./lib/feedRemovalState";
 import { metadataLibraryRetained } from "./lib/shelfCounts";
+import { purgeStudyArticle } from "./scriptureStudyCleanup";
 
 /** A complete, unchanged scan is authority; a page cutoff is not. Only the
  * transient job is written. Generic reflection writers reset its cursor and
@@ -95,6 +96,12 @@ export const discard = internalMutation({
     const args = await ctx.db.get(jobId);
     if (!args || args.phase === "checking" || args.phase === "feed") return;
     if (await ctx.db.get(args.articleId)) return;
+    if (await purgeStudyArticle(ctx, args.userId, args.articleId)) {
+      await ctx.scheduler.runAfter(0, internal.feedRemovalCleanup.discard, {
+        jobId,
+      });
+      return;
+    }
     if (args.phase === "articleTags") {
       const link = await ctx.db
         .query("articleTags")

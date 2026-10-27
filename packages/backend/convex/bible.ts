@@ -111,6 +111,22 @@ export const setPreferences = mutation({
     else
       await ctx.db.insert("userSettings", { userId: ctx.readerId, ...patch });
     if (!enabled) {
+      // Re-enabling cannot revive work that was explicitly revoked while awaiting.
+      for (const status of ["queued", "running"] as const) {
+        const runs = await ctx.db
+          .query("scriptureStudyRuns")
+          .withIndex("by_userId_and_status", (q) =>
+            q.eq("userId", ctx.readerId).eq("status", status),
+          )
+          .take(8);
+        for (const run of runs)
+          await ctx.db.patch(run._id, {
+            status: "cancelled",
+            finishedAt: Date.now(),
+            purgeAt: Date.now() + 86_400_000,
+          });
+      }
+
       const lease = await ctx.db
         .query("bibleReadingSessions")
         .withIndex("by_userId", (q) => q.eq("userId", ctx.readerId))

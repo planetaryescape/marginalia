@@ -8,6 +8,12 @@
  * @module
  */
 
+import type * as scriptureStudyRuns from "../scriptureStudyRuns.js";
+import type * as scriptureStudy from "../scriptureStudy.js";
+import type * as scriptureStudyCleanup from "../scriptureStudyCleanup.js";
+import type * as actions_scriptureStudy from "../actions/scriptureStudy.js";
+import type * as lib_scriptureStudy from "../lib/scriptureStudy.js";
+import type * as lib_scriptureStudyState from "../lib/scriptureStudyState.js";
 import type * as access from "../access.js";
 import type * as account from "../account.js";
 import type * as actions_addArticleByUrl from "../actions/addArticleByUrl.js";
@@ -231,6 +237,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "scriptureStudyRuns": typeof scriptureStudyRuns;
+  "scriptureStudy": typeof scriptureStudy;
+  "scriptureStudyCleanup": typeof scriptureStudyCleanup;
+  "actions/scriptureStudy": typeof actions_scriptureStudy;
+  "lib/scriptureStudy": typeof lib_scriptureStudy;
+  "lib/scriptureStudyState": typeof lib_scriptureStudyState;
   access: typeof access;
   account: typeof account;
   "actions/addArticleByUrl": typeof actions_addArticleByUrl;

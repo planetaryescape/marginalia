@@ -1,6 +1,17 @@
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
 import { BIBLE_BOOKS, type BibleReference } from "./bible";
+import {
+  type BibleResourceCache,
+  cachedBibleResource,
+} from "./bibleResourceCache";
+
+type ResourceControl = {
+  signal: AbortSignal;
+  cache: BibleResourceCache;
+  beforeRequest: () => Promise<void>;
+  files: Map<string, Promise<string>>;
+};
 
 const GREEK_REV = "27a45ff1b7be6c17ccbfeac414f3f55732ae8e28";
 const HEBREW_REV = "3d15126fb1ef74867fc1434be1942e837932691f";
@@ -16,7 +27,38 @@ const parser = new XMLParser({
   isArray: (name) => ["book", "chapter", "verse", "w"].includes(name),
 });
 
-async function resource(url: string) {
+async function resource(
+  url: string,
+  control?: ResourceControl,
+): Promise<string> {
+  if (control) {
+    const hit = control.files.get(url);
+    if (hit) return hit;
+    const pending = cachedBibleResource({
+      cache: control.cache,
+      key: `original-study:${url}`,
+      publicDomainTtl: 7 * 86_400_000,
+      validate: (body) => {
+        if (!body || body.length > 8_000_000)
+          throw new Error("Invalid original-language resource.");
+      },
+      load: async () => {
+        await control.beforeRequest();
+        const response = await fetch(url, {
+          redirect: "error",
+          signal: control.signal,
+        });
+        if (
+          !response.ok ||
+          Number(response.headers.get("content-length")) > 8_000_000
+        )
+          throw new Error("Original-language source unavailable.");
+        return response;
+      },
+    });
+    control.files.set(url, pending);
+    return pending;
+  }
   const cached = publicFiles.get(url);
   if (cached) return cached;
   const pending = (async () => {
@@ -287,7 +329,10 @@ const greekNames: Record<string, string> = {
   "3JN": "3JO",
 };
 
-export async function wordStudy(ref: BibleReference) {
+export async function wordStudy(
+  ref: BibleReference,
+  control?: ResourceControl,
+) {
   if (
     ref.verse === undefined ||
     ref.endVerse !== ref.verse ||
@@ -305,9 +350,11 @@ export async function wordStudy(ref: BibleReference) {
     ? `${hebrewBase}${name}.xml`
     : `${greekBase}${name}.csv`;
   const [bookText, dictionary, verseMap] = await Promise.all([
-    resource(bookUrl),
-    resource(dictionaryUrl),
-    hebrew ? resource(`${hebrewBase}VerseMap.xml`) : Promise.resolve(""),
+    resource(bookUrl, control),
+    resource(dictionaryUrl, control),
+    hebrew
+      ? resource(`${hebrewBase}VerseMap.xml`, control)
+      : Promise.resolve(""),
   ]);
   const verses = hebrew
     ? parseHebrewBook(bookText)

@@ -3,6 +3,12 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 crons.interval(
+  "discard unpublished Study runs",
+  { hours: 1 },
+  internal.scriptureStudyCleanup.sweep,
+  {},
+);
+crons.interval(
   "purge expired Bible response cache",
   { hours: 1 },
   internal.bibleResourceCache.prune,
