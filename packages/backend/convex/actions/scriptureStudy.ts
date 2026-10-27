@@ -18,6 +18,7 @@ import {
   selectedVerses,
 } from "../lib/scriptureStudy";
 import { studyFailureDiagnostic } from "../lib/scriptureStudyDiagnostics";
+import { studyProviderSchema } from "../lib/scriptureStudyModelSchema";
 import { SCRIPTURE_STUDY_SOURCE_NOTICES } from "../lib/scriptureStudySourceShared";
 import {
   loadAdditionalStudyEvidence,
@@ -593,6 +594,7 @@ export const generate = internalAction({
       phase = "generation";
       const result = await generateObjectWithFallback({
         schema: resultSchema,
+        providerSchema: studyProviderSchema(target.id),
         targets: [target],
         maxOutputTokens: STUDY_LIMITS.outputTokens,
         deadlineMs: Math.max(1, claim.leaseUntil - Date.now()),
