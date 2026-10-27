@@ -215,12 +215,12 @@ export const generate = internalAction({
       );
       if (selectedChapterVerses.length !== verified.length)
         throw new Error("Verified WEB chapter did not contain the selection.");
-      const contextBefore = savedChapter.filter(
+      const contextBefore = chapter.filter(
         (verse) =>
           verse.verse >= Math.max(1, selectedStart - 2) &&
           verse.verse < selectedStart,
       );
-      const contextAfter = savedChapter.filter(
+      const contextAfter = chapter.filter(
         (verse) => verse.verse > selectedEnd && verse.verse <= selectedEnd + 2,
       );
       const expectedContext = [
@@ -238,15 +238,15 @@ export const generate = internalAction({
           (_, index) => selectedEnd + index + 1,
         ),
       ];
-      const savedContextVerses = new Set(
-        savedChapter.map((verse) => verse.verse),
+      const availableContextVerses = new Set(
+        chapter.map((verse) => verse.verse),
       );
       const missingContext = expectedContext.filter(
-        (verse) => !savedContextVerses.has(verse),
+        (verse) => !availableContextVerses.has(verse),
       );
       if (missingContext.length)
         coverageWarnings.push(
-          `Saved WEB context was unavailable for adjacent verses ${missingContext.join(", ")}.`,
+          `Verified WEB context was unavailable for adjacent verses ${missingContext.join(", ")}.`,
         );
       for (const context of [contextBefore, contextAfter])
         if (
@@ -256,7 +256,11 @@ export const generate = internalAction({
           )
         )
           throw new Error("Saved WEB context is not a contiguous verse range.");
-      for (const saved of [...contextBefore, ...contextAfter]) {
+      for (const saved of savedChapter.filter(
+        (verse) =>
+          verse.verse >= Math.max(1, selectedStart - 2) &&
+          verse.verse <= selectedEnd + 2,
+      )) {
         const permittedVerse = chapter.find((verse) => verse.id === saved.id);
         if (!permittedVerse || permittedVerse.text !== saved.text)
           throw new Error(
@@ -325,7 +329,7 @@ export const generate = internalAction({
             .map((verse) => `${verse.id} ${verse.text}`)
             .join("\n"),
           limitations: [
-            `Immediate WEB context is bounded to ${referenceKey}; retrieved with the selected chapter and checked against the saved selected verses.`,
+            `Immediate WEB context is bounded to ${referenceKey}; retrieved from the permitted WEB chapter. Available saved verses were checked against that source.`,
           ],
         });
       }
@@ -348,7 +352,20 @@ export const generate = internalAction({
         );
       coverageWarnings.push(...sourceLoad.coverageWarnings);
       const availableForSources = Math.max(0, 10 - evidence.length);
-      const sourceRecords = sourceLoad.records.slice(0, availableForSources);
+      const note = sourceLoad.records.find(
+        (record) => record.sourceId === "aquifer-open-study-notes",
+      );
+      const comparison = sourceLoad.records.find(
+        (record) => record.sourceId === "byztxt-printed-edition-variants",
+      );
+      const prioritizedSources = [
+        ...new Set([
+          ...(note ? [note] : []),
+          ...(comparison ? [comparison] : []),
+          ...sourceLoad.records,
+        ]),
+      ];
+      const sourceRecords = prioritizedSources.slice(0, availableForSources);
       if (sourceRecords.length < sourceLoad.records.length)
         coverageWarnings.push(
           "Some verified commentary or edition comparisons were omitted to reserve evidence capacity for related passages.",

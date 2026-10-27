@@ -230,7 +230,9 @@ export function NotesPanel({
     return true;
   };
   const closePanelRef = useRef(closePanel);
-  closePanelRef.current = closePanel;
+  useLayoutEffect(() => {
+    closePanelRef.current = closePanel;
+  });
   useEffect(() => {
     onRegisterRequestClose?.((isCurrent) => closePanelRef.current(isCurrent));
     return () => onRegisterRequestClose?.(() => Promise.resolve(true));

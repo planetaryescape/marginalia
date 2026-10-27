@@ -23,6 +23,7 @@ import {
 } from "@/components/bible-reader-tools";
 import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
+import { QueryBoundary } from "@/components/desk/query-boundary";
 import { ImpressionSummary } from "@/components/impression-panel";
 import { InlineError } from "@/components/in-place";
 import { ListenBar } from "@/components/listen-bar";
@@ -39,14 +40,26 @@ import {
   ReaderOpening,
   ReaderTitle,
 } from "@/components/reader-opening";
+import { ReaderPane } from "@/components/reader-pane";
 import { ReaderReturnChip } from "@/components/reader-return-chip";
 import { ReaderToolbar } from "@/components/reader-toolbar";
+import {
+  ScriptureStudyContent,
+  StudySkeleton,
+} from "@/components/scripture-study-content";
+import { ScriptureStudyHistory } from "@/components/scripture-study-history";
+import { studyReferenceLabel } from "@/components/scripture-study-result";
 import { SelectionToolbar } from "@/components/selection-toolbar";
 import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
 import { FINISH_ARTICLE } from "@/components/view-transition";
 import { readerMeta } from "@/lib/article-meta";
 import { bibleVerseAtRange, mapBibleAnnotations } from "@/lib/bible-display";
+import {
+  resolveStudySelection,
+  type StudySelection,
+  studyVerseElement,
+} from "@/lib/bible-study-selection";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
@@ -99,6 +112,7 @@ import { useReadAlongside } from "@/lib/use-read-alongside";
 import { useReaderPreviews } from "@/lib/use-reader-previews";
 import { useReaderTheme } from "@/lib/use-reader-theme";
 import { useSavedAnswerBody } from "@/lib/use-saved-answer-body";
+import { useScriptureStudy } from "@/lib/use-scripture-study";
 import {
   marginNotesPending,
   useStartAnnotation,
@@ -157,13 +171,13 @@ export default function ReadPage() {
         )
       : storedAnnotations;
   const reflection = useQuery(api.reflections.getByArticle, {
-    articleId: articleId as any,
+    articleId: articleKey,
   });
   const impression = useQuery(api.impressions.getByArticle, {
-    articleId: articleId as any,
+    articleId: articleKey,
   });
   const isLoved = useQuery(api.lovedArticles.isLoved, {
-    articleId: articleId as any,
+    articleId: articleKey,
   });
   const loveArticle = useMutation(api.lovedArticles.love);
   const unloveArticle = useMutation(api.lovedArticles.unlove);
@@ -175,6 +189,13 @@ export default function ReadPage() {
     ((isCurrent?: () => boolean) => Promise<boolean>) | null
   >(null);
   const surfaceIntent = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: navigation invalidates in-flight pane switches from the previous reading.
+  useEffect(
+    () => () => {
+      ++surfaceIntent.current;
+    },
+    [articleKey],
+  );
   const registerNotesRequestClose = useCallback(
     (close: (isCurrent?: () => boolean) => Promise<boolean>) => {
       notesRequestClose.current = close;
@@ -182,6 +203,19 @@ export default function ReadPage() {
     [],
   );
   const [articleAskOpen, setArticleAskOpen] = useState(false);
+  const [studyHistoryOpen, setStudyHistoryOpen] = useState(false);
+  const {
+    pane: studyPane,
+    start: startStudy,
+    reopen: reopenStudy,
+    close: closeStudy,
+    trackRun: trackStudyRun,
+    forget: forgetStudy,
+  } = useScriptureStudy(sourceArticle?.bible ? sourceArticle : null);
+  const biblePreferences = useQuery(
+    api.bible.preferences,
+    sourceArticle?.bible ? {} : "skip",
+  );
   const impressionRef = useRef<HTMLElement>(null);
   const washTimer = useRef<number | null>(null);
   // The room the reader came from, read on the first render. The module holds nothing
@@ -257,7 +291,7 @@ export default function ReadPage() {
   );
   const position = useReadingPosition(articleRef, paragraphs.layoutVersion);
   const summary = useQuery(api.summaries.getByArticle, {
-    articleId: articleId as any,
+    articleId: articleKey,
   });
   const companion = useCompanion({
     articleId: articleKey,
@@ -278,11 +312,15 @@ export default function ReadPage() {
     { articleId: articleKey, unitIndex: unit },
     companion.open,
   );
+  const [wideAnswerId, setWideAnswerId] = useState<string | null>(null);
+  const [answerDrafts, setAnswerDrafts] = useState(
+    () => new Map<string, string>(),
+  );
   const collapseAnswer = useCallback(() => {
+    setWideAnswerId(null);
     savedAnswer.cancel();
     companion.collapse();
   }, [savedAnswer.cancel, companion.collapse]);
-  const [wideAnswerId, setWideAnswerId] = useState<string | null>(null);
   const requestOpenNotes = useCallback(
     async (selection?: {
       text: string;
@@ -290,6 +328,7 @@ export default function ReadPage() {
       endOffset?: number;
     }) => {
       const intent = ++surfaceIntent.current;
+      if (!(await closeStudy()) || intent !== surfaceIntent.current) return;
       if (notesPanelOpen && notesRequestClose.current) {
         if (
           !(await notesRequestClose.current(
@@ -301,11 +340,13 @@ export default function ReadPage() {
       if (intent !== surfaceIntent.current) return;
       if (selection) setPendingSelection(selection);
       setWideAnswerId(null);
+      setStudyHistoryOpen(false);
+      setArticleAskOpen(false);
       collapseAnswer();
       setActiveAnnotation(null);
       setNotesPanelOpen(true);
     },
-    [collapseAnswer, notesPanelOpen],
+    [collapseAnswer, notesPanelOpen, closeStudy],
   );
   const requestCloseNotes = useCallback(async () => {
     const intent = ++surfaceIntent.current;
@@ -318,6 +359,81 @@ export default function ReadPage() {
     if (intent !== surfaceIntent.current) return false;
     return closed;
   }, []);
+  const prepareReadingSurface = useCallback(async () => {
+    const intent = ++surfaceIntent.current;
+    if (
+      notesPanelOpen &&
+      notesRequestClose.current &&
+      !(await notesRequestClose.current(() => intent === surfaceIntent.current))
+    )
+      return false;
+    if (intent !== surfaceIntent.current) return false;
+    if (!(await closeStudy()) || intent !== surfaceIntent.current) return false;
+    setNotesPanelOpen(false);
+    setArticleAskOpen(false);
+    setWideAnswerId(null);
+    collapseAnswer();
+    setActiveAnnotation(null);
+    return true;
+  }, [closeStudy, collapseAnswer, notesPanelOpen]);
+  const requestStudy = useCallback(
+    async (range: Range): Promise<string | null> => {
+      const body = getArticleBody(articleRef.current);
+      const selection =
+        sourceArticle?.bible && body
+          ? resolveStudySelection(
+              sourceArticle.bible.reference,
+              sourceArticle.content ?? "",
+              body,
+              range,
+            )
+          : null;
+      if (!selection)
+        return "Select an unambiguous range of up to 40 verses in one chapter. Headings and footnotes cannot be studied.";
+      if (!(await prepareReadingSurface()))
+        return "Your open pane could not close safely. Save its draft or retry closing it first.";
+      setStudyHistoryOpen(false);
+      await startStudy(selection);
+      return null;
+    },
+    [sourceArticle, prepareReadingSurface, startStudy],
+  );
+  const requestStudyHistory = useCallback(async () => {
+    if (await prepareReadingSurface()) setStudyHistoryOpen(true);
+  }, [prepareReadingSurface]);
+  const openSavedStudy = useCallback(
+    async (
+      studyId: Id<"scriptureStudies">,
+      selection: StudySelection,
+      runId: Id<"scriptureStudyRuns"> | null,
+    ) => {
+      if (!(await prepareReadingSurface())) return;
+      setStudyHistoryOpen(false);
+      await reopenStudy(studyId, selection, runId);
+    },
+    [prepareReadingSurface, reopenStudy],
+  );
+  const jumpToStudyVerse = useCallback(
+    async (verseId: string) => {
+      const body = getArticleBody(articleRef.current);
+      const element =
+        sourceArticle?.bible && body
+          ? studyVerseElement(sourceArticle.bible.reference, body, verseId)
+          : null;
+      if (!element) return;
+      if (
+        window.matchMedia("(max-width: 1023px)").matches &&
+        !(await closeStudy())
+      )
+        return;
+      requestAnimationFrame(() => {
+        element.scrollIntoView({ block: "center", behavior: "instant" });
+        element.tabIndex = -1;
+        element.focus({ preventScroll: true });
+      });
+    },
+    [sourceArticle?.bible, closeStudy],
+  );
   const listen = useListen(
     articleRef,
     articleId,
@@ -571,7 +687,18 @@ export default function ReadPage() {
   );
 
   const startCompanion = useCallback(
-    (args: Parameters<typeof companion.start>[0]) => {
+    async (args: Parameters<typeof companion.start>[0]) => {
+      const intent = ++surfaceIntent.current;
+      if (
+        notesPanelOpen &&
+        notesRequestClose.current &&
+        !(await notesRequestClose.current(
+          () => intent === surfaceIntent.current,
+        ))
+      )
+        return;
+      if (!(await closeStudy()) || intent !== surfaceIntent.current) return;
+      setStudyHistoryOpen(false);
       if (args.mode === "define" && article?.bible) {
         const reference =
           bibleVerseAtRange(article.bible.reference, args.range) ??
@@ -585,7 +712,13 @@ export default function ReadPage() {
       setActiveAnnotation(null);
       companion.start(args);
     },
-    [companion.start, savedAnswer.cancel, article?.bible],
+    [
+      companion.start,
+      savedAnswer.cancel,
+      article?.bible,
+      closeStudy,
+      notesPanelOpen,
+    ],
   );
 
   useReaderTheme(settings);
@@ -667,6 +800,7 @@ export default function ReadPage() {
   const openAnswer = useCallback(
     async (id: string) => {
       const intent = ++surfaceIntent.current;
+      if (!(await closeStudy()) || intent !== surfaceIntent.current) return;
       if (notesPanelOpen) {
         if (
           notesRequestClose.current &&
@@ -678,6 +812,8 @@ export default function ReadPage() {
       }
       if (intent !== surfaceIntent.current) return;
       setNotesPanelOpen(false);
+      setStudyHistoryOpen(false);
+      setArticleAskOpen(false);
       setActiveAnnotation(null);
       const live = companion.answers.find(
         (a) => a.id === id || a.savedId === id,
@@ -699,6 +835,7 @@ export default function ReadPage() {
       savedAnswer.cancel,
       savedAnswer.open,
       notesPanelOpen,
+      closeStudy,
     ],
   );
   const answers = useMemo(
@@ -874,6 +1011,8 @@ export default function ReadPage() {
       companion.thread ||
       savedAnswer.pendingId ||
       notesPanelOpen ||
+      studyPane ||
+      studyHistoryOpen ||
       articleAskOpen ||
       phoneSheet,
   );
@@ -933,10 +1072,10 @@ export default function ReadPage() {
   const handleRestore = useCallback(
     () =>
       attemptToolbar("Couldn't mark this unread.", async () => {
-        await restoreArticle({ articleId: articleId as any });
+        await restoreArticle({ articleId: articleKey });
         toast.success("Back in Up next");
       }),
-    [articleId, restoreArticle, attemptToolbar],
+    [articleKey, restoreArticle, attemptToolbar],
   );
 
   const handleAnnotationSelect = useCallback(
@@ -1063,6 +1202,12 @@ export default function ReadPage() {
         thread={answerThread}
         isBook={isBook}
         wide={wide}
+        draft={answerDrafts.get(answerThread.id) ?? ""}
+        onDraftChange={(value) =>
+          setAnswerDrafts((current) =>
+            new Map(current).set(answerThread.id, value),
+          )
+        }
         onExpand={() => setWideAnswerId(answerThread.id)}
         range={openRange}
         containerRef={articleRef}
@@ -1118,6 +1263,11 @@ export default function ReadPage() {
               skipReason={article.skipReason}
               display={bibleDisplay}
               onOpenChange={setBibleToolsOpen}
+              onStudyHistory={
+                biblePreferences?.enabled
+                  ? () => void requestStudyHistory()
+                  : undefined
+              }
             />
           ) : undefined
         }
@@ -1191,12 +1341,14 @@ export default function ReadPage() {
           aria-expanded={articleAskOpen}
           aria-controls={articleAskOpen ? "article-question" : undefined}
           disabled={listen.active || Boolean(saveError)}
-          onClick={() => {
-            if (notesPanelOpen) void requestCloseNotes();
+          onClick={async () => {
+            const wasOpen = articleAskOpen;
+            if (!(await prepareReadingSurface())) return;
+            setStudyHistoryOpen(false);
             setActiveAnnotation(null);
             collapseAnswer();
             setWideAnswerId(null);
-            setArticleAskOpen((open) => !open);
+            setArticleAskOpen(!wasOpen);
           }}
         >
           <MessagesSquare size={19} />
@@ -1266,6 +1418,11 @@ export default function ReadPage() {
         getCurrentParagraphRange={getCurrentParagraphRange}
         onAddNote={handleAddNote}
         onCompanion={startCompanion}
+        onDeepStudy={
+          sourceArticle?.bible && biblePreferences?.enabled
+            ? requestStudy
+            : undefined
+        }
         depth={settings.answerDepth}
         onDepthChange={(answerDepth) => updateSettings({ answerDepth })}
         web={webSearchEnabled(settings)}
@@ -1370,7 +1527,7 @@ export default function ReadPage() {
               <div ref={setFrontMatter}>
                 <SummaryPanel
                   studySource={Boolean(sourceArticle?.bible?.displayVersionId)}
-                  articleId={articleId as any}
+                  articleId={articleKey}
                   title={article.title}
                   content={(sourceArticle ?? article).content}
                   contentHtml={(sourceArticle ?? article).contentHtml}
@@ -1520,7 +1677,11 @@ export default function ReadPage() {
         waitingAnchor={alongsideAnchor}
         openId={activeAnnotationId}
         answers={answers}
-        openAnswerId={wideAnswerId ? null : companion.openId}
+        openAnswerId={
+          wideAnswerId || companion.thread?.mode === "article"
+            ? null
+            : companion.openId
+        }
         onOpenAnswer={openAnswer}
         onClose={closeNote}
         onOpenNotes={() => void requestOpenNotes()}
@@ -1531,6 +1692,9 @@ export default function ReadPage() {
             answerCard(true)
           ) : openAnnotation && activeAnnotation ? (
             <AnnotationCard
+              scripture={Boolean(
+                sourceArticle?.bible && biblePreferences?.enabled,
+              )}
               inline
               annotation={openAnnotation}
               paragraphIndex={activeAnnotation.paragraphIndex}
@@ -1607,6 +1771,9 @@ export default function ReadPage() {
         marginMode !== "sidenotes" &&
         (marginMode !== "phone" || phoneSheet) && (
           <AnnotationCard
+            scripture={Boolean(
+              sourceArticle?.bible && biblePreferences?.enabled,
+            )}
             key={openAnnotation._id}
             annotation={openAnnotation}
             paragraphIndex={activeAnnotation.paragraphIndex}
@@ -1631,6 +1798,8 @@ export default function ReadPage() {
         onOpenChange={setArticleAskOpen}
         hidden={Boolean(
           companion.thread ||
+            studyPane ||
+            studyHistoryOpen ||
             activeAnnotation ||
             notesPanelOpen ||
             backMatterInView ||
@@ -1638,7 +1807,9 @@ export default function ReadPage() {
             listen.active ||
             saveError,
         )}
-        onAsk={(question) => {
+        onAsk={async (question) => {
+          if (!(await prepareReadingSurface())) return;
+          setStudyHistoryOpen(false);
           savedAnswer.cancel();
           setActiveAnnotation(null);
           companion.startArticle(question);
@@ -1676,6 +1847,72 @@ export default function ReadPage() {
       {answerThread &&
         (wideAnswerId === answerThread.id || answerThread.mode === "article") &&
         answerCard(false, true)}
+
+      {(studyPane || studyHistoryOpen) && (
+        <ReaderPane
+          title={
+            studyPane
+              ? `Deep study · ${studyReferenceLabel(studyPane.selection.referenceKey)}`
+              : "Saved deep studies"
+          }
+          onClose={() => {
+            if (studyHistoryOpen) setStudyHistoryOpen(false);
+            else void closeStudy();
+          }}
+          focusFallback={articleRef}
+          style={
+            {
+              "--reader-pane-size": `${settings.size}px`,
+              "--reader-leading": `${LINE_HEIGHTS[settings.spacing]}`,
+              fontFamily: TYPEFACE_FAMILIES[settings.typeface],
+            } satisfies React.CSSProperties & {
+              "--reader-pane-size": string;
+              "--reader-leading": string;
+            }
+          }
+        >
+          <div className="pb-8 text-[length:var(--reader-size)] leading-[var(--reader-leading)]">
+            <QueryBoundary
+              key={
+                studyPane?.studyId ??
+                (studyHistoryOpen ? "history" : "starting")
+              }
+              fallback={(retry) => (
+                <InlineError
+                  message="This saved study could not load. Reopen its latest result or try again."
+                  onRetry={retry}
+                />
+              )}
+            >
+              {studyHistoryOpen ? (
+                <ScriptureStudyHistory
+                  articleId={articleKey}
+                  onOpen={(...args) => void openSavedStudy(...args)}
+                />
+              ) : studyPane?.studyId ? (
+                <ScriptureStudyContent
+                  key={studyPane.studyId}
+                  studyId={studyPane.studyId}
+                  onAnchor={(verseId) => void jumpToStudyVerse(verseId)}
+                  onRun={trackStudyRun}
+                  onRemoved={forgetStudy}
+                />
+              ) : studyPane?.pending ? (
+                <StudySkeleton />
+              ) : null}
+            </QueryBoundary>
+            {studyPane?.error && (
+              <InlineError
+                message={studyPane.error}
+                onRetry={() => {
+                  if (studyPane.studyId) void closeStudy();
+                  else void startStudy(studyPane.selection);
+                }}
+              />
+            )}
+          </div>
+        </ReaderPane>
+      )}
 
       {/* Notes side panel */}
       <NotesPanel

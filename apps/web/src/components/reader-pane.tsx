@@ -36,7 +36,19 @@ export function ReaderPane({
     const opener = document.activeElement;
     const captureAnchor = () => {
       const body = getArticleBody(focusFallback?.current ?? null);
-      const paragraph = getParagraphs(body).find((candidate) => {
+      const blocks = body
+        ? Array.from(
+            new Set([
+              ...getParagraphs(body),
+              ...body.querySelectorAll<HTMLElement>(".q1,.q2,.q3,.q4,.p,.m"),
+            ]),
+          ).sort((a, b) =>
+            a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+              ? -1
+              : 1,
+          )
+        : [];
+      const paragraph = blocks.find((candidate) => {
         const rect = candidate.getBoundingClientRect();
         return rect.bottom > 0 && rect.top < window.innerHeight;
       });
@@ -46,10 +58,10 @@ export function ReaderPane({
     };
     const restoreAnchor = (anchor: ReturnType<typeof captureAnchor>) => {
       if (!anchor?.paragraph.isConnected) return;
-      window.scrollBy(
-        0,
-        anchor.paragraph.getBoundingClientRect().top - anchor.top,
-      );
+      window.scrollBy({
+        top: anchor.paragraph.getBoundingClientRect().top - anchor.top,
+        behavior: "instant",
+      });
     };
     const beforeOpen = captureAnchor();
     root.dataset.readerPane = "";
@@ -87,7 +99,7 @@ export function ReaderPane({
       window.requestAnimationFrame(() => restoreAnchor(beforeClose));
       const active = document.activeElement;
       const shouldRestoreFocus =
-        active === document.body || Boolean(paneRef.current?.contains(active));
+        active === document.body || Boolean(pane?.contains(active));
       const returnTarget =
         opener instanceof HTMLElement &&
         opener !== document.body &&
@@ -118,16 +130,18 @@ export function ReaderPane({
             event.preventDefault();
             onClose();
           }}
-          className="reader-pane fixed inset-x-0 bottom-0 z-50 m-0 h-[var(--app-viewport-height)] max-h-none w-full max-w-none flex-col border-t border-[var(--reader-border)] bg-[var(--reader-bg)] p-0 text-[var(--reader-fg)] shadow-2xl shadow-black/20 backdrop:bg-transparent lg:inset-y-[var(--app-viewport-top)] lg:left-auto lg:right-0 lg:h-[var(--app-viewport-height)] lg:w-[min(50vw,760px)] lg:border-l lg:border-t-0"
+          className="reader-pane fixed inset-x-0 bottom-0 z-50 m-0 h-[var(--app-viewport-height)] max-h-none w-full max-w-none flex-col border-t border-[var(--reader-border)] bg-[var(--reader-bg)] p-0 text-[var(--reader-fg)] shadow-2xl shadow-black/20 open:flex backdrop:bg-transparent lg:inset-y-[var(--app-viewport-top)] lg:left-auto lg:right-0 lg:h-[var(--app-viewport-height)] lg:w-[min(50vw,760px)] lg:border-l lg:border-t-0"
           style={style}
         >
           <header className="flex min-h-12 shrink-0 items-center justify-between border-b border-[var(--reader-border)] px-5">
-            <h2 className="font-sans text-sm font-semibold">{title}</h2>
+            <h2 className="min-w-0 flex-1 break-words py-2 pr-3 font-sans text-sm font-semibold">
+              {title}
+            </h2>
             <button
               type="button"
               onClick={onClose}
               aria-label="Back to passage"
-              className="flex h-11 items-center gap-2 rounded-md px-2 text-sm text-[var(--reader-fg-soft)] hover:bg-[var(--reader-chip)] lg:h-8"
+              className="flex h-11 shrink-0 items-center gap-2 rounded-md px-2 text-sm text-[var(--reader-fg-soft)] hover:bg-[var(--reader-chip)] lg:h-8"
             >
               <span className="lg:hidden">Back to passage</span>
               <span className="hidden lg:inline">Close</span>

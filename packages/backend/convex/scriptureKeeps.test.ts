@@ -146,6 +146,42 @@ async function addPublishedStudy(
 }
 
 describe("Scripture Keeps public lifecycle", () => {
+  it("retains why-kept provenance through deduplication and cools down only presented passages", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-27T12:00:00Z"));
+    const f = await fixture();
+    await f.owner.run((ctx) =>
+      ctx.db.patch(f.annotationId, {
+        content:
+          "Compare John 10:11, Matthew 5-7 and Psalms 23 for these connections.",
+      }),
+    );
+    for (const referenceKey of ["JHN.10.11", "MAT.5-MAT.7", "PSA.23"]) {
+      vi.setSystemTime(Date.now() + 1000);
+      await f.owner.mutation(api.scriptureKeeps.keep, {
+        annotationId: f.annotationId,
+        referenceKey,
+      });
+    }
+    const result = await f.owner.action(api.actions.bible.suggest, {
+      question: "15 minutes",
+    });
+    expect(result.passages.map((item) => item.reference)).not.toContain(
+      "John 10:11",
+    );
+    expect(
+      result.passages.find((item) => item.reference === "Matthew 5-7")?.reason,
+    ).toContain("You kept this while reading John 1");
+    const hidden = await f.owner.run((ctx) =>
+      ctx.db
+        .query("scriptureKeeps")
+        .withIndex("by_userId_and_referenceKey", (q) =>
+          q.eq("userId", "default_user").eq("referenceKey", "JHN.10.11"),
+        )
+        .unique(),
+    );
+    expect(hidden?.lastOfferedAt).toBeUndefined();
+  });
   it("keeps only owned verified WEB study citations, without provider calls, and is idempotent", async () => {
     const f = await fixture();
     const runId = await addPublishedStudy(f.owner, f.articleId);

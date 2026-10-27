@@ -6,6 +6,8 @@ import { ArrowUp } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { QueryBoundary } from "@/components/desk/query-boundary";
+import { InlineError } from "@/components/in-place";
 import { Keycap } from "@/components/keycap";
 import { LibraryMatches } from "@/components/library-matches";
 import {
@@ -16,6 +18,7 @@ import {
 } from "@/components/library-shelves";
 import { LibraryThread, type LibraryTurn } from "@/components/library-thread";
 import { LibraryTopic } from "@/components/library-topic";
+import { ScriptureKeepsShelf } from "@/components/scripture-keeps-shelf";
 import { UpNextShelf } from "@/components/up-next-shelf";
 import { answerBuffer } from "@/lib/answer-buffer";
 import { ReaderRequestError, streamFromConvex } from "@/lib/companion";
@@ -244,6 +247,7 @@ function Shelves() {
   const overview = useQuery(api.home.counts, shelfArgs);
   const counts = useQuery(api.articleMetadata.counts, shelfArgs);
   const finished = useQuery(api.impressions.recentCount, shelfArgs);
+  const keptCount = useQuery(api.scriptureKeeps.count, shelfArgs);
   const tabs: {
     id: ShelfId | "up-next";
     label: string;
@@ -260,7 +264,10 @@ function Shelves() {
       id: "saved",
       label: "Saved",
       href: "/library?shelf=saved",
-      count: counts?.saved ?? null,
+      count:
+        counts?.saved != null && keptCount !== undefined
+          ? counts.saved + keptCount
+          : null,
     },
     {
       id: "loved",
@@ -310,7 +317,21 @@ function Shelves() {
         })}
       </nav>
       {shelf === "up-next" && <UpNextShelf />}
-      {shelf === "saved" && <SavedShelf />}
+      {shelf === "saved" && (
+        <>
+          <SavedShelf />
+          <QueryBoundary
+            fallback={(retry) => (
+              <InlineError
+                message="Kept Bible passages could not load."
+                onRetry={retry}
+              />
+            )}
+          >
+            <ScriptureKeepsShelf />
+          </QueryBoundary>
+        </>
+      )}
       {shelf === "loved" && <LovedShelf />}
       {shelf === "finished" && <FinishedShelf />}
     </>

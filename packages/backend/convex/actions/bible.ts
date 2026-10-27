@@ -316,26 +316,39 @@ export const suggest = action({
           minutes,
           topic,
         });
+      const merge = (keptNow: typeof kept): BibleSuggestion[] => {
+        const byReference = new Map(
+          keptNow.map((item) => [item.reference, item]),
+        );
+        const ordinary = base.map(
+          (item) => byReference.get(item.reference) ?? item,
+        );
+        const seen = new Set<string>();
+        return [...keptNow.slice(0, 1), ...ordinary, ...keptNow.slice(1)]
+          .flatMap((item) => {
+            if (seen.has(item.reference)) return [];
+            seen.add(item.reference);
+            return [
+              {
+                reference: item.reference,
+                title: item.title,
+                minutes: item.minutes,
+                reason: item.reason,
+              },
+            ];
+          })
+          .slice(0, 3);
+      };
+      const proposed = merge(kept);
+      const presented = kept.filter((item) =>
+        proposed.some((passage) => passage.reference === item.reference),
+      );
       const offered: Id<"scriptureKeeps">[] = await ctx.runMutation(
         internal.scriptureKeeps.recordOffers,
-        { userId: ctx.readerId, keepIds: kept.map((item) => item.keepId) },
+        { userId: ctx.readerId, keepIds: presented.map((item) => item.keepId) },
       );
       const keptNow = kept.filter((item) => offered.includes(item.keepId));
-      const seen = new Set<string>();
-      const passages = [...keptNow.slice(0, 1), ...base, ...keptNow.slice(1)]
-        .flatMap((item) => {
-          if (seen.has(item.reference)) return [];
-          seen.add(item.reference);
-          return [
-            {
-              reference: item.reference,
-              title: item.title,
-              minutes: item.minutes,
-              reason: item.reason,
-            },
-          ];
-        })
-        .slice(0, 3);
+      const passages = merge(keptNow);
       return { passages, notice };
     };
     // A time-only request doesn't need AI, and doesn't need an AI key.

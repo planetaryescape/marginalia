@@ -21,6 +21,7 @@ export function BibleReaderTools({
   display,
   onOpenChange,
   reflectionMissing = false,
+  onStudyHistory,
 }: {
   bible: {
     reference: string;
@@ -34,6 +35,7 @@ export function BibleReaderTools({
   display?: ReturnType<typeof useBibleDisplay>;
   onOpenChange?: (open: boolean) => void;
   reflectionMissing?: boolean;
+  onStudyHistory?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const changeOpen = (value: boolean) => {
@@ -153,6 +155,18 @@ export function BibleReaderTools({
               versionId={bible.displayVersionId}
             />
             <BibleWordStudy key={bible.reference} reference={bible.reference} />
+            {onStudyHistory && (
+              <button
+                type="button"
+                className="mt-4 min-h-11 text-[var(--pencil)] underline underline-offset-4"
+                onClick={() => {
+                  changeOpen(false);
+                  onStudyHistory();
+                }}
+              >
+                Saved deep studies
+              </button>
+            )}
             {annotationStatus === "pending" ? (
               <p
                 role="status"

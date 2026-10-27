@@ -46,6 +46,8 @@ export function CompanionCard({
   readerTypography,
   wide = thread.mode === "article",
   onExpand,
+  draft: controlledDraft,
+  onDraftChange,
 }: {
   thread: CompanionThread;
   /** The passage the answer is about, for the floating card to sit beside. */
@@ -71,8 +73,12 @@ export function CompanionCard({
   };
   wide?: boolean;
   onExpand?: () => void;
+  draft?: string;
+  onDraftChange?: (value: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = controlledDraft ?? localDraft;
+  const setDraft = onDraftChange ?? setLocalDraft;
   const [copied, setCopied] = useState(false);
 
   const { Icon } = MODES[thread.mode];

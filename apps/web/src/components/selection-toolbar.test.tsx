@@ -204,6 +204,84 @@ describe("the passage menu, ordered by hand", () => {
   });
 });
 
+describe("Scripture-only Deep study entry", () => {
+  async function withStudy(
+    onDeepStudy: (range: Range) => Promise<string | null>,
+  ) {
+    await act(async () =>
+      root.render(
+        <SelectionToolbar
+          containerRef={{ current: article }}
+          getCurrentParagraphRange={() => null}
+          onAddNote={vi.fn()}
+          onCompanion={vi.fn()}
+          onDeepStudy={onDeepStudy}
+          depth="quick"
+          onDepthChange={vi.fn()}
+          web={false}
+          onWebChange={vi.fn()}
+          isMarked={() => false}
+          onToggleMark={vi.fn()}
+          onMarkInColor={onMarkInColor}
+          markedColor={() => null}
+          defaultColors={{ highlight: "green", underline: "cobalt" }}
+        />,
+      ),
+    );
+    select(article.querySelector("p")!);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise(requestAnimationFrame);
+    });
+  }
+  it("does not offer Study on an ordinary article", async () => {
+    select(article.querySelector("p")!);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise(requestAnimationFrame);
+    });
+    expect(document.body.textContent).not.toContain("Deep study");
+  });
+  it("retains the selected endpoints on failure, without replacing Ask or marks", async () => {
+    const study = vi.fn().mockResolvedValue("Select verses in one chapter.");
+    await withStudy(study);
+    const button = [...document.querySelectorAll("button")].find(
+      (node) => node.textContent === "Deep study",
+    );
+    if (!button) throw new Error("Missing Study action");
+    await act(async () => button.click());
+    expect(study.mock.calls[0][0].toString()).toBe("A passage worth keeping.");
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "one chapter",
+    );
+    expect(window.getSelection()?.toString()).toBe("A passage worth keeping.");
+    expect(document.body.textContent).toContain("Ask");
+    expect(
+      document.querySelector('button[aria-label="Highlight"]'),
+    ).not.toBeNull();
+  });
+  it("starts only once for repeated clicks, and dismisses only after successful handoff", async () => {
+    let release!: (value: null) => void;
+    const gate = new Promise<null>((resolve) => {
+      release = resolve;
+    });
+    const study = vi.fn(() => gate);
+    await withStudy(study);
+    const button = [...document.querySelectorAll("button")].find(
+      (node) => node.textContent === "Deep study",
+    );
+    if (!button) throw new Error("Missing Study action");
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    expect(study).toHaveBeenCalledOnce();
+    expect(window.getSelection()?.isCollapsed).toBe(false);
+    await act(async () => release(null));
+    expect(window.getSelection()?.isCollapsed).toBe(true);
+  });
+});
+
 describe("the colour picker", () => {
   async function open() {
     select(article.querySelector("p")!);

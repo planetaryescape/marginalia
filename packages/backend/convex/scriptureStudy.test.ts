@@ -28,6 +28,42 @@ afterEach(() => {
 });
 
 describe("selected Scripture Study public lifecycle", () => {
+  it("retrieves adjacent permitted context even when the saved reading is only the selected range", async () => {
+    const { t, args, model } = await setup();
+    const narrowed = content.split("\n\n").slice(0, 2).join("\n\n");
+    await t.run(async (ctx) => {
+      const article = await ctx.db.get(args.articleId);
+      if (!article?.bible) throw new Error("Missing Bible fixture");
+      await ctx.db.patch(article._id, {
+        content: narrowed,
+        contentHtml: "<p>selected range only</p>",
+        bible: { ...article.bible, reference: "John 1:1-2" },
+      });
+    });
+    const admitted = await t.mutation(api.scriptureStudy.start, {
+      ...args,
+      sourceHash: await sourceHash(narrowed, "<p>selected range only</p>"),
+    });
+    await t.action(internal.actions.scriptureStudy.generate, {
+      runId: admitted.runId,
+    });
+    expect(
+      (await t.query(api.scriptureStudy.get, { studyId: admitted.studyId }))
+        .publishedRun?.status,
+    ).toBe("complete");
+    expect(
+      await t.query(api.scriptureStudy.evidence, {
+        runId: admitted.runId,
+        evidenceId: "web-context-after",
+      }),
+    ).toMatchObject({
+      referenceKey: "JHN.1.3-JHN.1.4",
+      excerpt: expect.stringContaining("Public WEB verse three"),
+    });
+    expect(model.mock.calls[0][0].prompt).toContain(
+      '"immediateContextRanges":["JHN.1.3-JHN.1.4"]',
+    );
+  });
   it("admits, claims, retrieves permitted evidence, publishes and replays without spending again", async () => {
     const { t, args, fetch, model } = await setup();
     model.mockImplementationOnce(async (options) => ({
