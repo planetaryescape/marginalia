@@ -88,7 +88,9 @@ describe("study failure diagnostics", () => {
     const error = Object.assign(new Error("Provider returned error"), {
       responseBody: "private".repeat(3000),
     });
-    expect(studyFailureDiagnostic(error).signals).toEqual(["provider_rejection"]);
+    expect(studyFailureDiagnostic(error).signals).toEqual([
+      "provider_rejection",
+    ]);
     expect(studyFailureDiagnostic(error).parameters).toEqual([]);
   });
   it("bounds cyclic provider objects", () => {
