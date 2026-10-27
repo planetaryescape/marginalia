@@ -61,3 +61,28 @@ it("bounds streamed source responses even without a content-length header", asyn
   );
   await expect(englishDefinition("comfort")).rejects.toThrow("too large");
 });
+
+it("diagnoses rejection with only safe HTTP and body-bound signals", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue(
+        new Response("private-upstream-payload-canary", { status: 403 }),
+      ),
+  );
+  await expect(englishDefinition("comfort")).rejects.toThrow(
+    "HTTP 403; body present; size within_limit",
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue(
+        new Response("private-upstream-payload-canary", { status: 403 }),
+      ),
+  );
+  await expect(englishDefinition("comfort")).rejects.not.toThrow(
+    "private-upstream-payload-canary",
+  );
+});

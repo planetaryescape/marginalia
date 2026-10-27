@@ -39,7 +39,9 @@ export async function englishDefinition(selection: string) {
     !response.body ||
     Number(response.headers.get("content-length")) > 256_000
   )
-    throw new Error("The English dictionary is unavailable. Try again later.");
+    throw new Error(
+      `The English dictionary is unavailable (HTTP ${response.status}; body ${response.body ? "present" : "missing"}; size ${Number(response.headers.get("content-length")) > 256_000 ? "over_limit" : "within_limit"}). Try again later.`,
+    );
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let text = "",
