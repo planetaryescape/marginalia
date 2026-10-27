@@ -213,6 +213,27 @@ const key = async (name: string) => {
 };
 
 describe("topic picker", () => {
+  it("shows an honest empty result when Bible-only search returns no passages", async () => {
+    await show({ scope: "bible" });
+    await type("attention");
+    await settle();
+    expect(host.textContent).toContain("No passages fit that topic.");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("does not duplicate mixed empty copy when articles exist but miss the time window", async () => {
+    await show({ scope: "mixed", windowMinutes: 5 });
+    await type("attention");
+    await settle();
+    await answer("find", {
+      more: false,
+      matches: [find("long", "Long read", 10)],
+    });
+    expect(host.textContent).toContain("Nothing on attention fits");
+    expect(host.textContent).not.toContain(
+      "Nothing in your library or Bible fits",
+    );
+  });
   it("interleaves both sources in one navigable result card deck", async () => {
     suggestBible.mockResolvedValue({
       passages: [

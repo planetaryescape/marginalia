@@ -812,9 +812,7 @@ export function ArticleFinder({
           {!candidate &&
             scope !== "articles" &&
             visibleBible?.passages.length === 0 &&
-            articleDeck.length === 0 &&
-            current &&
-            result.status === "ready" && (
+            (!searching || articleCard?.kind === "empty") && (
               <p
                 role="status"
                 className="px-5 py-6 text-[14px] text-[var(--reader-muted)]"
