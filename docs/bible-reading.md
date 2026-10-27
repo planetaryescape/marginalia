@@ -8,6 +8,8 @@ On Home, use the **Look in** source toggle to choose **Articles only**, **Articl
 
 Try these searches:
 
+Specific references appear immediately without a topic-search request. Common unambiguous book-name typos such as `colosians 2` are shown as **Colossians 2** before you open them. Abbreviations such as `COL 2` and compact references such as `John3:16` also work. Direct references remain visible even when they exceed a selected recommendation time; ambiguous or invalid references are not silently changed to another passage. Articles-only mode continues to search your library.
+
 - `Romans 8` opens a whole chapter.
 - `John 3:16-21` opens a verse range.
 - `5 minutes about forgiveness` suggests passages related to the topic and within the estimated time.
