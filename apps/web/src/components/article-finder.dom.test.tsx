@@ -22,6 +22,8 @@ vi.mock("@/lib/auth-client", () => ({
 
 const push = vi.hoisted(() => vi.fn());
 const addByUrl = vi.hoisted(() => vi.fn());
+const suggestBible = vi.hoisted(() => vi.fn());
+const openBible = vi.hoisted(() => vi.fn());
 const save = vi.hoisted(() => vi.fn());
 const record = vi.hoisted(() => vi.fn());
 const noteHits = vi.hoisted(() => ({ current: [] as unknown[] }));
@@ -38,7 +40,8 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("convex/react", () => ({
-  useAction: () => addByUrl,
+  useAction: (fn: string) =>
+    fn === "add" ? addByUrl : fn === "suggest" ? suggestBible : openBible,
   useConvex: () => convexClient,
   useQuery: (fn: string, args: unknown) =>
     fn === "revision"
@@ -53,7 +56,10 @@ vi.mock("convex/react", () => ({
 vi.mock("@marginalia/backend/convex/_generated/api", () => ({
   api: {
     discoveryRevision: { current: "revision" },
-    actions: { addArticleByUrl: { add: "add" } },
+    actions: {
+      addArticleByUrl: { add: "add" },
+      bible: { suggest: "suggest", openReading: "open" },
+    },
     savedArticles: { save: "save" },
     sessions: { recordInteraction: "record" },
     notesSearch: { find: "notes" },
@@ -103,6 +109,8 @@ beforeEach(() => {
   titleQuery.mockReset();
   titleQuery.mockResolvedValue([]);
   addByUrl.mockReset();
+  suggestBible.mockReset().mockResolvedValue({ passages: [], notice: null });
+  openBible.mockReset().mockResolvedValue("passageid");
   save.mockReset();
   record.mockReset();
   record.mockResolvedValue(undefined);
@@ -158,6 +166,12 @@ async function type(text: string) {
     set?.call(input, text);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  if (!/^(https?:\/\/|www\.)\S+$/i.test(text.trim()))
+    await act(async () => {
+      input.form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
 }
 
 async function settle(ms = 250) {
@@ -199,6 +213,117 @@ const key = async (name: string) => {
 };
 
 describe("topic picker", () => {
+  it("shows an honest empty result when Bible-only search returns no passages", async () => {
+    await show({ scope: "bible" });
+    await type("attention");
+    await settle();
+    expect(host.textContent).toContain("No passages fit that topic.");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("does not duplicate mixed empty copy when articles exist but miss the time window", async () => {
+    await show({ scope: "mixed", windowMinutes: 5 });
+    await type("attention");
+    await settle();
+    await answer("find", {
+      more: false,
+      matches: [find("long", "Long read", 10)],
+    });
+    expect(host.textContent).toContain("Nothing on attention fits");
+    expect(host.textContent).not.toContain(
+      "Nothing in your library or Bible fits",
+    );
+  });
+  it("interleaves both sources in one navigable result card deck", async () => {
+    suggestBible.mockResolvedValue({
+      passages: [
+        {
+          reference: "Romans 8",
+          title: "Hope",
+          reason: "A reason",
+          minutes: 4,
+        },
+        {
+          reference: "Psalm 23",
+          title: "Rest",
+          reason: "Another reason",
+          minutes: 3,
+        },
+      ],
+      notice: null,
+    });
+    await show({ scope: "mixed" });
+    await type("attention");
+    await settle();
+    await answer("find", {
+      more: false,
+      matches: [find("a", "Alpha", 3), find("b", "Beta", 4)],
+    });
+    await act(async () => Promise.resolve());
+    expect(host.querySelectorAll("h3")).toHaveLength(1);
+    expect(host.querySelector("h3")?.textContent).toBe("Alpha");
+    await click("Another");
+    expect(host.querySelectorAll("h3")).toHaveLength(1);
+    expect(host.querySelector("h3")?.textContent).toBe("Romans 8");
+    expect(host.textContent).toContain("Bible · About attention");
+    await click("Another");
+    expect(host.querySelector("h3")?.textContent).toBe("Beta");
+    await click("Another");
+    expect(host.querySelector("h3")?.textContent).toBe("Psalm 23");
+  });
+
+  it("does not navigate when a Bible open resolves after the finder closes", async () => {
+    suggestBible.mockResolvedValue({
+      passages: [
+        {
+          reference: "Romans 8",
+          title: "Hope",
+          reason: "A reason",
+          minutes: 4,
+        },
+      ],
+      notice: null,
+    });
+    let finishOpen!: (id: string) => void;
+    openBible.mockReturnValue(new Promise((resolve) => (finishOpen = resolve)));
+    await show({ scope: "bible" });
+    await type("hope");
+    await settle();
+    const read = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "Read now",
+    );
+    await act(async () => read?.click());
+    await act(async () =>
+      host
+        .querySelector("dialog")
+        ?.dispatchEvent(new Event("cancel", { cancelable: true })),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>("button[aria-haspopup]")?.click(),
+    );
+    await act(async () => finishOpen("late-passage"));
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("does not search while typing; Search and Enter submit the explicit topic query", async () => {
+    await show();
+    const input = host.querySelector("input");
+    if (!input) throw new Error("Expected the finder input");
+    const set = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      set?.call(input, "attention");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(requests).toHaveLength(0);
+    await click("Search");
+    await settle();
+    expect(requests.map((request) => request.path)).toEqual(["find"]);
+  });
+
   it("shows the first card from the fast result, then fills the reason into the same card", async () => {
     await show();
     await type("attention");
@@ -432,13 +557,7 @@ describe("topic picker", () => {
     });
     await key("ArrowDown");
     expect(title()).toBe("Beta");
-    await act(async () => {
-      host
-        .querySelector("form")
-        ?.dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-    });
+    await click("Read now");
     expect(push).toHaveBeenCalledWith("/read/b");
   });
 
@@ -560,13 +679,7 @@ describe("topic picker", () => {
         await key("ArrowDown");
         expect(options()[1]?.getAttribute("aria-selected")).toBe("true");
         await key("ArrowUp");
-        await act(async () => {
-          host
-            .querySelector("form")
-            ?.dispatchEvent(
-              new Event("submit", { bubbles: true, cancelable: true }),
-            );
-        });
+        await key("Enter");
         expect(push).toHaveBeenCalledWith(
           "/read/z?quote=the+quoted+line&note=n1",
         );

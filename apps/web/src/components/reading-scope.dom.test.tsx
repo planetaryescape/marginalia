@@ -23,28 +23,14 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
-  document
-    .querySelectorAll("[data-radix-popper-content-wrapper]")
-    .forEach((el) => {
-      el.remove();
-    });
   vi.unstubAllGlobals();
 });
 
 const render = (scope: ReadingScope) =>
   act(async () => root.render(<ReadingScopeControl scope={scope} />));
-const trigger = () =>
-  container.querySelector<HTMLButtonElement>("button[aria-label^='Look in']")!;
-const choices = () => [
-  ...document.querySelectorAll<HTMLElement>("[role='menuitemradio']"),
+const radios = () => [
+  ...container.querySelectorAll<HTMLButtonElement>("[role=radio]"),
 ];
-const click = (element: Element) =>
-  act(async () =>
-    element.dispatchEvent(
-      new MouseEvent("click", { bubbles: true, cancelable: true }),
-    ),
-  );
-const open = () => press(trigger(), "Enter");
 const press = (element: Element, key: string) =>
   act(async () => {
     element.dispatchEvent(
@@ -52,120 +38,92 @@ const press = (element: Element, key: string) =>
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+const click = (element: Element) =>
+  act(async () =>
+    element.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    ),
+  );
 
 describe("reading source control", () => {
-  it("names the current choice and exposes all three radio choices", async () => {
+  it("exposes all sources as a selected, labeled radio group", async () => {
     await render("mixed");
-    expect(trigger().getAttribute("aria-label")).toBe(
-      "Look in, Articles + Bible",
+    expect(
+      container
+        .querySelector("[role=radiogroup]")
+        ?.getAttribute("aria-labelledby"),
+    ).toBe("reading-source-label");
+    expect(container.querySelector("#reading-source-label")?.textContent).toBe(
+      "Look in",
     );
-    await open();
-    expect(choices().map((item) => item.textContent?.trim())).toEqual([
+    expect(radios().map((radio) => radio.getAttribute("aria-label"))).toEqual([
       "Articles only",
       "Articles + Bible",
       "Bible only",
     ]);
-    expect(choices().map((item) => item.getAttribute("aria-checked"))).toEqual([
-      "false",
-      "true",
-      "false",
-    ]);
-    expect(container.closest('[aria-hidden="true"]')).toBeNull();
+    expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
+      ["false", "true", "false"],
+    );
+    expect(radios().map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
   });
 
-  it("selects by keyboard and restores focus after Escape", async () => {
+  it("moves by arrows, saves the highlighted source, and preserves focus", async () => {
     await render("articles");
-    await press(trigger(), "Enter");
-    expect(choices()).toHaveLength(3);
-    await press(choices()[0], "ArrowDown");
-    await press(choices()[1], "Enter");
+    radios()[0]?.focus();
+    await press(radios()[0]!, "ArrowRight");
+    expect(document.activeElement).toBe(radios()[1]);
     expect(mocks.save).toHaveBeenCalledWith({ scope: "mixed" });
-    expect(trigger().getAttribute("aria-label")).toBe("Look in, Articles only");
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    expect(document.activeElement).toBe(trigger());
-
-    await press(trigger(), "Enter");
-    await press(choices()[0], "Escape");
-    expect(choices()).toHaveLength(0);
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    expect(document.activeElement).toBe(trigger());
   });
 
-  it("uses the updated controlled scope after a successful save", async () => {
+  it("uses the controlled scope after a successful save", async () => {
     await render("articles");
-    await open();
-    await click(choices()[2]);
+    await click(radios()[2]!);
     expect(mocks.save).toHaveBeenCalledWith({ scope: "bible" });
-    expect(trigger().getAttribute("aria-label")).toBe("Look in, Articles only");
     await render("bible");
-    expect(trigger().getAttribute("aria-label")).toBe("Look in, Bible only");
+    expect(radios()[2]?.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("prevents another save while pending", async () => {
+  it("prevents another save while the first source update is pending", async () => {
     let resolveSave!: () => void;
     mocks.save.mockImplementation(
       () => new Promise<void>((resolve) => (resolveSave = resolve)),
     );
     await render("articles");
-    await open();
-    const choice = choices()[1];
     await act(async () => {
-      choice?.click();
-      choice?.click();
+      radios()[1]?.click();
+      radios()[2]?.click();
     });
-    expect(trigger().getAttribute("aria-disabled")).toBe("true");
-    expect(trigger().getAttribute("aria-busy")).toBe("true");
-    await click(trigger());
-    await open();
-    expect(choices()).toHaveLength(0);
     expect(mocks.save).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector("[role=radiogroup]")?.getAttribute("aria-busy"),
+    ).toBe("true");
+    expect(radios().every((radio) => !radio.disabled)).toBe(true);
     await act(async () => resolveSave());
-    expect(trigger().getAttribute("aria-disabled")).toBe("false");
+    expect(radios().every((radio) => !radio.disabled)).toBe(true);
   });
 
-  it("restores keyboard focus after a non-instant save finishes", async () => {
-    let resolveSave!: () => void;
-    mocks.save.mockImplementation(
-      () => new Promise<void>((resolve) => (resolveSave = resolve)),
-    );
-    await render("articles");
-    trigger().focus();
-    await press(trigger(), "Enter");
-    await press(choices()[1], "Enter");
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
-    expect(trigger().getAttribute("aria-disabled")).toBe("true");
-    await act(async () => resolveSave());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
-    expect(document.activeElement).toBe(trigger());
-  });
-
-  it("does not take focus back if it moved while the save was pending", async () => {
-    let resolveSave!: () => void;
-    mocks.save.mockImplementation(
-      () => new Promise<void>((resolve) => (resolveSave = resolve)),
-    );
-    await render("articles");
-    const elsewhere = document.createElement("button");
-    elsewhere.textContent = "Elsewhere";
-    container.appendChild(elsewhere);
-    await open();
-    await press(choices()[1], "Enter");
-    elsewhere.focus();
-    await act(async () => resolveSave());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
-    expect(document.activeElement).toBe(elsewhere);
-  });
-
-  it("keeps the saved label on failure and offers a retry", async () => {
+  it("keeps the selected source after failure and offers retry", async () => {
     mocks.save.mockRejectedValueOnce(new Error("offline"));
     await render("articles");
-    await open();
-    await click(choices()[2]);
-    expect(trigger().getAttribute("aria-label")).toBe("Look in, Articles only");
-    const alert = document.querySelector<HTMLElement>("[role='alert']");
+    await click(radios()[2]!);
+    const alert = container.querySelector<HTMLElement>("[role=alert]");
     expect(alert?.textContent).toContain("Couldn't change reading sources.");
     await click(alert!.querySelector("button")!);
     expect(mocks.save).toHaveBeenCalledTimes(2);
     expect(mocks.save).toHaveBeenLastCalledWith({ scope: "bible" });
+  });
+
+  it("cycles Articles → Both → Bible with unmodified F", async () => {
+    await render("articles");
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "f",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(mocks.save).toHaveBeenCalledWith({ scope: "mixed" });
   });
 });

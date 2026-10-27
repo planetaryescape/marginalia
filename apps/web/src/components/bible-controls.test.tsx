@@ -3,7 +3,7 @@ import { getFunctionName } from "convex/server";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BibleDiscovery } from "./bible-discovery";
+import { BibleDiscovery, BibleTimePick } from "./bible-discovery";
 import { BibleSettings } from "./bible-settings";
 
 const state = vi.hoisted(() => ({
@@ -74,9 +74,9 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 const renderDiscovery = () =>
-  act(async () =>
-    root.render(<BibleDiscovery preferences={{ ...state }} minutes={5} />),
-  );
+  act(async () => root.render(<BibleDiscovery preferences={{ ...state }} />));
+const renderBiblePick = (minutes: number) =>
+  act(async () => root.render(<BibleTimePick minutes={minutes} />));
 
 describe("Bible opt-in controls", () => {
   it("shows only the opt-in setting before enabling", async () => {
@@ -114,79 +114,115 @@ describe("Bible opt-in controls", () => {
     expect(document.body.textContent).not.toContain("Browse the Bible");
     expect(suggest).not.toHaveBeenCalled();
   });
-  it("uses the selected time and opens an actual passage", async () => {
+  it("shows the selected source in the accessible radio group without an automatic search", async () => {
     Object.assign(state, { enabled: true, scope: "bible" });
     await renderDiscovery();
-    expect(suggest).toHaveBeenCalledWith({ question: "", minutes: 5 });
-    const button = Array.from(document.querySelectorAll("button")).find((b) =>
-      b.textContent?.includes("Psalms 23"),
-    );
-    expect(button).toBeDefined();
-    await act(async () => button?.click());
-    expect(openPassage).toHaveBeenCalledWith({ reference: "Psalms 23" });
-    expect(push).toHaveBeenCalledWith("/read/passageid");
+    expect(document.querySelector('[role="radiogroup"]')).not.toBeNull();
+    expect(
+      document
+        .querySelector('[role="radio"][aria-checked="true"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("Bible only");
+    expect(suggest).not.toHaveBeenCalled();
   });
-  it("times out independently and ignores a late response", async () => {
-    Object.assign(state, { enabled: true, scope: "mixed" });
-    let resolve:
-      | ((value: Awaited<ReturnType<typeof suggest>>) => void)
-      | undefined;
-    suggest.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
-    await act(async () =>
-      root.render(
-        <>
-          <p>Ready article</p>
-          <BibleDiscovery preferences={{ ...state }} minutes={5} />
-        </>,
-      ),
-    );
-    await act(async () => vi.advanceTimersByTimeAsync(30_000));
-    expect(document.body.textContent).toContain("Ready article");
-    expect(document.body.textContent).toContain(
-      "Bible search couldn't complete",
-    );
-    await act(async () =>
-      resolve?.({
-        passages: [
-          {
-            reference: "Psalms 23",
-            title: "Late",
-            reason: "Too late",
-            minutes: 1,
-          },
-        ],
-        notice: null,
-      }),
-    );
-    expect(document.body.textContent).not.toContain("Psalms 23");
-    const retry = Array.from(document.querySelectorAll("button")).find(
-      (b) => b.textContent === "Retry Bible search",
-    );
-    await act(async () => retry?.click());
-    expect(suggest).toHaveBeenCalledTimes(2);
-    expect(document.body.textContent).toContain("Psalms 23");
-  });
-  it("opens licensed suggestions in the normal reader without automatically enabling comparison", async () => {
+  it("does not start a topic request just by selecting a Bible scope", async () => {
     Object.assign(state, { enabled: true, scope: "bible", translation: "niv" });
     await renderDiscovery();
-    const passage = Array.from(document.querySelectorAll("button")).find((b) =>
-      b.textContent?.includes("Psalms 23"),
-    );
-    await act(async () => passage?.click());
-    expect(openPassage).toHaveBeenCalledWith({ reference: "Psalms 23" });
-    expect(push).toHaveBeenCalledWith("/read/passageid");
+    expect(suggest).not.toHaveBeenCalled();
+    expect(openPassage).not.toHaveBeenCalled();
   });
-  it("drops passage results immediately after opt-out", async () => {
+  it("drops source controls immediately after opt-out", async () => {
     Object.assign(state, { enabled: true, scope: "mixed" });
     await renderDiscovery();
-    expect(document.body.textContent).toContain("Psalms 23");
+    expect(document.body.textContent).toContain("Articles + Bible");
     state.enabled = false;
     await renderDiscovery();
     expect(document.body.textContent).toBe("");
+  });
+  it("cycles with unmodified F and moves focus through source radios with arrows", async () => {
+    state.enabled = true;
+    state.scope = "articles";
+    await renderDiscovery();
+    const radios = [
+      ...document.querySelectorAll<HTMLButtonElement>("[role=radio]"),
+    ];
+    radios[0]?.focus();
+    await act(async () =>
+      radios[0]?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.activeElement).toBe(radios[1]);
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "f",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(setPreferences).toHaveBeenCalledWith({ scope: "mixed" });
+  });
+  it("keeps arrow-selected radio focus while the preference mutation is pending", async () => {
+    state.enabled = true;
+    state.scope = "articles";
+    let finish!: () => void;
+    setPreferences.mockReturnValueOnce(
+      new Promise<void>((resolve) => (finish = resolve)),
+    );
+    await renderDiscovery();
+    const radios = [
+      ...document.querySelectorAll<HTMLButtonElement>("[role=radio]"),
+    ];
+    radios[0]?.focus();
+    await act(async () =>
+      radios[0]?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.activeElement).toBe(radios[1]);
+    expect(radios[1]?.disabled).toBe(false);
+    await act(async () => finish());
+    expect(document.activeElement).toBe(radios[1]);
+  });
+  it("restores a Bible time pick in the same single-card Your pick pattern", async () => {
+    await renderBiblePick(10);
+    await act(async () => Promise.resolve());
+    expect(suggest).toHaveBeenCalledWith({ question: "", minutes: 10 });
+    expect(document.querySelector("h2")?.textContent).toBe("Rest");
+    expect(document.body.textContent).toContain("Psalms 23 · ~1 min");
+    expect(document.body.textContent).toContain("Read now");
+    await act(async () =>
+      [...document.querySelectorAll("button")]
+        .find((button) => button.textContent === "Read now")
+        ?.click(),
+    );
+    expect(openPassage).toHaveBeenCalledWith({ reference: "Psalms 23" });
+    expect(push).toHaveBeenCalledWith("/read/passageid");
+  });
+  it("ignores a late timed-pick open after the selected time is replaced", async () => {
+    let finishOpen!: (id: string) => void;
+    openPassage.mockReturnValueOnce(
+      new Promise((resolve) => (finishOpen = resolve)),
+    );
+    await renderBiblePick(10);
+    await act(async () => Promise.resolve());
+    await act(async () =>
+      [...document.querySelectorAll("button")]
+        .find((button) => button.textContent === "Read now")
+        ?.click(),
+    );
+    await renderBiblePick(20);
+    await act(async () => finishOpen("stale"));
+    expect(push).not.toHaveBeenCalled();
   });
 });

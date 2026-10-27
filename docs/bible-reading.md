@@ -4,7 +4,7 @@ Enable **Your account → Bible reading → Enable Bible reading**. The setting 
 
 ## Find a passage
 
-On Home, choose **Articles only**, **Articles + Bible**, or **Bible only** from **Look in**. Choose a reading-time button to constrain Bible suggestions, then use **Bible topic or passage** to add a topic or enter a reference. Article discovery keeps the existing floating search picker; in mixed mode the Bible finder appears alongside it, independently.
+On Home, use the **Look in** source toggle to choose **Articles only**, **Articles + Bible**, or **Bible only**. The same **Search** entry point and dialog handle every source. Type a topic or passage and choose **Search** (or press Enter); typing alone does not start a topic search. Results name their source and use the same card pattern. Choose a reading-time button before searching to constrain results; its selected time remains until cleared. `/` opens the finder and `F` cycles the enabled source choices. These single-key shortcuts pause while typing or while a modal is open, and respect the account's shortcut opt-out.
 
 Try these searches:
 
@@ -13,9 +13,9 @@ Try these searches:
 - `5 minutes about forgiveness` suggests passages related to the topic and within the estimated time.
 - `I have 10 minutes` offers starter passages without an AI request.
 
-Use **Browse the Bible** below the Bible finder to choose any of the 66 books and a chapter. Licensed display supports a verse range within one chapter or a whole chapter. WEB also supports up to three consecutive chapters, such as `Matthew 5-7`. Chapter navigation in the reader continues into the next book.
+Use the dedicated `/bible` page to browse available editions and passages. Licensed display supports a verse range within one chapter or a whole chapter. WEB also supports up to three consecutive chapters, such as `Matthew 5-7`. Chapter navigation in the reader continues into the next book.
 
-In mixed mode, article results and Bible suggestions are retrieved independently. If one fails, the other remains usable. Bible-only mode hides the article search and recommendation slot.
+In mixed mode, article results and Bible suggestions are retrieved independently after Search. If one fails, the other remains usable. Bible-only mode keeps the same finder and source chooser; article time picks and PDF import are not shown in that scope.
 
 ## Choose a Bible and open the normal reader
 
