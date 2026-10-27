@@ -15,6 +15,37 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("allows provider verse identity through the article sanitization policy", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  // This checks the production policy passed to DOMPurify. Browser verification
+  // separately checks real sanitization; happy-dom does not support DOMPurify.
+  const sanitize = vi
+    .spyOn(sanitizer, "sanitizeHtml")
+    .mockImplementation((html) => html);
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <ArticleRenderer
+          content="23:4 A public-domain verse."
+          contentHtml='<div class="q1"><span class="yv-v" v="4"></span>A public-domain verse.</div>'
+          annotations={[]}
+          activeAnnotationId={null}
+          onAnnotationSelect={() => {}}
+        />,
+      ),
+    );
+    expect(sanitize).toHaveBeenCalledWith(
+      expect.stringContaining('v="4"'),
+      expect.objectContaining({ ADD_ATTR: expect.arrayContaining(["v"]) }),
+    );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 it("does not prepare or replace article prose for viewed/bookkeeping-only row changes", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const sanitize = vi

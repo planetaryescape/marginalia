@@ -12,7 +12,15 @@ import { sanitizeHtml } from "@/lib/sanitize";
 function sanitizeArticleHtml(html: string): string {
   return sanitizeHtml(html, {
     ADD_TAGS: ["mark", "sup"],
-    ADD_ATTR: ["data-annotation-id", "data-type", "style", "class", "target"],
+    // YouVersion's inert `v` marker identifies containing verses for Study.
+    ADD_ATTR: [
+      "data-annotation-id",
+      "data-type",
+      "style",
+      "class",
+      "target",
+      "v",
+    ],
   });
 }
 
