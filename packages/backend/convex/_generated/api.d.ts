@@ -8,13 +8,6 @@
  * @module
  */
 
-import type * as scriptureStudyRuns from "../scriptureStudyRuns.js";
-import type * as scriptureKeeps from "../scriptureKeeps.js";
-import type * as scriptureStudy from "../scriptureStudy.js";
-import type * as scriptureStudyCleanup from "../scriptureStudyCleanup.js";
-import type * as actions_scriptureStudy from "../actions/scriptureStudy.js";
-import type * as lib_scriptureStudy from "../lib/scriptureStudy.js";
-import type * as lib_scriptureStudyState from "../lib/scriptureStudyState.js";
 import type * as access from "../access.js";
 import type * as account from "../account.js";
 import type * as actions_addArticleByUrl from "../actions/addArticleByUrl.js";
@@ -35,6 +28,8 @@ import type * as actions_ingestExternal from "../actions/ingestExternal.js";
 import type * as actions_pollFeeds from "../actions/pollFeeds.js";
 import type * as actions_readAlongside from "../actions/readAlongside.js";
 import type * as actions_readwiseSync from "../actions/readwiseSync.js";
+import type * as actions_scriptureStudy from "../actions/scriptureStudy.js";
+import type * as actions_scriptureStudyFollowUps from "../actions/scriptureStudyFollowUps.js";
 import type * as actions_summarize from "../actions/summarize.js";
 import type * as alongside from "../alongside.js";
 import type * as annotations from "../annotations.js";
@@ -112,6 +107,7 @@ import type * as lib_discoveryRevisionTriggers from "../lib/discoveryRevisionTri
 import type * as lib_edgeExplanationTriggers from "../lib/edgeExplanationTriggers.js";
 import type * as lib_edgeExplanations from "../lib/edgeExplanations.js";
 import type * as lib_embeddings from "../lib/embeddings.js";
+import type * as lib_englishDefinition from "../lib/englishDefinition.js";
 import type * as lib_externalApi from "../lib/externalApi.js";
 import type * as lib_feedArticleCount from "../lib/feedArticleCount.js";
 import type * as lib_feedPollLifecycle from "../lib/feedPollLifecycle.js";
@@ -171,6 +167,20 @@ import type * as lib_reflectionProtection from "../lib/reflectionProtection.js";
 import type * as lib_reportingTags from "../lib/reportingTags.js";
 import type * as lib_requestControl from "../lib/requestControl.js";
 import type * as lib_router from "../lib/router.js";
+import type * as lib_scriptureKeepsSchema from "../lib/scriptureKeepsSchema.js";
+import type * as lib_scriptureReferences from "../lib/scriptureReferences.js";
+import type * as lib_scriptureStudy from "../lib/scriptureStudy.js";
+import type * as lib_scriptureStudyCommentary from "../lib/scriptureStudyCommentary.js";
+import type * as lib_scriptureStudyContext from "../lib/scriptureStudyContext.js";
+import type * as lib_scriptureStudyDiagnostics from "../lib/scriptureStudyDiagnostics.js";
+import type * as lib_scriptureStudyFollowUps from "../lib/scriptureStudyFollowUps.js";
+import type * as lib_scriptureStudyGeneration from "../lib/scriptureStudyGeneration.js";
+import type * as lib_scriptureStudyModelSchema from "../lib/scriptureStudyModelSchema.js";
+import type * as lib_scriptureStudyPrompt from "../lib/scriptureStudyPrompt.js";
+import type * as lib_scriptureStudySourceShared from "../lib/scriptureStudySourceShared.js";
+import type * as lib_scriptureStudySources from "../lib/scriptureStudySources.js";
+import type * as lib_scriptureStudyState from "../lib/scriptureStudyState.js";
+import type * as lib_scriptureStudyVariants from "../lib/scriptureStudyVariants.js";
 import type * as lib_serverTiming from "../lib/serverTiming.js";
 import type * as lib_shelfArticle from "../lib/shelfArticle.js";
 import type * as lib_shelfCounts from "../lib/shelfCounts.js";
@@ -218,6 +228,11 @@ import type * as readwiseSyncState from "../readwiseSyncState.js";
 import type * as reannotateBackfill from "../reannotateBackfill.js";
 import type * as reflections from "../reflections.js";
 import type * as savedArticles from "../savedArticles.js";
+import type * as scriptureKeeps from "../scriptureKeeps.js";
+import type * as scriptureStudy from "../scriptureStudy.js";
+import type * as scriptureStudyCleanup from "../scriptureStudyCleanup.js";
+import type * as scriptureStudyFollowUps from "../scriptureStudyFollowUps.js";
+import type * as scriptureStudyRuns from "../scriptureStudyRuns.js";
 import type * as sessions from "../sessions.js";
 import type * as stats from "../stats.js";
 import type * as suggestions from "../suggestions.js";
@@ -238,13 +253,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  "scriptureStudyRuns": typeof scriptureStudyRuns;
-  "scriptureKeeps": typeof scriptureKeeps;
-  "scriptureStudy": typeof scriptureStudy;
-  "scriptureStudyCleanup": typeof scriptureStudyCleanup;
-  "actions/scriptureStudy": typeof actions_scriptureStudy;
-  "lib/scriptureStudy": typeof lib_scriptureStudy;
-  "lib/scriptureStudyState": typeof lib_scriptureStudyState;
   access: typeof access;
   account: typeof account;
   "actions/addArticleByUrl": typeof actions_addArticleByUrl;
@@ -265,6 +273,8 @@ declare const fullApi: ApiFromModules<{
   "actions/pollFeeds": typeof actions_pollFeeds;
   "actions/readAlongside": typeof actions_readAlongside;
   "actions/readwiseSync": typeof actions_readwiseSync;
+  "actions/scriptureStudy": typeof actions_scriptureStudy;
+  "actions/scriptureStudyFollowUps": typeof actions_scriptureStudyFollowUps;
   "actions/summarize": typeof actions_summarize;
   alongside: typeof alongside;
   annotations: typeof annotations;
@@ -342,6 +352,7 @@ declare const fullApi: ApiFromModules<{
   "lib/edgeExplanationTriggers": typeof lib_edgeExplanationTriggers;
   "lib/edgeExplanations": typeof lib_edgeExplanations;
   "lib/embeddings": typeof lib_embeddings;
+  "lib/englishDefinition": typeof lib_englishDefinition;
   "lib/externalApi": typeof lib_externalApi;
   "lib/feedArticleCount": typeof lib_feedArticleCount;
   "lib/feedPollLifecycle": typeof lib_feedPollLifecycle;
@@ -401,6 +412,20 @@ declare const fullApi: ApiFromModules<{
   "lib/reportingTags": typeof lib_reportingTags;
   "lib/requestControl": typeof lib_requestControl;
   "lib/router": typeof lib_router;
+  "lib/scriptureKeepsSchema": typeof lib_scriptureKeepsSchema;
+  "lib/scriptureReferences": typeof lib_scriptureReferences;
+  "lib/scriptureStudy": typeof lib_scriptureStudy;
+  "lib/scriptureStudyCommentary": typeof lib_scriptureStudyCommentary;
+  "lib/scriptureStudyContext": typeof lib_scriptureStudyContext;
+  "lib/scriptureStudyDiagnostics": typeof lib_scriptureStudyDiagnostics;
+  "lib/scriptureStudyFollowUps": typeof lib_scriptureStudyFollowUps;
+  "lib/scriptureStudyGeneration": typeof lib_scriptureStudyGeneration;
+  "lib/scriptureStudyModelSchema": typeof lib_scriptureStudyModelSchema;
+  "lib/scriptureStudyPrompt": typeof lib_scriptureStudyPrompt;
+  "lib/scriptureStudySourceShared": typeof lib_scriptureStudySourceShared;
+  "lib/scriptureStudySources": typeof lib_scriptureStudySources;
+  "lib/scriptureStudyState": typeof lib_scriptureStudyState;
+  "lib/scriptureStudyVariants": typeof lib_scriptureStudyVariants;
   "lib/serverTiming": typeof lib_serverTiming;
   "lib/shelfArticle": typeof lib_shelfArticle;
   "lib/shelfCounts": typeof lib_shelfCounts;
@@ -448,6 +473,11 @@ declare const fullApi: ApiFromModules<{
   reannotateBackfill: typeof reannotateBackfill;
   reflections: typeof reflections;
   savedArticles: typeof savedArticles;
+  scriptureKeeps: typeof scriptureKeeps;
+  scriptureStudy: typeof scriptureStudy;
+  scriptureStudyCleanup: typeof scriptureStudyCleanup;
+  scriptureStudyFollowUps: typeof scriptureStudyFollowUps;
+  scriptureStudyRuns: typeof scriptureStudyRuns;
   sessions: typeof sessions;
   stats: typeof stats;
   suggestions: typeof suggestions;

@@ -40,6 +40,7 @@ describe("mechanical citation correction is not a weaker validator", () => {
       "web-1",
     ]);
     expect(result.accepted.findings).toEqual([]);
+    expect(result.correctedCitations).toBe(0);
     expect(result.feedback[0].code).toBe("unknown_evidence");
     expect(draft.findings[0].evidenceIds).toEqual(["notes-not-evidence"]);
   });

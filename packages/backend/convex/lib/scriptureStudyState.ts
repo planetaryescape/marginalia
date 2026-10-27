@@ -16,6 +16,7 @@ import {
   STUDY_VERSION,
   selectedVerses,
 } from "./scriptureStudy";
+import { STUDY_TEACHING_PROMPT } from "./scriptureStudyPrompt";
 import { metadataLibraryActive } from "./shelfCounts";
 import { sha256Hex } from "./tokens";
 
@@ -42,7 +43,7 @@ export async function studyPolicy(ctx: Db, userId: string) {
     hash: await sha256Hex(
       JSON.stringify([
         STUDY_VERSION,
-        STUDY_SYSTEM_PROMPT,
+        STUDY_TEACHING_PROMPT,
         STUDY_LIMITS,
         SOURCE_POLICY,
         STUDY_SOURCE_REGISTRY,

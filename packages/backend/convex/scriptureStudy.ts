@@ -269,6 +269,19 @@ function metadata(run: Doc<"scriptureStudyRuns"> | null) {
     outcome: run.outcome ?? null,
     coverage: run.coverage ?? [],
     evidenceSetHash: run.evidenceSetHash ?? null,
+    teaching: run.teaching ?? null,
+    teachingState: run.teaching
+      ? ("available" as const)
+      : run.version !== STUDY_VERSION
+        ? ("legacy" as const)
+        : run.generation?.teachingOmitted
+          ? ("omitted" as const)
+          : ("empty" as const),
+    sources: (run.evidence ?? []).map((item) => ({
+      evidenceId: item.evidenceId,
+      title: item.source.title,
+      referenceKey: item.referenceKey,
+    })),
     ...context,
   };
 }

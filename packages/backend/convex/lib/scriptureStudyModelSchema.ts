@@ -1,8 +1,10 @@
 "use node";
 import { type JSONSchema7, jsonSchema } from "ai";
-import { toJSONSchema } from "zod";
-import { resultSchema, type StudyResult } from "./scriptureStudy";
+import { toJSONSchema, type ZodType } from "zod";
+import { resultSchema } from "./scriptureStudy";
 
+function withoutArrayCaps(schema: JSONSchema7): JSONSchema7;
+function withoutArrayCaps(schema: JSONSchema7 | boolean): JSONSchema7 | boolean;
 function withoutArrayCaps(
   schema: JSONSchema7 | boolean,
 ): JSONSchema7 | boolean {
@@ -22,23 +24,31 @@ function withoutArrayCaps(
       ? wire.items.map(withoutArrayCaps)
       : withoutArrayCaps(wire.items);
   }
+  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+    if (wire[key]) wire[key] = wire[key].map(withoutArrayCaps);
+  }
   return wire;
 }
 
 /** Google's Study grammar rejects the nested maxItems bounds. Keep those bounds
  * in SDK validation and publication, not in this provider's response grammar. */
 export function studyProviderSchema(modelId: string) {
+  return studyObjectProviderSchema(modelId, resultSchema);
+}
+
+export function studyObjectProviderSchema<T>(
+  modelId: string,
+  local: ZodType<T>,
+) {
   if (!modelId.startsWith("openrouter:google/gemini-")) return undefined;
   // SAFETY: Zod emits draft-7 JSON Schema here, matching the SDK's JSONSchema7 contract.
-  const schema = toJSONSchema(resultSchema, {
+  const schema = toJSONSchema(local, {
     target: "draft-7",
   }) as JSONSchema7;
   const wire = withoutArrayCaps(schema);
-  if (typeof wire === "boolean")
-    throw new Error("Study schema must be an object");
-  return jsonSchema<StudyResult>(wire, {
+  return jsonSchema<T>(wire, {
     validate(value) {
-      const parsed = resultSchema.safeParse(value);
+      const parsed = local.safeParse(value);
       return parsed.success
         ? { success: true, value: parsed.data }
         : { success: false, error: parsed.error };

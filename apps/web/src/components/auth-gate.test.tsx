@@ -39,6 +39,7 @@ describe("reader gate", () => {
   it.each([
     "/privacy",
     "/terms",
+    "/help/deep-study",
   ])("shows %s without signing in or waiting for authentication", (pathname) => {
     state.pathname = pathname;
     state.loading = true;
@@ -53,6 +54,7 @@ describe("reader gate", () => {
     "/account",
     "/privacy/other",
     "/terms/other",
+    "/help/deep-study/other",
   ])("keeps %s protected", (pathname) => {
     state.pathname = pathname;
     const html = renderToStaticMarkup(<AuthGate>private library</AuthGate>);

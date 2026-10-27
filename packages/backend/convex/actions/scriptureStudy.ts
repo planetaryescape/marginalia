@@ -452,13 +452,12 @@ export const generate = internalAction({
             );
             return false;
           }
-          if (candidate.ref.bookId === ref.bookId) return false;
           return true;
         })
         .slice(0, 2);
       if (!relatedCandidates.length)
         coverageWarnings.push(
-          "No cross-book related WEB reference was verified from supplied study notes.",
+          "No related WEB reference was verified from supplied study notes; connections are limited to the supplied chapter context.",
         );
       for (const [index, candidate] of relatedCandidates.entries()) {
         if (!candidate.ref) continue;
@@ -499,7 +498,7 @@ export const generate = internalAction({
               .map((verse) => `${verse.id} ${verse.text}`)
               .join("\n"),
             limitations: [
-              `Verified cross-book WEB passage from a structured Aquifer reference candidate (${candidate.referenceKey}).`,
+              `Verified WEB passage from a structured Aquifer reference candidate (${candidate.referenceKey}); a reference candidate alone does not establish an interpretive relationship.`,
             ],
           });
         } catch (error) {
@@ -521,7 +520,7 @@ export const generate = internalAction({
       for (const index of samples) {
         if (
           requests >= STUDY_LIMITS.externalRequests ||
-          evidence.length >= 16
+          evidence.length >= STUDY_LIMITS.evidence
         ) {
           coverageWarnings.push(
             "Additional original-language samples were skipped after reserving the retrieval budget for core and related evidence.",
@@ -570,7 +569,7 @@ export const generate = internalAction({
           const entries = original.entries
             .slice(0, 3)
             .map((e) => ({ ...e, definition: e.definition.slice(0, 900) }));
-          if (entries.length)
+          if (entries.length && evidence.length < STUDY_LIMITS.evidence)
             await add({
               evidenceId: `lexicon-${key}`,
               source: {
@@ -591,6 +590,10 @@ export const generate = internalAction({
                 "At most three dictionary entries; definitions shortened to 900 characters.",
               ],
             });
+          else if (entries.length)
+            coverageWarnings.push(
+              `Dictionary evidence for ${key} was omitted at the evidence-record limit; its original-language sample is retained.`,
+            );
         } catch (error) {
           attempt.signal.throwIfAborted();
           if (

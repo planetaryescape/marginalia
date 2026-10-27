@@ -6,6 +6,12 @@ import { internalMutation } from "./functions";
 import { STUDY_LIMITS } from "./lib/scriptureStudy";
 
 async function discardRun(ctx: MutationCtx, runId: Id<"scriptureStudyRuns">) {
+  const answers = await ctx.db
+    .query("scriptureStudyFollowUps")
+    .withIndex("by_runId", (q) => q.eq("runId", runId))
+    .take(STUDY_LIMITS.cleanupBatch);
+  for (const row of answers) await ctx.db.delete(row._id);
+  if (answers.length === STUDY_LIMITS.cleanupBatch) return;
   const requests = await ctx.db
     .query("scriptureStudyRequests")
     .withIndex("by_runId", (q) => q.eq("runId", runId))
@@ -54,6 +60,12 @@ export async function purgeStudyReader(ctx: MutationCtx, userId: string) {
     .take(STUDY_LIMITS.cleanupBatch);
   for (const row of findings) await ctx.db.delete(row._id);
   if (findings.length) return findings.length;
+  const answers = await ctx.db
+    .query("scriptureStudyFollowUps")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .take(STUDY_LIMITS.cleanupBatch);
+  for (const row of answers) await ctx.db.delete(row._id);
+  if (answers.length) return answers.length;
   const requests = await ctx.db
     .query("scriptureStudyRequests")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
