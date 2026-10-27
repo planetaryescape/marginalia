@@ -29,9 +29,11 @@ export default function PrivacyPage() {
         <li>
           <strong>Your reading library:</strong> subscriptions, article URLs and
           content, saved Bible passages, highlights, notes, questions, AI
-          responses, ratings and reading activity. These support reading,
-          progress, recommendations and search, including a semantic index of
-          your content when an embedding provider is connected.
+          responses, private Bible Study selections, runs, findings and
+          evidence, saved Scripture references and their source connections,
+          ratings and reading activity. These support reading, progress,
+          recommendations and search, including a semantic index of your content
+          when an embedding provider is connected.
         </li>
         <li>
           <strong>Settings and integrations:</strong> your preferences and any
@@ -62,6 +64,15 @@ export default function PrivacyPage() {
         another available model. Importing articles or connecting a provider can
         also start background annotation and embedding work; AI processing is
         not limited to messages you explicitly send in chat.
+      </p>
+      <p>
+        Deep Study sends the selected public-domain WEB verses, bounded WEB
+        context and permitted source excerpts to your configured AI provider. It
+        saves the selection, source identities, retrieved evidence and result in
+        your private library. It does not use the licensed Bible display wording
+        as study evidence. Keeping a cited reference saves its reference, reason
+        and source connection; it does not fetch that passage or contact an AI
+        provider.
       </p>
       <p>
         Providers apply their own privacy, retention and model-training terms.

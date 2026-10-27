@@ -30,3 +30,9 @@ Copyright (c) 2008, Open Scriptures. Unicode spellings enhanced by Darrell H. Sm
 - Changes: select entries by verified Strong’s ID, remove markup, collapse whitespace and limit definitions to 4,000 characters. The word-study interface retains attribution, source and license links. The upstream transcription identifies missing spellings; the application does not fill these with model guesses.
 
 The displayed dictionary is a historical sense reference, not a modern contextual lexicon. AI explanations must distinguish that sense range from the likely sense in the passage and acknowledge missing evidence. Same-book occurrence samples are bounded examples, not an exhaustive concordance.
+
+## Deep Study evidence
+
+Deep Study uses the public-domain World English Bible as its Scripture source. Its pinned study-note corpus is Aquifer Open Study Notes at revision `35183d839b73958deca66fe4060d4dc7d4dc23de`, adapted from Tyndale Open Study Notes under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The pinned manifest and study interface provide attribution, license terms and the changes made. This is one adapted corpus, not a survey or consensus source.
+
+The pinned ByzTxt source at revision `27a45ff1b7be6c17ccbfeac414f3f55732ae8e28` also supplies a comparison among printed editions identified as NA/Byz, NA27–28, ECM, NA27 and NA28. These are edition readings; this comparison does not identify manuscript witnesses or determine an original reading. The Greek, Hebrew and Strong’s sources above supply sampled evidence only. Deep Study does not infer alignment between English and original-language words. Per-result evidence details show each retrieved excerpt, locator, revision, hash and license.

@@ -94,3 +94,9 @@ paragraph the mark starts in, or `null`. The response holds at most 500
 marks. An article outside the token's library answers `404 not_found`, the
 same as one that doesn't exist; a bad token or too many requests answer
 `401` and `429` as above.
+
+## Bible Study and saved references
+
+Personal API tokens do not expose Bible Study or Keeps. Signed-in app clients use the authenticated Convex `scriptureStudy` and `scriptureKeeps` functions. Study history is listed by source article and reopened read-only; `start`, `refresh`, `cancel` and `remove` are explicit mutations. `scriptureKeeps.keep` accepts `{ runId?, findingId?, annotationId?, referenceKey }` for one citation from an owned completed Study finding or active WEB margin note. `page`, `count` and `remove` manage the reader's saved references. These functions do not fetch a kept target or dispatch a model request.
+
+`scriptureStudy.start` accepts `{ articleId, selection, sourceHash, requestKey }`; the selection contains canonical WEB verse identities. `refresh` accepts `{ studyId, publishedRunId?, requestKey }` and operates on that saved selection and source hash. A changed source requires a new selection and `start` call. Study queries expose the owned history, current published findings and requested evidence record; they do not trigger generation.

@@ -35,6 +35,10 @@ Controls floating over the page use `.reader-float`: an ink pill on light themes
 
 ## Control roles
 
+### Reader and answer panes
+
+At widths of 1024px and above, the article and companion answer use separate columns with independent scrolling. Below 1024px, an answer occupies a full-width protected-focus pane with a clear **Back to passage** action. Preserve the reader's chosen font and size, with minimum body sizes of 18px on desktop and 16px on phones. Keep short annotations in the margin. The shared page-level pane owner flushes Notes before a pane switch; a failed save leaves the draft in place. Track the visible body block as the reading anchor through reflow. Comparison may temporarily yield the pane, then restores its prior preference. Ask follow-up drafts survive pane changes and resizing. Composite inputs need a wrapper focus outline so their nested controls do not produce duplicate outlines.
+
 Bible passages use the standard article reader: the same header, summary entry point, bottom reflections and reading settings. Comparison is an optional toolbar icon; chapter navigation, browsing and word study live in its Bible-tools popover, without rearranging the reading column. Publisher attribution and the WEB AI-source disclosure follow the passage in legible 12px fine print. Adding a content source is not permission to hide or replace existing reader features.
 
 Settings controls come from `src/components/settings-controls.ts`, not ad hoc styles:
