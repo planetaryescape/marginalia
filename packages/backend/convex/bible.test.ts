@@ -329,6 +329,19 @@ describe("opt-in Bible reading", () => {
     expect(
       (
         await t.action(api.actions.bible.suggest, {
+          question: "collosians 2",
+          minutes: 1,
+        })
+      ).passages,
+    ).toEqual([
+      expect.objectContaining({
+        reference: "Colossians 2",
+        title: "Colossians 2",
+      }),
+    ]);
+    expect(
+      (
+        await t.action(api.actions.bible.suggest, {
           question: "I have 1 minute",
         })
       ).passages,

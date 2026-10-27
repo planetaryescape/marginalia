@@ -8,6 +8,10 @@ import {
 describe("Bible references", () => {
   it.each([
     ["colosians 2", "Colossians 2"],
+    ["collosians 2", "Colossians 2"],
+    ["Collossians 2:20–23", "Colossians 2:20-23"],
+    ["Phillipians 4", "Philippians 4"],
+    ["1 Thessalonnians 2", "1 Thessalonians 2"],
     ["Colossians 2", "Colossians 2"],
     ["col2:3-5", "Colossians 2:3-5"],
     ["Mathew 5", "Matthew 5"],
@@ -19,12 +23,19 @@ describe("Bible references", () => {
     "Peter 2",
     "John 22",
     "Colosians 5",
+    "collosians 5",
+    "collosians 2:23-20",
+    "4 Thessalonnians 2",
     "about hope 2",
     "coffee 2",
     "John 3:16-4:2",
     "Colosians 2 and Romans 8",
   ])("does not guess ambiguous, invalid or topical search %s", (input) => {
     expect(parseBibleSearchReference(input)).toBeNull();
+  });
+  it("keeps misspelling tolerance out of stored source and citation identities", () => {
+    expect(parseBibleReference("collosians 2")).toBeNull();
+    expect(parseBibleReference("Phillipians 4")).toBeNull();
   });
   it.each([
     ["john 3:16–21", "John 3:16-21", "JHN.3.16-JHN.3.21"],
