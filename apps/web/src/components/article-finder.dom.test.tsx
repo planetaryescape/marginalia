@@ -207,6 +207,38 @@ const key = async (name: string) => {
 };
 
 describe("topic picker", () => {
+  it.each([
+    "bible",
+    "mixed",
+  ] as const)("shows a direct typo-corrected reference immediately in %s without a server or model search", async (scope) => {
+    await show({ scope, windowMinutes: 1 });
+    await type("colosians 2");
+    expect(title()).toBe("Colossians 2");
+    expect(suggestBible).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
+    await settle(1000);
+    expect(suggestBible).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
+    await key("Enter");
+    expect(openBible).toHaveBeenCalledWith({ reference: "Colossians 2" });
+    expect(push).toHaveBeenCalledWith("/read/passageid");
+  });
+  it("shows a direct-passage open failure and retries only when explicitly asked", async () => {
+    openBible
+      .mockRejectedValueOnce(new Error("Unavailable"))
+      .mockResolvedValueOnce("passageid");
+    await show({ scope: "bible" });
+    await type("Colossians 2");
+    await key("Enter");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't open this passage",
+    );
+    expect(openBible).toHaveBeenCalledTimes(1);
+    await click("Retry");
+    expect(openBible).toHaveBeenCalledTimes(2);
+    expect(suggestBible).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith("/read/passageid");
+  });
   it("shows an honest empty result when Bible-only search returns no passages", async () => {
     await show({ scope: "bible" });
     await type("attention");
@@ -302,6 +334,44 @@ describe("topic picker", () => {
     );
     await act(async () => finishOpen("late-passage"));
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("admits only one passage open for repeated Enter, including events before React commits", async () => {
+    suggestBible.mockResolvedValue({
+      passages: [
+        {
+          reference: "Romans 8",
+          title: "Hope",
+          reason: "A reason",
+          minutes: 4,
+        },
+      ],
+      notice: null,
+    });
+    let finishOpen: (id: string) => void = () => {};
+    openBible.mockReturnValue(
+      new Promise<string>((resolve) => {
+        finishOpen = resolve;
+      }),
+    );
+    await show({ scope: "bible" });
+    await type("hope");
+    await settle();
+    const input = host.querySelector("input");
+    if (!input) throw new Error("Finder input missing");
+    await act(async () => {
+      for (let i = 0; i < 3; i++)
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+    });
+    expect(openBible).toHaveBeenCalledTimes(1);
+    await act(async () => finishOpen("passageid"));
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
   it("debounces topic search while typing without a submit control", async () => {

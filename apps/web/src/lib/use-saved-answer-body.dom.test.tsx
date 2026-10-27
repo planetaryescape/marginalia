@@ -44,6 +44,7 @@ const body: SavedAnswerBody = {
   selection: "",
   question: undefined,
   paragraphIndex: undefined,
+  summaryDefinition: undefined,
   unitIndex: 0,
   turns: [],
   model: undefined,

@@ -186,7 +186,8 @@ vi.mock("@/lib/reader-settings", async (original) => {
     }),
   };
 });
-vi.mock("@/lib/companion", () => ({
+vi.mock("@/lib/companion", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/companion")>()),
   usePassageHighlight: () => {},
   useCompanion: () => ({
     answers: state.empty,
@@ -279,10 +280,13 @@ vi.mock("@/components/article-renderer", () => ({
   ),
 }));
 vi.mock("@/components/article-tags", () => ({ ArticleTags: () => null }));
-vi.mock("@/components/article-ask", () => ({ ArticleAsk: () => null }));
+vi.mock("@/components/article-ask", () => ({
+  ArticleAsk: ({ hidden }: { hidden?: boolean }) =>
+    hidden ? null : <button id="fixture-ask">Ask about this article</button>,
+}));
 vi.mock("@/components/companion-card", () => ({
-  CompanionCard: ({ onStop }: { onStop: () => void }) => (
-    <button id="fixture-stop" onClick={onStop}>
+  CompanionCard: ({ onStop, wide }: { onStop: () => void; wide?: boolean }) => (
+    <button id="fixture-stop" data-readable-pane={wide} onClick={onStop}>
       Stop answer fixture
     </button>
   ),
@@ -310,7 +314,24 @@ vi.mock("@/components/article-back-matter", () => ({
     );
   },
 }));
-vi.mock("@/components/reader-toolbar", () => ({ ReaderToolbar: () => null }));
+vi.mock("@/components/reader-toolbar", () => ({
+  ReaderToolbar: ({ tools }: { tools?: React.ReactNode }) => <>{tools}</>,
+}));
+vi.mock("@/components/bible-reader-tools", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/bible-reader-tools")>()),
+  BibleReaderTools: ({
+    onWordStudy,
+  }: {
+    onWordStudy: (reference: string) => void;
+  }) => (
+    <button id="fixture-word-open" onClick={() => onWordStudy("Psalms 23:4")}>
+      Word study
+    </button>
+  ),
+}));
+vi.mock("@/components/bible-word-study", () => ({
+  BibleWordStudy: () => <p>Original-language details fixture</p>,
+}));
 vi.mock("@/components/selection-toolbar", () => ({
   SelectionToolbar: () => null,
 }));
@@ -504,6 +525,46 @@ it("connects Stop to the currently open answer rather than cancelling another st
     document.querySelector<HTMLButtonElement>("#fixture-stop")?.click(),
   );
   expect(state.stop).toHaveBeenCalledWith("active-answer");
+});
+
+it.each([
+  "phone",
+  "sidenotes",
+])("renders a hydrated unplaced summary definition in its readable pane on %s", async (mode) => {
+  state.marginMode = mode;
+  state.thread = {
+    id: "saved-summary",
+    mode: "define",
+    selection: "ascetic",
+    paragraphIndex: null,
+    summaryDefinition: true,
+    turns: [{ role: "assistant", content: "Practicing self-denial." }],
+    status: "done",
+  };
+  await act(async () => root.render(<ReadPage />));
+  expect(document.querySelectorAll("#fixture-stop")).toHaveLength(1);
+  expect(
+    document.querySelector("#fixture-stop")?.getAttribute("data-readable-pane"),
+  ).toBe("true");
+});
+
+it("suppresses floating Ask while word study owns the reader pane", async () => {
+  state.bible = true;
+  await act(async () => root.render(<ReadPage />));
+  expect(document.querySelector("#fixture-ask")).not.toBeNull();
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>("#fixture-word-open")?.click(),
+  );
+  expect(
+    document.querySelector('dialog[aria-label="Original-language word study"]'),
+  ).not.toBeNull();
+  expect(document.querySelector("#fixture-ask")).toBeNull();
+  await act(async () =>
+    document
+      .querySelector<HTMLButtonElement>('button[aria-label="Back to passage"]')
+      ?.click(),
+  );
+  expect(document.querySelector("#fixture-ask")).not.toBeNull();
 });
 it("cycles split annotations once per identity with the paragraph shortcut", async () => {
   state.fragmented = true;

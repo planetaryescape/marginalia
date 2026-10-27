@@ -1,5 +1,10 @@
 "use client";
-import type { BibleSuggestion, ReadingScope } from "@marginalia/backend/bible";
+import {
+  type BibleSuggestion,
+  estimatePassageMinutes,
+  parseBibleSearchReference,
+  type ReadingScope,
+} from "@marginalia/backend/bible";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation } from "convex/react";
@@ -147,6 +152,8 @@ export function ArticleFinder({
     message: string;
   } | null>(null);
   const [openingPassage, setOpeningPassage] = useState<string | null>(null);
+  const passageRequests = useRef(new Set<string>());
+  const latestPassageRequest = useRef<object | null>(null);
   const intentRef = useRef<string | null>(null);
   const openEpoch = useRef(0);
   const closeFinder = () => {
@@ -161,6 +168,8 @@ export function ArticleFinder({
   const queryRef = useRef(text);
   const scopeRef = useRef(scope);
   const isLink = URL_PATTERN.test(text);
+  const directReference =
+    scope !== "articles" && !isLink ? parseBibleSearchReference(text) : null;
   const limit = limitCleared ? null : windowMinutes;
   const submissionKey = (
     query: string,
@@ -176,18 +185,42 @@ export function ArticleFinder({
     scopeRef.current = scope;
     intentRef.current = open ? activeKey : null;
   }, [text, scope, open, activeKey]);
-  const searching = open && text.length >= 2 && !isLink && scope !== "bible";
+  const searching =
+    open &&
+    text.length >= 2 &&
+    !isLink &&
+    scope !== "bible" &&
+    !directReference;
   const result = useTopicSearch(text, searching, retry);
   const noteHits = useNoteHits(text, searching);
   const bibleKey = activeKey ?? "";
   const bibleSearching =
-    open && scope !== "articles" && text.length >= 2 && !isLink;
+    open &&
+    scope !== "articles" &&
+    text.length >= 2 &&
+    !isLink &&
+    !directReference;
   const visibleBible =
-    bibleSearching &&
-    bibleResult?.key === bibleKey &&
-    bibleResult.retry === bibleRetry
-      ? bibleResult
-      : null;
+    open && directReference
+      ? {
+          key: bibleKey,
+          retry: bibleRetry,
+          passages: [
+            {
+              reference: directReference.reference,
+              title: directReference.reference,
+              minutes: estimatePassageMinutes(directReference),
+              reason:
+                "Recognized passage reference. Open this passage directly.",
+            },
+          ],
+          notice: null,
+        }
+      : bibleSearching &&
+          bibleResult?.key === bibleKey &&
+          bibleResult.retry === bibleRetry
+        ? bibleResult
+        : null;
   useEffect(() => {
     if (!bibleSearching) return;
     let current = true;
@@ -260,9 +293,12 @@ export function ArticleFinder({
       ? articleCandidates(result.matches, limit)
       : [];
   const bibleDeck =
-    bibleSearching && visibleBible
+    (directReference || bibleSearching) && visibleBible
       ? visibleBible.passages
-          .filter((passage) => limit === null || passage.minutes <= limit)
+          .filter(
+            (passage) =>
+              directReference || limit === null || passage.minutes <= limit,
+          )
           .map((passage): FinderCandidate => ({ kind: "bible", passage }))
       : [];
   const candidates = interleaveCandidates(articleDeck, bibleDeck, scope);
@@ -375,26 +411,44 @@ export function ArticleFinder({
       router.push(noteHitLink(noteSelected));
     } else if (shown) go(shown.articleId);
     else if (shownBible && activeKey) {
+      if (passageRequests.current.has(shownBible.reference)) return;
+      passageRequests.current.add(shownBible.reference);
+      const request = {};
+      latestPassageRequest.current = request;
       const intent = activeKey;
       const epoch = openEpoch.current;
       setOpeningPassage(shownBible.reference);
       setBibleError(null);
       void openPassage({ reference: shownBible.reference })
         .then((id) => {
-          if (intentRef.current !== intent || openEpoch.current !== epoch)
+          if (
+            intentRef.current !== intent ||
+            openEpoch.current !== epoch ||
+            latestPassageRequest.current !== request
+          )
             return;
           closeFinder();
           router.push(`/read/${id}`);
         })
         .catch(() => {
-          if (intentRef.current === intent && openEpoch.current === epoch)
+          if (
+            intentRef.current === intent &&
+            openEpoch.current === epoch &&
+            latestPassageRequest.current === request
+          )
             setBibleError({
               key: intent,
               retry: bibleRetry,
               message: "Couldn't open this passage. Try again.",
             });
         })
-        .finally(() => setOpeningPassage(null));
+        .finally(() => {
+          passageRequests.current.delete(shownBible.reference);
+          if (latestPassageRequest.current === request) {
+            latestPassageRequest.current = null;
+            setOpeningPassage(null);
+          }
+        });
     }
   };
 
@@ -562,13 +616,16 @@ export function ArticleFinder({
             )}
           {bibleError?.key === bibleKey &&
             bibleError.retry === bibleRetry &&
-            bibleSearching && (
+            (directReference || bibleSearching) && (
               <p role="alert" className="px-5 py-4 text-sm">
                 {bibleError.message}{" "}
                 <button
                   type="button"
                   className="underline"
-                  onClick={() => setBibleRetry((value) => value + 1)}
+                  onClick={() => {
+                    if (directReference) readNow();
+                    else setBibleRetry((value) => value + 1);
+                  }}
                 >
                   Retry
                 </button>
@@ -669,9 +726,16 @@ export function ArticleFinder({
                   type="button"
                   className={primaryClass}
                   aria-keyshortcuts="Enter"
+                  disabled={
+                    candidate.kind === "bible" &&
+                    openingPassage === candidate.passage.reference
+                  }
                   onClick={readNow}
                 >
-                  Read now
+                  {candidate.kind === "bible" &&
+                  openingPassage === candidate.passage.reference
+                    ? "Opening passage…"
+                    : "Read now"}
                 </button>
                 {position < candidates.length - 1 && (
                   <button

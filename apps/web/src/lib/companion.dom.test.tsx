@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
+
+import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { act, type RefObject, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { useCompanion } from "./companion";
+import { companionNeedsPane, useCompanion } from "./companion";
 import { DEFAULT_SETTINGS } from "./reader-settings";
 
 const mocks = vi.hoisted(() => ({
@@ -177,6 +179,42 @@ it("keeps a generated-summary word in English Define mode on a Bible article", a
   });
   expect(JSON.stringify(bodies[0])).not.toContain("Licensed-display-canary");
   expect(latest.thread?.selection).toBe("ascetic");
+  expect(latest.thread?.summaryDefinition).toBe(true);
+});
+
+it("reopens a hydrated unplaced summary definition in a pane without another request", async () => {
+  await mount();
+  // SAFETY: synthetic document identity stays within the mocked Convex boundary.
+  const id = "kept-summary" as Id<"companionThreads">;
+  await act(async () =>
+    latest.open({
+      _id: id,
+      mode: "define",
+      selection: "ascetic",
+      summaryDefinition: true,
+      turns: [{ role: "assistant", content: "Practicing self-denial." }],
+      keptAt: 1,
+    }),
+  );
+  expect(latest.thread?.selection).toBe("ascetic");
+  expect(latest.thread?.summaryDefinition).toBe(true);
+  if (!latest.thread) throw new Error("Saved definition not reopened");
+  expect(companionNeedsPane(latest.thread)).toBe(true);
+  expect(bodies).toHaveLength(0);
+});
+
+it("retains ordinary context for non-summary selections without a numbered paragraph", async () => {
+  article.innerHTML =
+    '<h1>A contextual title</h1><div data-article-body><p data-para="1">The article explains the title.</p></div>';
+  const heading = article.querySelector("h1");
+  if (!heading) throw new Error("Heading missing");
+  const selected = document.createRange();
+  selected.selectNodeContents(heading);
+  await mount();
+  await act(async () => latest.start({ mode: "define", range: selected }));
+  await settle();
+  expect(bodies[0].summaryDefinition).toBeUndefined();
+  expect(bodies[0].paragraphs).toContain("The article explains the title.");
 });
 
 it("keeps displayed licensed wording out of study AI, including selection and Define paths", async () => {

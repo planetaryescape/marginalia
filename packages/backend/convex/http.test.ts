@@ -152,6 +152,7 @@ describe("companion HTTP streaming", () => {
         ...request,
         articleId,
         mode: "define",
+        summaryDefinition: true,
         paragraphIndex: null,
         paragraphs: ["Licensed-display-canary"],
         sentence: "Licensed-display-canary",
@@ -167,6 +168,39 @@ describe("companion HTTP streaming", () => {
       "The summary discusses ascetic regulations.",
     );
     expect(bodies.join("\n")).not.toContain("Licensed-display-canary");
+    const unmatched = await t.fetch("/api/companion", {
+      method: "POST",
+      body: JSON.stringify({
+        ...request,
+        articleId,
+        mode: "define",
+        summaryDefinition: true,
+        paragraphIndex: null,
+        paragraphs: ["Licensed-display-canary"],
+        selection: "word absent from saved summary",
+      }),
+    });
+    expect(unmatched.status).toBe(409);
+    expect(await unmatched.text()).toContain("summary_selection_unavailable");
+    expect(bodies).toHaveLength(1);
+    const spanning = await t.fetch("/api/companion", {
+      method: "POST",
+      body: JSON.stringify({
+        ...request,
+        articleId,
+        mode: "define",
+        summaryDefinition: true,
+        paragraphIndex: null,
+        paragraphs: [],
+        selection: "regulations. A generated summary",
+      }),
+    });
+    expect(spanning.status).toBe(200);
+    await spanning.text();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toContain(
+      "Start with its ordinary dictionary-style meaning",
+    );
   });
   it("replaces display-edition context with authoritative WEB and rejects retaining licensed DOM in preparation", async () => {
     const t = await ownerWithKey(modules);

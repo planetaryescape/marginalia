@@ -89,6 +89,38 @@ it("keeps an answer once, however many times Keep is pressed", async () => {
   expect(rows[0].turns).toHaveLength(2);
 });
 
+it("retains summary-definition provenance when a kept answer is hydrated", async () => {
+  const t = await ownerTest(modules);
+  const articleId = await t.run((ctx) =>
+    ctx.db.insert("articles", {
+      userId: "default_user",
+      guid: "summary-fixture",
+      url: "https://example.com",
+      title: "A saved reading",
+      extractionStatus: "extracted",
+      annotationStatus: "annotated",
+      createdAt: 1,
+    }),
+  );
+  const id = await t.mutation(api.companionThreads.keep, {
+    articleId,
+    answerId: "summary-answer",
+    mode: "define",
+    selection: "ascetic",
+    summaryDefinition: true,
+    turns: [{ role: "assistant", content: "Practicing self-denial." }],
+  });
+  const hydrated = await t.query(api.companionThreads.getBody, {
+    threadId: id,
+  });
+  expect(hydrated).toMatchObject({
+    mode: "define",
+    selection: "ascetic",
+    summaryDefinition: true,
+  });
+  expect(hydrated?.paragraphIndex).toBeUndefined();
+});
+
 it("keeps old clients working: create still saves a thread with no keptAt", async () => {
   const t = await ownerTest(modules);
   const articleId = await t.run((ctx) =>

@@ -354,6 +354,16 @@ http.route({
     }
 
     const preparation = publication.ctx;
+    if (
+      parsed.data.summaryDefinition &&
+      (!parsed.data.articleId ||
+        parsed.data.mode !== "define" ||
+        parsed.data.paragraphIndex !== null)
+    )
+      return new Response("Bad summary selection", {
+        status: 400,
+        headers: CORS_HEADERS,
+      });
     if (parsed.data.prepared && parsed.data.articleId) {
       const paragraphs = await preparation.runQuery(
         internal.preparedArticles.read,
@@ -378,13 +388,25 @@ http.route({
       return new Response("Article not found", { status: 404 });
     if (parsed.data.articleId) {
       const summaryDefinition =
-        parsed.data.mode === "define" && parsed.data.paragraphIndex === null
+        parsed.data.summaryDefinition &&
+        parsed.data.mode === "define" &&
+        parsed.data.paragraphIndex === null
           ? await preparation.runQuery(internal.summaries.definitionContext, {
               userId: readerId,
               articleId: parsed.data.articleId,
               selection: parsed.data.selection,
             })
           : null;
+      if (parsed.data.summaryDefinition && !summaryDefinition) {
+        return Response.json(
+          {
+            code: "summary_selection_unavailable",
+            error:
+              "That selection no longer matches your saved summary. Select a word or phrase within the current summary and try again.",
+          },
+          { status: 409, headers: CORS_HEADERS },
+        );
+      }
       if (summaryDefinition) {
         parsed.data.paragraphs = [summaryDefinition.sentence];
         parsed.data.paragraphIndex = 0;

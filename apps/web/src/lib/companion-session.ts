@@ -12,6 +12,7 @@ const storedAnswerSchema = z.object({
   selection: z.string(),
   question: z.string().optional(),
   paragraphIndex: z.number().nullable(),
+  summaryDefinition: z.boolean().optional(),
   turns: z.array(turnSchema).min(1),
   model: z.string().nullable(),
   occurrence: z.number().optional(),

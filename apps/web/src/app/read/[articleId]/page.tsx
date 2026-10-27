@@ -61,7 +61,11 @@ import {
   type StudySelection,
   studyVerseElement,
 } from "@/lib/bible-study-selection";
-import { useCompanion, usePassageHighlight } from "@/lib/companion";
+import {
+  companionNeedsPane,
+  useCompanion,
+  usePassageHighlight,
+} from "@/lib/companion";
 import { isSummarySelection } from "@/lib/companion-context";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
@@ -219,6 +223,7 @@ export default function ReadPage() {
     reference: string;
     selection?: string;
   } | null>(null);
+  const wordStudyOpen = wordStudy?.articleKey === articleKey;
   const closeStudy = useCallback(async () => {
     if (!(await closeScriptureStudy())) return false;
     setWordStudy(null);
@@ -523,6 +528,10 @@ export default function ReadPage() {
   // The open answer's passage, found again by its text so a refresh can restore it.
   const [openRange, setOpenRange] = useState<Range | null>(null);
   const openThread = companion.thread;
+  const answerPaneOpen = Boolean(
+    openThread &&
+      (wideAnswerId === openThread.id || companionNeedsPane(openThread)),
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: `paragraphs.version` signals the article HTML changed
   useEffect(() => {
     const body = getArticleBody(articleRef.current);
@@ -746,6 +755,7 @@ export default function ReadPage() {
       if (!(await closeStudy()) || intent !== surfaceIntent.current) return;
       setStudyHistoryOpen(false);
       setWideAnswerId(null);
+      setArticleAskOpen(false);
       savedAnswer.cancel();
       setActiveAnnotation(null);
       const answerId = companion.start(args);
@@ -859,13 +869,7 @@ export default function ReadPage() {
       const live = companion.answers.find(
         (a) => a.id === id || a.savedId === id,
       );
-      setWideAnswerId(
-        live &&
-          (live.mode === "article" ||
-            (live.mode === "define" && live.paragraphIndex === null))
-          ? live.id
-          : null,
-      );
+      setWideAnswerId(live && companionNeedsPane(live) ? live.id : null);
       if (live) {
         savedAnswer.cancel();
         companion.openAnswer(live.id);
@@ -1054,7 +1058,8 @@ export default function ReadPage() {
 
   // Esc goes back to the origin room, unless the reader has something open of its own.
   const readerPanelOpen = Boolean(
-    activeAnnotation ||
+    wordStudyOpen ||
+      activeAnnotation ||
       companion.thread ||
       savedAnswer.pendingId ||
       notesPanelOpen ||
@@ -1725,18 +1730,12 @@ export default function ReadPage() {
         waitingAnchor={alongsideAnchor}
         openId={activeAnnotationId}
         answers={answers}
-        openAnswerId={
-          wideAnswerId || companion.thread?.mode === "article"
-            ? null
-            : companion.openId
-        }
+        openAnswerId={answerPaneOpen ? null : companion.openId}
         onOpenAnswer={openAnswer}
         onClose={closeNote}
         onOpenNotes={() => void requestOpenNotes()}
         openCard={
-          companion.thread &&
-          !wideAnswerId &&
-          companion.thread.mode !== "article" ? (
+          companion.thread && !answerPaneOpen ? (
             answerCard(true)
           ) : openAnnotation && activeAnnotation ? (
             <AnnotationCard
@@ -1764,24 +1763,20 @@ export default function ReadPage() {
         }
       />
 
-      {marginMode === "phone" &&
-        companion.thread &&
-        !wideAnswerId &&
-        companion.thread.mode !== "article" && (
-          <AnswerUnfold
-            containerRef={articleRef}
-            version={paragraphs.version}
-            id={companion.thread.id}
-            paragraphIndex={companion.thread.paragraphIndex}
-          >
-            {answerCard(true)}
-          </AnswerUnfold>
-        )}
+      {marginMode === "phone" && companion.thread && !answerPaneOpen && (
+        <AnswerUnfold
+          containerRef={articleRef}
+          version={paragraphs.version}
+          id={companion.thread.id}
+          paragraphIndex={companion.thread.paragraphIndex}
+        >
+          {answerCard(true)}
+        </AnswerUnfold>
+      )}
 
       {marginMode === "sheet" &&
         companion.thread &&
-        !wideAnswerId &&
-        companion.thread.mode !== "article" &&
+        !answerPaneOpen &&
         answerCard(false)}
 
       {marginMode !== "sidenotes" && (
@@ -1845,7 +1840,8 @@ export default function ReadPage() {
         open={articleAskOpen}
         onOpenChange={setArticleAskOpen}
         hidden={Boolean(
-          companion.thread ||
+          wordStudyOpen ||
+            companion.thread ||
             studyPane ||
             studyHistoryOpen ||
             activeAnnotation ||
@@ -1892,9 +1888,7 @@ export default function ReadPage() {
         onStop={listen.stop}
       />
 
-      {answerThread &&
-        (wideAnswerId === answerThread.id || answerThread.mode === "article") &&
-        answerCard(false, true)}
+      {answerThread && answerPaneOpen && answerCard(false, true)}
 
       {wordStudy?.articleKey === articleKey && (
         <ReaderPane

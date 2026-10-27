@@ -428,9 +428,12 @@ export const definitionContext = internalQuery({
     ];
     const fold = (value: string) =>
       value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-    const paragraph = texts.find(
-      (text) => text && fold(text).includes(fold(args.selection)),
-    );
+    const paragraph =
+      texts.find((text) => text && fold(text).includes(fold(args.selection))) ??
+      (() => {
+        const joined = texts.filter(Boolean).join(" ");
+        return fold(joined).includes(fold(args.selection)) ? joined : null;
+      })();
     return paragraph
       ? { sentence: localUsageSentence(paragraph, args.selection) }
       : null;

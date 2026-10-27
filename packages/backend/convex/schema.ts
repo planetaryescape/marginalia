@@ -1306,6 +1306,7 @@ export default defineSchema({
   // Ask / Explain / Simplify / Define conversations about a highlighted passage.
   // `turns` is bounded: the companion endpoint accepts at most 30 history turns.
   companionThreads: defineTable({
+    summaryDefinition: v.optional(v.boolean()),
     userId: v.string(),
     articleId: v.id("articles"),
     mode: v.union(

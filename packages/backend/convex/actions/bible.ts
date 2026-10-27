@@ -10,6 +10,7 @@ import {
   type BibleSuggestion,
   estimatePassageMinutes,
   parseBibleReference,
+  parseBibleSearchReference,
   starterPassages,
 } from "../lib/bible";
 import { fetchBiblePassage, requireTranslation } from "../lib/bibleProvider";
@@ -300,7 +301,7 @@ export const suggest = action({
       (!Number.isFinite(minutes) || minutes < 1 || minutes > 180)
     )
       throw new Error("Choose between 1 and 180 minutes.");
-    const direct = parseBibleReference(question);
+    const direct = parseBibleSearchReference(question);
     if (direct)
       return {
         passages: [
