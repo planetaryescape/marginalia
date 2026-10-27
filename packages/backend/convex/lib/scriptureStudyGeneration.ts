@@ -136,9 +136,14 @@ export function reviewStudyDraft(
   }
   // Do not retain an overarching explanation whose supporting steps were omitted.
   const complete: StudyResult = { ...draft, findings: amended };
-  if (!feedback.length && draft.teaching) {
+  if (draft.teaching) {
     try {
-      validateResult(complete, evidence, verses, selection);
+      validateResult(
+        { findings: accepted, teaching: draft.teaching },
+        evidence,
+        verses,
+        selection,
+      );
     } catch (error) {
       const detail =
         error instanceof Error
@@ -275,7 +280,7 @@ export async function generateStudyWithRepair(options: {
     )
       verifiedFallback = reviewed;
     // A repair's empty result must not erase an already verified subset.
-    if (!draft.findings.length && verifiedFallback) break;
+    if (!draft.findings.length && attempt > 1) break;
     if (!feedback.length)
       return {
         object: reviewed.draft,

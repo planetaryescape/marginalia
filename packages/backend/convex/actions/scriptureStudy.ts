@@ -156,13 +156,14 @@ export const generate = internalAction({
         evidence[0].limitations.push(
           `Additional evidence for ${item.referenceKey} omitted to fit the shared context limit.`,
         );
-        return;
+        return false;
       }
       evidence.push({
         ...item,
         contentHash: await sha256Hex(item.excerpt),
         retrievedAt: Date.now(),
       });
+      return true;
     };
     try {
       const ai = await loadReaderAI(ctx, claim.userId, {
@@ -546,7 +547,7 @@ export const generate = internalAction({
           const textSource = original.sources[0];
           const dictionarySource = original.sources[1];
           const key = verified[index].id;
-          await add({
+          const originalAdded = await add({
             evidenceId: `original-${key}`,
             source: {
               id: original.language === "Greek" ? "byztxt" : "oshb",
@@ -566,6 +567,7 @@ export const generate = internalAction({
               "At most 25 supplied tokens in this sampled verse; no apparatus or word alignment.",
             ],
           });
+          if (!originalAdded) continue;
           const entries = original.entries
             .slice(0, 3)
             .map((e) => ({ ...e, definition: e.definition.slice(0, 900) }));
@@ -622,6 +624,8 @@ export const generate = internalAction({
       }
       if (coverageWarnings.length && evidence[0])
         evidence[0].limitations.push(...[...new Set(coverageWarnings)]);
+      if (evidence[0])
+        evidence[0].limitations = [...new Set(evidence[0].limitations)];
       const inputKey = await ctx.runMutation(
         internal.scriptureStudyRuns.manifest,
         {

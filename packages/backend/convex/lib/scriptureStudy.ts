@@ -427,6 +427,18 @@ export function validateResult(
     )
       throw new Error("Finding exceeds available source capabilities.");
     if (
+      finding.lens === "intertextual_canonical" &&
+      !finding.relatedPassages.length &&
+      !citedEvidence.some(
+        (item) =>
+          item.source.id === "web" &&
+          (item.evidenceId.startsWith("related-") ||
+            item.evidenceId.startsWith("web-chapter-") ||
+            item.evidenceId.startsWith("web-context-")),
+      )
+    )
+      throw new Error("Finding exceeds available source capabilities.");
+    if (
       finding.lens === "reception" &&
       !citedEvidence.some((item) =>
         item.source.capabilities.includes("reception"),

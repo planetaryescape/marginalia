@@ -210,6 +210,50 @@ it("repairs a domain-invalid draft with concrete feedback before publication, wi
   for (const [options] of dispatched.mock.calls)
     expect(options.maxRetries).toBe(0);
 });
+it.each([
+  "malformed",
+  "unverified",
+] as const)("preserves an earlier publication when %s output is followed by an empty repair", async (kind) => {
+  const { t, args, model } = await studyFixture(modules);
+  model.mockRestore();
+  dispatched.mockResolvedValueOnce({ object: { findings, teaching } });
+  const run = await t.mutation(api.scriptureStudy.start, args);
+  await t.action(internal.actions.scriptureStudy.generate, {
+    runId: run.runId,
+  });
+  const refresh = await t.mutation(api.scriptureStudy.refresh, {
+    studyId: run.studyId,
+    publishedRunId: run.runId,
+    requestKey: "empty-repair-refresh",
+  });
+  dispatched.mockResolvedValueOnce({
+    object:
+      kind === "malformed"
+        ? { findings: "not-an-array" }
+        : {
+            findings: [
+              {
+                ...findings[0],
+                anchor: { ...findings[0].anchor, quote: "UNVERIFIED_QUOTE" },
+              },
+            ],
+            teaching,
+          },
+  });
+  dispatched.mockResolvedValueOnce({
+    object: { findings: [], teaching: null },
+  });
+  await t.action(internal.actions.scriptureStudy.generate, {
+    runId: refresh.runId,
+  });
+  const saved = await t.query(api.scriptureStudy.get, { studyId: run.studyId });
+  expect(saved.publishedRun?.runId).toBe(run.runId);
+  expect(saved.activeRun).toMatchObject({
+    status: "failed",
+    errorCode: "findings_not_verified",
+  });
+  expect(dispatched).toHaveBeenCalledTimes(3);
+});
 
 it("attaches only a uniquely verified selected-WEB anchor citation without another model call", async () => {
   const { t, args, model } = await studyFixture(modules);
