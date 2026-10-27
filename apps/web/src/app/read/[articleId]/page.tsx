@@ -903,7 +903,9 @@ export default function ReadPage() {
     if (openedLink.current === key) return;
     if (!scopeReady) return;
     const action = openAfterLanding({
-      landed,
+      // Summary/whole-article answers need no matching body quote. Hydrate the
+      // owned saved answer independently; passage landing can still finish later.
+      landed: Boolean(linkedAnswer) || landed,
       note: linkedNote,
       answer: linkedAnswer,
       // Deep links may name an answer beyond the first preview page.
