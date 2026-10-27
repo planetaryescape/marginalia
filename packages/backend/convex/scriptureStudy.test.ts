@@ -205,8 +205,18 @@ describe("selected Scripture Study public lifecycle", () => {
       "LICENSED_DOM_CANARY",
     );
     expect(model.mock.calls[0][0].prompt).not.toContain("synthetic-key");
+    expect(
+      JSON.parse(model.mock.calls[0][0].prompt!).readerContext,
+    ).toMatchObject({
+      role: "untrusted_personal_context_not_evidence",
+      notes: [
+        expect.objectContaining({
+          text: "PRIVATE_NOTE_CANARY",
+          scope: "chapter",
+        }),
+      ],
+    });
     for (const canary of [
-      "PRIVATE_NOTE_CANARY",
       "PRIVATE_MARK_CANARY",
       "LICENSED_NOTE_SELECTION_CANARY",
     ])
@@ -626,7 +636,7 @@ describe("selected Scripture Study public lifecycle", () => {
         ...args,
         requestKey: `invalid-${index}`,
       });
-      model.mockImplementationOnce(async (options) => ({
+      model.mockImplementation(async (options) => ({
         object: { findings: [{ ...findings[0], ...change }] },
         modelId: options.targets[0].id,
       }));

@@ -3,13 +3,16 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./functions";
 import type { StudyEvidence } from "./lib/scriptureStudy";
 import {
+  contextSummaryValidator,
   evidenceValidator,
+  generationValidator,
   resultSchema,
   STUDY_LIMITS,
   STUDY_SOURCE_REGISTRY,
   studyCoverage,
   validateResult,
 } from "./lib/scriptureStudy";
+import { studyReaderContext } from "./lib/scriptureStudyContext";
 import { currentRun } from "./lib/scriptureStudyState";
 import { sha256Hex } from "./lib/tokens";
 
@@ -26,6 +29,8 @@ async function manifestIdentity(
       run.version,
       run.sourcePolicy,
       evidenceSetHash,
+      run.contextHash ?? null,
+      run.contextSummary ?? null,
     ]),
   );
   return { evidenceSetHash, inputKey };
@@ -37,6 +42,20 @@ export const claim = internalMutation({
     if (!run || run.status !== "queued") return null;
     const current = await currentRun(ctx, run);
     if (!current) return null;
+    const notes = await ctx.db
+      .query("userNotes")
+      .withIndex("by_article_and_unitIndex", (q) =>
+        q.eq("articleId", current.article._id).eq("unitIndex", undefined),
+      )
+      .order("desc")
+      .paginate({ cursor: null, numItems: 32, maximumBytesRead: 1_000_000 });
+    const readerContext = studyReaderContext(
+      notes.page.filter((note) => note.userId === run.userId),
+      current.article.bible.reference,
+      current.article.content ?? "",
+      current.study.selection,
+      !notes.isDone,
+    );
     await ctx.db.patch(run._id, {
       status: "running",
       claimToken: args.claimToken,
@@ -49,6 +68,7 @@ export const claim = internalMutation({
       verses: current.verses,
       leaseUntil: run.leaseUntil,
       modelId: run.modelId,
+      readerContext,
     };
   },
 });
@@ -69,6 +89,8 @@ export const manifest = internalMutation({
     runId: v.id("scriptureStudyRuns"),
     claimToken: v.string(),
     evidence: v.array(evidenceValidator),
+    contextSummary: v.optional(contextSummaryValidator),
+    contextHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
@@ -84,13 +106,26 @@ export const manifest = internalMutation({
       args.evidence.length > STUDY_LIMITS.evidence ||
       new TextEncoder().encode(JSON.stringify(args.evidence)).length >
         STUDY_LIMITS.evidenceBytes ||
-      args.evidence.reduce((n, e) => n + e.excerpt.length, 0) >
+      args.evidence.reduce((n, e) => n + e.excerpt.length, 0) +
+        (args.contextSummary?.readerContextChars ?? 0) >
         STUDY_LIMITS.sourceChars ||
       args.evidence.some((e) => e.excerpt.length > STUDY_LIMITS.excerptChars) ||
       new Set(args.evidence.map((e) => e.evidenceId)).size !==
         args.evidence.length
     )
       throw new Error("Evidence exceeds study limits.");
+    if (
+      args.contextSummary &&
+      (!Number.isInteger(args.contextSummary.readerNoteCount) ||
+        args.contextSummary.readerNoteCount < 0 ||
+        args.contextSummary.readerNoteCount > STUDY_LIMITS.readerNotes ||
+        !Number.isInteger(args.contextSummary.readerContextChars) ||
+        args.contextSummary.readerContextChars < 0 ||
+        args.contextSummary.readerContextChars >
+          STUDY_LIMITS.readerContextChars ||
+        args.contextSummary.chapterRanges.length > STUDY_LIMITS.evidence)
+    )
+      throw new Error("Invalid study context bounds.");
     for (const item of args.evidence) {
       const registered = STUDY_SOURCE_REGISTRY.find(
         (source) => source.id === item.source.id,
@@ -155,14 +190,25 @@ export const manifest = internalMutation({
         throw new Error("Unregistered or changed evidence source.");
       }
     }
+    if (
+      !!args.contextSummary !== !!args.contextHash ||
+      (args.contextHash && !/^[a-f0-9]{64}$/.test(args.contextHash))
+    )
+      throw new Error("Invalid study context identity.");
     const { evidenceSetHash, inputKey } = await manifestIdentity(
-      run,
+      {
+        ...run,
+        contextSummary: args.contextSummary,
+        contextHash: args.contextHash,
+      },
       args.evidence,
     );
     await ctx.db.patch(run._id, {
       evidence: args.evidence,
       evidenceSetHash,
       inputKey,
+      contextSummary: args.contextSummary,
+      contextHash: args.contextHash,
     });
     return inputKey;
   },
@@ -174,6 +220,7 @@ export const publish = internalMutation({
     inputKey: v.string(),
     resultJson: v.string(),
     modelId: v.string(),
+    generation: v.optional(generationValidator),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
@@ -200,6 +247,20 @@ export const publish = internalMutation({
       current.verses,
       current.study.selection,
     );
+    if (
+      args.generation &&
+      (!Number.isInteger(args.generation.modelAttempts) ||
+        args.generation.modelAttempts < 1 ||
+        args.generation.modelAttempts > STUDY_LIMITS.modelAttempts ||
+        args.generation.repairAttempted !== args.generation.modelAttempts > 1 ||
+        !Number.isInteger(args.generation.omittedFindings) ||
+        args.generation.omittedFindings < 0 ||
+        args.generation.omittedFindings > STUDY_LIMITS.findings ||
+        !Number.isInteger(args.generation.correctedCitations) ||
+        args.generation.correctedCitations < 0 ||
+        args.generation.correctedCitations > STUDY_LIMITS.findings)
+    )
+      throw new Error("Invalid study generation bounds.");
     for (const [order, finding] of result.findings.entries())
       await ctx.db.insert("scriptureStudyFindings", {
         userId: run.userId,
@@ -220,6 +281,7 @@ export const publish = internalMutation({
       finishedAt: Date.now(),
       outcome: result.findings.length ? "partial" : "no_meaningful_findings",
       coverage: studyCoverage(result.findings, run.evidence),
+      generation: args.generation,
       purgeAt: undefined,
     });
     await ctx.db.patch(current.study._id, {

@@ -2,23 +2,28 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../functions";
-import { generateObjectWithFallback, underlyingAIError } from "../lib/aiModels";
+import { underlyingAIError } from "../lib/aiModels";
 import { parseBibleReference } from "../lib/bible";
 import { fetchBiblePassage } from "../lib/bibleProvider";
 import { sharedBibleCache } from "../lib/bibleResourceCache";
 import { interruptible, requestAttempt } from "../lib/requestControl";
 import { loadReaderAI } from "../lib/router";
 import {
-  resultSchema,
   STUDY_LIMITS,
   STUDY_SOURCE_REGISTRY,
-  STUDY_SYSTEM_PROMPT,
   type StudyEvidence,
   selectedReference,
   selectedVerses,
 } from "../lib/scriptureStudy";
+import {
+  chapterVerses,
+  studyChapterContext,
+} from "../lib/scriptureStudyContext";
 import { studyFailureDiagnostic } from "../lib/scriptureStudyDiagnostics";
-import { studyProviderSchema } from "../lib/scriptureStudyModelSchema";
+import {
+  generateStudyWithRepair,
+  StudyRepairExhaustedError,
+} from "../lib/scriptureStudyGeneration";
 import { SCRIPTURE_STUDY_SOURCE_NOTICES } from "../lib/scriptureStudySourceShared";
 import {
   loadAdditionalStudyEvidence,
@@ -27,22 +32,6 @@ import {
 } from "../lib/scriptureStudySources";
 import { sha256Hex } from "../lib/tokens";
 import { wordStudy } from "../lib/wordStudy";
-
-function chapterVerses(content: string, reference: string) {
-  const chapter = parseBibleReference(reference);
-  if (!chapter) throw new Error("Could not parse selected WEB chapter.");
-  return content.split(/\n\s*\n/).flatMap((line) => {
-    const match = /^(\d+):(\d+)\s+([\s\S]+)$/.exec(line);
-    if (!match || Number(match[1]) !== chapter.chapter) return [];
-    return [
-      {
-        id: `${chapter.bookId}.${chapter.chapter}.${Number(match[2])}`,
-        verse: Number(match[2]),
-        text: match[3].trim(),
-      },
-    ];
-  });
-}
 
 function canonicalReference(key: string) {
   const match =
@@ -145,6 +134,7 @@ export const generate = internalAction({
     };
     const cache = sharedBibleCache(ctx);
     const evidence: StudyEvidence[] = [];
+    let evidenceCharLimit: number = STUDY_LIMITS.sourceChars;
     const files = new Map<string, Promise<string>>();
     let failureCode = "retrieval_or_generation_failed";
     let phase: "setup" | "retrieval" | "generation" | "publication" = "setup";
@@ -159,12 +149,12 @@ export const generate = internalAction({
       if (
         evidence.reduce((n, e) => n + e.excerpt.length, 0) +
           item.excerpt.length >
-        STUDY_LIMITS.sourceChars
+        evidenceCharLimit
       ) {
         if (item.source.id === "web")
           throw new Error("Study source exceeds limits.");
         evidence[0].limitations.push(
-          `Original-language evidence for ${item.referenceKey} omitted to fit the input limit.`,
+          `Additional evidence for ${item.referenceKey} omitted to fit the shared context limit.`,
         );
         return;
       }
@@ -271,6 +261,23 @@ export const generate = internalAction({
             "Saved WEB context does not match verified WEB text.",
           );
       }
+      let readerContext = claim.readerContext;
+      const coreChars = [...verified, ...contextBefore, ...contextAfter].reduce(
+        (n, verse) => n + `${verse.id} ${verse.text}\n`.length,
+        0,
+      );
+      if (
+        coreChars + JSON.stringify(readerContext).length >
+        STUDY_LIMITS.sourceChars
+      )
+        readerContext = {
+          ...readerContext,
+          notes: [],
+          limited: readerContext.limited || readerContext.notes.length > 0,
+        };
+      evidenceCharLimit -= readerContext.notes.length
+        ? JSON.stringify(readerContext).length
+        : 0;
       let group = "";
       for (const verse of verified) {
         const line = `${verse.id} ${verse.text}\n`;
@@ -337,6 +344,34 @@ export const generate = internalAction({
           ],
         });
       }
+
+      const chapterLoad = studyChapterContext(
+        chapter,
+        claim.selection,
+        evidenceCharLimit -
+          evidence.reduce((n, item) => n + item.excerpt.length, 0) -
+          4_000,
+      );
+      for (const [index, block] of chapterLoad.evidenceBlocks.entries())
+        await add({
+          evidenceId: `web-chapter-${index + 1}`,
+          source: evidence[0].source,
+          locator: block.referenceKey,
+          referenceKey: block.referenceKey,
+          excerpt: block.excerpt,
+          limitations: [
+            "Verified wider WEB chapter context. Findings must still anchor to the selected verses; no licensed-word alignment is assumed.",
+          ],
+        });
+      const chapterContext = {
+        coverage: chapterLoad.coverage,
+        referenceKey: chapterLoad.referenceKey,
+        ranges: chapterLoad.ranges,
+      };
+      if (chapterContext.coverage === "bounded")
+        coverageWarnings.push(
+          "The full retrieved WEB chapter did not fit or was not contiguous; only the listed context ranges were supplied.",
+        );
 
       const fetchWithBudget: typeof globalThis.fetch = async (input, init) => {
         await beforeRequest();
@@ -586,29 +621,45 @@ export const generate = internalAction({
         evidence[0].limitations.push(...[...new Set(coverageWarnings)]);
       const inputKey = await ctx.runMutation(
         internal.scriptureStudyRuns.manifest,
-        { runId, claimToken, evidence },
+        {
+          runId,
+          claimToken,
+          evidence,
+          contextSummary: {
+            chapterReferenceKey: chapterContext.referenceKey,
+            chapterCoverage: chapterContext.coverage,
+            chapterRanges: chapterContext.ranges,
+            readerNoteCount: readerContext.notes.length,
+            readerContextChars: readerContext.notes.length
+              ? JSON.stringify(readerContext).length
+              : 0,
+            notesLimited: readerContext.limited,
+          },
+          contextHash: await sha256Hex(
+            JSON.stringify({ chapterContext, readerContext }),
+          ),
+        },
       );
       if (!inputKey) throw new Error("Study stopped before generation.");
       await check();
-      await check();
       phase = "generation";
-      const result = await generateObjectWithFallback({
-        schema: resultSchema,
-        providerSchema: studyProviderSchema(target.id),
-        targets: [target],
-        maxOutputTokens: STUDY_LIMITS.outputTokens,
-        deadlineMs: Math.max(1, claim.leaseUntil - Date.now()),
+      const result = await generateStudyWithRepair({
+        target,
+        verses: verified,
+        leaseUntil: claim.leaseUntil,
+        check,
         signal: attempt.signal,
         onFailure: ai.noteFailure,
-        system: STUDY_SYSTEM_PROMPT,
-        prompt: JSON.stringify({
+        input: {
           selection: claim.selection,
-          verses: verified,
+          selectedVerseIds: verified.map((verse) => verse.id),
           immediateContextRanges: evidence
             .filter((item) => item.evidenceId.startsWith("web-context-"))
             .map((item) => item.referenceKey),
           evidence,
-        }),
+          chapterContext,
+          readerContext,
+        },
       });
       await check();
       phase = "publication";
@@ -620,6 +671,7 @@ export const generate = internalAction({
           inputKey,
           modelId: result.modelId,
           resultJson: JSON.stringify(result.object),
+          generation: result.generation,
         },
       );
       if (!didPublish) throw new Error("Study publication was fenced.");
@@ -640,7 +692,9 @@ export const generate = internalAction({
         claimToken,
         errorCode: attempt.signal.aborted
           ? "cancelled_expired_or_changed"
-          : failureCode,
+          : error instanceof StudyRepairExhaustedError
+            ? "findings_not_verified"
+            : failureCode,
       });
     } finally {
       clearInterval(timer);

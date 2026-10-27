@@ -17,9 +17,11 @@ import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
 import { scriptureKeepTables } from "./lib/scriptureKeepsSchema";
 import {
+  contextSummaryValidator,
   coverageValidator,
   evidenceValidator,
   findingValidator,
+  generationValidator,
   outcomeValidator,
   runStatusValidator,
   selectionValidator,
@@ -95,6 +97,9 @@ export default defineSchema({
     errorCode: v.optional(v.string()),
     coverage: v.optional(v.array(coverageValidator)),
     evidence: v.optional(v.array(evidenceValidator)),
+    contextSummary: v.optional(contextSummaryValidator),
+    contextHash: v.optional(v.string()),
+    generation: v.optional(generationValidator),
     purgeAt: v.optional(v.number()),
   })
     .index("by_studyId", ["studyId"])

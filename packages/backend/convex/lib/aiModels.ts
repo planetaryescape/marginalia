@@ -108,6 +108,8 @@ export async function generateObjectWithFallback<T>(options: {
   signal?: AbortSignal;
   /** Per-model structured generation deadline, including parse retries. */
   deadlineMs?: number;
+  /** Let a task own one shared budget across parsing and domain repairs. */
+  maxParseAttempts?: 1 | 2;
 }): Promise<{ object: T; modelId: string }> {
   if (!options.targets.length)
     throw new Error("No AI model is available for this library");
@@ -211,6 +213,7 @@ async function generateParsedObject<T>(
     prompt?: string;
     system?: string;
     maxOutputTokens?: number;
+    maxParseAttempts?: 1 | 2;
     signal: AbortSignal;
   },
 ): Promise<T> {
@@ -232,7 +235,11 @@ async function generateParsedObject<T>(
     } catch (caught) {
       options.signal.throwIfAborted();
       const error = underlyingAIError(caught);
-      if (attempt >= PARSE_ATTEMPTS || !isUnparseableAnswer(error)) throw error;
+      if (
+        attempt >= (options.maxParseAttempts ?? PARSE_ATTEMPTS) ||
+        !isUnparseableAnswer(error)
+      )
+        throw error;
       console.warn(`${modelId} answered unusably; asking again`);
     }
   }
