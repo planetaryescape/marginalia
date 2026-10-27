@@ -13,7 +13,14 @@ function sanitizeArticleHtml(html: string): string {
   return sanitizeHtml(html, {
     ADD_TAGS: ["mark", "sup"],
     // YouVersion's inert `v` marker identifies containing verses for Study.
-    ADD_ATTR: ["data-annotation-id", "data-type", "style", "class", "target", "v"],
+    ADD_ATTR: [
+      "data-annotation-id",
+      "data-type",
+      "style",
+      "class",
+      "target",
+      "v",
+    ],
   });
 }
 
