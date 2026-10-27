@@ -9,6 +9,7 @@
  */
 
 import type * as scriptureStudyRuns from "../scriptureStudyRuns.js";
+import type * as scriptureKeeps from "../scriptureKeeps.js";
 import type * as scriptureStudy from "../scriptureStudy.js";
 import type * as scriptureStudyCleanup from "../scriptureStudyCleanup.js";
 import type * as actions_scriptureStudy from "../actions/scriptureStudy.js";
@@ -238,6 +239,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "scriptureStudyRuns": typeof scriptureStudyRuns;
+  "scriptureKeeps": typeof scriptureKeeps;
   "scriptureStudy": typeof scriptureStudy;
   "scriptureStudyCleanup": typeof scriptureStudyCleanup;
   "actions/scriptureStudy": typeof actions_scriptureStudy;

@@ -15,6 +15,7 @@ import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
+import { scriptureKeepTables } from "./lib/scriptureKeepsSchema";
 import {
   coverageValidator,
   evidenceValidator,
@@ -44,6 +45,7 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  ...scriptureKeepTables,
   scriptureStudyRequests: defineTable({
     userId: v.string(),
     requestKey: v.string(),
@@ -404,6 +406,7 @@ export default defineSchema({
     .index("by_userId_and_readerDocumentId", ["userId", "readerDocumentId"])
     .index("by_user", ["userId"])
     .index("by_user_guid", ["userId", "guid"])
+    .index("by_userId_and_bible_reference", ["userId", "bible.reference"])
     .index("by_user_url", ["userId", "url"])
     .index("by_extraction_status", ["userId", "extractionStatus"])
     .index("by_annotation_status", ["userId", "annotationStatus"])

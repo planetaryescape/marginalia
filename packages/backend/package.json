@@ -8,6 +8,8 @@
   "types": "./convex/_generated/dataModel.d.ts",
   "exports": {
     "./bible": "./convex/lib/bible.ts",
+    "./scripture-study": "./convex/lib/scriptureStudy.ts",
+    "./scripture-references": "./convex/lib/scriptureReferences.ts",
     "./reading-activity": "./convex/lib/readingActivity.ts",
     "./library-search": "./convex/lib/librarySearch.ts",
     "./local-context": "./convex/lib/localContext.ts",
