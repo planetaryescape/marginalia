@@ -80,7 +80,9 @@ function providerMessages(
     "param",
   ] as const) {
     if (key in value)
-      messages.push(...providerMessages(value[key], depth + 1, budget));
+      messages.push(
+        ...providerMessages(Reflect.get(value, key), depth + 1, budget),
+      );
   }
   if (
     "metadata" in value &&
