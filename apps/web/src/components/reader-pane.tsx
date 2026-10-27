@@ -24,7 +24,7 @@ export function ReaderPane({
   onClose: () => void;
   children: ReactNode;
   focusFallback?: RefObject<HTMLElement | null>;
-  style?: React.CSSProperties;
+  style?: React.CSSProperties & { [key: `--${string}`]: string | number };
 }) {
   const paneRef = useRef<HTMLDialogElement>(null);
   const [mounted, setMounted] = useState(false);
