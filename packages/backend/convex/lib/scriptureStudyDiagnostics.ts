@@ -18,10 +18,15 @@ const SIGNALS = {
   output: /output|tokens?|length|finish.reason/i,
   parse: /parse|json|validation|no object/i,
   network: /fetch|network|connect|timeout/i,
+  provider_rejection: /provider returned error/i,
+  invalid_argument: /invalid.argument|unknown name|unsupported property/i,
 } as const;
 const PARAMETERS = [
   "response_format",
   "response_schema",
+  "responseSchema",
+  "responseJsonSchema",
+  "$schema",
   "json_schema",
   "additionalProperties",
   "minLength",
@@ -42,30 +47,50 @@ const PARAMETERS = [
   "strict",
 ] as const;
 
-function providerMessages(value: unknown, depth = 0): string[] {
-  if (depth > 3) return [];
+function providerMessages(
+  value: unknown,
+  depth = 0,
+  budget = { remaining: 48 },
+): string[] {
+  if (depth > 12 || budget.remaining-- <= 0) return [];
   if (typeof value === "string") {
     if (value.length > 16_000) return [];
     try {
-      return providerMessages(JSON.parse(value), depth);
+      return providerMessages(JSON.parse(value), depth + 1, budget);
     } catch {
       return [value];
     }
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value))
+    return value
+      .slice(0, 4)
+      .flatMap((item) => providerMessages(item, depth + 1, budget));
   const messages =
     "message" in value && typeof value.message === "string"
       ? [value.message.slice(0, 16_000)]
       : [];
   if ("error" in value)
-    messages.push(...providerMessages(value.error, depth + 1));
+    messages.push(...providerMessages(value.error, depth + 1, budget));
+  for (const key of [
+    "details",
+    "fieldViolations",
+    "description",
+    "field",
+    "param",
+  ] as const) {
+    if (key in value)
+      messages.push(
+        ...providerMessages(Reflect.get(value, key), depth + 1, budget),
+      );
+  }
   if (
     "metadata" in value &&
     value.metadata &&
     typeof value.metadata === "object" &&
     "raw" in value.metadata
   )
-    messages.push(...providerMessages(value.metadata.raw, depth + 1));
+    messages.push(...providerMessages(value.metadata.raw, depth + 1, budget));
   return messages;
 }
 
