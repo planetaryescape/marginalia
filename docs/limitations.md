@@ -14,7 +14,7 @@ See [operations](operations.md#access-control) before deploying sensitive conten
 
 ## Reliability and scale
 
-- **Deep Study candidate:** no deployed user journey has been verified. The ChatGPT-plan deep model currently fails before evidence retrieval with `model_output_limit_unavailable` when its adapter cannot enforce the output cap. Configure a compatible API deep model and select the passage again. The candidate still awaits combined backend gates, independent cross-provider review, a full check/build and production deployment.
+- **Deep Study model compatibility:** the ChatGPT-plan deep model currently fails before evidence retrieval with `model_output_limit_unavailable` because its adapter cannot enforce the output cap. Configure a compatible API deep model and select the passage again. Automated checks and independent review do not replace the signed-in [release checks](operations.md#deploy).
 - **Study evidence:** pinned datasets and retrieved citations are shown with their limits, but source validation cannot certify every free-form claim. Deep Study uses one adapted study-note corpus and bounded original-language and printed-edition samples; it does not establish broad scholarly consensus or English-to-original-language alignment.
 - **Study cancellation and cost:** closing a pending run fences publication and further retrieval after admission/cancellation acknowledgement. A model request already dispatched cannot be recalled and may still incur provider cost.
 
