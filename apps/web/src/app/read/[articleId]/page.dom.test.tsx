@@ -477,6 +477,24 @@ it("hydrates a linked saved answer outside the preview page, without a model cal
   expect(state.query.mock.calls[0][1]).toEqual({ threadId: "saved-answer" });
   expect(state.open).toHaveBeenCalledWith(body);
 });
+
+it("hydrates a summary definition even when its quote cannot land in article-body text", async () => {
+  state.params = "answer=saved-summary&quote=steadfast";
+  state.landed = false;
+  const body = {
+    _id: "saved-summary",
+    articleId: "article-1",
+    mode: "define",
+    summaryDefinition: true,
+    selection: "steadfast",
+    turns: [{ role: "assistant", content: "Resolutely firm and unwavering." }],
+  };
+  state.query.mockResolvedValue(body);
+  await act(async () => root.render(<ReadPage />));
+  expect(state.query).toHaveBeenCalledTimes(1);
+  expect(state.query.mock.calls[0][1]).toEqual({ threadId: "saved-summary" });
+  expect(state.open).toHaveBeenCalledWith(body);
+});
 it("does not reopen a pending linked answer after Cancel", async () => {
   state.params = "answer=late-answer&quote=Invented";
   state.landed = true;
