@@ -30,6 +30,24 @@ afterEach(() => {
 describe("selected Scripture Study public lifecycle", () => {
   it("admits, claims, retrieves permitted evidence, publishes and replays without spending again", async () => {
     const { t, args, fetch, model } = await setup();
+    model.mockImplementationOnce(async (options) => ({
+      object: {
+        findings: [
+          {
+            ...findings[0],
+            relatedPassages: [
+              {
+                evidenceId: "related-1",
+                referenceKey: "ROM.8.1",
+                relation: "thematic_parallel",
+                explanation: "The supplied note links these passages.",
+              },
+            ],
+          },
+        ],
+      },
+      modelId: options.targets[0].id,
+    }));
     const run = await t.mutation(api.scriptureStudy.start, args);
     expect(run.admission).toBe("started");
     expect(
@@ -52,7 +70,7 @@ describe("selected Scripture Study public lifecycle", () => {
     expect(
       result.publishedRun?.coverage.find((c) => c.lens === "textual_criticism")
         ?.status,
-    ).toBe("insufficient_evidence");
+    ).toBe("no_meaningful_findings");
     expect(
       (
         await t.query(api.scriptureStudy.findings, {
@@ -60,13 +78,83 @@ describe("selected Scripture Study public lifecycle", () => {
           paginationOpts: { numItems: 20, cursor: null },
         })
       ).page,
-    ).toEqual(findings);
+    ).toMatchObject([
+      {
+        ...findings[0],
+        relatedPassages: [
+          {
+            evidenceId: "related-1",
+            referenceKey: "ROM.8.1",
+            relation: "thematic_parallel",
+            explanation: "The supplied note links these passages.",
+          },
+        ],
+      },
+    ]);
     const evidence = await t.query(api.scriptureStudy.evidence, {
       runId: run.runId,
       evidenceId: "web-1",
     });
     expect(evidence?.source.rights).toBe("Public domain");
     expect(evidence?.excerpt).toContain("Public WEB verse one");
+    const adjacent = await t.query(api.scriptureStudy.evidence, {
+      runId: run.runId,
+      evidenceId: "web-context-after",
+    });
+    expect(adjacent).toMatchObject({
+      referenceKey: "JHN.1.3-JHN.1.4",
+      excerpt: expect.stringContaining("Public WEB verse three"),
+    });
+    const note = await t.query(api.scriptureStudy.evidence, {
+      runId: run.runId,
+      evidenceId: "source-3",
+    });
+    expect(note?.source).toMatchObject({
+      id: "aquifer-open-study-notes",
+      rights: "CC BY-SA 4.0",
+      licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
+      attribution: expect.stringContaining("Tyndale Open Study Notes"),
+    });
+    expect(note?.limitations.join(" ")).toContain("converted from HTML");
+    expect(
+      result.publishedRun?.coverage.some((item) =>
+        item.reason.includes("CC BY-SA 4.0"),
+      ),
+    ).toBe(true);
+    const variant = await t.query(api.scriptureStudy.evidence, {
+      runId: run.runId,
+      evidenceId: "source-4",
+    });
+    expect(variant?.source.capabilities).toEqual([
+      "printed-edition-comparison",
+    ]);
+    expect(variant?.excerpt).toContain("not a manuscript-witness collation");
+    const related = await t.query(api.scriptureStudy.evidence, {
+      runId: run.runId,
+      evidenceId: "related-1",
+    });
+    expect(related).toMatchObject({
+      source: { id: "web" },
+      referenceKey: "ROM.8.1",
+      excerpt: expect.stringContaining("No condemnation in Christ."),
+    });
+    expect(
+      (
+        await t.query(api.scriptureStudy.findings, {
+          runId: run.runId,
+          paginationOpts: { numItems: 6, cursor: null },
+        })
+      ).page[0].relatedPassages,
+    ).toEqual([
+      expect.objectContaining({
+        evidenceId: "related-1",
+        referenceKey: "ROM.8.1",
+      }),
+    ]);
+    expect(model.mock.calls[0][0].prompt).toContain(
+      '"immediateContextRanges":["JHN.1.3-JHN.1.4"]',
+    );
+    expect(model.mock.calls[0][0].system).not.toContain("No apparatus");
     expect(
       await t.mutation(api.scriptureStudy.start, {
         ...args,
@@ -94,6 +182,103 @@ describe("selected Scripture Study public lifecycle", () => {
         })
       ).length,
     ).toBe(1);
+  });
+  it("permits the pinned John 1:18 edition comparison and rejects an unsourced textual claim", async () => {
+    const { t, args, model } = await setup();
+    const passage = "1:18 God gave his only Son for the world.";
+    const selected = {
+      referenceKey: "JHN.1.18",
+      startVerseId: "JHN.1.18",
+      endVerseId: "JHN.1.18",
+      versificationId: "web",
+    };
+    await t.run((ctx) => ctx.db.patch(args.articleId, { content: passage }));
+    const changedArgs = {
+      ...args,
+      selection: selected,
+      sourceHash: await sourceHash(passage, contentHtml),
+      requestKey: "john-1-18",
+    };
+    const textualFinding = {
+      ...findings[0],
+      lens: "textual_criticism" as const,
+      anchor: {
+        verseId: "JHN.1.18",
+        referenceKey: "JHN.1.18",
+        quote: "God gave his only Son",
+      },
+      observation: "The supplied printed editions differ at this phrase.",
+      consequence: "The edition choice changes how the phrase is read.",
+      evidenceIds: ["web-1", "source-2"],
+    };
+    model.mockImplementationOnce(async (options) => ({
+      object: { findings: [textualFinding] },
+      modelId: options.targets[0].id,
+    }));
+    const valid = await t.mutation(api.scriptureStudy.start, changedArgs);
+    await t.action(internal.actions.scriptureStudy.generate, {
+      runId: valid.runId,
+    });
+    expect((await t.run((ctx) => ctx.db.get(valid.runId)))?.status).toBe(
+      "complete",
+    );
+
+    model.mockImplementationOnce(async (options) => ({
+      object: {
+        findings: [{ ...textualFinding, evidenceIds: ["web-1"] }],
+      },
+      modelId: options.targets[0].id,
+    }));
+    const invalid = await t.mutation(api.scriptureStudy.refresh, {
+      studyId: valid.studyId,
+      publishedRunId: valid.runId,
+      requestKey: "john-1-18-unsourced",
+    });
+    await t.action(internal.actions.scriptureStudy.generate, {
+      runId: invalid.runId,
+    });
+    expect((await t.run((ctx) => ctx.db.get(invalid.runId)))?.status).toBe(
+      "failed",
+    );
+  });
+  it("publishes valid WEB findings when optional evidence sources are unavailable", async () => {
+    const { t, args, fetch, model } = await setup();
+    fetch.mockImplementation(async (input) => {
+      const url = new URL(input);
+      if (url.hostname === "raw.githubusercontent.com")
+        throw new Error("fixture source unavailable");
+      return Response.json({
+        translation: { identifier: "web" },
+        verses: [1, 2, 3, 4, 18].map((verse) => ({
+          book_id: "JHN",
+          chapter: 1,
+          verse,
+          text:
+            verse === 18
+              ? "God gave his only Son for the world."
+              : `Public WEB verse ${["one", "two", "three", "four"][verse - 1]}`,
+        })),
+      });
+    });
+    const run = await t.mutation(api.scriptureStudy.start, args);
+    await t.action(internal.actions.scriptureStudy.generate, {
+      runId: run.runId,
+    });
+    const result = await t.query(api.scriptureStudy.get, {
+      studyId: run.studyId,
+    });
+    expect(result.publishedRun?.status).toBe("complete");
+    expect(
+      result.publishedRun?.coverage.find(
+        (item) => item.lens === "textual_criticism",
+      ),
+    ).toMatchObject({ status: "insufficient_evidence" });
+    expect(
+      result.publishedRun?.coverage.some((item) =>
+        item.reason.includes("fixture source unavailable"),
+      ),
+    ).toBe(true);
+    expect(model).toHaveBeenCalledTimes(1);
   });
   it("deduplicates joined request keys after a failed attempt without a paid retry", async () => {
     const { t, args, model } = await setup();
@@ -389,7 +574,7 @@ describe("selected Scripture Study public lifecycle", () => {
     for (const [index, change] of [
       { evidenceIds: ["invented"] },
       { anchor: { ...findings[0].anchor, quote: "fabricated quote" } },
-      { lens: "textual_criticism" },
+      { lens: "reception" },
       {
         relatedPassages: [
           {

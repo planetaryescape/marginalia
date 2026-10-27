@@ -45,6 +45,7 @@ export const claim = internalMutation({
       userId: run.userId,
       selection: current.study.selection,
       articleReference: current.article.bible.reference,
+      savedContextContent: current.article.content ?? "",
       verses: current.verses,
       leaseUntil: run.leaseUntil,
       modelId: run.modelId,
@@ -94,16 +95,65 @@ export const manifest = internalMutation({
       const registered = STUDY_SOURCE_REGISTRY.find(
         (source) => source.id === item.source.id,
       );
+      const aquifer = item.source.id === "aquifer-open-study-notes";
+      const byztxtVariants =
+        item.source.id === "byztxt-printed-edition-variants";
+      const sourceUrlValid =
+        item.source.id === "web"
+          ? /^https:\/\/bible-api\.com\/data\/web\/[1-3]?[A-Z]{2,3}\/\d+$/.test(
+              item.source.url,
+            )
+          : aquifer
+            ? /^https:\/\/github\.com\/BibleAquifer\/AquiferOpenStudyNotes\/blob\/35183d839b73958deca66fe4060d4dc7d4dc23de\/eng\/json\/\d{2}\.content\.json$/.test(
+                item.source.url,
+              )
+            : byztxtVariants
+              ? /^https:\/\/github\.com\/byztxt\/byzantine-majority-text\/blob\/27a45ff1b7be6c17ccbfeac414f3f55732ae8e28\/csv-unicode\/ccat\/with-variants\/[A-Z0-9]+\.csv$/.test(
+                  item.source.url,
+                )
+              : item.source.id === "byztxt"
+                ? item.source.url.startsWith(
+                    "https://raw.githubusercontent.com/byztxt/byzantine-majority-text/27a45ff1b7be6c17ccbfeac414f3f55732ae8e28/csv-unicode/strongs/with-parsing/",
+                  )
+                : item.source.id === "oshb"
+                  ? item.source.url.startsWith(
+                      "https://raw.githubusercontent.com/openscriptures/morphhb/3d15126fb1ef74867fc1434be1942e837932691f/wlc/",
+                    )
+                  : item.source.id === "strongs"
+                    ? item.source.url ===
+                      "https://raw.githubusercontent.com/openscriptures/strongs/0acd2f251c2d35ff8db2dece4e0593979d3ac223/strongs-dictionary.xhtml"
+                    : false;
       if (
         !registered ||
-        registered.title !== item.source.title ||
-        registered.revision !== item.source.revision ||
+        (aquifer
+          ? !item.source.title.startsWith(`${registered.title}: `) ||
+            !new RegExp(`^${registered.revision}:[^:\\s]+:[^:\\s]+$`).test(
+              item.source.revision,
+            )
+          : registered.title !== item.source.title ||
+            registered.revision !== item.source.revision) ||
         registered.rights !== item.source.rights ||
+        registered.licenseUrl !== item.source.licenseUrl ||
+        !item.source.attribution.trim() ||
+        !sourceUrlValid ||
         JSON.stringify(registered.capabilities) !==
           JSON.stringify(item.source.capabilities) ||
+        (aquifer &&
+          (item.source.attribution !==
+            "Adapted from Tyndale Open Study Notes © 2023 Tyndale House Publishers by Mission Mutual © 2026; CC BY-SA 4.0." ||
+            !/^https:\/\/github\.com\/BibleAquifer\/AquiferOpenStudyNotes\/blob\/35183d839b73958deca66fe4060d4dc7d4dc23de\/eng\/json\/\d{2}\.content\.json$/.test(
+              item.source.url,
+            ))) ||
+        (byztxtVariants &&
+          (item.source.attribution !==
+            "ByzTxt / Robinson-Pierpont; source revision pinned in this record." ||
+            !item.source.url.startsWith(
+              "https://github.com/byztxt/byzantine-majority-text/blob/27a45ff1b7be6c17ccbfeac414f3f55732ae8e28/csv-unicode/ccat/with-variants/",
+            ))) ||
         item.contentHash !== (await sha256Hex(item.excerpt))
-      )
+      ) {
         throw new Error("Unregistered or changed evidence source.");
+      }
     }
     const { evidenceSetHash, inputKey } = await manifestIdentity(
       run,
