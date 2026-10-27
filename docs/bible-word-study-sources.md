@@ -1,10 +1,10 @@
 # Bible word-study data notices
 
-Open **Bible tools → Original-language word study** in a Bible reading to inspect source attribution, exact downloads, license terms and pinned revisions. These data licenses are separate from Marginalia's MIT OR Apache-2.0 application-code license. Source datasets are fetched server-side, not bundled into the application source.
+Open **Bible tools → Original-language word study** in a Bible reading to inspect source attribution, exact downloads, license terms and pinned revisions. These data licenses are separate from Marginalia's MIT OR Apache-2.0 application-code license. Original-language datasets are fetched server-side, not bundled into the application source.
 
 ## English dictionary meanings
 
-Selecting **Define** on an English verse word queries [Free Dictionary API](https://dictionaryapi.dev/) for that headword only. Entries come from Wiktionary; each displayed entry retains its source URL and returned Creative Commons license. The app selects up to three entries, four parts of speech and two definitions per part of speech without rewriting the definitions. Responses are limited to 256 KB and eight seconds. There is no model call, verse upload or inferred English-to-original-word alignment. This dictionary is separate from Deep Study's evidence sources.
+Selecting **Define** on an English verse word queries [Free Dictionary API](https://dictionaryapi.dev/) directly from your browser for that headword only, without cookies or a referrer. The API currently rejects the cloud backend with HTTP 403, while allowing browser CORS requests. Entries come from Wiktionary; each displayed entry retains its source URL and returned Creative Commons license. The app selects up to three entries, four parts of speech and two definitions per part of speech without rewriting the definitions. Responses are limited to 256 KB and eight seconds; changing the word or closing the pane aborts the request. There is no model call, verse upload or inferred English-to-original-word alignment. This dictionary is separate from Deep Study's evidence sources.
 
 ## Greek verse text and morphology
 

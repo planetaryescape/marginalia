@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
-import type { api } from "@marginalia/backend/convex/_generated/api";
-import { type FunctionReturnType, getFunctionName } from "convex/server";
+import { getFunctionName } from "convex/server";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,13 +7,29 @@ import { BibleWordStudy } from "./bible-word-study";
 
 const words = vi.hoisted(() => vi.fn());
 const explain = vi.hoisted(() => vi.fn());
-const define = vi.hoisted(() => vi.fn());
+const cloudDefine = vi.hoisted(() => vi.fn());
+const dictionaryFetch = vi.fn();
+const englishEntry = {
+  word: "word",
+  phonetic: "/wɜːd/",
+  meanings: [
+    {
+      partOfSpeech: "noun",
+      definitions: [{ definition: "A unit of language." }],
+    },
+  ],
+  sourceUrls: ["https://en.wiktionary.org/wiki/word"],
+  license: {
+    name: "CC BY-SA 3.0",
+    url: "https://creativecommons.org/licenses/by-sa/3.0",
+  },
+};
 vi.mock("convex/react", () => ({
   useAction: (ref: Parameters<typeof getFunctionName>[0]) =>
     getFunctionName(ref) === "actions/bible:originalWords"
       ? words
       : getFunctionName(ref) === "actions/bible:defineEnglishWord"
-        ? define
+        ? cloudDefine
         : explain,
 }));
 let root: Root;
@@ -26,22 +41,11 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   document.body.innerHTML = '<div id="root"></div>';
   root = createRoot(document.getElementById("root")!);
-  define.mockReset().mockResolvedValue({
-    word: "word",
-    entries: [
-      {
-        phonetic: "/wɜːd/",
-        meanings: [
-          { partOfSpeech: "noun", definitions: ["A unit of language."] },
-        ],
-        sourceUrls: ["https://en.wiktionary.org/wiki/word"],
-        license: {
-          name: "CC BY-SA 3.0",
-          url: "https://creativecommons.org/licenses/by-sa/3.0",
-        },
-      },
-    ],
-  });
+  cloudDefine.mockReset().mockRejectedValue(new Error("Cloud source HTTP 403"));
+  dictionaryFetch
+    .mockReset()
+    .mockImplementation(async () => Response.json([englishEntry]));
+  vi.stubGlobal("fetch", dictionaryFetch);
   words.mockReset().mockResolvedValue({
     reference: "John 1:1",
     originalId: "JHN.1.1",
@@ -124,7 +128,14 @@ describe("original-language word study in the reader", () => {
     expect(
       document.querySelector("[data-selected-english]")?.textContent,
     ).toContain("word");
-    expect(define).toHaveBeenCalledWith({ word: "word" });
+    expect(dictionaryFetch).toHaveBeenCalledWith(
+      "https://api.dictionaryapi.dev/api/v2/entries/en/word",
+      expect.objectContaining({
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+      }),
+    );
+    expect(cloudDefine).not.toHaveBeenCalled();
     expect(
       document.querySelector('[aria-label="English meaning"]')?.textContent,
     ).toContain("A unit of language.");
@@ -139,17 +150,15 @@ describe("original-language word study in the reader", () => {
     expect(explain).not.toHaveBeenCalled();
   });
   it("fences a late English response when another word is selected", async () => {
-    let resolveOld: (
-      value: FunctionReturnType<typeof api.actions.bible.defineEnglishWord>,
-    ) => void = () => {};
-    define
+    let resolveOld: (value: Response) => void = () => {};
+    dictionaryFetch
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
             resolveOld = resolve;
           }),
       )
-      .mockResolvedValueOnce({ word: "comfort", entries: [] });
+      .mockResolvedValueOnce(Response.json([]));
     await act(async () =>
       root.render(<BibleWordStudy reference="John 1:1" selectedText="word" />),
     );
@@ -159,20 +168,11 @@ describe("original-language word study in the reader", () => {
       ),
     );
     await act(async () =>
-      resolveOld({
-        word: "word",
-        entries: [
-          {
-            phonetic: "old response must not display",
-            meanings: [],
-            sourceUrls: [],
-            license: {
-              name: "CC BY-SA 3.0",
-              url: "https://creativecommons.org/licenses/by-sa/3.0",
-            },
-          },
-        ],
-      }),
+      resolveOld(
+        Response.json([
+          { ...englishEntry, phonetic: "old response must not display" },
+        ]),
+      ),
     );
     expect(document.body.textContent).not.toContain(
       "old response must not display",
@@ -180,5 +180,6 @@ describe("original-language word study in the reader", () => {
     expect(
       document.querySelector("[data-selected-english]")?.textContent,
     ).toContain("comfort");
+    expect(dictionaryFetch.mock.calls[0][1].signal.aborted).toBe(true);
   });
 });
