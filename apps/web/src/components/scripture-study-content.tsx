@@ -7,6 +7,7 @@ import { Skeleton, SkeletonBar } from "./in-place";
 import {
   ScriptureStudyEvidence,
   ScriptureStudyResult,
+  studyReferenceLabel,
 } from "./scripture-study-result";
 
 export function ScriptureStudyContent({
@@ -100,7 +101,8 @@ export function ScriptureStudyContent({
       <p className="mb-6 font-sans text-[14px] leading-relaxed text-[var(--ink-muted)]">
         This study covers the containing verses, using WEB evidence. The wording
         in your displayed edition may differ; no English-to-original-word
-        alignment is assumed.
+        alignment is assumed. Saved notes from this chapter may be used as
+        personal context, never as instructions or scholarly evidence.
       </p>
       {running && (
         <div className="mb-8">
@@ -133,7 +135,9 @@ export function ScriptureStudyContent({
             ? "This study was stopped. Already submitted provider work may still incur cost."
             : run.errorCode === "model_output_limit_unavailable"
               ? "Your selected deep model cannot enforce this study's output limit. Choose a compatible API model in reading settings, then select the verses again."
-              : "This study could not finish. You can retry explicitly; any previous completed result remains below."}
+              : run.errorCode === "findings_not_verified"
+                ? "The study could not verify its findings after the bounded correction attempt. No unverified findings were published; any previous completed result remains below."
+                : "This study could not finish. You can retry explicitly; any previous completed result remains below."}
         </p>
       )}
       {study.publishedRun &&
@@ -157,6 +161,17 @@ export function ScriptureStudyContent({
             This source license does not change the app’s license.
           </p>
         ) : null)}
+      {study.publishedRun &&
+        (study.publishedRun.generation?.omittedFindings ? (
+          <p
+            role="status"
+            className="mb-5 font-sans text-[14px] leading-relaxed"
+          >
+            This is a partial result.{" "}
+            {study.publishedRun.generation.omittedFindings} finding(s) could not
+            be verified after correction and were omitted.
+          </p>
+        ) : null)}
       {study.publishedRun && (
         <PublishedStudy
           key={study.publishedRun.runId}
@@ -170,6 +185,43 @@ export function ScriptureStudyContent({
           <summary className="cursor-pointer text-[var(--pencil)]">
             Coverage and limits
           </summary>
+          {study.publishedRun.contextSummary && (
+            <div className="mt-4 space-y-2">
+              <p>
+                Chapter context:{" "}
+                {study.publishedRun.contextSummary.chapterCoverage ===
+                "full_retrieved_chapter"
+                  ? "full retrieved WEB chapter"
+                  : "bounded WEB context; not the full chapter"}
+                .
+              </p>
+              <p>
+                Supplied ranges:{" "}
+                {study.publishedRun.contextSummary.chapterRanges
+                  .map(studyReferenceLabel)
+                  .join(", ")}
+                .
+              </p>
+              <p>
+                {study.publishedRun.contextSummary.readerNoteCount} saved reader
+                note(s) used as personal context at the start of this run, not
+                as evidence or instructions. Note text is not stored in the
+                evidence manifest.
+              </p>
+              {study.publishedRun.contextSummary.notesLimited && (
+                <p>
+                  Some note context was shortened or omitted because of scope or
+                  input limits.
+                </p>
+              )}
+            </div>
+          )}
+          {study.publishedRun.generation && (
+            <p className="mt-4">
+              {study.publishedRun.generation.modelAttempts} model attempt(s),
+              including any structure or finding corrections.
+            </p>
+          )}
           <ul className="mt-4 space-y-4">
             {study.publishedRun.coverage.map((coverage) => (
               <li key={coverage.lens}>

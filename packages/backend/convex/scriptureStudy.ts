@@ -248,6 +248,12 @@ export const refresh = mutation({
 });
 function metadata(run: Doc<"scriptureStudyRuns"> | null) {
   if (!run) return null;
+  const context: Pick<
+    Doc<"scriptureStudyRuns">,
+    "contextSummary" | "generation"
+  > = {};
+  if (run.contextSummary) context.contextSummary = run.contextSummary;
+  if (run.generation) context.generation = run.generation;
   return {
     runId: run._id,
     status:
@@ -263,6 +269,7 @@ function metadata(run: Doc<"scriptureStudyRuns"> | null) {
     outcome: run.outcome ?? null,
     coverage: run.coverage ?? [],
     evidenceSetHash: run.evidenceSetHash ?? null,
+    ...context,
   };
 }
 export const get = query({
