@@ -168,6 +168,32 @@ describe("Bible opt-in controls", () => {
     );
     expect(setPreferences).toHaveBeenCalledWith({ scope: "mixed" });
   });
+  it("keeps arrow-selected radio focus while the preference mutation is pending", async () => {
+    state.enabled = true;
+    state.scope = "articles";
+    let finish!: () => void;
+    setPreferences.mockReturnValueOnce(
+      new Promise<void>((resolve) => (finish = resolve)),
+    );
+    await renderDiscovery();
+    const radios = [
+      ...document.querySelectorAll<HTMLButtonElement>("[role=radio]"),
+    ];
+    radios[0]?.focus();
+    await act(async () =>
+      radios[0]?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.activeElement).toBe(radios[1]);
+    expect(radios[1]?.disabled).toBe(false);
+    await act(async () => finish());
+    expect(document.activeElement).toBe(radios[1]);
+  });
   it("restores a Bible time pick in the same single-card Your pick pattern", async () => {
     await renderBiblePick(10);
     await act(async () => Promise.resolve());

@@ -97,9 +97,9 @@ describe("reading source control", () => {
     expect(
       container.querySelector("[role=radiogroup]")?.getAttribute("aria-busy"),
     ).toBe("true");
-    expect(radios().every((radio) => radio.disabled)).toBe(true);
+    expect(radios().every((radio) => !radio.disabled)).toBe(true);
     await act(async () => resolveSave());
-    expect(radios().every((radio) => radio.disabled)).toBe(false);
+    expect(radios().every((radio) => !radio.disabled)).toBe(true);
   });
 
   it("keeps the selected source after failure and offers retry", async () => {

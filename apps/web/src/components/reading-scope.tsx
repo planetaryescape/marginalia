@@ -65,7 +65,6 @@ export function ReadingScopeControl({ scope }: { scope: ReadingScope }) {
             aria-label={option.label}
             aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown"
             tabIndex={scope === option.value ? 0 : -1}
-            disabled={busy}
             onClick={() => {
               if (scope !== option.value) void save(option.value);
             }}
