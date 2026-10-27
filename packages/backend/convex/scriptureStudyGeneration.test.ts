@@ -71,3 +71,38 @@ it("publishes legitimate empty output through the actual generation helper", asy
       .publishedRun,
   ).toMatchObject({ status: "complete", outcome: "no_meaningful_findings" });
 });
+
+it("logs the failed phase and safe provider signals without raw error data", async () => {
+  const { t, args, model } = await studyFixture(modules);
+  model.mockRestore();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  dispatched.mockRejectedValue(
+    Object.assign(new Error("Insufficient credits: private-key"), {
+      statusCode: 402,
+      responseBody: "private provider body",
+    }),
+  );
+  const run = await t.mutation(api.scriptureStudy.start, args);
+  await t.action(internal.actions.scriptureStudy.generate, {
+    runId: run.runId,
+  });
+  const entry = logged.mock.calls.find(
+    ([value]) =>
+      typeof value === "string" &&
+      value.includes('"event":"scripture_study_failed"'),
+  );
+  expect(entry).toBeDefined();
+  expect(JSON.parse(String(entry?.[0]))).toMatchObject({
+    phase: "generation",
+    runId: run.runId,
+    status: 402,
+    signals: ["quota"],
+  });
+  expect(JSON.stringify(logged.mock.calls)).not.toMatch(
+    /private-key|private provider body/,
+  );
+  expect(
+    (await t.query(api.scriptureStudy.get, { studyId: run.studyId })).activeRun
+      ?.status,
+  ).toBe("failed");
+});
