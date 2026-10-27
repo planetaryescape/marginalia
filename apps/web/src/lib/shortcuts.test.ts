@@ -117,23 +117,24 @@ describe("keyboard shortcuts", () => {
 
   it("ignores typing, composition and browser modifier shortcuts", () => {
     const action = vi.fn();
-    register({ j: action });
+    register({ j: action, f: action, "1": action, "/": action });
     documentTarget.typing = true;
-    expect(press("j").defaultPrevented).toBe(false);
+    for (const key of ["j", "f", "1", "/"])
+      expect(press(key).defaultPrevented).toBe(false);
     documentTarget.typing = false;
     for (const key of ["metaKey", "ctrlKey", "altKey", "isComposing"] as const)
-      press("j", { [key]: true });
+      for (const shortcut of ["f", "1", "/"]) press(shortcut, { [key]: true });
     expect(action).not.toHaveBeenCalled();
   });
 
   it("pauses shortcuts inside panels and while a modal or popover is open", () => {
     const action = vi.fn();
-    register({ j: action });
+    register({ j: action, f: action, "1": action, "/": action });
     overlay = true;
-    press("j");
+    for (const key of ["j", "f", "1", "/"]) press(key);
     overlay = false;
     documentTarget.inDialog = true;
-    press("j");
+    for (const key of ["j", "f", "1", "/"]) press(key);
     expect(action).not.toHaveBeenCalled();
   });
 

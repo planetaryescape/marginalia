@@ -5,7 +5,7 @@ import { useConvex, useQuery } from "convex/react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { ArticleFinder } from "@/components/article-finder";
-import { BibleDiscovery } from "@/components/bible-discovery";
+import { BibleDiscovery, BibleTimePick } from "@/components/bible-discovery";
 import { DeskPick } from "@/components/desk/desk-pick";
 import { ContinueShortcut, DeskRest } from "@/components/desk/desk-rest";
 import { ImportSlot } from "@/components/desk/import-slot";
@@ -155,50 +155,56 @@ function Desk() {
         <TimesWithFits {...timeProps} />
       </QueryBoundary>
 
-      <BibleDiscovery preferences={bible} minutes={chosen?.minutes} />
-      {bible?.scope !== "bible" && (
-        <section
-          aria-label="Your pick"
-          className="min-h-[7rem] border-t border-[var(--reader-border)] pt-[22px]"
-          data-arrival={arrival}
-        >
+      <BibleDiscovery preferences={bible} />
+      <ArticleFinder
+        onPdf={startPdf}
+        onType={() => setArmed(false)}
+        showKey={showKeys}
+        windowMinutes={chosen?.minutes ?? null}
+        onClearWindow={() => setChosen(null)}
+        scope={bible?.enabled ? bible.scope : "articles"}
+        translation={bible?.translation ?? "web"}
+      />
+      <section
+        aria-label="Your pick"
+        className="min-h-[7rem] border-t border-[var(--reader-border)] pt-[22px]"
+        data-arrival={arrival}
+      >
+        {bible?.scope !== "bible" && (
           <QueryBoundary fallback={() => null}>
             <ContinueShortcut />
           </QueryBoundary>
-          {chosen ? (
-            <DeskPick
-              key={chosen.key}
-              minutes={chosen.minutes}
-              sessionId={chosen.sessionId}
-              onClose={() => setChosen(null)}
-              showKeys={showKeys}
-            />
-          ) : (
-            <QueryBoundary fallback={(retry) => <SlotFailure retry={retry} />}>
-              <ImportSlot
-                armed={armed}
-                upload={pdf.upload}
-                problem={pdf.problem}
-                onFile={startPdf}
-                onClearProblem={pdf.clearProblem}
-                onDismiss={pdf.dismiss}
-              >
-                <DeskRest showKeys={showKeys} />
-              </ImportSlot>
-            </QueryBoundary>
-          )}
-        </section>
-      )}
+        )}
+        {chosen && bible?.enabled && bible.scope === "bible" ? (
+          <BibleTimePick key={chosen.key} minutes={chosen.minutes} />
+        ) : chosen ? (
+          <DeskPick
+            key={chosen.key}
+            minutes={chosen.minutes}
+            sessionId={chosen.sessionId}
+            onClose={() => setChosen(null)}
+            showKeys={showKeys}
+          />
+        ) : bible?.enabled && bible.scope === "bible" ? (
+          <p className="text-[14px] text-[var(--ink-muted)]">
+            Choose a time above for a Bible passage.
+          </p>
+        ) : (
+          <QueryBoundary fallback={(retry) => <SlotFailure retry={retry} />}>
+            <ImportSlot
+              armed={armed}
+              upload={pdf.upload}
+              problem={pdf.problem}
+              onFile={startPdf}
+              onClearProblem={pdf.clearProblem}
+              onDismiss={pdf.dismiss}
+            >
+              <DeskRest showKeys={showKeys} />
+            </ImportSlot>
+          </QueryBoundary>
+        )}
+      </section>
 
-      {bible?.scope !== "bible" && (
-        <ArticleFinder
-          onPdf={startPdf}
-          onType={() => setArmed(false)}
-          showKey={showKeys}
-          windowMinutes={chosen?.minutes ?? null}
-          onClearWindow={() => setChosen(null)}
-        />
-      )}
       {bible?.scope !== "bible" && <PdfDrop onFile={startPdf} />}
     </main>
   );
