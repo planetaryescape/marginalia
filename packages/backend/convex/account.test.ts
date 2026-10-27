@@ -739,6 +739,21 @@ describe("account deletion", () => {
     await t.run(async (ctx) => {
       await seedLibrary(ctx, readerLibraryId, 40);
       await seedLibrary(ctx, OWNER, 2);
+      const keepId = await ctx.db.insert("scriptureKeeps", {
+        userId: readerLibraryId,
+        referenceKey: "PSA.23",
+        reference: "Psalms 23",
+        estimatedReadMinutes: 1,
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("scriptureKeepOrigins", {
+        userId: readerLibraryId,
+        keepId,
+        originKey: "account-purge-fixture",
+        sourceReference: "John 1",
+        reason: "account purge canary",
+        createdAt: Date.now(),
+      });
       // Cached query vectors are per reader and go with the account
       for (const userId of [readerLibraryId, OWNER]) {
         await ctx.db.insert("queryEmbeddings", {
@@ -872,6 +887,20 @@ describe("account deletion", () => {
       `reader-purge-completed ${JSON.stringify({ jobs: purgeJobs.length })}\n`,
     );
     expect(await rowsMentioning(t, readerLibraryId)).toEqual([]);
+    expect(
+      await t.run(async (ctx) =>
+        Promise.all([
+          ctx.db
+            .query("scriptureKeeps")
+            .withIndex("by_userId", (q) => q.eq("userId", readerLibraryId))
+            .take(1),
+          ctx.db
+            .query("scriptureKeepOrigins")
+            .withIndex("by_userId", (q) => q.eq("userId", readerLibraryId))
+            .take(1),
+        ]),
+      ),
+    ).toEqual([[], []]);
     // Both new and pre-versioned queued pages are harmless after account purge.
     if (!legacyJob) throw new Error("Missing seeded colour job");
     await t.mutation(internal.highlights.stampLegacyPage, {

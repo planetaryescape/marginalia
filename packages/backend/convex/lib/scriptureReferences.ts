@@ -1,7 +1,10 @@
 import { BIBLE_BOOKS, type BibleReference, parseBibleReference } from "./bible";
 
 export function referenceFromKey(key: string): BibleReference | null {
-  const match = /^([1-3]?[A-Z]{2,3})\.(\d+)(?:\.(\d+))?(?:-([1-3]?[A-Z]{2,3})\.(\d+)(?:\.(\d+))?)?$/.exec(key);
+  const match =
+    /^([1-3]?[A-Z]{2,3})\.(\d+)(?:\.(\d+))?(?:-([1-3]?[A-Z]{2,3})\.(\d+)(?:\.(\d+))?)?$/.exec(
+      key,
+    );
   if (!match || (match[4] && match[4] !== match[1])) return null;
   const book = BIBLE_BOOKS.find(([id]) => id === match[1]);
   if (!book || (match[3] && match[5] && match[5] !== match[2])) return null;
@@ -12,10 +15,17 @@ export function referenceFromKey(key: string): BibleReference | null {
   return ref?.passageId === key ? ref : null;
 }
 
-const bookNames = [...BIBLE_BOOKS.flatMap(([id, name]) => [name, id]), "Psalm", "Song of Songs"]
+const bookNames = [
+  ...BIBLE_BOOKS.flatMap(([id, name]) => [name, id]),
+  "Psalm",
+  "Song of Songs",
+]
   .sort((a, b) => b.length - a.length)
   .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-const references = new RegExp(`(?<![\\p{L}\\p{N}])(${bookNames.join("|")})\\s+(\\d{1,3})(?::(\\d{1,3})(?:\\s*[-–]\\s*(\\d{1,3}))?|\\s*[-–]\\s*(\\d{1,3}))?(?![\\p{L}\\p{N}:])`, "giu");
+const references = new RegExp(
+  `(?<![\\p{L}\\p{N}])(${bookNames.join("|")})\\s+(\\d{1,3})(?::(\\d{1,3})(?:\\s*[-–]\\s*(\\d{1,3}))?|\\s*[-–]\\s*(\\d{1,3}))?(?![\\p{L}\\p{N}:\\-–])`,
+  "giu",
+);
 
 /** Conservative reference recognition for existing plain-text Scripture margin notes.
  * A citation is a connection, not a claim that its interpretation is verified.

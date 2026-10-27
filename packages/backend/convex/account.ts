@@ -24,6 +24,7 @@ import { purgeTagVectors } from "./lib/tagVectors";
 import { purgeTagVocabulary } from "./lib/tagVocabulary";
 import { purgePreparedPage } from "./preparedArticles";
 import { purgeReadingResumes } from "./readingResume";
+import { purgeScriptureKeeps } from "./scriptureKeeps";
 import { purgeStudyReader } from "./scriptureStudyCleanup";
 import { purgeMetadata } from "./vaultFiles";
 
@@ -588,6 +589,8 @@ const STEPS: Step[] = [
   ),
   // Sweep display leases in an existing step, preserving queued numeric steps.
   async (ctx, args) => {
+    const keepRows = await purgeScriptureKeeps(ctx, args.userId);
+    if (keepRows) return keepRows;
     const studyRows = await purgeStudyReader(ctx, args.userId);
     if (studyRows) return studyRows;
     const leases = await ctx.db
