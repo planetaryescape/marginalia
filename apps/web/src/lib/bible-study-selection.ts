@@ -15,6 +15,29 @@ const LABEL = ".yv-vlbl, sup";
 const elementOf = (node: Node) =>
   node instanceof Element ? node : node.parentElement;
 
+/** Browser paragraph selections can end at an ancestor boundary just outside
+ * the body. Accept that boundary only when it adds no non-passage wording.
+ */
+function passageRange(body: HTMLElement, selection: Range): Range | null {
+  if (selection.collapsed || !selection.intersectsNode(body)) return null;
+  const bounds = body.ownerDocument.createRange();
+  bounds.selectNodeContents(body);
+  const range = selection.cloneRange();
+  if (range.compareBoundaryPoints(Range.START_TO_START, bounds) < 0) {
+    const before = range.cloneRange();
+    before.setEnd(body, 0);
+    if (before.toString().trim()) return null;
+    range.setStart(body, 0);
+  }
+  if (range.compareBoundaryPoints(Range.END_TO_END, bounds) > 0) {
+    const after = range.cloneRange();
+    after.setStart(body, body.childNodes.length);
+    if (after.toString().trim()) return null;
+    range.setEnd(body, body.childNodes.length);
+  }
+  return range.collapsed ? null : range;
+}
+
 /** Resolve containing verses, not an invented alignment of English words to WEB.
  * No displayed wording leaves this function. The server verifies the descriptor
  * against its owned saved source before admitting a study.
@@ -23,16 +46,12 @@ export function resolveStudySelection(
   reference: string,
   sourceText: string,
   body: HTMLElement,
-  range: Range,
+  selection: Range,
 ): StudySelection | null {
   const ref = parseBibleReference(reference);
-  if (
-    !ref ||
-    range.collapsed ||
-    !body.contains(range.startContainer) ||
-    !body.contains(range.endContainer)
-  )
-    return null;
+  if (!ref) return null;
+  const range = passageRange(body, selection);
+  if (!range) return null;
 
   const startElement = elementOf(range.startContainer);
   const endElement = elementOf(range.endContainer);
