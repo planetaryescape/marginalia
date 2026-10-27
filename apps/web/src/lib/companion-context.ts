@@ -6,6 +6,15 @@ import {
 import type { CompanionMode } from "./companion";
 import { getArticleBody, getParagraphs, paragraphText } from "./paragraphs";
 
+export function isSummarySelection(range: Range): boolean {
+  const start =
+    range.startContainer instanceof Element
+      ? range.startContainer
+      : range.startContainer.parentElement;
+  const summary = start?.closest('section[aria-label="Summary"]');
+  return Boolean(summary?.contains(range.endContainer));
+}
+
 /** Local tools read only selected original-numbered paragraphs and neighbours. */
 export function companionContext(
   container: HTMLElement | null,

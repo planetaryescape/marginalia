@@ -14,6 +14,7 @@ import {
 } from "../lib/bible";
 import { fetchBiblePassage, requireTranslation } from "../lib/bibleProvider";
 import { sharedBibleCache } from "../lib/bibleResourceCache";
+import { englishDefinition } from "../lib/englishDefinition";
 import { loadReaderAI } from "../lib/router";
 import { wordStudy } from "../lib/wordStudy";
 import {
@@ -192,6 +193,17 @@ export const readComparison = action({
       onlyIfCurrent: true,
     });
     return { ...passage, token };
+  },
+});
+
+export const defineEnglishWord = action({
+  args: { word: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
+    await requireReaderLimit(ctx, ctx.readerId, "api");
+    const result = await englishDefinition(args.word);
+    await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
+    return result;
   },
 });
 

@@ -104,6 +104,70 @@ function sse(lines: string[]) {
 }
 
 describe("companion HTTP streaming", () => {
+  it("defines a word from an owned Bible summary without treating it as a scripture lemma", async () => {
+    const t = await ownerWithKey(modules);
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    const articleId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("articles", {
+        userId: "default_user",
+        guid: "summary-define",
+        url: "https://bible-api.com",
+        title: "Colossians 2",
+        content: "2:1 Public-domain WEB source words",
+        contentHtml: "<p>Public-domain WEB source words</p>",
+        extractionStatus: "extracted",
+        annotationStatus: "annotated",
+        createdAt: Date.now(),
+        bible: {
+          reference: "Colossians 2",
+          translation: "web",
+          copyright: "Public domain",
+          displayVersionId: 111,
+        },
+      });
+      await ctx.db.insert("summaries", {
+        userId: "default_user",
+        articleId: id,
+        thesis: "The summary discusses ascetic regulations.",
+        gist: "A generated summary, not a verse.",
+        model: "fixture",
+        createdAt: Date.now(),
+      });
+      return id;
+    });
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(String(init.body));
+        return sse([
+          '{"choices":[{"delta":{"content":"Ascetic: practicing strict self-denial."}}]}',
+          "[DONE]",
+        ]);
+      }),
+    );
+    const response = await t.fetch("/api/companion", {
+      method: "POST",
+      body: JSON.stringify({
+        ...request,
+        articleId,
+        mode: "define",
+        paragraphIndex: null,
+        paragraphs: ["Licensed-display-canary"],
+        sentence: "Licensed-display-canary",
+        selection: "ascetic",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Ascetic:");
+    expect(bodies.join("\n")).toContain(
+      "Start with its ordinary dictionary-style meaning",
+    );
+    expect(bodies.join("\n")).toContain(
+      "The summary discusses ascetic regulations.",
+    );
+    expect(bodies.join("\n")).not.toContain("Licensed-display-canary");
+  });
   it("replaces display-edition context with authoritative WEB and rejects retaining licensed DOM in preparation", async () => {
     const t = await ownerWithKey(modules);
     await t.mutation(api.bible.setPreferences, { enabled: true });

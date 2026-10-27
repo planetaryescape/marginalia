@@ -36,6 +36,22 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("source-grounded original-language study", () => {
+  it("requires Bible opt-in for English definitions and never dispatches an AI model", async () => {
+    const t = await ownerTest(modules);
+    const fetch = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
+    vi.stubGlobal("fetch", fetch);
+    const generate = vi.spyOn(aiModels, "generateObjectWithFallback");
+    await expect(
+      t.action(api.actions.bible.defineEnglishWord, { word: "comfort" }),
+    ).rejects.toThrow("Enable Bible");
+    expect(fetch).not.toHaveBeenCalled();
+    await t.mutation(api.bible.setPreferences, { enabled: true });
+    expect(
+      await t.action(api.actions.bible.defineEnglishWord, { word: "comfort" }),
+    ).toMatchObject({ entries: [] });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(generate).not.toHaveBeenCalled();
+  });
   it("requires opt-in and never needs an AI provider just to inspect words and dictionary entries", async () => {
     const t = await ownerTest(modules);
     const fetch = sources();

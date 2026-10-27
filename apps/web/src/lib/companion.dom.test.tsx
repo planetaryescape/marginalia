@@ -140,6 +140,45 @@ const finish = async (text: string, index = streams.length - 1) => {
 const stored = (id = "a1") =>
   JSON.parse(sessionStorage.getItem(`marginalia:answers:${id}`) ?? "[]");
 
+it("does not start Define from a detached stale selection", async () => {
+  await mount();
+  const oldText = range.startContainer;
+  article.replaceChildren();
+  const stale = document.createRange();
+  stale.selectNodeContents(oldText);
+  await act(async () => latest.start({ mode: "define", range: stale }));
+  await settle();
+  expect(bodies).toHaveLength(0);
+});
+
+it("keeps a generated-summary word in English Define mode on a Bible article", async () => {
+  article.innerHTML =
+    '<section aria-label="Summary"><p>Reject ascetic regulations.</p></section><div data-article-body><p data-para="1">Licensed-display-canary</p></div>';
+  const text = article.querySelector("section p")?.firstChild;
+  if (!text) throw new Error("Summary text missing");
+  const selected = document.createRange();
+  selected.setStart(text, 7);
+  selected.setEnd(text, 14);
+  await act(async () =>
+    root.render(
+      <Harness
+        bibleStudySource
+        source={{ content: "2:1 Public WEB source" }}
+      />,
+    ),
+  );
+  await act(async () => latest.start({ mode: "define", range: selected }));
+  await settle();
+  expect(bodies[0]).toMatchObject({
+    mode: "define",
+    selection: "ascetic",
+    paragraphIndex: null,
+    paragraphs: [],
+  });
+  expect(JSON.stringify(bodies[0])).not.toContain("Licensed-display-canary");
+  expect(latest.thread?.selection).toBe("ascetic");
+});
+
 it("keeps displayed licensed wording out of study AI, including selection and Define paths", async () => {
   article.innerHTML = '<p data-para="0">Displayed-edition-only words</p>';
   const selected = document.createRange();

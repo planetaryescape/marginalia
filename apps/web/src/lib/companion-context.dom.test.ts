@@ -5,7 +5,23 @@ import {
   MAX_CONTEXT_CHARS,
 } from "@marginalia/backend/local-context";
 import { expect, it } from "vitest";
-import { companionContext } from "./companion-context";
+import { companionContext, isSummarySelection } from "./companion-context";
+
+it("distinguishes summary prose from verse wording and rejects a mixed selection", () => {
+  const container = document.createElement("div");
+  container.innerHTML =
+    '<section aria-label="Summary"><p>ascetic</p></section><div data-article-body><p id="COL.2.1">regulations</p></div>';
+  const summary = container.querySelector("section p")?.firstChild;
+  const verse = container.querySelector("[data-article-body] p")?.firstChild;
+  if (!summary || !verse) throw new Error("Missing fixture text");
+  const range = document.createRange();
+  range.selectNodeContents(summary);
+  expect(isSummarySelection(range)).toBe(true);
+  range.setEnd(verse, 3);
+  expect(isSummarySelection(range)).toBe(false);
+  range.selectNodeContents(verse);
+  expect(isSummarySelection(range)).toBe(false);
+});
 
 it("uploads only selected original-index neighbours and excludes inline UI", () => {
   const container = document.createElement("div");

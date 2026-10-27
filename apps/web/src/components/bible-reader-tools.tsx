@@ -11,7 +11,6 @@ import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { useBibleDisplay } from "@/lib/use-bible-display";
 import { BibleBrowser } from "./bible-browser";
-import { BibleWordStudy } from "./bible-word-study";
 
 export function BibleReaderTools({
   bible,
@@ -22,6 +21,7 @@ export function BibleReaderTools({
   onOpenChange,
   reflectionMissing = false,
   onStudyHistory,
+  onWordStudy,
 }: {
   bible: {
     reference: string;
@@ -36,6 +36,7 @@ export function BibleReaderTools({
   onOpenChange?: (open: boolean) => void;
   reflectionMissing?: boolean;
   onStudyHistory?: () => void;
+  onWordStudy: (reference: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const changeOpen = (value: boolean) => {
@@ -66,13 +67,7 @@ export function BibleReaderTools({
     reflectionMissing,
   ]);
   useEffect(() => {
-    const showWords = () => {
-      setOpen(true);
-      onOpenChange?.(true);
-    };
-    window.addEventListener("bible-word-study", showWords);
     return () => {
-      window.removeEventListener("bible-word-study", showWords);
       onOpenChange?.(false);
     };
   }, [onOpenChange]);
@@ -154,7 +149,16 @@ export function BibleReaderTools({
               translation={bible.translation}
               versionId={bible.displayVersionId}
             />
-            <BibleWordStudy key={bible.reference} reference={bible.reference} />
+            <button
+              type="button"
+              className="min-h-11 text-[var(--pencil)] underline underline-offset-4"
+              onClick={() => {
+                changeOpen(false);
+                onWordStudy(bible.reference);
+              }}
+            >
+              Original-language word study
+            </button>
             {onStudyHistory && (
               <button
                 type="button"

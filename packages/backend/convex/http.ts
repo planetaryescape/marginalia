@@ -377,11 +377,30 @@ http.route({
     )
       return new Response("Article not found", { status: 404 });
     if (parsed.data.articleId) {
+      const summaryDefinition =
+        parsed.data.mode === "define" && parsed.data.paragraphIndex === null
+          ? await preparation.runQuery(internal.summaries.definitionContext, {
+              userId: readerId,
+              articleId: parsed.data.articleId,
+              selection: parsed.data.selection,
+            })
+          : null;
+      if (summaryDefinition) {
+        parsed.data.paragraphs = [summaryDefinition.sentence];
+        parsed.data.paragraphIndex = 0;
+        parsed.data.paragraphIndices = undefined;
+        parsed.data.paragraphEnd = undefined;
+        parsed.data.sentence = summaryDefinition.sentence;
+        parsed.data.occurrence = 0;
+        parsed.data.contextOccurrence = 0;
+        parsed.data.prepared = undefined;
+        parsed.data.title = `${parsed.data.title} — generated summary`;
+      }
       const study = await preparation.runQuery(internal.bible.studySource, {
         userId: readerId,
         articleId: parsed.data.articleId,
       });
-      if (study) {
+      if (study && !summaryDefinition) {
         // A display edition is not an AI source, including selection/Define paths.
         const mode = parsed.data.mode;
         parsed.data.mode = "article";

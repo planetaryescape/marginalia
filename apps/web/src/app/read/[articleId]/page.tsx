@@ -21,6 +21,7 @@ import {
   BibleAttribution,
   BibleReaderTools,
 } from "@/components/bible-reader-tools";
+import { BibleWordStudy } from "@/components/bible-word-study";
 import { BookUnitNav } from "@/components/book-unit-nav";
 import { CompanionCard } from "@/components/companion-card";
 import { QueryBoundary } from "@/components/desk/query-boundary";
@@ -54,13 +55,14 @@ import { Sidenotes } from "@/components/sidenotes";
 import { SummaryPanel } from "@/components/summary-panel";
 import { FINISH_ARTICLE } from "@/components/view-transition";
 import { readerMeta } from "@/lib/article-meta";
-import { bibleVerseAtRange, mapBibleAnnotations } from "@/lib/bible-display";
+import { mapBibleAnnotations } from "@/lib/bible-display";
 import {
   resolveStudySelection,
   type StudySelection,
   studyVerseElement,
 } from "@/lib/bible-study-selection";
 import { useCompanion, usePassageHighlight } from "@/lib/companion";
+import { isSummarySelection } from "@/lib/companion-context";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
 import { defaultColor, type MarkColor, markColor } from "@/lib/mark-colours";
@@ -208,10 +210,20 @@ export default function ReadPage() {
     pane: studyPane,
     start: startStudy,
     reopen: reopenStudy,
-    close: closeStudy,
+    close: closeScriptureStudy,
     trackRun: trackStudyRun,
     forget: forgetStudy,
   } = useScriptureStudy(sourceArticle?.bible ? sourceArticle : null);
+  const [wordStudy, setWordStudy] = useState<{
+    articleKey: string;
+    reference: string;
+    selection?: string;
+  } | null>(null);
+  const closeStudy = useCallback(async () => {
+    if (!(await closeScriptureStudy())) return false;
+    setWordStudy(null);
+    return true;
+  }, [closeScriptureStudy]);
   const biblePreferences = useQuery(
     api.bible.preferences,
     sourceArticle?.bible ? {} : "skip",
@@ -376,6 +388,14 @@ export default function ReadPage() {
     setActiveAnnotation(null);
     return true;
   }, [closeStudy, collapseAnswer, notesPanelOpen]);
+  const requestWordStudy = useCallback(
+    async (reference: string, selection?: string) => {
+      if (!(await prepareReadingSurface())) return;
+      setStudyHistoryOpen(false);
+      setWordStudy({ articleKey, reference, selection });
+    },
+    [articleKey, prepareReadingSurface],
+  );
   const requestStudy = useCallback(
     async (range: Range): Promise<string | null> => {
       const body = getArticleBody(articleRef.current);
@@ -688,6 +708,32 @@ export default function ReadPage() {
 
   const startCompanion = useCallback(
     async (args: Parameters<typeof companion.start>[0]) => {
+      if (
+        !articleRef.current?.contains(args.range.startContainer) ||
+        !articleRef.current.contains(args.range.endContainer)
+      )
+        return;
+      const summaryDefinition =
+        args.mode === "define" && isSummarySelection(args.range);
+      if (args.mode === "define" && article?.bible && !summaryDefinition) {
+        const body = getArticleBody(articleRef.current);
+        const selection =
+          body && sourceArticle?.content
+            ? resolveStudySelection(
+                article.bible.reference,
+                sourceArticle.content,
+                body,
+                args.range,
+              )
+            : null;
+        if (!selection || selection.startVerseId !== selection.endVerseId)
+          return;
+        await requestWordStudy(
+          studyReferenceLabel(selection.referenceKey),
+          args.range.toString().trim(),
+        );
+        return;
+      }
       const intent = ++surfaceIntent.current;
       if (
         notesPanelOpen &&
@@ -699,23 +745,18 @@ export default function ReadPage() {
         return;
       if (!(await closeStudy()) || intent !== surfaceIntent.current) return;
       setStudyHistoryOpen(false);
-      if (args.mode === "define" && article?.bible) {
-        const reference =
-          bibleVerseAtRange(article.bible.reference, args.range) ??
-          article.bible.reference;
-        window.dispatchEvent(
-          new CustomEvent("bible-word-study", { detail: { reference } }),
-        );
-        return;
-      }
+      setWideAnswerId(null);
       savedAnswer.cancel();
       setActiveAnnotation(null);
-      companion.start(args);
+      const answerId = companion.start(args);
+      if (summaryDefinition && answerId) setWideAnswerId(answerId);
     },
     [
       companion.start,
       savedAnswer.cancel,
       article?.bible,
+      sourceArticle?.content,
+      requestWordStudy,
       closeStudy,
       notesPanelOpen,
     ],
@@ -818,7 +859,13 @@ export default function ReadPage() {
       const live = companion.answers.find(
         (a) => a.id === id || a.savedId === id,
       );
-      setWideAnswerId(live?.mode === "article" ? live.id : null);
+      setWideAnswerId(
+        live &&
+          (live.mode === "article" ||
+            (live.mode === "define" && live.paragraphIndex === null))
+          ? live.id
+          : null,
+      );
       if (live) {
         savedAnswer.cancel();
         companion.openAnswer(live.id);
@@ -1263,6 +1310,7 @@ export default function ReadPage() {
               skipReason={article.skipReason}
               display={bibleDisplay}
               onOpenChange={setBibleToolsOpen}
+              onWordStudy={(reference) => void requestWordStudy(reference)}
               onStudyHistory={
                 biblePreferences?.enabled
                   ? () => void requestStudyHistory()
@@ -1847,6 +1895,34 @@ export default function ReadPage() {
       {answerThread &&
         (wideAnswerId === answerThread.id || answerThread.mode === "article") &&
         answerCard(false, true)}
+
+      {wordStudy?.articleKey === articleKey && (
+        <ReaderPane
+          title={
+            wordStudy.selection
+              ? `Word study · ${wordStudy.selection}`
+              : "Original-language word study"
+          }
+          focusFallback={articleRef}
+          style={{
+            "--reader-pane-size": `${settings.size}px`,
+            "--reader-leading": `${LINE_HEIGHTS[settings.spacing]}`,
+            fontFamily: TYPEFACE_FAMILIES[settings.typeface],
+          }}
+          onClose={() => {
+            surfaceIntent.current++;
+            setWordStudy(null);
+          }}
+        >
+          <div className="text-[length:var(--reader-size)] leading-[var(--reader-leading)]">
+            <BibleWordStudy
+              key={`${wordStudy.reference}:${wordStudy.selection ?? ""}`}
+              reference={wordStudy.reference}
+              selectedText={wordStudy.selection}
+            />
+          </div>
+        </ReaderPane>
+      )}
 
       {(studyPane || studyHistoryOpen) && (
         <ReaderPane

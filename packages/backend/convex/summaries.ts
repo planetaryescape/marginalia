@@ -14,6 +14,7 @@ import {
   summarySource,
   summaryState,
 } from "./lib/fullSummaries";
+import { localUsageSentence } from "./lib/localContext";
 import {
   annotationGeneration,
   annotationPublicationAllowed,
@@ -394,6 +395,44 @@ export const forCompanion = internalQuery({
       .first();
     return row?.userId === args.userId
       ? { thesis: row.thesis, gist: row.gist }
+      : null;
+  },
+});
+
+/** Definitions outside numbered article paragraphs may come from its generated
+ * summary. Resolve that context here rather than trusting displayed text. */
+export const definitionContext = internalQuery({
+  args: { articleId: v.string(), userId: v.string(), selection: v.string() },
+  handler: async (ctx, args) => {
+    const articleId = ctx.db.normalizeId("articles", args.articleId);
+    if (!articleId || !(await ownedArticleCard(ctx, articleId, args.userId)))
+      return null;
+    const row = await ctx.db
+      .query("summaries")
+      .withIndex("by_article", (q) => q.eq("articleId", articleId))
+      .first();
+    if (
+      !row ||
+      row.userId !== args.userId ||
+      !args.selection.trim() ||
+      args.selection.length > 4000
+    )
+      return null;
+    const texts = [
+      row.thesis,
+      row.gist,
+      row.flow,
+      ...(row.ideas ?? []).flatMap((i) => [i.label, i.detail]),
+      ...(row.claims ?? []).map((c) => c.text),
+      ...(row.sections ?? []).map((s) => s.title),
+    ];
+    const fold = (value: string) =>
+      value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+    const paragraph = texts.find(
+      (text) => text && fold(text).includes(fold(args.selection)),
+    );
+    return paragraph
+      ? { sentence: localUsageSentence(paragraph, args.selection) }
       : null;
   },
 });
