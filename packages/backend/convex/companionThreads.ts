@@ -131,6 +131,7 @@ export const keep = mutation({
     selection: v.string(),
     question: v.optional(v.string()),
     paragraphIndex: v.optional(v.number()),
+    summaryDefinition: v.optional(v.boolean()),
     unitIndex: v.optional(v.number()),
     turns: v.array(turnValidator),
     model: v.optional(v.string()),
@@ -195,6 +196,7 @@ export const keep = mutation({
         return existing._id;
       await ctx.db.patch("companionThreads", existing._id, {
         answerId: args.answerId,
+        summaryDefinition: args.summaryDefinition ?? existing.summaryDefinition,
         turns: stale ? existing.turns : args.turns,
         model: stale ? existing.model : args.model,
         keptAt: existing.keptAt ?? now,
@@ -313,6 +315,7 @@ export const getBody = query({
       selection: row.selection,
       question: row.question,
       paragraphIndex: row.paragraphIndex,
+      summaryDefinition: row.summaryDefinition,
       unitIndex: row.unitIndex,
       turns: row.turns,
       model: row.model,

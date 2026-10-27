@@ -4,9 +4,11 @@ Enable **Your account → Bible reading → Enable Bible reading**. The setting 
 
 ## Find a passage
 
-On Home, use the **Look in** source toggle to choose **Articles only**, **Articles + Bible**, or **Bible only**. The same **Search** entry point and dialog handle every source. Type a topic or passage and choose **Search** (or press Enter); typing alone does not start a topic search. Results name their source and use the same card pattern. Choose a reading-time button before searching to constrain results; its selected time remains until cleared. `/` opens the finder and `F` cycles the enabled source choices. These single-key shortcuts pause while typing or while a modal is open, and respect the account's shortcut opt-out.
+On Home, use the **Look in** source toggle to choose **Articles only**, **Articles + Bible**, or **Bible only**. The same finder handles every source: type a topic or passage and results appear after a short pause. The current result is ready to open with Enter; arrows move through the cards and matching notes. Paste a link and press Enter to save and read it. Choose a reading-time button on Home to constrain results; the selected time remains until cleared and reading durations stay visible on the result cards. `/` opens the finder and `F` cycles the enabled source choices. These single-key shortcuts pause while typing or while a modal is open, and respect the account's shortcut opt-out.
 
 Try these searches:
+
+Specific references appear immediately without a topic-search request. Common unambiguous book-name typos such as `colosians 2` are shown as **Colossians 2** before you open them. Abbreviations such as `COL 2` and compact references such as `John3:16` also work. Direct references remain visible even when they exceed a selected recommendation time; ambiguous or invalid references are not silently changed to another passage. Articles-only mode continues to search your library.
 
 - `Romans 8` opens a whole chapter.
 - `John 3:16-21` opens a verse range.
@@ -15,7 +17,7 @@ Try these searches:
 
 Use the dedicated `/bible` page to browse available editions and passages. Licensed display supports a verse range within one chapter or a whole chapter. WEB also supports up to three consecutive chapters, such as `Matthew 5-7`. Chapter navigation in the reader continues into the next book.
 
-In mixed mode, article results and Bible suggestions are retrieved independently after Search. If one fails, the other remains usable. Bible-only mode keeps the same finder and source chooser; article time picks and PDF import are not shown in that scope.
+In mixed mode, article results and Bible suggestions are retrieved independently after a short typing pause. If one fails, the other remains usable. Bible-only mode keeps the same finder and source chooser; article time picks and PDF import are not shown in that scope.
 
 ## Choose a Bible and open the normal reader
 
@@ -43,7 +45,11 @@ Automatically captured licensed quotations are excluded from note embeddings, hi
 
 ## Study an original-language word
 
-Open the toolbar's **Bible tools → Word study · Greek / Hebrew / Strong’s**, enter one verse, then choose **Load original words**. Selecting **Define** on Bible text opens this tool for the selected verse when verse markup is available. English words are not automatically aligned to original-language words.
+Select an English word in a verse and choose **Define**. The word-study pane shows your selected wording, verse reference and ordinary English dictionary meanings with source and license links. It sits beside the passage on desktop and fills the screen on phones; use **Back to passage** to return. The dictionary receives only a single English headword, never the verse or your notes, and does not use AI. Missing entries and phrases are reported without a guessed definition. These general meanings do not establish a contextual sense or a Greek/Hebrew match.
+
+For source-language detail, expand **Optional original-language details** and choose **Load original words**. You can also open **Bible tools → Original-language word study**, enter one verse and load its words directly. No original word is selected automatically. A transliteration is shown when the source supplies one; Greek or Hebrew script remains supporting detail.
+
+Selecting **Define** in the generated summary instead uses the ordinary English reading companion with the saved summary as context. It does not open original-language study or send the displayed Bible translation as AI evidence.
 
 Choose a Greek or Hebrew word to see source-supplied Strong’s references, morphology tags, historical dictionary entries and up to eight other occurrences in the same book. Choose **Explain this original word** to ask your connected AI provider for an explanation grounded in those sources, the surrounding original-language verses and WEB. Loading words and dictionary entries does not require AI.
 

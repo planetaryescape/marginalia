@@ -37,6 +37,7 @@ export const companionRequestSchema = z
       .optional(),
     selection: z.string().trim().max(4000).default(""),
     paragraphIndex: z.number().int().min(0).nullable(),
+    summaryDefinition: z.boolean().optional(),
     // The last paragraph the selection crosses, from the reader's own range.
     // Older clients omit it and the server works it out from the text.
     paragraphEnd: z.number().int().min(0).optional(),

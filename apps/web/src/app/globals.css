@@ -92,8 +92,16 @@
     background: var(--reader-focus);
   }
 
-  .focus-frame :is(input, textarea, [contenteditable]):focus-visible {
+  /* `outline-none` is emitted later with equal specificity; opt-in descendants
+     need one extra class so this reset wins without suppressing other focus. */
+  .focus-frame :is(input, textarea, [contenteditable]).outline-none:focus-visible {
     outline: none;
+  }
+
+  /* Keep the frame as the visible keyboard target when its editor is focused. */
+  .focus-frame:has(:is(input, textarea, [contenteditable]):focus-visible) {
+    outline: 1px solid var(--reader-focus);
+    outline-offset: 3px;
   }
 
   body {

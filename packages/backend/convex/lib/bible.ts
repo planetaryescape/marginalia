@@ -141,6 +141,61 @@ export function estimatePassageMinutes(ref: BibleReference) {
   return Math.max(1, Math.ceil((verses * 25) / 200));
 }
 
+/** Discovery-only tolerance. Source identity/admission still use the strict
+ * parser; a typo can never silently change a stored or cited reference. */
+export function parseBibleSearchReference(
+  input: string,
+): BibleReference | null {
+  if (input.length > 160) return null;
+  const exact = parseBibleReference(input);
+  if (exact) return exact;
+  const match =
+    /^([1-3]?\s*[a-z][a-z .]*?)\s*(\d{1,3}(?::\d{1,3}(?:\s*[-–]\s*\d{1,3})?|\s*[-–]\s*\d{1,3})?)$/i.exec(
+      input.trim(),
+    );
+  if (!match) return null;
+  const fold = (text: string) => text.toLowerCase().replace(/[.\s]/g, "");
+  const name = fold(match[1]);
+  const books = BIBLE_BOOKS.map(([id, title]) => ({
+    id,
+    title,
+    name: fold(title),
+  }));
+  const known = books.find(
+    (book) =>
+      book.name === name ||
+      book.id.toLowerCase() === name ||
+      (book.id === "PSA" && name === "psalm") ||
+      (book.id === "SNG" && name === "songofsongs"),
+  );
+  if (known) return parseBibleReference(`${known.title} ${match[2]}`);
+  if (name.length < 5) return null;
+  const near = (a: string, b: string) => {
+    if (a[0]?.match(/[1-3]/)?.[0] !== b[0]?.match(/[1-3]/)?.[0]) return false;
+    if (Math.abs(a.length - b.length) > 1) return false;
+    if (a.length !== b.length) {
+      const [short, long] = a.length < b.length ? [a, b] : [b, a];
+      for (let i = 0; i < long.length; i++)
+        if (long.slice(0, i) + long.slice(i + 1) === short) return true;
+      return false;
+    }
+    const different = Array.from(a, (char, index) =>
+      char === b[index] ? -1 : index,
+    ).filter((index) => index >= 0);
+    return (
+      different.length === 1 ||
+      (different.length === 2 &&
+        different[1] === different[0] + 1 &&
+        a[different[0]] === b[different[1]] &&
+        a[different[1]] === b[different[0]])
+    );
+  };
+  const candidates = books.filter((book) => near(name, book.name));
+  return candidates.length === 1
+    ? parseBibleReference(`${candidates[0].title} ${match[2]}`)
+    : null;
+}
+
 export const BIBLE_STARTERS = [
   {
     reference: "Psalms 23",

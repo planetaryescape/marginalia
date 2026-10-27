@@ -24,9 +24,10 @@ vi.mock("./bible-browser", () => ({
   ),
 }));
 vi.mock("./bible-word-study", () => ({
-  BibleWordStudy: () => (
+  BibleWordStudy: ({ selectedText }: { selectedText?: string }) => (
     <details>
       <summary>Word study</summary>
+      <p>{selectedText}</p>
     </details>
   ),
 }));
@@ -79,6 +80,7 @@ it("keeps Bible tools in a closed toolbar popover, with comparison explicitly op
         articleId={articleId}
         annotationStatus="annotated"
         display={display}
+        onWordStudy={() => {}}
       />,
     ),
   );
@@ -123,6 +125,35 @@ it("uses named icon-only chapter chevrons and preserves the chosen edition", asy
     versionId: 111,
   });
   expect(push).toHaveBeenCalledWith("/read/next-article");
+});
+
+it("hands word study to the reader surface and closes its covering tools popover", async () => {
+  const open = vi.fn();
+  await act(async () =>
+    root.render(
+      <BibleReaderTools
+        bible={bible}
+        articleId={articleId}
+        annotationStatus="annotated"
+        onWordStudy={open}
+      />,
+    ),
+  );
+  await act(async () =>
+    document
+      .querySelector<HTMLButtonElement>('button[aria-label="Bible tools"]')
+      ?.click(),
+  );
+  const words = Array.from(document.querySelectorAll("button")).find((button) =>
+    button.textContent?.includes("Original-language word study"),
+  );
+  await act(async () => words?.click());
+  expect(open).toHaveBeenCalledWith("Psalms 23");
+  expect(
+    document
+      .querySelector('button[aria-label="Bible tools"]')
+      ?.getAttribute("aria-expanded"),
+  ).toBe("false");
 });
 
 it("renders the source disclosure as fine print after the passage rather than ahead of it", async () => {

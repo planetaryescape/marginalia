@@ -166,12 +166,6 @@ async function type(text: string) {
     set?.call(input, text);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  if (!/^(https?:\/\/|www\.)\S+$/i.test(text.trim()))
-    await act(async () => {
-      input.form?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true }),
-      );
-    });
 }
 
 async function settle(ms = 250) {
@@ -213,6 +207,38 @@ const key = async (name: string) => {
 };
 
 describe("topic picker", () => {
+  it.each([
+    "bible",
+    "mixed",
+  ] as const)("shows a direct typo-corrected reference immediately in %s without a server or model search", async (scope) => {
+    await show({ scope, windowMinutes: 1 });
+    await type("colosians 2");
+    expect(title()).toBe("Colossians 2");
+    expect(suggestBible).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
+    await settle(1000);
+    expect(suggestBible).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
+    await key("Enter");
+    expect(openBible).toHaveBeenCalledWith({ reference: "Colossians 2" });
+    expect(push).toHaveBeenCalledWith("/read/passageid");
+  });
+  it("shows a direct-passage open failure and retries only when explicitly asked", async () => {
+    openBible
+      .mockRejectedValueOnce(new Error("Unavailable"))
+      .mockResolvedValueOnce("passageid");
+    await show({ scope: "bible" });
+    await type("Colossians 2");
+    await key("Enter");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't open this passage",
+    );
+    expect(openBible).toHaveBeenCalledTimes(1);
+    await click("Retry");
+    expect(openBible).toHaveBeenCalledTimes(2);
+    expect(suggestBible).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith("/read/passageid");
+  });
   it("shows an honest empty result when Bible-only search returns no passages", async () => {
     await show({ scope: "bible" });
     await type("attention");
@@ -270,6 +296,11 @@ describe("topic picker", () => {
     expect(host.querySelector("h3")?.textContent).toBe("Beta");
     await click("Another");
     expect(host.querySelector("h3")?.textContent).toBe("Psalm 23");
+    await click("Previous");
+    await click("Previous");
+    expect(host.querySelector("h3")?.textContent).toBe("Romans 8");
+    await key("Enter");
+    expect(push).toHaveBeenCalledWith("/read/passageid");
   });
 
   it("does not navigate when a Bible open resolves after the finder closes", async () => {
@@ -305,7 +336,45 @@ describe("topic picker", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("does not search while typing; Search and Enter submit the explicit topic query", async () => {
+  it("admits only one passage open for repeated Enter, including events before React commits", async () => {
+    suggestBible.mockResolvedValue({
+      passages: [
+        {
+          reference: "Romans 8",
+          title: "Hope",
+          reason: "A reason",
+          minutes: 4,
+        },
+      ],
+      notice: null,
+    });
+    let finishOpen: (id: string) => void = () => {};
+    openBible.mockReturnValue(
+      new Promise<string>((resolve) => {
+        finishOpen = resolve;
+      }),
+    );
+    await show({ scope: "bible" });
+    await type("hope");
+    await settle();
+    const input = host.querySelector("input");
+    if (!input) throw new Error("Finder input missing");
+    await act(async () => {
+      for (let i = 0; i < 3; i++)
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+    });
+    expect(openBible).toHaveBeenCalledTimes(1);
+    await act(async () => finishOpen("passageid"));
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it("debounces topic search while typing without a submit control", async () => {
     await show();
     const input = host.querySelector("input");
     if (!input) throw new Error("Expected the finder input");
@@ -316,12 +385,28 @@ describe("topic picker", () => {
     await act(async () => {
       set?.call(input, "attention");
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(200);
     });
     expect(requests).toHaveLength(0);
-    await click("Search");
     await settle();
     expect(requests.map((request) => request.path)).toEqual(["find"]);
+    expect(host.querySelector('button[type="submit"]')).toBeNull();
+  });
+
+  it("debounces Bible suggestions and dispatches only the settled query", async () => {
+    await show({ scope: "bible" });
+    await type("shep");
+    await settle(249);
+    expect(suggestBible).not.toHaveBeenCalled();
+    await type("shepherd");
+    await settle(249);
+    expect(suggestBible).not.toHaveBeenCalled();
+    await settle(1);
+    expect(suggestBible).toHaveBeenCalledTimes(1);
+    expect(suggestBible).toHaveBeenCalledWith({
+      question: "shepherd",
+      minutes: undefined,
+    });
   });
 
   it("shows the first card from the fast result, then fills the reason into the same card", async () => {
@@ -357,6 +442,19 @@ describe("topic picker", () => {
     expect(host.textContent).toContain("Connects to your notes on deep work.");
     expect(host.querySelector(".animate-pulse")).toBeNull();
     expect(host.querySelector("h3")).toBe(heading);
+    await act(async () => {
+      host.querySelector("input")?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+          isComposing: true,
+        }),
+      );
+    });
+    expect(push).not.toHaveBeenCalled();
+    await key("Enter");
+    expect(push).toHaveBeenCalledWith("/read/a1");
   });
 
   it("shows a strong title match at once and keeps it first when the search lands", async () => {
@@ -812,9 +910,8 @@ describe("topic picker", () => {
     expect(host.textContent).toContain("Saved");
   });
 
-  it("offers only what fits a chosen time, and clearing the chip lifts the limit", async () => {
-    const cleared = vi.fn();
-    await show({ windowMinutes: 10, onClearWindow: cleared });
+  it("keeps time-filtered card durations without adding a pill to the input", async () => {
+    await show({ windowMinutes: 10 });
     await type("attention");
     await settle();
     await answer("find", {
@@ -825,13 +922,13 @@ describe("topic picker", () => {
         find("c", "Medium", 9),
       ],
     });
-    expect(host.textContent).toContain("within 10 min ×");
-    expect(title()).toBe("Short");
-    expect(host.textContent).toContain("1 of 2");
-    await click("within 10 min ×");
-    expect(cleared).toHaveBeenCalled();
     expect(host.textContent).not.toContain("within 10 min");
-    expect(host.textContent).toContain("of 3");
+    expect(title()).toBe("Short");
+    expect(host.textContent).toContain("7 min");
+    expect(host.textContent).toContain("1 of 2");
+    await click("Another");
+    expect(title()).toBe("Medium");
+    expect(host.textContent).toContain("9 min");
   });
 
   it("says nothing fits and offers the shortest as a choice", async () => {
@@ -946,13 +1043,13 @@ describe("topic picker", () => {
   });
 
   describe("a pasted link", () => {
-    it("saves and reads it as before", async () => {
+    it("saves and reads a pasted link on Enter", async () => {
       addByUrl.mockResolvedValue({ articleId: "n1", alreadyExists: false });
       await show();
       await type("www.example.com/essay");
       await settle();
       expect(requests).toHaveLength(0);
-      await click("Save and read");
+      await key("Enter");
       expect(addByUrl).toHaveBeenCalledWith({
         url: "https://www.example.com/essay",
       });

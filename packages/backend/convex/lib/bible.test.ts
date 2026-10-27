@@ -1,7 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { parseBibleReference, starterPassages } from "./bible";
+import {
+  parseBibleReference,
+  parseBibleSearchReference,
+  starterPassages,
+} from "./bible";
 
 describe("Bible references", () => {
+  it.each([
+    ["colosians 2", "Colossians 2"],
+    ["Colossians 2", "Colossians 2"],
+    ["col2:3-5", "Colossians 2:3-5"],
+    ["Mathew 5", "Matthew 5"],
+    ["1Corinthians13", "1 Corinthians 13"],
+  ])("recognizes direct search %s deterministically as %s", (input, reference) => {
+    expect(parseBibleSearchReference(input)?.reference).toBe(reference);
+  });
+  it.each([
+    "Peter 2",
+    "John 22",
+    "Colosians 5",
+    "about hope 2",
+    "coffee 2",
+    "John 3:16-4:2",
+    "Colosians 2 and Romans 8",
+  ])("does not guess ambiguous, invalid or topical search %s", (input) => {
+    expect(parseBibleSearchReference(input)).toBeNull();
+  });
   it.each([
     ["john 3:16–21", "John 3:16-21", "JHN.3.16-JHN.3.21"],
     ["Psalm 23", "Psalms 23", "PSA.23"],

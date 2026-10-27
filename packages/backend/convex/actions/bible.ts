@@ -10,10 +10,12 @@ import {
   type BibleSuggestion,
   estimatePassageMinutes,
   parseBibleReference,
+  parseBibleSearchReference,
   starterPassages,
 } from "../lib/bible";
 import { fetchBiblePassage, requireTranslation } from "../lib/bibleProvider";
 import { sharedBibleCache } from "../lib/bibleResourceCache";
+import { englishDefinition } from "../lib/englishDefinition";
 import { loadReaderAI } from "../lib/router";
 import { wordStudy } from "../lib/wordStudy";
 import {
@@ -195,6 +197,17 @@ export const readComparison = action({
   },
 });
 
+export const defineEnglishWord = action({
+  args: { word: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
+    await requireReaderLimit(ctx, ctx.readerId, "api");
+    const result = await englishDefinition(args.word);
+    await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
+    return result;
+  },
+});
+
 export const originalWords = action({
   args: { reference: v.string() },
   handler: async (ctx, args) => {
@@ -288,7 +301,7 @@ export const suggest = action({
       (!Number.isFinite(minutes) || minutes < 1 || minutes > 180)
     )
       throw new Error("Choose between 1 and 180 minutes.");
-    const direct = parseBibleReference(question);
+    const direct = parseBibleSearchReference(question);
     if (direct)
       return {
         passages: [

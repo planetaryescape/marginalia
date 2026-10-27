@@ -6,7 +6,7 @@ import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { abortable } from "./abortable";
 import { answerBuffer } from "./answer-buffer";
-import { companionContext } from "./companion-context";
+import { companionContext, isSummarySelection } from "./companion-context";
 import {
   clearAnswers,
   leaveArticle,
@@ -44,6 +44,7 @@ export interface CompanionThread {
   selection: string;
   question?: string;
   paragraphIndex: number | null;
+  summaryDefinition?: boolean;
   turns: CompanionTurn[];
   status: "streaming" | "done" | "error";
   error?: string;
@@ -60,6 +61,17 @@ export interface CompanionThread {
   doneTurns?: CompanionTurn[];
   /** A thread saved before answers became temporary: shown as a temporary copy until kept. */
   legacyId?: Id<"companionThreads">;
+}
+
+/** Unplaced definitions cannot use a paragraph-anchored margin card. This also
+ * covers hydrated/legacy definitions, not only this visit's explicit expansion. */
+export function companionNeedsPane(
+  thread: Pick<CompanionThread, "mode" | "paragraphIndex">,
+) {
+  return (
+    thread.mode === "article" ||
+    (thread.mode === "define" && thread.paragraphIndex === null)
+  );
 }
 
 /** A request the backend refused with a reason the reader can act on. */
@@ -154,6 +166,7 @@ const toStored = (a: CompanionThread): StoredAnswer => ({
   selection: a.selection,
   question: a.question,
   paragraphIndex: a.paragraphIndex,
+  summaryDefinition: a.summaryDefinition,
   // Not `turns`: a follow-up that is still streaming or failed must not cost
   // the completed answer before it.
   turns: a.doneTurns ?? a.turns,
@@ -178,6 +191,7 @@ type ReopenThread = Pick<
   | "selection"
   | "question"
   | "paragraphIndex"
+  | "summaryDefinition"
   | "turns"
   | "model"
   | "keptAt"
@@ -194,6 +208,7 @@ const fromDoc = (doc: ReopenThread): CompanionThread => ({
   selection: doc.selection,
   question: doc.question,
   paragraphIndex: doc.paragraphIndex ?? null,
+  summaryDefinition: doc.summaryDefinition,
   turns: doc.turns,
   doneTurns: doc.turns,
   status: "done",
@@ -396,11 +411,15 @@ export function useCompanion({
         paragraphEnd?: number;
         sentence?: string;
         contextOccurrence?: number;
-      } = bibleStudySource
-        ? { paragraphs: (sourceContent ?? "").split(/\n\n+/).filter(Boolean) }
-        : retrieval
-          ? { paragraphs: [] }
-          : companionContext(containerRef.current, base);
+      } = base.summaryDefinition
+        ? { paragraphs: [] }
+        : bibleStudySource
+          ? {
+              paragraphs: (sourceContent ?? "").split(/\n\n+/).filter(Boolean),
+            }
+          : retrieval
+            ? { paragraphs: [] }
+            : companionContext(containerRef.current, base);
       const { paragraphs } = context;
 
       // Define is told which usage of the words was selected, not just the words.
@@ -468,6 +487,7 @@ export function useCompanion({
             "/api/companion",
             {
               mode: base.mode,
+              summaryDefinition: base.summaryDefinition,
               articleId,
               // A book is answered from its outline and matching passages, with this part on screen
               unitIndex:
@@ -586,13 +606,22 @@ export function useCompanion({
 
   const start = useCallback(
     (args: { mode: CompanionMode; range: Range; question?: string }) => {
+      const container = containerRef.current;
+      if (
+        !container?.contains(args.range.startContainer) ||
+        !container.contains(args.range.endContainer)
+      )
+        return;
       const selection = rangeText(args.range);
       if (!selection) return;
-      if (bibleStudySource) {
+      const summaryDefinition =
+        args.mode === "define" && isSummarySelection(args.range);
+      const id = crypto.randomUUID();
+      if (bibleStudySource && !summaryDefinition) {
         // Never mistake an English translation's selected wording for a lemma.
         run(
           {
-            id: crypto.randomUUID(),
+            id,
             mode: "article",
             selection: "",
             paragraphIndex: null,
@@ -604,15 +633,18 @@ export function useCompanion({
           },
           [],
         );
-        return;
+        return id;
       }
       run(
         {
-          id: crypto.randomUUID(),
+          id,
           mode: args.mode,
+          summaryDefinition: summaryDefinition || undefined,
           selection,
           question: args.question,
-          paragraphIndex: paragraphIndexOf(args.range.startContainer),
+          paragraphIndex: summaryDefinition
+            ? null
+            : paragraphIndexOf(args.range.startContainer),
           occurrence: occurrenceOf(args.range),
           paragraphEnd: paragraphEndOf(args.range),
           turns: [],
@@ -620,8 +652,9 @@ export function useCompanion({
         },
         [],
       );
+      return id;
     },
-    [run, bibleStudySource],
+    [run, bibleStudySource, containerRef],
   );
 
   const startArticle = useCallback(
@@ -715,6 +748,7 @@ export function useCompanion({
           answerId: current.id,
           legacyId: current.legacyId,
           mode: current.mode,
+          summaryDefinition: current.summaryDefinition,
           selection: current.selection,
           question: current.question,
           paragraphIndex: current.paragraphIndex ?? undefined,

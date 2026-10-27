@@ -1,5 +1,10 @@
 "use client";
-import type { BibleSuggestion, ReadingScope } from "@marginalia/backend/bible";
+import {
+  type BibleSuggestion,
+  estimatePassageMinutes,
+  parseBibleSearchReference,
+  type ReadingScope,
+} from "@marginalia/backend/bible";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useAction, useMutation } from "convex/react";
@@ -134,18 +139,21 @@ export function ArticleFinder({
     message: string;
   } | null>(null);
   const [retry, setRetry] = useState(0);
-  const [submitted, setSubmitted] = useState<{
-    query: string;
-    scope: ReadingScope;
-    minutes: number | null;
-  } | null>(null);
+  const [bibleRetry, setBibleRetry] = useState(0);
   const [bibleResult, setBibleResult] = useState<{
     key: string;
+    retry: number;
     passages: BibleSuggestion[];
     notice: string | null;
   } | null>(null);
-  const [bibleError, setBibleError] = useState("");
+  const [bibleError, setBibleError] = useState<{
+    key: string;
+    retry: number;
+    message: string;
+  } | null>(null);
   const [openingPassage, setOpeningPassage] = useState<string | null>(null);
+  const passageRequests = useRef(new Set<string>());
+  const latestPassageRequest = useRef<object | null>(null);
   const intentRef = useRef<string | null>(null);
   const openEpoch = useRef(0);
   const closeFinder = () => {
@@ -160,17 +168,18 @@ export function ArticleFinder({
   const queryRef = useRef(text);
   const scopeRef = useRef(scope);
   const isLink = URL_PATTERN.test(text);
+  const directReference =
+    scope !== "articles" && !isLink ? parseBibleSearchReference(text) : null;
   const limit = limitCleared ? null : windowMinutes;
   const submissionKey = (
     query: string,
     source: ReadingScope,
     minutes: number | null,
   ) => `${source}\u0000${query}\u0000${minutes ?? "all"}`;
-  const activeSubmission =
-    submitted?.query === text &&
-    submitted.scope === scope &&
-    submitted.minutes === limit;
-  const activeKey = activeSubmission ? submissionKey(text, scope, limit) : null;
+  const activeKey =
+    open && text.length >= 2 && !isLink
+      ? submissionKey(text, scope, limit)
+      : null;
   useLayoutEffect(() => {
     queryRef.current = text;
     scopeRef.current = scope;
@@ -178,51 +187,78 @@ export function ArticleFinder({
   }, [text, scope, open, activeKey]);
   const searching =
     open &&
-    activeSubmission &&
     text.length >= 2 &&
     !isLink &&
-    scope !== "bible";
+    scope !== "bible" &&
+    !directReference;
   const result = useTopicSearch(text, searching, retry);
   const noteHits = useNoteHits(text, searching);
-  const bibleKey = submitted
-    ? submissionKey(submitted.query, submitted.scope, submitted.minutes)
-    : "";
+  const bibleKey = activeKey ?? "";
   const bibleSearching =
     open &&
-    activeSubmission &&
     scope !== "articles" &&
-    submitted?.query.length >= 1 &&
-    !isLink;
+    text.length >= 2 &&
+    !isLink &&
+    !directReference;
   const visibleBible =
-    bibleSearching && bibleResult?.key === bibleKey ? bibleResult : null;
+    open && directReference
+      ? {
+          key: bibleKey,
+          retry: bibleRetry,
+          passages: [
+            {
+              reference: directReference.reference,
+              title: directReference.reference,
+              minutes: estimatePassageMinutes(directReference),
+              reason:
+                "Recognized passage reference. Open this passage directly.",
+            },
+          ],
+          notice: null,
+        }
+      : bibleSearching &&
+          bibleResult?.key === bibleKey &&
+          bibleResult.retry === bibleRetry
+        ? bibleResult
+        : null;
   useEffect(() => {
-    if (!bibleSearching || !submitted) return;
+    if (!bibleSearching) return;
     let current = true;
-    setBibleError("");
+    let requestTimeout: number | undefined;
+    setBibleError(null);
     setBibleResult(null);
-    const timeout = window.setTimeout(() => {
-      current = false;
-      setBibleError("Bible search couldn't complete. Try again.");
-    }, 30_000);
-    void suggestBible({
-      question: submitted.query,
-      minutes: submitted.minutes ?? undefined,
-    }).then(
-      (value) => {
-        if (current) setBibleResult({ key: bibleKey, ...value });
-        clearTimeout(timeout);
-      },
-      () => {
-        if (current)
-          setBibleError("Bible search couldn't complete. Try again.");
-        clearTimeout(timeout);
-      },
-    );
+    const debounce = window.setTimeout(() => {
+      requestTimeout = window.setTimeout(() => {
+        current = false;
+        setBibleError({
+          key: bibleKey,
+          retry: bibleRetry,
+          message: "Bible search couldn't complete. Try again.",
+        });
+      }, 30_000);
+      void suggestBible({ question: text, minutes: limit ?? undefined }).then(
+        (value) => {
+          if (current)
+            setBibleResult({ key: bibleKey, retry: bibleRetry, ...value });
+          clearTimeout(requestTimeout);
+        },
+        () => {
+          if (current)
+            setBibleError({
+              key: bibleKey,
+              retry: bibleRetry,
+              message: "Bible search couldn't complete. Try again.",
+            });
+          clearTimeout(requestTimeout);
+        },
+      );
+    }, 250);
     return () => {
       current = false;
-      clearTimeout(timeout);
+      clearTimeout(debounce);
+      clearTimeout(requestTimeout);
     };
-  }, [bibleSearching, bibleKey, suggestBible, submitted]);
+  }, [bibleSearching, bibleKey, suggestBible, text, limit, bibleRetry]);
   const noteSelected = noteIndex !== null ? noteHits[noteIndex] : undefined;
   useShortcuts({ "/": () => setOpen(true) }, true, {
     help: {
@@ -257,9 +293,12 @@ export function ArticleFinder({
       ? articleCandidates(result.matches, limit)
       : [];
   const bibleDeck =
-    bibleSearching && visibleBible
+    (directReference || bibleSearching) && visibleBible
       ? visibleBible.passages
-          .filter((passage) => limit === null || passage.minutes <= limit)
+          .filter(
+            (passage) =>
+              directReference || limit === null || passage.minutes <= limit,
+          )
           .map((passage): FinderCandidate => ({ kind: "bible", passage }))
       : [];
   const candidates = interleaveCandidates(articleDeck, bibleDeck, scope);
@@ -303,9 +342,6 @@ export function ArticleFinder({
   };
   const clearLimit = () => {
     setLimitCleared(true);
-    setSubmitted((previous) =>
-      previous ? { ...previous, minutes: null } : previous,
-    );
     onClearWindow?.();
   };
   const another = () => {
@@ -375,22 +411,44 @@ export function ArticleFinder({
       router.push(noteHitLink(noteSelected));
     } else if (shown) go(shown.articleId);
     else if (shownBible && activeKey) {
+      if (passageRequests.current.has(shownBible.reference)) return;
+      passageRequests.current.add(shownBible.reference);
+      const request = {};
+      latestPassageRequest.current = request;
       const intent = activeKey;
       const epoch = openEpoch.current;
       setOpeningPassage(shownBible.reference);
-      setBibleError("");
+      setBibleError(null);
       void openPassage({ reference: shownBible.reference })
         .then((id) => {
-          if (intentRef.current !== intent || openEpoch.current !== epoch)
+          if (
+            intentRef.current !== intent ||
+            openEpoch.current !== epoch ||
+            latestPassageRequest.current !== request
+          )
             return;
           closeFinder();
           router.push(`/read/${id}`);
         })
         .catch(() => {
-          if (intentRef.current === intent && openEpoch.current === epoch)
-            setBibleError("Couldn't open this passage. Try again.");
+          if (
+            intentRef.current === intent &&
+            openEpoch.current === epoch &&
+            latestPassageRequest.current === request
+          )
+            setBibleError({
+              key: intent,
+              retry: bibleRetry,
+              message: "Couldn't open this passage. Try again.",
+            });
         })
-        .finally(() => setOpeningPassage(null));
+        .finally(() => {
+          passageRequests.current.delete(shownBible.reference);
+          if (latestPassageRequest.current === request) {
+            latestPassageRequest.current = null;
+            setOpeningPassage(null);
+          }
+        });
     }
   };
 
@@ -455,9 +513,7 @@ export function ArticleFinder({
               void fromLink(true);
               return;
             }
-            setSubmitted({ query: text, scope, minutes: limit });
-            setPosition(0);
-            setNoteIndex(null);
+            readNow();
           }}
           className="focus-frame grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3.5 border-b border-[var(--reader-border)] md:flex"
         >
@@ -493,7 +549,7 @@ export function ArticleFinder({
                 e.preventDefault();
                 return;
               }
-              if (e.key === "Enter" && noteSelected) {
+              if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
                 e.preventDefault();
                 readNow();
               }
@@ -501,23 +557,6 @@ export function ArticleFinder({
             placeholder="Science, a quick read, that piece about cows…"
             className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[var(--reader-muted)]"
           />
-          {limit !== null && !isLink && (
-            <button
-              type="button"
-              onClick={clearLimit}
-              aria-label={`Clear the ${limit} minute limit`}
-              className="col-span-4 row-start-2 justify-self-start shrink-0 rounded-full bg-[var(--reader-chip)] px-2.5 py-0.5 text-[12.5px] text-[var(--reader-fg-soft)]"
-            >
-              within {limit} min ×
-            </button>
-          )}
-          <button
-            type="submit"
-            disabled={!text || isLink}
-            className={primaryClass}
-          >
-            Search
-          </button>
           <span
             aria-hidden
             className="reader-kbd hidden shrink-0 md:inline-block"
@@ -567,17 +606,6 @@ export function ArticleFinder({
               Keep typing.
             </p>
           )}
-          {text && !isLink && !activeSubmission && (
-            <p className="px-5 py-6 text-[14px] text-[var(--reader-muted)]">
-              Choose Search to find{" "}
-              {scope === "bible"
-                ? "passages"
-                : scope === "mixed"
-                  ? "articles and passages"
-                  : "articles"}
-              .
-            </p>
-          )}
           {visibleBible &&
             visibleBible.passages.length > 0 &&
             candidates.length === 0 && (
@@ -586,22 +614,23 @@ export function ArticleFinder({
                 window.
               </p>
             )}
-          {bibleError && bibleSearching && (
-            <p role="alert" className="px-5 py-4 text-sm">
-              {bibleError}{" "}
-              <button
-                type="button"
-                className="underline"
-                onClick={() =>
-                  setSubmitted((previous) =>
-                    previous ? { ...previous } : previous,
-                  )
-                }
-              >
-                Retry
-              </button>
-            </p>
-          )}
+          {bibleError?.key === bibleKey &&
+            bibleError.retry === bibleRetry &&
+            (directReference || bibleSearching) && (
+              <p role="alert" className="px-5 py-4 text-sm">
+                {bibleError.message}{" "}
+                <button
+                  type="button"
+                  className="underline"
+                  onClick={() => {
+                    if (directReference) readNow();
+                    else setBibleRetry((value) => value + 1);
+                  }}
+                >
+                  Retry
+                </button>
+              </p>
+            )}
           {isLink && (
             <div className="px-[18px] pb-4 pt-[18px]">
               <p className={labelClass}>A link</p>
@@ -697,9 +726,16 @@ export function ArticleFinder({
                   type="button"
                   className={primaryClass}
                   aria-keyshortcuts="Enter"
+                  disabled={
+                    candidate.kind === "bible" &&
+                    openingPassage === candidate.passage.reference
+                  }
                   onClick={readNow}
                 >
-                  Read now
+                  {candidate.kind === "bible" &&
+                  openingPassage === candidate.passage.reference
+                    ? "Opening passage…"
+                    : "Read now"}
                 </button>
                 {position < candidates.length - 1 && (
                   <button
