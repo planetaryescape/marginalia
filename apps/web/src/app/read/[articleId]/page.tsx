@@ -171,6 +171,16 @@ export default function ReadPage() {
 
   const [finishing, setFinishing] = useState(false);
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
+  const notesRequestClose = useRef<
+    ((isCurrent?: () => boolean) => Promise<boolean>) | null
+  >(null);
+  const surfaceIntent = useRef(0);
+  const registerNotesRequestClose = useCallback(
+    (close: (isCurrent?: () => boolean) => Promise<boolean>) => {
+      notesRequestClose.current = close;
+    },
+    [],
+  );
   const [articleAskOpen, setArticleAskOpen] = useState(false);
   const impressionRef = useRef<HTMLElement>(null);
   const washTimer = useRef<number | null>(null);
@@ -272,6 +282,42 @@ export default function ReadPage() {
     savedAnswer.cancel();
     companion.collapse();
   }, [savedAnswer.cancel, companion.collapse]);
+  const [wideAnswerId, setWideAnswerId] = useState<string | null>(null);
+  const requestOpenNotes = useCallback(
+    async (selection?: {
+      text: string;
+      startOffset?: number;
+      endOffset?: number;
+    }) => {
+      const intent = ++surfaceIntent.current;
+      if (notesPanelOpen && notesRequestClose.current) {
+        if (
+          !(await notesRequestClose.current(
+            () => intent === surfaceIntent.current,
+          ))
+        )
+          return;
+      }
+      if (intent !== surfaceIntent.current) return;
+      if (selection) setPendingSelection(selection);
+      setWideAnswerId(null);
+      collapseAnswer();
+      setActiveAnnotation(null);
+      setNotesPanelOpen(true);
+    },
+    [collapseAnswer, notesPanelOpen],
+  );
+  const requestCloseNotes = useCallback(async () => {
+    const intent = ++surfaceIntent.current;
+    let closed = true;
+    if (notesRequestClose.current)
+      closed = await notesRequestClose.current(
+        () => intent === surfaceIntent.current,
+      );
+    else setNotesPanelOpen(false);
+    if (intent !== surfaceIntent.current) return false;
+    return closed;
+  }, []);
   const listen = useListen(
     articleRef,
     articleId,
@@ -619,11 +665,24 @@ export default function ReadPage() {
   );
   // A margin note opens whether its answer is from this visit or kept earlier.
   const openAnswer = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      const intent = ++surfaceIntent.current;
+      if (notesPanelOpen) {
+        if (
+          notesRequestClose.current &&
+          !(await notesRequestClose.current(
+            () => intent === surfaceIntent.current,
+          ))
+        )
+          return;
+      }
+      if (intent !== surfaceIntent.current) return;
+      setNotesPanelOpen(false);
       setActiveAnnotation(null);
       const live = companion.answers.find(
         (a) => a.id === id || a.savedId === id,
       );
+      setWideAnswerId(live?.mode === "article" ? live.id : null);
       if (live) {
         savedAnswer.cancel();
         companion.openAnswer(live.id);
@@ -639,6 +698,7 @@ export default function ReadPage() {
       companion.collapse,
       savedAnswer.cancel,
       savedAnswer.open,
+      notesPanelOpen,
     ],
   );
   const answers = useMemo(
@@ -665,7 +725,7 @@ export default function ReadPage() {
     });
     if (!action) return;
     openedLink.current = key;
-    if (action.open === "notes") setNotesPanelOpen(true);
+    if (action.open === "notes") void requestOpenNotes();
     else openAnswer(action.id);
   }, [
     landed,
@@ -676,6 +736,7 @@ export default function ReadPage() {
     unit,
     scopeReady,
     openAnswer,
+    requestOpenNotes,
   ]);
 
   // Said under the toolbar, where Listen lives, and gone again on its own.
@@ -741,7 +802,7 @@ export default function ReadPage() {
       k: () => moveParagraph(-1),
       r: () => rateArticle(),
       v: () => toggleLove(),
-      n: () => setNotesPanelOpen(true),
+      n: () => void requestOpenNotes(),
       ",": () => emitCommand("open-settings"),
       u: () => emitCommand("toggle-summary"),
       l: () => toggleListen(),
@@ -937,10 +998,9 @@ export default function ReadPage() {
 
   const handleAddNote = useCallback(
     (selection: { text: string; startOffset?: number; endOffset?: number }) => {
-      setPendingSelection(selection);
-      setNotesPanelOpen(true);
+      void requestOpenNotes(selection);
     },
-    [],
+    [requestOpenNotes],
   );
 
   if (!article) {
@@ -976,7 +1036,7 @@ export default function ReadPage() {
             maxWidth: MAX_WIDTHS[settings.width],
             "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
             "--reader-size": `${settings.size}px`,
-            "--reader-leading": LINE_HEIGHTS[settings.spacing],
+            "--reader-leading": `${LINE_HEIGHTS[settings.spacing]}`,
           } as React.CSSProperties
         }
       />
@@ -995,16 +1055,28 @@ export default function ReadPage() {
     (savedThreads ?? []).filter((t) => t.keptAt !== undefined).length;
 
   const answerThread = companion.thread;
-  const answerCard = (inline: boolean) =>
+  const answerCard = (inline: boolean, wide = false) =>
     answerThread && (
       <CompanionCard
         key={answerThread.id}
         inline={inline}
         thread={answerThread}
         isBook={isBook}
+        wide={wide}
+        onExpand={() => setWideAnswerId(answerThread.id)}
         range={openRange}
         containerRef={articleRef}
         layoutVersion={paragraphs.layoutVersion}
+        readerTypography={
+          {
+            "--reader-pane-size": `${settings.size}px`,
+            "--reader-leading": `${LINE_HEIGHTS[settings.spacing]}`,
+            fontFamily: TYPEFACE_FAMILIES[settings.typeface],
+          } satisfies React.CSSProperties & {
+            "--reader-pane-size": string;
+            "--reader-leading": string;
+          }
+        }
         onClose={collapseAnswer}
         onDelete={() => deleteAnswer(answerThread.id)}
         onFollowUp={companion.followUp}
@@ -1057,7 +1129,10 @@ export default function ReadPage() {
         noteCount={noteCount}
         noteCountHasMore={readerData.hasMore}
         notesOpen={notesPanelOpen}
-        onToggleNotes={() => setNotesPanelOpen((o) => !o)}
+        onToggleNotes={() => {
+          if (notesPanelOpen) void requestCloseNotes();
+          else void requestOpenNotes();
+        }}
         rating={impression?.rating ?? undefined}
         onRate={rateArticle}
         loved={Boolean(isLoved)}
@@ -1117,16 +1192,17 @@ export default function ReadPage() {
           aria-controls={articleAskOpen ? "article-question" : undefined}
           disabled={listen.active || Boolean(saveError)}
           onClick={() => {
-            setNotesPanelOpen(false);
+            if (notesPanelOpen) void requestCloseNotes();
             setActiveAnnotation(null);
             collapseAnswer();
+            setWideAnswerId(null);
             setArticleAskOpen((open) => !open);
           }}
         >
           <MessagesSquare size={19} />
           Ask
         </button>
-        <button onClick={() => setNotesPanelOpen(true)}>
+        <button onClick={() => void requestOpenNotes()}>
           <NotebookPen size={19} />
           Notes
           {noteCount || readerData.hasMore
@@ -1223,7 +1299,7 @@ export default function ReadPage() {
 
       {/* Article content; padded so the docked notes pane never covers the text */}
       <div
-        className="pr-[var(--notes-inset)] transition-[padding] duration-200"
+        className="reader-reflow pr-[var(--notes-inset)] transition-[padding] duration-200"
         onTransitionEnd={(e) => {
           // Margin cards measure the gutter on resize, so tell them it changed.
           if (e.target === e.currentTarget)
@@ -1233,12 +1309,13 @@ export default function ReadPage() {
         <div
           className={
             bibleDisplay?.comparison
-              ? "mx-auto grid max-w-[100rem] items-start md:grid-cols-2 md:gap-8"
+              ? "reader-comparison-layout mx-auto grid max-w-[100rem] items-start md:grid-cols-2 md:gap-8"
               : undefined
           }
         >
           <article
             ref={articleRef}
+            tabIndex={-1}
             className={cn(
               READER_COLUMN,
               "reader-arriving transition-[max-width] duration-300",
@@ -1386,7 +1463,7 @@ export default function ReadPage() {
           {bibleDisplay?.comparison ? (
             <aside
               aria-label={`Compare with ${bibleDisplay.comparison.title}`}
-              className="licensed-bible-view min-w-0 px-6 pb-24 pt-8 md:pt-[calc(5rem+env(safe-area-inset-top))]"
+              className="reader-comparison licensed-bible-view min-w-0 px-6 pb-24 pt-8 md:pt-[calc(5rem+env(safe-area-inset-top))]"
               style={
                 {
                   fontSize: `${settings.size}px`,
@@ -1443,12 +1520,14 @@ export default function ReadPage() {
         waitingAnchor={alongsideAnchor}
         openId={activeAnnotationId}
         answers={answers}
-        openAnswerId={companion.openId}
+        openAnswerId={wideAnswerId ? null : companion.openId}
         onOpenAnswer={openAnswer}
         onClose={closeNote}
-        onOpenNotes={() => setNotesPanelOpen(true)}
+        onOpenNotes={() => void requestOpenNotes()}
         openCard={
-          companion.thread ? (
+          companion.thread &&
+          !wideAnswerId &&
+          companion.thread.mode !== "article" ? (
             answerCard(true)
           ) : openAnnotation && activeAnnotation ? (
             <AnnotationCard
@@ -1473,18 +1552,25 @@ export default function ReadPage() {
         }
       />
 
-      {marginMode === "phone" && companion.thread && (
-        <AnswerUnfold
-          containerRef={articleRef}
-          version={paragraphs.version}
-          id={companion.thread.id}
-          paragraphIndex={companion.thread.paragraphIndex}
-        >
-          {answerCard(true)}
-        </AnswerUnfold>
-      )}
+      {marginMode === "phone" &&
+        companion.thread &&
+        !wideAnswerId &&
+        companion.thread.mode !== "article" && (
+          <AnswerUnfold
+            containerRef={articleRef}
+            version={paragraphs.version}
+            id={companion.thread.id}
+            paragraphIndex={companion.thread.paragraphIndex}
+          >
+            {answerCard(true)}
+          </AnswerUnfold>
+        )}
 
-      {marginMode === "sheet" && companion.thread && answerCard(false)}
+      {marginMode === "sheet" &&
+        companion.thread &&
+        !wideAnswerId &&
+        companion.thread.mode !== "article" &&
+        answerCard(false)}
 
       {marginMode !== "sidenotes" && (
         <FoldedArticleAnswers
@@ -1587,6 +1673,10 @@ export default function ReadPage() {
         onStop={listen.stop}
       />
 
+      {answerThread &&
+        (wideAnswerId === answerThread.id || answerThread.mode === "article") &&
+        answerCard(false, true)}
+
       {/* Notes side panel */}
       <NotesPanel
         articleId={articleId}
@@ -1598,6 +1688,7 @@ export default function ReadPage() {
         onClearSelection={() => setPendingSelection(null)}
         onJump={jumpToParagraph}
         onAnswerDeleted={companion.forget}
+        onRegisterRequestClose={registerNotesRequestClose}
       />
     </>
   );

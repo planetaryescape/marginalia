@@ -87,6 +87,7 @@ vi.mock("./note-editor", () => ({
 let root: Root;
 const onClose = vi.fn();
 const onClear = vi.fn();
+let requestClose: (() => Promise<boolean>) | null = null;
 type Sel = { text: string } | null;
 async function render(
   isOpen: boolean,
@@ -106,6 +107,9 @@ async function render(
           onClose={onClose}
           pendingSelection={pendingSelection}
           onClearSelection={onClear}
+          onRegisterRequestClose={(close) => {
+            requestClose = close;
+          }}
         />
       </>,
     ),
@@ -126,6 +130,7 @@ beforeEach(() => {
   mocks.invalidate.mockReset();
   mocks.draft = null;
   mocks.flushOk = true;
+  requestClose = null;
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -193,6 +198,31 @@ describe("non-modal pane", () => {
         );
     });
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("keeps the draft visible after a failed surface switch, then closes cleanly after a successful retry", async () => {
+    await render(true, { text: "A" });
+    mocks.draft = { html: "<p>keep this</p>", plain: "keep this" };
+    mocks.flushOk = false;
+    let first = true;
+    await act(async () => {
+      first = await requestClose!();
+    });
+    expect(first).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="editor"]')).not.toBeNull();
+
+    mocks.flushOk = true;
+    let second = false;
+    await act(async () => {
+      second = await requestClose!();
+    });
+    expect(second).toBe(true);
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ contentPlain: "keep this" }),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClear).toHaveBeenCalledOnce();
   });
 
   it("ignores Escape pressed in the article", async () => {

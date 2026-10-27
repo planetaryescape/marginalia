@@ -53,7 +53,7 @@
   }
 
   /* Keyboard focus is always visible; components with their own ring override this */
-  :is(a, button, input, textarea, select, [contenteditable], [tabindex]):focus-visible {
+  :is(:where(a, button, input, textarea, select, [contenteditable], [tabindex]), .outline-none):focus-visible {
     outline: 1px solid var(--reader-focus);
     outline-offset: 3px;
   }
@@ -92,7 +92,7 @@
     background: var(--reader-focus);
   }
 
-  .focus-frame input:focus-visible {
+  .focus-frame :is(input, textarea, [contenteditable]):focus-visible {
     outline: none;
   }
 
@@ -535,6 +535,21 @@ html {
 @media (min-width: 640px) {
   html[data-notes-open] { --notes-inset: 380px; }
 }
+@media (min-width: 1024px) {
+  html[data-reader-pane] { --notes-inset: min(50vw, 760px); }
+}
+
+@media (max-width: 1023px) {
+  .reader-pane { padding-top: env(safe-area-inset-top); }
+}
+
+.reader-pane { --reader-size: max(18px, var(--reader-pane-size, 18px)); }
+@media (max-width: 639px) {
+  .reader-pane { --reader-size: max(16px, var(--reader-pane-size, 16px)); }
+}
+html[data-reader-pane] .reader-comparison { display: none; }
+html[data-reader-pane] .reader-comparison-layout { display: block; }
+html:is([data-reader-pane], [data-reader-pane-closing]) .reader-reflow { transition: none !important; }
 
 .article-ask { bottom: calc(max(var(--app-keyboard-inset), var(--reader-bottom-clearance)) + 1rem); }
 @media (max-width: 639px) {

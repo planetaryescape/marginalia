@@ -153,6 +153,10 @@ interface NotesPanelProps {
   onAnswerDeleted?: (recordId: string) => void;
   /** A Notes-page deep link explicitly opens just this note's body. */
   initialNoteId?: string | null;
+  /** Lets another reader surface close Notes through its save-and-reset path. */
+  onRegisterRequestClose?: (
+    close: (isCurrent?: () => boolean) => Promise<boolean>,
+  ) => void;
 }
 
 export function NotesPanel({
@@ -165,6 +169,7 @@ export function NotesPanel({
   onJump = () => {},
   onAnswerDeleted,
   initialNoteId,
+  onRegisterRequestClose,
 }: NotesPanelProps) {
   const notes = usePaginatedQuery(
     api.userNotes.listPreviewsByArticle,
@@ -217,11 +222,19 @@ export function NotesPanel({
     },
     [],
   );
-  const closePanel = async () => {
-    if (editorFlush.current && !(await editorFlush.current())) return;
+  const closePanel = async (isCurrent?: () => boolean) => {
+    if (editorFlush.current && !(await editorFlush.current())) return false;
+    if (isCurrent && !isCurrent()) return false;
     handleClose();
     onClose();
+    return true;
   };
+  const closePanelRef = useRef(closePanel);
+  closePanelRef.current = closePanel;
+  useEffect(() => {
+    onRegisterRequestClose?.((isCurrent) => closePanelRef.current(isCurrent));
+    return () => onRegisterRequestClose?.(() => Promise.resolve(true));
+  }, [onRegisterRequestClose]);
   // Serialises saves so a slow create can't be followed by a second create
   const saving = useRef<Promise<Id<"userNotes"> | null>>(Promise.resolve(null));
   const paneRef = useRef<HTMLElement>(null);
