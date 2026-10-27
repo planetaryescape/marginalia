@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   Feather,
+  Maximize2,
   MessageCircleQuestion,
   MessagesSquare,
   RotateCcw,
@@ -17,6 +18,7 @@ import { modelName } from "@/lib/models";
 import { CompanionAnswer } from "./companion-answer";
 import { InlineError } from "./in-place";
 import { CardQuote, cardIconButton, MarginCard } from "./margin-card";
+import { ReaderPane } from "./reader-pane";
 
 const MODES = {
   explain: { label: "Explain", Icon: BookOpenText },
@@ -41,6 +43,11 @@ export function CompanionCard({
   onKeep,
   onResync,
   isBook = false,
+  readerTypography,
+  wide = thread.mode === "article",
+  onExpand,
+  draft: controlledDraft,
+  onDraftChange,
 }: {
   thread: CompanionThread;
   /** The passage the answer is about, for the floating card to sit beside. */
@@ -61,8 +68,17 @@ export function CompanionCard({
   onResync: () => void;
   /** A question about a whole book reads as one, not as an article. */
   isBook?: boolean;
+  readerTypography?: React.CSSProperties & {
+    [key: `--${string}`]: string | number;
+  };
+  wide?: boolean;
+  onExpand?: () => void;
+  draft?: string;
+  onDraftChange?: (value: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = controlledDraft ?? localDraft;
+  const setDraft = onDraftChange ?? setLocalDraft;
   const [copied, setCopied] = useState(false);
 
   const { Icon } = MODES[thread.mode];
@@ -83,18 +99,24 @@ export function CompanionCard({
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
+  const jumpToSource = (index: number) => {
+    onJump(index);
+    if (wide && window.matchMedia("(max-width: 1023px)").matches) onClose();
+  };
 
   const body = (
     <>
       {thread.selection && <CardQuote>{thread.selection}</CardQuote>}
 
       {thread.question && (
-        <p className="mb-3 text-[14px] font-medium text-[var(--reader-fg)]">
+        <p
+          className={`mb-3 font-medium text-[var(--reader-fg)] ${wide ? "text-[length:var(--reader-size)]" : "text-[14px]"}`}
+        >
           {thread.question}
         </p>
       )}
 
-      <div className="space-y-4">
+      <div className={wide ? "space-y-6" : "space-y-4"}>
         {thread.turns.map((turn, i) => {
           const isLast = i === thread.turns.length - 1;
           if (turn.role === "user") {
@@ -103,7 +125,9 @@ export function CompanionCard({
                 key={i}
                 className="pt-3 border-t border-[var(--reader-border)]"
               >
-                <p className="text-[14px] font-medium text-[var(--reader-fg)]">
+                <p
+                  className={`font-medium text-[var(--reader-fg)] ${wide ? "text-[length:var(--reader-size)]" : "text-[14px]"}`}
+                >
                   {turn.content}
                 </p>
               </div>
@@ -129,7 +153,8 @@ export function CompanionCard({
               text={turn.content}
               lead={i === 0 || thread.turns[i - 1]?.role === "user"}
               streaming={streaming && isLast}
-              onJump={onJump}
+              onJump={jumpToSource}
+              readable={wide}
             />
           );
         })}
@@ -247,6 +272,35 @@ export function CompanionCard({
     </>
   );
 
+  const title = (
+    <>
+      <Icon size={13} strokeWidth={2.25} />
+      {label}
+      {kept && <span className="font-normal opacity-70">· kept</span>}
+    </>
+  );
+  if (wide) {
+    return (
+      <ReaderPane
+        title={
+          thread.mode === "article"
+            ? `Ask the ${isBook ? "book" : "article"}`
+            : `${label} passage`
+        }
+        onClose={onClose}
+        focusFallback={containerRef}
+        style={readerTypography}
+      >
+        <div className="mx-auto max-w-[68ch] font-sans">
+          {body}
+          <div className="mt-8 border-t border-[var(--reader-border)] pt-3">
+            {footer}
+          </div>
+        </div>
+      </ReaderPane>
+    );
+  }
+
   return (
     <MarginCard
       inline={inline}
@@ -254,12 +308,17 @@ export function CompanionCard({
       layoutVersion={layoutVersion}
       anchorKey={range}
       getAnchorRect={() => range?.getBoundingClientRect() ?? null}
-      title={
-        <>
-          <Icon size={13} strokeWidth={2.25} />
-          {label}
-          {kept && <span className="font-normal opacity-70">· kept</span>}
-        </>
+      title={title}
+      headerAction={
+        <button
+          type="button"
+          onClick={onExpand}
+          aria-label="Read answer beside passage"
+          title="Read beside passage"
+          className="ml-1 flex h-7 w-7 items-center justify-center rounded hover:bg-[var(--reader-chip)]"
+        >
+          <Maximize2 size={13} />
+        </button>
       }
       label={
         thread.mode === "article"

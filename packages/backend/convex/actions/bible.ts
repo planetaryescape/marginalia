@@ -92,7 +92,12 @@ export const openReading = action({
       // Existing WEB sources can open without any external requests here.
       validateYouVersionReading(ref, [versionId]);
     }
-    return openStudySource(ctx, args.reference, versionId);
+    const articleId = await openStudySource(ctx, args.reference, versionId);
+    await ctx.runMutation(internal.scriptureKeeps.opened, {
+      userId: ctx.readerId,
+      articleId,
+    });
+    return articleId;
   },
 });
 
@@ -301,21 +306,65 @@ export const suggest = action({
       .replace(/\b(i|have|to|for|a|an|the|please)\b/gi, "")
       .trim();
     const starters = starterPassages(topic, minutes);
+    const finish = async (
+      base: BibleSuggestion[],
+      notice: string | null,
+    ): Promise<{ passages: BibleSuggestion[]; notice: string | null }> => {
+      const kept: Array<BibleSuggestion & { keepId: Id<"scriptureKeeps"> }> =
+        await ctx.runQuery(internal.scriptureKeeps.candidates, {
+          userId: ctx.readerId,
+          minutes,
+          topic,
+        });
+      const merge = (keptNow: typeof kept): BibleSuggestion[] => {
+        const byReference = new Map(
+          keptNow.map((item) => [item.reference, item]),
+        );
+        const ordinary = base.map(
+          (item) => byReference.get(item.reference) ?? item,
+        );
+        const seen = new Set<string>();
+        return [...keptNow.slice(0, 1), ...ordinary, ...keptNow.slice(1)]
+          .flatMap((item) => {
+            if (seen.has(item.reference)) return [];
+            seen.add(item.reference);
+            return [
+              {
+                reference: item.reference,
+                title: item.title,
+                minutes: item.minutes,
+                reason: item.reason,
+              },
+            ];
+          })
+          .slice(0, 3);
+      };
+      const proposed = merge(kept);
+      const presented = kept.filter((item) =>
+        proposed.some((passage) => passage.reference === item.reference),
+      );
+      const offered: Id<"scriptureKeeps">[] = await ctx.runMutation(
+        internal.scriptureKeeps.recordOffers,
+        { userId: ctx.readerId, keepIds: presented.map((item) => item.keepId) },
+      );
+      const keptNow = kept.filter((item) => offered.includes(item.keepId));
+      const passages = merge(keptNow);
+      return { passages, notice };
+    };
     // A time-only request doesn't need AI, and doesn't need an AI key.
     if (!topic)
-      return {
-        passages: starters,
-        notice: "Reading times are estimates; take extra time for reflection.",
-      };
+      return finish(
+        starters,
+        "Reading times are estimates; take extra time for reflection.",
+      );
     await requireReaderLimit(ctx, ctx.readerId, "ai");
     const ai = await loadReaderAI(ctx, ctx.readerId);
     const targets = ai.chain("quick");
     if (!targets.length)
-      return {
-        passages: starters,
-        notice:
-          "Showing topic starter passages. Connect an AI provider in Your account for more specific topics.",
-      };
+      return finish(
+        starters,
+        "Showing topic starter passages. Connect an AI provider in Your account for more specific topics.",
+      );
     const { object } = await generateObjectWithFallback<
       z.infer<typeof suggestionSchema>
     >({
@@ -339,10 +388,9 @@ export const suggest = action({
     });
     // Validate the preference again before returning an in-flight AI response.
     await ctx.runQuery(internal.bible.requireEnabled, { userId: ctx.readerId });
-    return {
+    return finish(
       passages,
-      notice:
-        "AI-suggested references. Reading times are estimates; passage text is checked when opened.",
-    };
+      "AI-suggested references. Reading times are estimates; passage text is checked when opened.",
+    );
   },
 });

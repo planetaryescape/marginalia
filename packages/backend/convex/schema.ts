@@ -15,6 +15,15 @@ import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
 import { markColor } from "./lib/markColours";
 import { noteIndexState } from "./lib/noteIndex";
+import { scriptureKeepTables } from "./lib/scriptureKeepsSchema";
+import {
+  coverageValidator,
+  evidenceValidator,
+  findingValidator,
+  outcomeValidator,
+  runStatusValidator,
+  selectionValidator,
+} from "./lib/scriptureStudy";
 import { tagAliasTables } from "./lib/tagAliasSchema";
 import { tagVectorTables } from "./lib/tagVectorSchema";
 import { tagVocabularyTables } from "./lib/tagVocabularySchema";
@@ -36,6 +45,76 @@ const tasteEntry = v.object({
 });
 
 export default defineSchema({
+  ...scriptureKeepTables,
+  scriptureStudyRequests: defineTable({
+    userId: v.string(),
+    requestKey: v.string(),
+    runId: v.id("scriptureStudyRuns"),
+  })
+    .index("by_userId_and_requestKey", ["userId", "requestKey"])
+    .index("by_runId", ["runId"])
+    .index("by_userId", ["userId"]),
+  scriptureStudyBudgets: defineTable({
+    userId: v.string(),
+    starts: v.array(v.number()),
+  }).index("by_userId", ["userId"]),
+  scriptureStudies: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    selection: selectionValidator,
+    scopeKey: v.string(),
+    sourceHash: v.string(),
+    modelPolicyHash: v.string(),
+    activeRunId: v.optional(v.id("scriptureStudyRuns")),
+    publishedRunId: v.optional(v.id("scriptureStudyRuns")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_and_scopeKey", ["userId", "scopeKey"])
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId", ["userId"]),
+  scriptureStudyRuns: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    studyId: v.id("scriptureStudies"),
+    requestKey: v.string(),
+    status: runStatusValidator,
+    leaseUntil: v.number(),
+    createdAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    sourceHash: v.string(),
+    modelPolicyHash: v.string(),
+    credentialHash: v.string(),
+    version: v.string(),
+    sourcePolicy: v.string(),
+    claimToken: v.optional(v.string()),
+    evidenceSetHash: v.optional(v.string()),
+    inputKey: v.optional(v.string()),
+    modelId: v.string(),
+    outcome: v.optional(outcomeValidator),
+    errorCode: v.optional(v.string()),
+    coverage: v.optional(v.array(coverageValidator)),
+    evidence: v.optional(v.array(evidenceValidator)),
+    purgeAt: v.optional(v.number()),
+  })
+    .index("by_studyId", ["studyId"])
+    .index("by_userId_and_requestKey", ["userId", "requestKey"])
+    .index("by_userId_and_createdAt", ["userId", "createdAt"])
+    .index("by_userId_and_status", ["userId", "status"])
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_userId", ["userId"])
+    .index("by_purgeAt", ["purgeAt"]),
+  scriptureStudyFindings: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    runId: v.id("scriptureStudyRuns"),
+    order: v.number(),
+    finding: findingValidator,
+  })
+    .index("by_runId_and_order", ["runId", "order"])
+    .index("by_userId", ["userId"])
+    .index("by_userId_and_articleId", ["userId", "articleId"]),
+
   // Shared provider responses, never reader annotations or AI sources. Internal access only.
   bibleResourceCache: defineTable({
     key: v.string(),
@@ -327,6 +406,7 @@ export default defineSchema({
     .index("by_userId_and_readerDocumentId", ["userId", "readerDocumentId"])
     .index("by_user", ["userId"])
     .index("by_user_guid", ["userId", "guid"])
+    .index("by_userId_and_bible_reference", ["userId", "bible.reference"])
     .index("by_user_url", ["userId", "url"])
     .index("by_extraction_status", ["userId", "extractionStatus"])
     .index("by_annotation_status", ["userId", "annotationStatus"])

@@ -87,11 +87,14 @@ export const CompanionAnswer = memo(function CompanionAnswer({
   lead,
   streaming,
   onJump,
+  readable = false,
 }: {
   text: string;
   lead: boolean;
   streaming: boolean;
   onJump: (index: number) => void;
+  /** Uses reader typography when the answer has its own pane. */
+  readable?: boolean;
 }) {
   const paragraphs = text.trim().split(/\n{2,}/);
   // A paragraph whose later lines start with "- " or "* " is a lead line and a list
@@ -111,7 +114,11 @@ export const CompanionAnswer = memo(function CompanionAnswer({
           return (
             <div
               key={i}
-              className="text-[14px] leading-[1.7] text-[var(--reader-fg-soft)]"
+              className={
+                readable
+                  ? "text-[length:var(--reader-size,18px)] leading-[var(--reader-leading,1.7)] text-[var(--reader-fg)]"
+                  : "text-[14px] leading-[1.7] text-[var(--reader-fg-soft)]"
+              }
             >
               {list.head && <p>{renderInline(list.head, onJump)}</p>}
               <ul className="mt-1 list-disc space-y-1 pl-5 marker:text-[var(--reader-muted)]">
@@ -135,14 +142,22 @@ export const CompanionAnswer = memo(function CompanionAnswer({
         return i === 0 && lead ? (
           <p
             key={i}
-            className="text-[15px] leading-[1.6] font-medium text-[var(--reader-fg)]"
+            className={
+              readable
+                ? "text-[length:var(--reader-size,18px)] leading-[var(--reader-leading,1.7)] font-medium text-[var(--reader-fg)]"
+                : "text-[15px] leading-[1.6] font-medium text-[var(--reader-fg)]"
+            }
           >
             {content}
           </p>
         ) : (
           <p
             key={i}
-            className="text-[14px] leading-[1.7] text-[var(--reader-fg-soft)]"
+            className={
+              readable
+                ? "text-[length:var(--reader-size,18px)] leading-[var(--reader-leading,1.7)] text-[var(--reader-fg)]"
+                : "text-[14px] leading-[1.7] text-[var(--reader-fg-soft)]"
+            }
           >
             {content}
           </p>

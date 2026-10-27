@@ -841,8 +841,10 @@ describe("the open card in the column", () => {
 
 describe("Marginalia's answers in the column", () => {
   const opened = vi.fn();
+  const closed = vi.fn();
   function Answers({
     openAnswerId,
+    onClose = closed,
     answers = [
       {
         id: "d1",
@@ -854,6 +856,7 @@ describe("Marginalia's answers in the column", () => {
     ],
   }: {
     openAnswerId: string | null;
+    onClose?: () => void;
     answers?: React.ComponentProps<typeof Sidenotes>["answers"];
   }) {
     const ref = useRef<HTMLElement>(null);
@@ -898,7 +901,7 @@ describe("Marginalia's answers in the column", () => {
               <div data-card-height={260}>answer card</div>
             ) : undefined
           }
-          onClose={() => {}}
+          onClose={onClose}
           onOpenNotes={() => {}}
         />
       </>
@@ -919,6 +922,13 @@ describe("Marginalia's answers in the column", () => {
       note.querySelector<HTMLElement>(".sidenote-hit")?.click(),
     );
     expect(opened).toHaveBeenCalledWith("d1");
+  });
+
+  it("leaves an independently owned wide answer open when the reader clicks the passage", async () => {
+    closed.mockReset();
+    await render(<Answers openAnswerId={null} />);
+    await act(async () => q("[data-article-body]")?.click());
+    expect(closed).not.toHaveBeenCalled();
   });
 
   it("opens the answer's card in the column and pushes the notes below it down", async () => {

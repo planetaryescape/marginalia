@@ -77,6 +77,7 @@ export function MarginCard({
   onClose,
   body,
   footer,
+  headerAction,
   scrollKey,
   pinned = false,
   inline = false,
@@ -95,6 +96,7 @@ export function MarginCard({
   onClose: () => void;
   body: ReactNode;
   footer?: ReactNode;
+  headerAction?: ReactNode;
   /** When the body scrolls inside the card, it scrolls to its end whenever this changes. */
   scrollKey?: unknown;
   /** Stays fixed in the margin instead of following a passage (whole-article questions). */
@@ -212,6 +214,7 @@ export function MarginCard({
               ¶{paragraphIndex + 1}
             </button>
           )}
+          {headerAction}
           <button
             type="button"
             onClick={onClose}

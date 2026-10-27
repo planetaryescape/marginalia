@@ -1,6 +1,7 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
+import { citedScriptureReferences } from "@marginalia/backend/scripture-references";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowUp, ArrowUpRight, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -10,6 +11,7 @@ import { cn, obsidianLink } from "@/lib/utils";
 import { CompanionAnswer } from "./companion-answer";
 import { InlineError } from "./in-place";
 import { CardQuote, cardIconButton, MarginCard } from "./margin-card";
+import { ScriptureReferenceKeep } from "./scripture-study-result";
 
 export interface Reflection {
   _id: string;
@@ -126,6 +128,7 @@ export function AnnotationCard({
   onReflect,
   onDeleteReflection,
   inline = false,
+  scripture = false,
 }: {
   annotation: AnnotationCardData;
   reflections: Reflection[];
@@ -138,6 +141,7 @@ export function AnnotationCard({
   onJump: (index: number) => void;
   /** Sits in the sidenote column, which places it. */
   inline?: boolean;
+  scripture?: boolean;
 }) {
   // A kind this build doesn't know draws as a plain pencil note
   const kind = kindOf(annotation.type);
@@ -173,6 +177,7 @@ export function AnnotationCard({
         streaming={false}
         onJump={onJump}
       />
+      {scripture && <AnnotationScriptureKeeps annotation={annotation} />}
       {annotation.articleRefId && (
         // SAFETY: `_id` is the id of an annotation the page loaded from api.annotations.
         <ConnectedArticle annotationId={annotation._id as Id<"annotations">} />
@@ -259,7 +264,7 @@ export function AnnotationCard({
         </div>
       )}
       <form
-        className="mx-3 mb-3 mt-1 flex items-end gap-2 rounded-lg bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--card-accent)]"
+        className="focus-frame mx-3 mb-3 mt-1 flex items-end gap-2 rounded-lg bg-[var(--reader-chip)] pl-3 pr-1 py-1 focus-within:ring-1 focus-within:ring-[var(--card-accent)]"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
@@ -338,5 +343,37 @@ export function AnnotationCard({
       footer={footer}
       scrollKey={reflections.length}
     />
+  );
+}
+
+function AnnotationScriptureKeeps({
+  annotation,
+}: {
+  annotation: AnnotationCardData;
+}) {
+  const keep = useMutation(api.scriptureKeeps.keep);
+  const references = citedScriptureReferences(annotation.content);
+  if (!references.length) return null;
+  return (
+    <div className="mt-4 border-t border-[var(--reader-border)] pt-3 font-sans text-[13px]">
+      <p className="text-[var(--ink-muted)]">
+        Passages cited in this margin note. These connections are not verified
+        Study findings.
+      </p>
+      {references.map((reference) => (
+        <div key={reference.passageId} className="mt-3">
+          <p>{reference.reference}</p>
+          <ScriptureReferenceKeep
+            onKeep={async () => {
+              // SAFETY: This ID is from an authenticated annotation preview; the mutation rechecks source ownership and citation membership.
+              await keep({
+                annotationId: annotation._id as Id<"annotations">,
+                referenceKey: reference.passageId,
+              });
+            }}
+          />
+        </div>
+      ))}
+    </div>
   );
 }

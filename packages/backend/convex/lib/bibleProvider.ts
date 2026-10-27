@@ -77,6 +77,7 @@ export async function fetchBiblePassage(
   ref: BibleReference,
   code: TranslationCode,
   cache?: BibleResourceCache,
+  control?: { signal: AbortSignal; beforeRequest: () => Promise<void> },
 ) {
   requireTranslation(code);
   // Licensed Scripture is deliberately excluded from the saved-article/AI path.
@@ -105,9 +106,18 @@ export async function fetchBiblePassage(
                 );
             },
             load: async () => {
+              await control?.beforeRequest();
               const response = await fetch(
                 `https://bible-api.com/data/web/${ref.bookId}/${chapter}`,
-                { signal: AbortSignal.timeout(15_000) },
+                {
+                  redirect: control ? "error" : "follow",
+                  signal: control
+                    ? AbortSignal.any([
+                        control.signal,
+                        AbortSignal.timeout(15_000),
+                      ])
+                    : AbortSignal.timeout(15_000),
+                },
               );
               if (!response.ok)
                 throw new Error(

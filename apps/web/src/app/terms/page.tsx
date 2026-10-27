@@ -75,6 +75,13 @@ export default function TermsPage() {
         rely on them.
       </p>
       <p>
+        Deep Study uses the selected World English Bible text and the sources
+        disclosed with each result. Its source records identify retrieved
+        material and its limits; they do not independently verify every
+        free-form claim. Do not treat a printed-edition comparison as a claim
+        about a particular manuscript or an original reading.
+      </p>
+      <p>
         Connected services have their own terms, privacy practices, usage limits
         and charges. They may change or become unavailable. Disconnecting an
         integration does not necessarily delete information already imported or

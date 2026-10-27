@@ -44,6 +44,8 @@ interface SelectionToolbarProps {
     range: Range;
     question?: string;
   }) => void;
+  /** Scripture-only: resolves containing verses without sending displayed wording. */
+  onDeepStudy?: (range: Range) => Promise<string | null>;
   depth: AnswerDepth;
   onDepthChange: (depth: AnswerDepth) => void;
   web: boolean;
@@ -112,6 +114,7 @@ export function SelectionToolbar({
   getCurrentParagraphRange,
   onAddNote,
   onCompanion,
+  onDeepStudy,
   depth,
   onDepthChange,
   web,
@@ -129,6 +132,9 @@ export function SelectionToolbar({
   );
   const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
+  const [studyError, setStudyError] = useState<string | null>(null);
+  const [studying, setStudying] = useState(false);
+  const studyPending = useRef(false);
   // The tool whose colour picker is open
   const [picking, setPicking] = useState<MarkKind | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -154,6 +160,7 @@ export function SelectionToolbar({
     setAsking(false);
     setQuestion("");
     setPicking(null);
+    setStudyError(null);
   }, []);
 
   const scheduleMeasurement = useCallback(() => {
@@ -344,6 +351,25 @@ export function SelectionToolbar({
     onCompanion({ mode: "ask", range, question: question.trim() });
     finish();
   };
+  const runStudy = async () => {
+    if (!range || !onDeepStudy || studyPending.current) return;
+    studyPending.current = true;
+    const selected = rangeRef.current;
+    setStudying(true);
+    setStudyError(null);
+    try {
+      const error = await onDeepStudy(range.cloneRange());
+      if (rangeRef.current !== selected) return;
+      if (error) setStudyError(error);
+      else finish();
+    } catch {
+      if (rangeRef.current === selected)
+        setStudyError("Study could not open. Try selecting the verses again.");
+    } finally {
+      studyPending.current = false;
+      setStudying(false);
+    }
+  };
 
   const text = range?.toString().trim() ?? "";
 
@@ -369,7 +395,7 @@ export function SelectionToolbar({
               : { opacity: 0, y: position.below ? -4 : 4, scale: 0.98 }
           }
           transition={{ duration: reducedMotion ? 0 : 0.14, ease: "easeOut" }}
-          className="passage-toolbar fixed z-50"
+          className="passage-toolbar fixed z-50 max-w-[calc(100vw-24px)]"
           role="toolbar"
           aria-label="Passage actions"
           style={{
@@ -395,7 +421,7 @@ export function SelectionToolbar({
                 : { type: "spring", damping: 30, stiffness: 420 }
             }
             className={cn(
-              "passage-menu grid grid-cols-2 md:flex md:flex-nowrap items-center gap-0.5 p-1.5 md:p-1 rounded-lg md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
+              "passage-menu grid grid-cols-2 md:flex md:flex-wrap items-center gap-0.5 p-1.5 md:p-1 rounded-lg md:rounded-full font-sans bg-[var(--reader-surface)] text-[var(--reader-fg)] md:reader-float shadow-[0_8px_30px_-6px_rgba(0,0,0,0.3)] ring-1 ring-[var(--reader-border)]",
               holding && "block",
             )}
           >
@@ -566,6 +592,17 @@ export function SelectionToolbar({
                   <MessageCircleQuestion size={14} />
                   Ask
                 </button>
+                {onDeepStudy && (
+                  <button
+                    type="button"
+                    className={actionClass}
+                    disabled={studying}
+                    onClick={() => void runStudy()}
+                  >
+                    <BookOpenText size={14} />
+                    {studying ? "Opening…" : "Deep study"}
+                  </button>
+                )}
                 <button
                   className={iconClass}
                   title="Copy"
@@ -582,6 +619,14 @@ export function SelectionToolbar({
               </>
             )}
           </motion.div>
+          {studyError && (
+            <p
+              role="alert"
+              className="mt-2 max-w-sm rounded-lg bg-[var(--reader-surface)] p-3 font-sans text-[14px] leading-relaxed text-[var(--reader-fg)] shadow-lg"
+            >
+              {studyError}
+            </p>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
