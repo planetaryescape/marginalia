@@ -61,6 +61,7 @@ import {
   type StudySelection,
   studyVerseElement,
 } from "@/lib/bible-study-selection";
+import { rangesOverlap } from "@/lib/bible-verses";
 import {
   companionNeedsPane,
   useCompanion,
@@ -124,6 +125,7 @@ import {
   marginNotesPending,
   useStartAnnotation,
 } from "@/lib/use-start-annotation";
+import { useVerseCursor } from "@/lib/use-verse-cursor";
 import { cn } from "@/lib/utils";
 
 export default function ReadPage() {
@@ -246,9 +248,11 @@ export default function ReadPage() {
   );
   const back = backTarget(origin, sessionId);
   const [cursor, setCursor] = useState<number | null>(null);
-  const passageCycle = useRef<{ paragraph: HTMLElement | null; index: number }>(
-    { paragraph: null, index: -1 },
-  );
+  // What `o` last cycled through: a paragraph, or a verse by its key in a Bible reading.
+  const passageCycle = useRef<{
+    scope: HTMLElement | string | null;
+    index: number;
+  }>({ scope: null, index: -1 });
   const [pendingSelection, setPendingSelection] = useState<{
     text: string;
     startOffset?: number;
@@ -951,23 +955,79 @@ export default function ReadPage() {
     }
   }, [listen, position.current, position.firstVisible]);
 
+  // A Bible reading moves by verse. Until its verses are on screen the
+  // paragraph cursor still works, so j and k are never dead.
+  const verseCursor = useVerseCursor({
+    articleRef,
+    reference: article?.bible?.reference,
+    enabled: Boolean(article?.bible),
+    version: paragraphs.version,
+  });
   const currentParagraph = () => {
     const focused = paragraphIndexOf(document.activeElement);
     return (
       getParagraphs(getArticleBody(articleRef.current))[
-        focused ?? cursor ?? position.current ?? position.firstVisible ?? 0
+        paragraphIndexOf(verseCursor.startElement()) ??
+          focused ??
+          cursor ??
+          position.current ??
+          position.firstVisible ??
+          0
       ] ?? null
     );
   };
   const getCurrentParagraphRange = () => {
+    const verse = verseCursor.range();
+    if (verse) return verse;
     const paragraph = currentParagraph();
     if (!paragraph) return null;
     const range = document.createRange();
     range.selectNodeContents(paragraph);
     return range;
   };
+  // Unlike the range above, this is null until the reader has put a cursor somewhere.
+  const getCursorRange = () => {
+    const verse = verseCursor.range();
+    if (verse) return verse;
+    const at = paragraphIndexOf(document.activeElement) ?? cursor;
+    const paragraph =
+      at === null
+        ? null
+        : getParagraphs(getArticleBody(articleRef.current))[at];
+    if (!paragraph) return null;
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    return range;
+  };
+  const restoreCursorFocus = () => {
+    if (verseCursor.active) {
+      // A verse is not an element, so focus rests on the page and j/k keep working.
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active !== document.body)
+        active.blur();
+      return;
+    }
+    const at = cursor;
+    if (at === null) return;
+    getParagraphs(getArticleBody(articleRef.current))[at]?.focus({
+      preventScroll: true,
+    });
+  };
   const moveParagraph = (direction: 1 | -1) => {
     const list = getParagraphs(getArticleBody(articleRef.current));
+    // Verse markup is often divs, which are not numbered paragraphs, so this comes first.
+    const from =
+      list[
+        paragraphIndexOf(document.activeElement) ??
+          cursor ??
+          position.current ??
+          position.firstVisible ??
+          0
+      ] ?? null;
+    if (verseCursor.move(direction, from)) {
+      setCursor(null);
+      return;
+    }
     if (!list.length) return;
     const current = paragraphIndexOf(document.activeElement) ?? cursor;
     const next =
@@ -1002,14 +1062,19 @@ export default function ReadPage() {
       u: () => emitCommand("toggle-summary"),
       l: () => toggleListen(),
       o: () => {
-        const paragraph = currentParagraph();
-        if (!paragraph) return;
+        // A verse's markup may have no numbered paragraph around it.
+        const verse = verseCursor.range();
+        const paragraph = verse ? null : currentParagraph();
+        if (!verse && !paragraph) return;
         // A quote crossing inline/UI boundaries can have multiple DOM marks.
         // Keyboard navigation visits the annotation, not each decoration part.
+        const scope = verse ? verseCursor.key : paragraph;
         const annotationHandles = new Map<string, HTMLElement>();
-        for (const mark of paragraph.querySelectorAll<HTMLElement>(
-          ".annotation-mark",
-        )) {
+        for (const mark of (verse
+          ? getArticleBody(articleRef.current)
+          : paragraph
+        )?.querySelectorAll<HTMLElement>(".annotation-mark") ?? []) {
+          if (verse && !verse.intersectsNode(mark)) continue;
           const id = mark.dataset.annotationId;
           if (id && !annotationHandles.has(id)) annotationHandles.set(id, mark);
         }
@@ -1019,17 +1084,21 @@ export default function ReadPage() {
             annotation.click();
           }),
           ...savedPassages
-            .filter((p) => p.range.intersectsNode(paragraph))
+            .filter((p) =>
+              verse
+                ? rangesOverlap(p.range, verse)
+                : Boolean(paragraph && p.range.intersectsNode(paragraph)),
+            )
             .map((passage) => () => {
               openAnswer(passage.doc._id);
             }),
         ];
         if (!openers.length) return;
         const next =
-          passageCycle.current.paragraph === paragraph
+          passageCycle.current.scope === scope
             ? (passageCycle.current.index + 1) % openers.length
             : 0;
-        passageCycle.current = { paragraph, index: next };
+        passageCycle.current = { scope, index: next };
         openers[next]();
       },
     },
@@ -1038,8 +1107,8 @@ export default function ReadPage() {
       help: {
         group: "Reading",
         keys: [
-          ["j  k", "Next and previous paragraph"],
-          ["o", "Open the note or conversation on this paragraph"],
+          ["j  k", "Next and previous paragraph, or verse in the Bible"],
+          ["o", "Open the note or conversation on this paragraph or verse"],
           ["r", "Rate the article"],
           ["v", "Love or unlove the article"],
           ["u", "Show or hide the summary"],
@@ -1471,9 +1540,14 @@ export default function ReadPage() {
           </button>
         </div>
       )}
+      <div role="status" aria-live="polite" className="sr-only">
+        {verseCursor.announcement}
+      </div>
       <SelectionToolbar
         containerRef={articleRef}
         getCurrentParagraphRange={getCurrentParagraphRange}
+        getCursorRange={getCursorRange}
+        restoreCursorFocus={restoreCursorFocus}
         onAddNote={handleAddNote}
         onCompanion={startCompanion}
         onDeepStudy={

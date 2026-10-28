@@ -1,5 +1,7 @@
 # Passage actions by keyboard, and j/k by verse in Bible readings
 
+Status: done 2026-10-28 (`951f60f` menu keys, `34fe166` verse cursor). Decision D-DES-071 in `docs/design/blueprint/08-decisions.md`.
+
 Raised by the owner on 2026-10-28: "I can keyboard navigate the paragraphs with j/k, would be nice if there was a keyboard shortcut to bring the context menu that has ask explain etc for the selected passage and then after that if the options on that menu were single key shortcuts. j/k should move one verse at a time for bible readings."
 
 ## What exists (read at 59ac31d; the code cited is unchanged at 0816ca1)

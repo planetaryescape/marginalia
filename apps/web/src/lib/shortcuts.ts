@@ -12,6 +12,12 @@ export type ShortcutOptions = {
   help?: ShortcutHelp;
   /** Consulted after every other registration, so a page's own key wins. */
   fallback?: boolean;
+  /**
+   * Consulted before every other registration. For a surface that owns the
+   * keyboard while it is open (the passage menu): the page registered first,
+   * so by insertion order its own keys would win over the menu's.
+   */
+  priority?: boolean;
 };
 
 type Registration = { current: ShortcutMap };
@@ -67,6 +73,13 @@ export function isOnControl(event: KeyboardEvent): boolean {
   );
 }
 
+// Priority first, fallback last, everything else between in insertion order
+// (Array.sort is stable).
+function rank(ref: Registration) {
+  const options = registrationOptions.get(ref);
+  return options?.priority ? -1 : options?.fallback ? 1 : 0;
+}
+
 function clearSequence() {
   pending = null;
   window.clearTimeout(pendingTimer);
@@ -100,11 +113,7 @@ function onKeyDown(event: KeyboardEvent) {
     return;
   }
   const maps = [...registrations]
-    .sort(
-      (a, b) =>
-        Number(registrationOptions.get(a)?.fallback ?? false) -
-        Number(registrationOptions.get(b)?.fallback ?? false),
-    )
+    .sort((a, b) => rank(a) - rank(b))
     .map((ref) => ref.current);
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
   if (
@@ -154,13 +163,15 @@ export function useShortcuts(
   // The sheet content is static per call site, so its text is the dependency
   const helpKey = options.help ? JSON.stringify(options.help) : "";
   const fallback = Boolean(options.fallback);
+  const priority = Boolean(options.priority);
   useEffect(() => {
     if (!enabled) return;
     return registerShortcuts(ref, {
       help: helpKey ? JSON.parse(helpKey) : undefined,
       fallback,
+      priority,
     });
-  }, [enabled, helpKey, fallback]);
+  }, [enabled, helpKey, fallback, priority]);
 }
 
 /** Shared registration also used by the dispatcher regression tests. */

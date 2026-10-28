@@ -23,17 +23,23 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { Keycap } from "@/components/keycap";
 import { type CompanionMode, usePassageHighlight } from "@/lib/companion";
 import type { MarkKind } from "@/lib/highlights";
 import { type MarkColor, SWATCHES } from "@/lib/mark-colours";
 import { passagePlacement } from "@/lib/passage-placement";
 import type { AnswerDepth } from "@/lib/reader-settings";
-import { useShortcuts } from "@/lib/shortcuts";
+import { isOnControl, useShortcuts } from "@/lib/shortcuts";
+import { useAltHint } from "@/lib/use-alt-hint";
 import { cn } from "@/lib/utils";
 
 interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement | null>;
   getCurrentParagraphRange: () => Range | null;
+  /** The passage under the j/k cursor, or null when the reader has no cursor. Enter opens the menu on it. */
+  getCursorRange?: () => Range | null;
+  /** Puts focus back on the j/k cursor when a menu opened from the keyboard closes. */
+  restoreCursorFocus?: () => void;
   onAddNote: (selection: {
     text: string;
     startOffset?: number;
@@ -112,6 +118,8 @@ function placement(range: Range, menu?: HTMLElement | null) {
 export function SelectionToolbar({
   containerRef,
   getCurrentParagraphRange,
+  getCursorRange,
+  restoreCursorFocus,
   onAddNote,
   onCompanion,
   onDeepStudy,
@@ -143,6 +151,16 @@ export function SelectionToolbar({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectionChanged = useRef(false);
   const askingRef = useRef(false);
+  // Opened from the keyboard: its keys show beside the actions, and Escape
+  // hands focus back to the cursor. A pointer selection keeps keys in tooltips.
+  const [viaKeyboard, setViaKeyboard] = useState(false);
+  const viaKeyboardRef = useRef(false);
+  const setKeyboard = useCallback((on: boolean) => {
+    viaKeyboardRef.current = on;
+    setViaKeyboard(on);
+  }, []);
+  const altHint = useAltHint();
+  const showKeys = viaKeyboard || altHint;
   // Asking and picking a colour both keep the toolbar open without a selection
   const holding = asking || picking !== null;
   useLayoutEffect(() => {
@@ -161,6 +179,8 @@ export function SelectionToolbar({
     setQuestion("");
     setPicking(null);
     setStudyError(null);
+    viaKeyboardRef.current = false;
+    setViaKeyboard(false);
   }, []);
 
   const scheduleMeasurement = useCallback(() => {
@@ -173,6 +193,8 @@ export function SelectionToolbar({
         if (!askingRef.current) {
           const selection = window.getSelection();
           if (!selection || selection.isCollapsed || !selection.rangeCount) {
+            // A menu opened on the cursor has no selection to keep it open.
+            if (viaKeyboardRef.current) return;
             if (hideTimer.current === null)
               hideTimer.current = setTimeout(() => {
                 hideTimer.current = null;
@@ -203,6 +225,7 @@ export function SelectionToolbar({
             const snapshot = current.cloneRange();
             rangeRef.current = snapshot;
             setRange(snapshot);
+            setKeyboard(false);
           }
         }
       }
@@ -218,7 +241,7 @@ export function SelectionToolbar({
           : next,
       );
     });
-  }, [containerRef, hide]);
+  }, [containerRef, hide, setKeyboard]);
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -255,13 +278,13 @@ export function SelectionToolbar({
   usePassageHighlight("companion-pending", asking ? range : null);
 
   useEffect(() => {
-    if (!holding) return;
+    if (!holding && !viaKeyboard) return;
     const onPointerDown = (e: PointerEvent) => {
       if (!toolbarRef.current?.contains(e.target as Node)) hide();
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [holding, hide]);
+  }, [holding, viaKeyboard, hide]);
 
   const finish = () => {
     window.getSelection()?.removeAllRanges();
@@ -298,41 +321,89 @@ export function SelectionToolbar({
     finish();
   };
 
+  /** Opens the menu on a passage taken from the keyboard (the cursor or a selection). */
+  const openOn = (target: Range, mode: "menu" | "ask") => {
+    const snapshot = target.cloneRange();
+    rangeRef.current = snapshot;
+    setRange(snapshot);
+    setKeyboard(true);
+    setAsking(mode === "ask");
+    scheduleMeasurement();
+  };
+
+  const closeToCursor = () => {
+    const fromKeyboard = viaKeyboardRef.current;
+    finish();
+    if (fromKeyboard) restoreCursorFocus?.();
+  };
+
+  const selectedInArticle = () => {
+    const selection = window.getSelection();
+    const selected =
+      selection && !selection.isCollapsed && selection.rangeCount
+        ? selection.getRangeAt(0)
+        : null;
+    return selected &&
+      containerRef.current?.contains(selected.commonAncestorContainer)
+      ? selected.cloneRange()
+      : null;
+  };
+
+  // Enter belongs to links, buttons, notes and anything else focusable; it
+  // opens the menu only from the page itself or the cursor's own block.
+  const onCursorSurface = (target: EventTarget | null) =>
+    target === document.body ||
+    target === document.documentElement ||
+    (target instanceof HTMLElement &&
+      Boolean(containerRef.current?.contains(target)) &&
+      !target.closest(
+        "a, button, summary, input, textarea, select, [role='button'], [contenteditable], .annotation-mark, [tabindex]:not([tabindex='-1'])",
+      ));
+
   useShortcuts(
-    Object.fromEntries(
-      Object.entries(SHORTCUTS).map(([key, action]) => [
-        key,
-        () => {
-          const selection = window.getSelection();
-          const selected =
-            selection && !selection.isCollapsed && selection.rangeCount
-              ? selection.getRangeAt(0)
-              : null;
-          const target =
-            selected &&
-            containerRef.current?.contains(selected.commonAncestorContainer)
-              ? selected.cloneRange()
-              : getCurrentParagraphRange();
-          if (!target?.toString().trim()) return;
-          if (action === "ask") {
-            setRange(target);
-            rangeRef.current = target;
-            scheduleMeasurement();
-            setAsking(true);
-          } else {
-            if (action === "highlight" || action === "underline")
-              onToggleMark(action, target);
-            else onCompanion({ mode: action, range: target });
-            finish();
-          }
-        },
-      ]),
-    ),
+    {
+      ...Object.fromEntries(
+        Object.entries(SHORTCUTS).map(([key, action]) => [
+          key,
+          () => {
+            // An open menu owns the keys: they act on its range, whatever is selected now.
+            if (range) {
+              if (action === "highlight" || action === "underline")
+                toggleMark(action);
+              else {
+                if (action === "ask") setKeyboard(true);
+                runMode(action);
+              }
+              return;
+            }
+            const target = selectedInArticle() ?? getCurrentParagraphRange();
+            if (!target?.toString().trim()) return;
+            if (action === "ask") {
+              openOn(target, "ask");
+            } else {
+              if (action === "highlight" || action === "underline")
+                onToggleMark(action, target);
+              else onCompanion({ mode: action, range: target });
+              finish();
+            }
+          },
+        ]),
+      ),
+      Enter: (event) => {
+        if (isOnControl(event) || !onCursorSurface(event.target)) return false;
+        // Already open (a pointer selection): Enter shows its keys.
+        if (range) return void setKeyboard(true);
+        const target = selectedInArticle() ?? getCursorRange?.() ?? null;
+        if (!target?.toString().trim()) return false;
+        openOn(target, "menu");
+      },
+    },
     !holding,
     {
       help: {
         group: "Reading",
         keys: [
+          ["Enter", "Open passage actions on the cursor or selection"],
           ["e", "Explain the selection or paragraph"],
           ["s", "Simplify it"],
           ["d", "Define a word or phrase in context"],
@@ -344,7 +415,49 @@ export function SelectionToolbar({
     },
   );
 
-  useShortcuts({ Escape: () => finish() }, Boolean(range) && !holding);
+  const text = range?.toString().trim() ?? "";
+  const addNote = () => {
+    onAddNote({ text });
+    finish();
+  };
+  const copy = async () => {
+    await navigator.clipboard.writeText(text);
+    toast.success("Copied");
+    finish();
+  };
+
+  // Keys for the actions that have no global letter. They shadow the reader's
+  // own n only while the menu is open, and j/k close it before moving the cursor.
+  const menuOpen = Boolean(range) && !holding;
+  useShortcuts(
+    {
+      n: () => addNote(),
+      c: () => void copy(),
+      t: () => (onDeepStudy ? void runStudy() : false),
+      j: () => {
+        hide();
+        return false;
+      },
+      k: () => {
+        hide();
+        return false;
+      },
+      Escape: () => closeToCursor(),
+    },
+    menuOpen,
+    {
+      priority: true,
+      help: {
+        group: "Passage actions",
+        keys: [
+          ["n", "Add a note"],
+          ["c", "Copy"],
+          ...(onDeepStudy ? [["t", "Deep study"] as [string, string]] : []),
+          ["Esc", "Close and return to the cursor"],
+        ],
+      },
+    },
+  );
 
   const submitQuestion = () => {
     if (!range || !question.trim()) return;
@@ -371,12 +484,18 @@ export function SelectionToolbar({
     }
   };
 
-  const text = range?.toString().trim() ?? "";
-
   const actionClass =
     "flex items-center justify-start gap-2 h-11 md:h-8 px-3 md:px-2.5 rounded-lg md:rounded-full text-[14px] md:text-[13px] font-medium transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10";
-  const iconClass =
-    "h-11 md:w-8 md:h-8 px-3 md:px-0 flex gap-2 items-center justify-start md:justify-center rounded-lg md:rounded-full text-[14px] transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10";
+  // Keys beside an icon-only button widen it past the round 2rem.
+  const iconClass = cn(
+    "h-11 md:h-8 px-3 flex gap-2 items-center justify-start md:justify-center rounded-lg md:rounded-full text-[14px] transition-colors hover:bg-[var(--reader-chip)] md:hover:bg-white/10",
+    showKeys ? "md:w-auto md:px-2" : "md:w-8 md:px-0",
+  );
+  const keycap = (key: string) => (
+    <Keycap force={viaKeyboard} className="opacity-70">
+      {key}
+    </Keycap>
+  );
 
   return (
     <AnimatePresence>
@@ -445,7 +564,7 @@ export function SelectionToolbar({
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Escape") hide();
+                    if (e.key === "Escape") closeToCursor();
                   }}
                   placeholder="Ask about this passage…"
                   aria-label="Ask about this passage"
@@ -515,6 +634,7 @@ export function SelectionToolbar({
                           active && "opacity-100 bg-white/15",
                         )}
                         title={`${active ? "Remove" : label} (${key})`}
+                        aria-keyshortcuts={key.toLowerCase()}
                         aria-label={
                           active ? `Remove ${label.toLowerCase()}` : label
                         }
@@ -525,6 +645,7 @@ export function SelectionToolbar({
                         <span className="md:hidden">
                           {active ? "Remove mark" : label}
                         </span>
+                        {keycap(key)}
                         <span
                           className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-[2px] w-3 rounded-full"
                           style={{ background: swatch?.hex }}
@@ -545,15 +666,14 @@ export function SelectionToolbar({
                 })}
                 <button
                   className={iconClass}
-                  title="Add note"
+                  title="Add note (N)"
                   aria-label="Add note"
-                  onClick={() => {
-                    onAddNote({ text });
-                    finish();
-                  }}
+                  aria-keyshortcuts="n"
+                  onClick={addNote}
                 >
                   <NotebookPen size={14} />
                   <span className="md:hidden">Note</span>
+                  {keycap("N")}
                 </button>
                 <hr
                   aria-orientation="vertical"
@@ -563,17 +683,21 @@ export function SelectionToolbar({
                   className={actionClass}
                   onClick={() => runMode("explain")}
                   title="Explain (E)"
+                  aria-keyshortcuts="e"
                 >
                   <BookOpenText size={14} />
                   Explain
+                  {keycap("E")}
                 </button>
                 <button
                   className={actionClass}
                   onClick={() => runMode("simplify")}
                   title="Simplify (S)"
+                  aria-keyshortcuts="s"
                 >
                   <Feather size={14} />
                   Simplify
+                  {keycap("S")}
                 </button>
                 <button
                   className={actionClass}
@@ -583,38 +707,42 @@ export function SelectionToolbar({
                 >
                   <BookA size={14} />
                   Define
+                  {keycap("D")}
                 </button>
                 <button
                   className={actionClass}
                   onClick={() => runMode("ask")}
                   title="Ask (A)"
+                  aria-keyshortcuts="a"
                 >
                   <MessageCircleQuestion size={14} />
                   Ask
+                  {keycap("A")}
                 </button>
                 {onDeepStudy && (
                   <button
                     type="button"
                     className={actionClass}
                     disabled={studying}
+                    title="Deep study (T)"
+                    aria-keyshortcuts="t"
                     onClick={() => void runStudy()}
                   >
                     <BookOpenText size={14} />
                     {studying ? "Opening…" : "Deep study"}
+                    {keycap("T")}
                   </button>
                 )}
                 <button
                   className={iconClass}
-                  title="Copy"
+                  title="Copy (C)"
                   aria-label="Copy"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(text);
-                    toast.success("Copied");
-                    finish();
-                  }}
+                  aria-keyshortcuts="c"
+                  onClick={() => void copy()}
                 >
                   <Copy size={14} />
                   <span className="md:hidden">Copy</span>
+                  {keycap("C")}
                 </button>
               </>
             )}

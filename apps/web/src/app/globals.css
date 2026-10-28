@@ -1054,6 +1054,12 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   text-decoration-thickness: 1.5px;
 }
 
+/* The j/k cursor in a Bible reading: a quiet tint on the verse's own text, never the pencil's dotted rule. */
+::highlight(verse-cursor) {
+  background-color: color-mix(in srgb, var(--reader-focus) 14%, transparent);
+  color: inherit;
+}
+
 /* Highlighter and pen tools. The reader package registers user-highlight and
    user-underline for every mark; Marginalia paints each mark under its own
    colour's name instead (use-mark-paint.ts), so those two stay unpainted. The

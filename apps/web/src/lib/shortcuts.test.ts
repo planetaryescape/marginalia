@@ -115,6 +115,33 @@ describe("keyboard shortcuts", () => {
     expect(fallback).toHaveBeenCalledOnce();
   });
 
+  it("a later priority registration takes a key from an earlier normal one, and still yields when it declines", () => {
+    const page = vi.fn();
+    const fallback = vi.fn();
+    cleanups.push(
+      registerShortcuts({ current: { n: fallback } }, { fallback: true }),
+    );
+    register({ n: page, j: page });
+    press("n");
+    expect(page).toHaveBeenCalledOnce();
+    expect(fallback).not.toHaveBeenCalled();
+
+    const menu = vi.fn();
+    const declines = vi.fn(() => false as const);
+    cleanups.push(
+      registerShortcuts(
+        { current: { n: menu, j: declines } },
+        { priority: true },
+      ),
+    );
+    press("n");
+    expect(menu).toHaveBeenCalledOnce();
+    expect(page).toHaveBeenCalledOnce();
+    press("j");
+    expect(declines).toHaveBeenCalledOnce();
+    expect(page).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores typing, composition and browser modifier shortcuts", () => {
     const action = vi.fn();
     register({ j: action, f: action, "1": action, "/": action });
