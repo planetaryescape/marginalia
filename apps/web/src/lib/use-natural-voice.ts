@@ -5,6 +5,7 @@ import {
   buildQueue,
   firstItemFrom,
   gapAfter,
+  MAX_IN_FLIGHT,
   nextBlockItem,
   planFetches,
   previousItem,
@@ -78,20 +79,50 @@ const isAbort = (error: unknown) =>
 let unsettled = 0;
 /** The planners of the players that are listening, woken whenever any request settles. */
 const planners = new Set<() => void>();
+/** Samples waiting for a slot, in order. Each takes one if it can and says whether it did. */
+const slotWaiters: (() => boolean)[] = [];
 const wakePlanners = () => {
+  // A waiting sample goes first: the reader is listening for it, and a
+  // sample pauses Listen, so its lookahead can wait
+  while (slotWaiters.length && unsettled < MAX_IN_FLIGHT)
+    if (!slotWaiters[0]()) break;
+    else slotWaiters.shift();
   for (const plan of [...planners]) plan();
 };
 
 /**
- * Counts a speech request made outside a player (a voice sample) in the same
- * shared tally, so Listen asks for less while it is unanswered.
+ * Runs a speech request made outside a player (a voice sample) under the same
+ * cap: it waits for a free slot, holds it until it settles, and is dropped
+ * unsent if `signal` aborts while it waits.
  */
-export function trackSpeechRequest<T>(work: () => Promise<T>): Promise<T> {
-  unsettled += 1;
-  return new Promise<T>((resolve) => resolve(work())).finally(() => {
-    unsettled -= 1;
-    wakePlanners();
+export function trackSpeechRequest<T>(
+  work: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  const slot = new Promise<void>((resolve, reject) => {
+    const take = () => {
+      if (unsettled >= MAX_IN_FLIGHT) return false;
+      unsettled += 1;
+      signal.removeEventListener("abort", drop);
+      resolve();
+      return true;
+    };
+    const drop = () => {
+      const at = slotWaiters.indexOf(take);
+      if (at !== -1) slotWaiters.splice(at, 1);
+      reject(new DOMException("The sample was cancelled.", "AbortError"));
+    };
+    if (signal.aborted) return drop();
+    if (take()) return;
+    slotWaiters.push(take);
+    signal.addEventListener("abort", drop, { once: true });
   });
+  return slot.then(() =>
+    new Promise<T>((resolve) => resolve(work())).finally(() => {
+      unsettled -= 1;
+      wakePlanners();
+    }),
+  );
 }
 
 /**
@@ -459,7 +490,13 @@ function createPlayer(env: PlayerEnv) {
      */
     revoice() {
       if (playing < 0) return;
-      for (const i of [...clips.keys()]) if (i > playing) clips.delete(i);
+      // A current clip that hasn't started is unheard, so it goes too, unless
+      // it failed: Retry owns a failure
+      const keep =
+        holding === playing || clips.get(playing)?.status === "failed"
+          ? playing
+          : playing - 1;
+      for (const i of [...clips.keys()]) if (i > keep) clips.delete(i);
       fetchAhead();
     },
   };

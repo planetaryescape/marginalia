@@ -74,10 +74,13 @@ export function ListeningSettings({
   // for the first and the last, not one per press
   const requesting = useRef(false);
   const queued = useRef<SampleRequest | null>(null);
+  /** Drops a sample still waiting for a slot; one already sent can't be called back. */
+  const waiting = useRef<AbortController | null>(null);
 
   const silence = () => {
     tokens.current += 1;
     queued.current = null;
+    waiting.current?.abort();
     audio.current?.pause();
     if (url.current) URL.revokeObjectURL(url.current);
     url.current = null;
@@ -98,6 +101,7 @@ export function ListeningSettings({
   useEffect(
     () => () => {
       tokens.current += 1;
+      waiting.current?.abort();
       audio.current?.pause();
       if (url.current) URL.revokeObjectURL(url.current);
       const reader = listen.current;
@@ -135,8 +139,11 @@ export function ListeningSettings({
     const element = audio.current;
     if (!reader || !element) return;
     requesting.current = true;
-    trackSpeechRequest(() =>
-      requestSpeechClip({ articleId: reader.articleId, text, voice }),
+    const controller = new AbortController();
+    waiting.current = controller;
+    trackSpeechRequest(
+      () => requestSpeechClip({ articleId: reader.articleId, text, voice }),
+      controller.signal,
     )
       .then((bytes) => {
         if (tokens.current !== token) return;

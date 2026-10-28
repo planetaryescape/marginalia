@@ -826,6 +826,7 @@ describe("requests made outside the player", () => {
         new Promise<void>((resolve) => {
           answer = resolve;
         }),
+      new AbortController().signal,
     );
     mountArticle(plain());
     await act(async () => root.render(<Harness />));
@@ -836,6 +837,79 @@ describe("requests made outside the player", () => {
       await sample;
     });
     expect(calls).toHaveLength(2);
+  });
+
+  it("makes a sample wait while Listen holds both slots, and sends it when one frees", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    expect(calls).toHaveLength(2);
+    let answer: () => void = () => {};
+    const work = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const sample = trackSpeechRequest(work, new AbortController().signal);
+    await act(async () => undefined);
+    expect(work).not.toHaveBeenCalled();
+    await settle(0);
+    expect(work).toHaveBeenCalledTimes(1);
+    // The sample took the freed slot before Listen's lookahead did
+    expect(calls).toHaveLength(2);
+    await act(async () => {
+      answer();
+      await sample;
+    });
+    expect(calls).toHaveLength(3);
+  });
+
+  it("drops a waiting sample unsent when it is cancelled", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    const work = vi.fn(async () => undefined);
+    const controller = new AbortController();
+    const sample = trackSpeechRequest(work, controller.signal);
+    controller.abort();
+    await expect(sample).rejects.toMatchObject({ name: "AbortError" });
+    await settle(0);
+    await settle(1);
+    expect(work).not.toHaveBeenCalled();
+  });
+});
+
+describe("changing voice before the current clip starts", () => {
+  const voiceB: ClipSource = (text, signal) => source(`B:${text}`, signal);
+
+  it("asks for the unheard current clip again in the new voice", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    expect(listen.status).toBe("preparing");
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    // Both slots are still held by the old voice's requests
+    await settle(0);
+    expect(calls[2].text).toBe(`B:${paragraphText(0)}`);
+    expect(listen.status).toBe("preparing");
+    await settle(2);
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(0));
+  });
+
+  it("keeps a paused preparation paused, and resumes it in the new voice", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await act(async () => listen.togglePause());
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    await settle(0);
+    expect(calls[2].text).toBe(`B:${paragraphText(0)}`);
+    await settle(2);
+    expect(listen.status).toBe("paused");
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("playing");
   });
 });
 
