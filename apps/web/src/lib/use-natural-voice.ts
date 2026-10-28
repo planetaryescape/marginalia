@@ -113,6 +113,7 @@ function createPlayer(env: PlayerEnv) {
   let fadeTimer: ReturnType<typeof setTimeout> | undefined;
   /** The item whose clip the element holds, which Previous measures its 3 s against. */
   let holding = -1;
+  let restartTimer: ReturnType<typeof setTimeout> | undefined;
 
   function set(next: ListenStatus, error: string | null = null) {
     status = next;
@@ -215,6 +216,7 @@ function createPlayer(env: PlayerEnv) {
     abort = null;
     clearTimeout(gapTimer);
     clearTimeout(fadeTimer);
+    clearRestart();
     planners.delete(fetchAhead);
     resume = null;
     loaded = null;
@@ -348,6 +350,26 @@ function createPlayer(env: PlayerEnv) {
     begin(playing);
   }
 
+  function clearRestart() {
+    clearTimeout(restartTimer);
+    for (const el of document.querySelectorAll("[data-restarting]"))
+      el.removeAttribute("data-restarting");
+  }
+
+  /**
+   * Previous that restarts the block leaves the highlight where it was, which
+   * reads as a dead button, so the wash fades in again on the same paragraph.
+   */
+  function cueRestart(block: number) {
+    clearRestart();
+    const el = paragraphs[block];
+    if (!el) return;
+    // Reading layout ends the old animation, so re-adding the attribute replays it
+    void el.offsetWidth;
+    el.setAttribute("data-restarting", "");
+    restartTimer = setTimeout(clearRestart, 700);
+  }
+
   function jump(i: number) {
     loaded = null;
     audio?.pause();
@@ -412,7 +434,10 @@ function createPlayer(env: PlayerEnv) {
       if (playing < 0) return;
       // Only the playing item's own clip has a time worth measuring
       const elapsed = holding === playing ? (audio?.currentTime ?? 0) : 0;
-      jump(previousItem(queue, playing, elapsed));
+      const target = previousItem(queue, playing, elapsed);
+      if (queue[target].block === queue[playing].block)
+        cueRestart(Math.max(0, queue[target].block));
+      jump(target);
     },
     retry,
   };

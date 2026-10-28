@@ -1,5 +1,7 @@
 # Listen is hard to control from the keyboard, and Previous gives no sign it worked
 
+Status: done 2026-10-28. Decision D-TTS-027 in `docs/listen/blueprint/07-decisions.md`. The pill follows the toolbar in Tab order; Space, `[` and `]` control Listen while it's on; Media Session handlers took the media keys; the pill says Paused; Previous replays the wash when it restarts a paragraph.
+
 Found in the 2026-10-28 QA run on reader.bhekani.com (frontend `06cae83`), in the keyboard-only charter. It's usability friction, not a broken requirement.
 
 ## What happens
@@ -17,4 +19,4 @@ Found in the 2026-10-28 QA run on reader.bhekani.com (frontend `06cae83`), in th
 
 ## Open questions
 
-- Should Space pause Listen? In the reader it scrolls the page today.
+- ~~Should Space pause Listen? In the reader it scrolls the page today.~~ Assumed yes while Listen is on, and scrolling otherwise (D-TTS-027). BK to confirm by use.

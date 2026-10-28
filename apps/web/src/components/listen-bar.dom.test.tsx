@@ -90,6 +90,14 @@ it("moves the dot between breathing and dim, and offers Resume when paused", asy
   expect(document.querySelector('[aria-label="Resume"]')).not.toBeNull();
 });
 
+it("says Paused while paused, so the state is more than a dimmer dot", async () => {
+  const label = () => document.querySelector(".listen-label")?.textContent;
+  await render({ status: "playing" });
+  expect(label()).toBe("Listening");
+  await render({ status: "paused" });
+  expect(label()).toBe("Paused");
+});
+
 it("lets Previous be pressed at the first paragraph, where it restarts it or goes back to the title", async () => {
   const onPrevious = vi.fn();
   await render({ index: 0, onPrevious });

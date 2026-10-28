@@ -99,13 +99,14 @@ import { articleProgress } from "@/lib/reading-clock";
 import { useListen, useReadingPosition } from "@/lib/reading-modes";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
-import { emitCommand, useShortcuts } from "@/lib/shortcuts";
+import { emitCommand, isOnControl, useShortcuts } from "@/lib/shortcuts";
 import { findTextRange, rangeText } from "@/lib/text-range";
 import { markFinished } from "@/lib/title-handoff";
 import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
+import { useListenMediaSession } from "@/lib/use-listen-media-session";
 import { useMarginMode } from "@/lib/use-margin-mode";
 import {
   useLegacyMarkDefaults,
@@ -472,6 +473,16 @@ export default function ReadPage() {
     article?.contentHtml,
     speechClip,
     article ? { title: article.title, author: article.author } : undefined,
+  );
+  useListenMediaSession(
+    listen,
+    article
+      ? {
+          title: article.title,
+          author: article.author,
+          url: article.uploadedFileName ? undefined : article.url,
+        }
+      : undefined,
   );
   const {
     trackAnnotationOpen,
@@ -1061,6 +1072,13 @@ export default function ReadPage() {
       ",": () => emitCommand("open-settings"),
       u: () => emitCommand("toggle-summary"),
       l: () => toggleListen(),
+      // Only while listening: otherwise Space scrolls and [ ] do nothing here
+      " ": (event) => {
+        if (!listen.active || isOnControl(event)) return false;
+        listen.togglePause();
+      },
+      "[": () => (listen.active ? listen.previous() : false),
+      "]": () => (listen.active ? listen.next() : false),
       o: () => {
         // A verse's markup may have no numbered paragraph around it.
         const verse = verseCursor.range();
@@ -1115,6 +1133,8 @@ export default function ReadPage() {
           ["n", "Open notes"],
           [",", "Reading settings"],
           ["l", "Listen"],
+          ["Space", "Pause or resume, while listening"],
+          ["[  ]", "Previous and next paragraph, while listening"],
           ["Backspace", "Back to where you were"],
           ["Esc", "Back to the room you came from"],
         ],
@@ -1434,6 +1454,23 @@ export default function ReadPage() {
           listening: listen.active,
           onToggleListen: toggleListen,
         }}
+      />
+
+      {/* Fixed at the bottom, but next to the toolbar in Tab order, so its
+          controls are reached before the article, not after its back matter */}
+      <ListenBar
+        status={listen.status}
+        index={listen.index}
+        total={paragraphs.count}
+        error={listen.error}
+        needsKey={listen.needsKey}
+        deviceSupported={listen.deviceSupported}
+        onTogglePause={listen.togglePause}
+        onPrevious={listen.previous}
+        onNext={listen.next}
+        onStop={listen.stop}
+        onRetry={listen.retry}
+        onUseDeviceVoice={listen.chooseDeviceVoice}
       />
 
       {listenUnavailable && (
@@ -1959,21 +1996,6 @@ export default function ReadPage() {
           onClose={closeLeavingLink}
         />
       ) : null}
-
-      <ListenBar
-        status={listen.status}
-        index={listen.index}
-        total={paragraphs.count}
-        error={listen.error}
-        needsKey={listen.needsKey}
-        deviceSupported={listen.deviceSupported}
-        onTogglePause={listen.togglePause}
-        onPrevious={listen.previous}
-        onNext={listen.next}
-        onStop={listen.stop}
-        onRetry={listen.retry}
-        onUseDeviceVoice={listen.chooseDeviceVoice}
-      />
 
       {answerThread && answerPaneOpen && answerCard(false, true)}
 
