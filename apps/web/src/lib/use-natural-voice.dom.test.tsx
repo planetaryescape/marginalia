@@ -988,6 +988,28 @@ describe("changing voice before the current clip starts", () => {
     );
   });
 
+  it("re-voices a Retry whose playback hasn't started yet", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    audio().play.mockImplementationOnce(() =>
+      Promise.reject(new DOMException("blocked", "NotAllowedError")),
+    );
+    await settle(0);
+    expect(listen.status).toBe("failed");
+    audio().play.mockImplementationOnce(() => new Promise<void>(() => {}));
+    await act(async () => listen.retry());
+    expect(listen.status).toBe("preparing");
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    await settle(1);
+    const renewed = calls.findIndex(
+      (call) => call.text === `B:${paragraphText(0)}`,
+    );
+    expect(renewed).toBeGreaterThan(1);
+    await settle(renewed);
+    expect(listen.status).toBe("playing");
+  });
+
   it("keeps a paused preparation paused, and resumes it in the new voice", async () => {
     mountArticle(plain());
     await act(async () => root.render(<Harness />));

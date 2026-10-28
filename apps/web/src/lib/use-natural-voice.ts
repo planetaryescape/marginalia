@@ -330,9 +330,10 @@ function createPlayer(env: PlayerEnv) {
     const pausedAt = pauses;
     const attempt = ensureAudio().play();
     resume = null;
-    // A resumed clip is starting again: until play() resolves it is not paused,
-    // so Pause has to be able to stop it
-    if (status === "paused") set("preparing");
+    // A resumed or retried clip is starting again: until play() resolves it is
+    // neither paused nor failed, so Pause can stop it and a voice change can
+    // replace it
+    if (status === "paused" || status === "failed") set("preparing");
     attempt.then(
       () => {
         if (token !== session || loaded !== url || pausedAt !== pauses) return;
