@@ -1,14 +1,37 @@
 "use client";
 import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
-import { useAction } from "convex/react";
+import { ConvexHttpClient } from "convex/browser";
+import { ConvexError } from "convex/values";
 import { useMemo } from "react";
+import { getConvexToken } from "./convex-token";
 import type { ClipSource } from "./use-natural-voice";
 
 type SpeechClip = (args: {
   articleId: Id<"articles">;
   text: string;
 }) => Promise<ArrayBuffer>;
+
+// The sentence the action's own auth check gives a signed-out caller
+const SIGN_IN = "Sign in to your private reader.";
+
+/**
+ * Calls the speech action over HTTP, not the websocket client: the client's
+ * beforeunload prompt fires while any request it sent is pending, so a clip in
+ * flight would make reloading ask about unsaved changes.
+ */
+export async function requestSpeechClip(args: {
+  articleId: Id<"articles">;
+  text: string;
+}): Promise<ArrayBuffer> {
+  const token = await getConvexToken();
+  if (!token) throw new ConvexError(SIGN_IN);
+  const client = new ConvexHttpClient(
+    process.env.NEXT_PUBLIC_CONVEX_URL as string,
+    { auth: token },
+  );
+  return client.action(api.speech.clip, args);
+}
 
 /**
  * Turns the speech action into the player's clip source: the action returns
@@ -27,6 +50,8 @@ export function speechClipSource(
 
 /** The clip source for an article; a book's parts use the book's own id. */
 export function useSpeechClip(articleId: Id<"articles">): ClipSource {
-  const clip = useAction(api.speech.clip);
-  return useMemo(() => speechClipSource(clip, articleId), [clip, articleId]);
+  return useMemo(
+    () => speechClipSource(requestSpeechClip, articleId),
+    [articleId],
+  );
 }
