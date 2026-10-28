@@ -446,6 +446,7 @@ export function SelectionToolbar({
     },
     menuOpen,
     {
+      priority: true,
       help: {
         group: "Passage actions",
         keys: [

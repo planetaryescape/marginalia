@@ -2,7 +2,8 @@
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useShortcuts } from "@/lib/shortcuts";
+import { escapeGoesBack } from "@/lib/reader-escape";
+import { registerShortcuts, useShortcuts } from "@/lib/shortcuts";
 import { rangeText } from "@/lib/text-range";
 import { useVerseCursor } from "@/lib/use-verse-cursor";
 import { SelectionToolbar } from "./selection-toolbar";
@@ -274,6 +275,63 @@ describe("Enter opens Passage actions on the cursor", () => {
     await frame();
     await act(async () => press("c"));
     expect(write).toHaveBeenCalledWith("First paragraph, read aloud.");
+  });
+
+  describe("beside the page's own keys", () => {
+    const page = { n: vi.fn(), j: vi.fn(), Escape: vi.fn() };
+    let unregister: () => void;
+    beforeEach(() => {
+      Object.values(page).forEach((fn) => {
+        fn.mockReset();
+      });
+      // The page registers when the article loads, before any menu exists.
+      unregister = registerShortcuts({ current: page });
+    });
+    afterEach(() => unregister());
+
+    it("n adds a note instead of opening notes", async () => {
+      press("Enter");
+      await frame();
+      await act(async () => press("n"));
+      expect(onAddNote).toHaveBeenCalledOnce();
+      expect(page.n).not.toHaveBeenCalled();
+      press("n");
+      expect(page.n).toHaveBeenCalledOnce();
+    });
+
+    it("j closes the menu and then reaches the page's j", async () => {
+      press("Enter");
+      await frame();
+      await act(async () => press("j"));
+      expect(menu()).toBeNull();
+      expect(page.j).toHaveBeenCalledOnce();
+    });
+
+    it("Escape closes the menu and does not go back to the room", async () => {
+      const left = vi.fn();
+      const onEscape = (e: KeyboardEvent) => {
+        if (
+          escapeGoesBack(
+            {
+              key: e.key,
+              defaultPrevented: e.defaultPrevented,
+              target: e.target,
+            },
+            { readerPanelOpen: false, selectionActive: false },
+            document,
+          )
+        )
+          left();
+      };
+      window.addEventListener("keydown", onEscape);
+      press("Enter");
+      await frame();
+      press("Escape");
+      expect(menu()).toBeNull();
+      expect(page.Escape).not.toHaveBeenCalled();
+      expect(left).not.toHaveBeenCalled();
+      window.removeEventListener("keydown", onEscape);
+    });
   });
 
   it("leaves n, c and t alone when the menu is closed", () => {
