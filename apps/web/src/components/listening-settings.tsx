@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { InlineError } from "@/components/in-place";
 import { failureSentence } from "@/lib/failure-copy";
-import { SILENT_CLIP } from "@/lib/use-natural-voice";
+import { SILENT_CLIP, trackSpeechRequest } from "@/lib/use-natural-voice";
 import { requestSpeechClip } from "@/lib/use-speech-clip";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ export interface VoiceSampleSource {
 }
 
 type Sampling = { voice: string; token: number };
+type SampleRequest = Sampling & { text: string };
 
 /**
  * Settings › Listening (03-voices-and-providers): the Kokoro voices as a radio
@@ -68,14 +69,30 @@ export function ListeningSettings({
   listen.current = sample;
   /** Set when a sample paused Listen, so leaving the voices resumes it. */
   const pausedListen = useRef(false);
+  // One sample request at a time; a press while it runs waits here, and a
+  // later press replaces it, so trying voices quickly sends one request each
+  // for the first and the last, not one per press
+  const requesting = useRef(false);
+  const queued = useRef<SampleRequest | null>(null);
 
   const silence = () => {
     tokens.current += 1;
+    queued.current = null;
     audio.current?.pause();
     if (url.current) URL.revokeObjectURL(url.current);
     url.current = null;
     setSampling(null);
   };
+
+  // Listen resumed from elsewhere (headphones, the lock screen): the sample
+  // gives way, and closing settings no longer has a pause of its own to undo
+  const listenPlaying = sample?.listenPlaying ?? false;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when Listen starts playing
+  useEffect(() => {
+    if (!listenPlaying) return;
+    pausedListen.current = false;
+    if (sampling) silence();
+  }, [listenPlaying]);
 
   // Closing settings or changing tab ends the sample and gives Listen back
   useEffect(
@@ -106,23 +123,32 @@ export function ListeningSettings({
     setSampling({ voice, token });
     // Started inside the press, so mobile browsers let it play after the await
     audio.current ??= new Audio();
+    audio.current.src = SILENT_CLIP;
+    audio.current.play().catch(() => undefined);
+    const next = { voice, token, text: sample.text() };
+    if (requesting.current) queued.current = next;
+    else send(next);
+  };
+
+  const send = ({ voice, token, text }: SampleRequest) => {
+    const reader = listen.current;
     const element = audio.current;
-    element.src = SILENT_CLIP;
-    element.play().catch(() => undefined);
-    element.onended = () => {
-      if (tokens.current === token) silence();
-    };
-    requestSpeechClip({
-      articleId: sample.articleId,
-      text: sample.text(),
-      voice,
-    })
+    if (!reader || !element) return;
+    requesting.current = true;
+    trackSpeechRequest(() =>
+      requestSpeechClip({ articleId: reader.articleId, text, voice }),
+    )
       .then((bytes) => {
         if (tokens.current !== token) return;
-        url.current = URL.createObjectURL(
+        const clip = URL.createObjectURL(
           new Blob([bytes], { type: "audio/mpeg" }),
         );
-        element.src = url.current;
+        url.current = clip;
+        // The priming clip's own end must not count as the sample's
+        element.onended = () => {
+          if (tokens.current === token && url.current === clip) silence();
+        };
+        element.src = clip;
         return element.play();
       })
       .catch((error: unknown) => {
@@ -132,6 +158,12 @@ export function ListeningSettings({
           voice,
           message: failureSentence(error, "The sample couldn't play."),
         });
+      })
+      .finally(() => {
+        requesting.current = false;
+        const waiting = queued.current;
+        queued.current = null;
+        if (waiting && waiting.token === tokens.current) send(waiting);
       });
   };
 
@@ -242,8 +274,9 @@ export function ListeningSettings({
           className="text-[11.5px] leading-relaxed text-[var(--reader-muted)]"
         >
           Uses your OpenRouter key, about 3 cents an hour for any of these
-          voices. Play, or Space on a voice, reads the paragraph you're on. A
-          new voice starts at the next paragraph.
+          voices. Play, or Space on a voice, reads the paragraph you're on.
+          While listening, the clip playing finishes in the old voice and the
+          next one is in the new voice.
         </p>
       )}
     </div>

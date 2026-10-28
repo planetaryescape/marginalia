@@ -83,6 +83,18 @@ const wakePlanners = () => {
 };
 
 /**
+ * Counts a speech request made outside a player (a voice sample) in the same
+ * shared tally, so Listen asks for less while it is unanswered.
+ */
+export function trackSpeechRequest<T>(work: () => Promise<T>): Promise<T> {
+  unsettled += 1;
+  return new Promise<T>((resolve) => resolve(work())).finally(() => {
+    unsettled -= 1;
+    wakePlanners();
+  });
+}
+
+/**
  * The state machine of 05-player. It lives outside React so that the audio
  * events, timers and fetch completions that drive it all see one current
  * state; the hook only publishes snapshots. Every async completion checks the

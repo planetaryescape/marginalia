@@ -139,6 +139,58 @@ it("plays the focused voice's sample on Space instead of re-checking it", async 
   );
 });
 
+it("isn't cut off by the priming clip ending before the sample arrives", async () => {
+  let answer: (bytes: ArrayBuffer) => void = () => {};
+  state.clip.mockReturnValueOnce(
+    new Promise<ArrayBuffer>((resolve) => {
+      answer = resolve;
+    }),
+  );
+  await render();
+  await act(async () => playButton("Kokoro · Emma").click());
+  await act(async () => FakeAudio.all[0].onended?.());
+  await act(async () => answer(new Uint8Array([1]).buffer));
+  expect(FakeAudio.all[0].src).toBe("blob:sample");
+  expect(
+    document.querySelector('[aria-label="Stop the Kokoro · Emma sample"]'),
+  ).not.toBeNull();
+});
+
+it("sends one request for the first and the last voice when voices are tried quickly", async () => {
+  let answer: (bytes: ArrayBuffer) => void = () => {};
+  state.clip.mockReturnValueOnce(
+    new Promise<ArrayBuffer>((resolve) => {
+      answer = resolve;
+    }),
+  );
+  await render();
+  await act(async () => playButton("Kokoro · Emma").click());
+  await act(async () => playButton("Kokoro · Heart").click());
+  await act(async () => playButton("Kokoro · Emma").click());
+  expect(state.clip).toHaveBeenCalledTimes(1);
+  await act(async () => answer(new Uint8Array([1]).buffer));
+  expect(state.clip).toHaveBeenCalledTimes(2);
+  expect(state.clip).toHaveBeenLastCalledWith(
+    expect.objectContaining({ voice: EMMA }),
+  );
+});
+
+it("stops the sample when Listen resumes from elsewhere, and doesn't pause it again on close", async () => {
+  await render();
+  await act(async () => playButton("Kokoro · Emma").click());
+  expect(listen.toggleListenPause).toHaveBeenCalledTimes(1);
+  // Headphones resume Listen while the sample plays
+  listen = { ...listen, listenPlaying: true, listenPaused: false };
+  await render();
+  expect(
+    document.querySelector('[aria-label="Play a sample of Kokoro · Emma"]'),
+  ).not.toBeNull();
+  expect(FakeAudio.all[0].pause).toHaveBeenCalled();
+  await act(async () => root.unmount());
+  expect(listen.toggleListenPause).toHaveBeenCalledTimes(1);
+  root = createRoot(document.getElementById("mount") as HTMLElement);
+});
+
 it("shows the action's sentence when a sample fails, with Retry", async () => {
   state.clip.mockRejectedValueOnce(
     new ConvexError("Your OpenRouter credit has run out."),

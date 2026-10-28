@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useListen } from "./reading-modes";
-import type { ClipSource } from "./use-natural-voice";
+import { type ClipSource, trackSpeechRequest } from "./use-natural-voice";
 
 const query = vi.hoisted(() => ({
   value: { providers: ["openrouter"] } as { providers: string[] } | undefined,
@@ -815,6 +815,27 @@ describe("going back twice", () => {
     for (const call of calls.slice(requested))
       expect(call.text).not.toMatch(/Paragraph [012] /);
     expect(created.length - revoked.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("requests made outside the player", () => {
+  it("counts a voice sample in flight against the two-request cap", async () => {
+    let answer: () => void = () => {};
+    const sample = trackSpeechRequest(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    expect(calls).toHaveLength(1);
+    await act(async () => {
+      answer();
+      await sample;
+    });
+    expect(calls).toHaveLength(2);
   });
 });
 
