@@ -88,7 +88,7 @@ The toolbar stays visible at every width and scroll position. Once the article's
 
 Nothing under the bar is lost: `scroll-padding-top` on `html` (5rem) keeps anchor jumps and `scrollIntoView` targets clear of it, and so does the keyboard cursor's `scroll-margin-top`.
 
-Phones keep today's bottom bar, renamed to the glossary: **Ask · Notes · Listen · Done** (and **Mark unread** once finished). The top bar keeps ← Desk, the truncated title, Aa and ⋯.
+Phones keep today's bottom bar, renamed to the glossary: **Ask · Notes · Listen · Done** (and **Mark unread** once finished). The top bar keeps ← Desk, Aa and ⋯, and shows the truncated title once the heading scrolls away, as on wide screens (D-DES-070).
 
 ## Front matter
 

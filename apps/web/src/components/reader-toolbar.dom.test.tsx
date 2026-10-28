@@ -173,10 +173,14 @@ describe("toolbar", () => {
     heading.remove();
   });
 
-  it("keeps the phone title in its own always-visible span", async () => {
+  it("has one title slot at every width, so phones never show the title twice", async () => {
     await render();
-    const phone = required<HTMLElement>(toolbar(), "span.sm\\:hidden");
-    expect(phone.textContent).toBe("A title");
+    expect(toolbar().querySelector("span.sm\\:hidden")).toBeNull();
+    const slot = required<HTMLElement>(
+      toolbar(),
+      '[data-testid="reader-toolbar-title"]',
+    );
+    expect(slot.className).not.toContain("hidden");
   });
 
   it("names the key in the Notes tooltip and shows no keycap without Alt", async () => {

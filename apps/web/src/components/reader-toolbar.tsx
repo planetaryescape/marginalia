@@ -131,14 +131,11 @@ export function ReaderToolbar({
             <span className="hidden sm:inline">{backLabel}</span>
           </Link>
 
-          <span className="sm:hidden flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]">
-            {title}
-          </span>
           <span
             data-testid="reader-toolbar-title"
             data-shown={headingAway}
             aria-hidden="true"
-            className="reader-toolbar-title hidden sm:block flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]"
+            className="reader-toolbar-title flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]"
           >
             {compactTitle}
           </span>
