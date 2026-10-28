@@ -495,9 +495,11 @@ function createPlayer(env: PlayerEnv) {
     revoice() {
       if (playing < 0) return;
       // A current clip that hasn't been heard goes too, unless it failed:
-      // Retry owns a failure
+      // Retry owns a failure, whether the clip or its playback failed
       const unheard =
-        !started && clips.get(playing)?.status !== "failed" && status !== "gap";
+        !started &&
+        status !== "failed" &&
+        clips.get(playing)?.status !== "failed";
       for (const i of [...clips.keys()])
         if (i > playing || (unheard && i === playing)) clips.delete(i);
       if (unheard && loaded !== null) {

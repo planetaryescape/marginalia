@@ -944,6 +944,50 @@ describe("changing voice before the current clip starts", () => {
     expect(audio().src).not.toBe(oldSrc);
   });
 
+  it("re-voices the next clip when the voice changes as it loads after a gap", async () => {
+    await act(async () => undefined);
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    await settle(1);
+    const firstSrc = audio().src;
+    // The next clip is loaded after the gap, but its play() hasn't resolved
+    audio().play.mockImplementationOnce(() => new Promise<void>(() => {}));
+    await ended();
+    await elapse(400);
+    expect(audio().src).not.toBe(firstSrc);
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    await settle(2);
+    await settle(3);
+    const renewed = calls.findIndex(
+      (call) => call.text === `B:${paragraphText(1)}`,
+    );
+    expect(renewed).toBeGreaterThan(3);
+    await settle(renewed);
+    expect(listen.status).toBe("playing");
+    expect(listen.index).toBe(1);
+  });
+
+  it("leaves a blocked playback to Retry when the voice changes", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    audio().play.mockImplementationOnce(() =>
+      Promise.reject(new DOMException("blocked", "NotAllowedError")),
+    );
+    await settle(0);
+    expect(listen.status).toBe("failed");
+    const plays = audio().play.mock.calls.length;
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    await settle(1);
+    expect(listen.status).toBe("failed");
+    expect(audio().play.mock.calls.length).toBe(plays);
+    expect(calls.some((call) => call.text === `B:${paragraphText(0)}`)).toBe(
+      false,
+    );
+  });
+
   it("keeps a paused preparation paused, and resumes it in the new voice", async () => {
     mountArticle(plain());
     await act(async () => root.render(<Harness />));
