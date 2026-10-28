@@ -75,6 +75,8 @@ The device voice keeps today's `pickVoice()` unchanged. It's a fallback, and pol
 
 ## Settings › Listening
 
+Built in rung 1b as the **Listen** tab of reading settings, beside Look, Text and Answers (D-TTS-028). `userSettings.getSpeechVoice` returns the resolved choice and the voices; `userSettings.setSpeechVoice` refuses an ID outside the catalog. A sample pauses a playing listen and resumes it when the tab closes, so two voices never talk at once.
+
 A new section in reader settings, below Models, built with the design blueprint's settings form pattern ([02](02-design-concept.md#settings--listening) has the layout and feel):
 
 - **Voice.** A radio list of the catalog voices. Each row has its name, character, cost per hour and a ▶ sample. The choice is stored as `speechVoice` (a catalog `id`) in `userSettings`, beside `annotationModel`, `quickModel` and `deepModel`, because it's an account choice that should follow the reader across devices. A stored ID that's no longer in the catalog falls back to the default.

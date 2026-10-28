@@ -5,6 +5,7 @@ import {
   buildQueue,
   firstItemFrom,
   gapAfter,
+  MAX_IN_FLIGHT,
   nextBlockItem,
   planFetches,
   previousItem,
@@ -41,7 +42,7 @@ const IDLE: PlayerSnapshot = { status: "idle", index: null, error: null };
 
 // A silent clip played inside the click or keypress, so mobile browsers count
 // the element as user-activated for the rest of the session (05-player)
-const SILENT_CLIP =
+export const SILENT_CLIP =
   "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
 
 type ClipEntry =
@@ -78,9 +79,51 @@ const isAbort = (error: unknown) =>
 let unsettled = 0;
 /** The planners of the players that are listening, woken whenever any request settles. */
 const planners = new Set<() => void>();
+/** Samples waiting for a slot, in order. Each takes one if it can and says whether it did. */
+const slotWaiters: (() => boolean)[] = [];
 const wakePlanners = () => {
+  // A waiting sample goes first: the reader is listening for it, and a
+  // sample pauses Listen, so its lookahead can wait
+  while (slotWaiters.length && unsettled < MAX_IN_FLIGHT)
+    if (!slotWaiters[0]()) break;
+    else slotWaiters.shift();
   for (const plan of [...planners]) plan();
 };
+
+/**
+ * Runs a speech request made outside a player (a voice sample) under the same
+ * cap: it waits for a free slot, holds it until it settles, and is dropped
+ * unsent if `signal` aborts while it waits.
+ */
+export function trackSpeechRequest<T>(
+  work: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  const slot = new Promise<void>((resolve, reject) => {
+    const take = () => {
+      if (unsettled >= MAX_IN_FLIGHT) return false;
+      unsettled += 1;
+      signal.removeEventListener("abort", drop);
+      resolve();
+      return true;
+    };
+    const drop = () => {
+      const at = slotWaiters.indexOf(take);
+      if (at !== -1) slotWaiters.splice(at, 1);
+      reject(new DOMException("The sample was cancelled.", "AbortError"));
+    };
+    if (signal.aborted) return drop();
+    if (take()) return;
+    slotWaiters.push(take);
+    signal.addEventListener("abort", drop, { once: true });
+  });
+  return slot.then(() =>
+    new Promise<T>((resolve) => resolve(work())).finally(() => {
+      unsettled -= 1;
+      wakePlanners();
+    }),
+  );
+}
 
 /**
  * The state machine of 05-player. It lives outside React so that the audio
@@ -113,6 +156,10 @@ function createPlayer(env: PlayerEnv) {
   let fadeTimer: ReturnType<typeof setTimeout> | undefined;
   /** The item whose clip the element holds, which Previous measures its 3 s against. */
   let holding = -1;
+  /** Whether the playing item's clip has been heard: its play() resolved. */
+  let started = false;
+  /** Items whose clip has sounded this run, which a voice change leaves alone. */
+  const heard = new Set<number>();
   let restartTimer: ReturnType<typeof setTimeout> | undefined;
 
   function set(next: ListenStatus, error: string | null = null) {
@@ -142,7 +189,8 @@ function createPlayer(env: PlayerEnv) {
   }
 
   function onEnded() {
-    if (loaded === null || audio?.src !== loaded) return;
+    // A failure waits for Retry, whatever the element reports afterwards
+    if (status === "failed" || loaded === null || audio?.src !== loaded) return;
     // Nothing is loaded for the next item yet, so a pause in the gap or while
     // preparing has no element to pause
     loaded = null;
@@ -228,6 +276,7 @@ function createPlayer(env: PlayerEnv) {
     }
     revokeLive();
     clips.clear();
+    heard.clear();
     queue = [];
     paragraphs = [];
     playing = -1;
@@ -285,12 +334,15 @@ function createPlayer(env: PlayerEnv) {
     const pausedAt = pauses;
     const attempt = ensureAudio().play();
     resume = null;
-    // A resumed clip is starting again: until play() resolves it is not paused,
-    // so Pause has to be able to stop it
-    if (status === "paused") set("preparing");
+    // A resumed or retried clip is starting again: until play() resolves it is
+    // neither paused nor failed, so Pause can stop it and a voice change can
+    // replace it
+    if (status === "paused" || status === "failed") set("preparing");
     attempt.then(
       () => {
         if (token !== session || loaded !== url || pausedAt !== pauses) return;
+        started = true;
+        heard.add(i);
         mark(queue[i].block, "speaking");
         set("playing");
         resume = null;
@@ -333,6 +385,7 @@ function createPlayer(env: PlayerEnv) {
   /** Moves the voice to item `i`: plays it if its clip is ready, else waits for it. */
   function begin(i: number) {
     playing = i;
+    started = false;
     loaded = null;
     clearTimeout(gapTimer);
     // The previous item's clip is done with: its URL goes, its Blob stays
@@ -440,6 +493,51 @@ function createPlayer(env: PlayerEnv) {
       jump(target);
     },
     retry,
+    /**
+     * The voice changed: what's ahead is dropped and asked for again in the new
+     * voice. The playing clip finishes in the old one, and clips already heard
+     * stay for Previous. A request still in flight answers into nothing.
+     */
+    revoice() {
+      if (playing < 0) return;
+      // A current clip that hasn't been heard goes too, unless it failed:
+      // Retry owns a failure, whether the clip or its playback failed
+      const unheard =
+        !started &&
+        status !== "failed" &&
+        clips.get(playing)?.status !== "failed";
+      // Clips ahead, and any behind that were skipped before they sounded, are
+      // asked for again in the new voice when the voice reaches them
+      for (const i of [...clips.keys()])
+        if (
+          i > playing ||
+          (i < playing && !heard.has(i)) ||
+          (unheard && i === playing)
+        )
+          clips.delete(i);
+      // Playback failed before the clip was heard: the failure stays on screen,
+      // and marking the clip failed makes Retry ask for it in the new voice
+      if (
+        status === "failed" &&
+        !started &&
+        clips.get(playing)?.status === "ready"
+      )
+        clips.set(playing, {
+          status: "failed",
+          error: new Error("The voice changed."),
+        });
+      if (unheard && loaded !== null) {
+        // Loaded but not yet sounding (play() pending, or paused before it
+        // resolved): unload it, so the new voice's clip is what starts
+        loaded = null;
+        holding = -1;
+        audio?.pause();
+        revokeLive();
+        if (status === "paused") resume = () => begin(playing);
+        else prepare(playing);
+      }
+      fetchAhead();
+    },
   };
 }
 
@@ -478,6 +576,11 @@ export function useNaturalVoice(
       ),
   });
   const current = player.current;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new source is a new voice
+  useEffect(() => {
+    current.revoice();
+  }, [current, clipSource]);
 
   // Prose identity, not paragraph geometry or arriving annotations, ends speech.
   // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes invalidate the captured paragraph array

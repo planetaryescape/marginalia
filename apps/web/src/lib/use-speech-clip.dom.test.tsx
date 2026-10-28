@@ -50,6 +50,13 @@ it("turns the action's bytes into an audio/mpeg Blob with the same bytes", async
   expect(clip).toHaveBeenCalledWith({ articleId, text: "Hello there." });
 });
 
+it("sends the chosen voice with every clip", async () => {
+  const clip = vi.fn().mockResolvedValue(audio.buffer);
+  const voice = "openrouter:hexgrad/kokoro-82m#bf_emma";
+  await speechClipSource(clip, articleId, voice)("Hello there.", signal);
+  expect(clip).toHaveBeenCalledWith({ articleId, text: "Hello there.", voice });
+});
+
 it("lets the action's ConvexError through untouched, so its sentence reaches the bar", async () => {
   const error = new ConvexError("Your OpenRouter credit has run out.");
   const source = speechClipSource(vi.fn().mockRejectedValue(error), articleId);
@@ -123,11 +130,11 @@ it("says the sign-in sentence without calling the action when there is no token"
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-it("gives the same clip source back while the article stays the same", async () => {
+it("gives the same clip source back while the article and voice stay the same", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const seen: ClipSource[] = [];
-  function Probe({ id }: { id: string }) {
-    seen.push(useSpeechClip(id as never));
+  function Probe({ id, voice }: { id: string; voice?: string }) {
+    seen.push(useSpeechClip(id as never, voice));
     return null;
   }
   const mount = document.createElement("div");
@@ -135,8 +142,10 @@ it("gives the same clip source back while the article stays the same", async () 
   await act(async () => root.render(<Probe id="a" />));
   await act(async () => root.render(<Probe id="a" />));
   await act(async () => root.render(<Probe id="b" />));
+  await act(async () => root.render(<Probe id="b" voice="v2" />));
   expect(seen[1]).toBe(seen[0]);
   expect(seen[2]).not.toBe(seen[0]);
+  expect(seen[3]).not.toBe(seen[2]);
   await act(async () => root.unmount());
 });
 

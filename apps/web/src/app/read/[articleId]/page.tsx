@@ -100,6 +100,7 @@ import { useListen, useReadingPosition } from "@/lib/reading-modes";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, isOnControl, useShortcuts } from "@/lib/shortcuts";
+import { splitLeading, spokenBlock } from "@/lib/spoken-text";
 import { findTextRange, rangeText } from "@/lib/text-range";
 import { markFinished } from "@/lib/title-handoff";
 import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
@@ -464,7 +465,8 @@ export default function ReadPage() {
     },
     [sourceArticle?.bible, closeStudy],
   );
-  const speechClip = useSpeechClip(articleKey);
+  const speechVoice = useQuery(api.userSettings.getSpeechVoice, {})?.selected;
+  const speechClip = useSpeechClip(articleKey, speechVoice);
   const listen = useListen(
     articleRef,
     articleId,
@@ -1024,6 +1026,19 @@ export default function ReadPage() {
       preventScroll: true,
     });
   };
+  // A sample reads the start of the paragraph being heard, or the one the
+  // reader is on, so voices are compared on the words they'll actually hear
+  const voiceSampleText = () => {
+    const list = getParagraphs(getArticleBody(articleRef.current));
+    const paragraph =
+      (listen.index === null ? null : list[listen.index]) ?? currentParagraph();
+    const text = paragraph ? spokenBlock(paragraph)?.text : undefined;
+    const lang = document.documentElement.lang || "en";
+    return (
+      (text && splitLeading(text, lang)[0]) ||
+      "This is how this voice will read to you."
+    );
+  };
   const moveParagraph = (direction: 1 | -1) => {
     const list = getParagraphs(getArticleBody(articleRef.current));
     // Verse markup is often divs, which are not numbered paragraphs, so this comes first.
@@ -1453,6 +1468,14 @@ export default function ReadPage() {
           resetText,
           listening: listen.active,
           onToggleListen: toggleListen,
+          voiceSample: {
+            articleId: articleKey,
+            text: voiceSampleText,
+            listenPlaying:
+              listen.active && !listen.paused && listen.status !== "failed",
+            listenPaused: listen.paused,
+            toggleListenPause: listen.togglePause,
+          },
         }}
       />
 
