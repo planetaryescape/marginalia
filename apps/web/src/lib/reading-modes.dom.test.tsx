@@ -4,6 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useListen } from "./reading-modes";
 
+// The key check reads a Convex query; these cases cover the device voice
+vi.mock("convex/react", () => ({ useQuery: () => ({ providers: [] }) }));
+
 let root: Root;
 let article: HTMLElement;
 let listen: ReturnType<typeof useListen>;
@@ -18,10 +21,13 @@ function Harness({
   content = "Original prose",
   progress = 0,
 }) {
-  listen = useListen({ current: article }, "article-1", unit, content, "");
+  listen = useListen({ current: article }, "article-1", unit, content, "", () =>
+    Promise.reject(new Error("device mode never asks for a clip")),
+  );
   return <output>{progress}</output>;
 }
 beforeEach(() => {
+  window.sessionStorage.setItem("marginalia.listenVoice", "device");
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("speechSynthesis", { speak, cancel, getVoices: () => [] });
   vi.stubGlobal("SpeechSynthesisUtterance", Utterance);
@@ -34,6 +40,7 @@ beforeEach(() => {
   cancel.mockClear();
 });
 afterEach(async () => {
+  window.sessionStorage.clear();
   await act(async () => root.unmount());
   vi.unstubAllGlobals();
 });

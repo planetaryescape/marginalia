@@ -884,6 +884,12 @@ html[data-reader-theme="ink"] {
   --mark-graphite: #b5b0ab;
 }
 :root { --pen: var(--mark-cobalt); --highlighter: var(--mark-yellow); }
+/* Listen washes (D-TTS-025). Defined on the element that carries --highlighter,
+   so the reader's own highlighter colour reaches them. */
+:root {
+  --listen-wash: color-mix(in srgb, var(--highlighter) 60%, transparent);
+  --listen-wash-pending: color-mix(in srgb, var(--highlighter) 30%, transparent);
+}
 html[data-pen="vermilion"] { --pen: var(--mark-vermilion); }
 html[data-pen="forest"] { --pen: var(--mark-forest); }
 html[data-pen="graphite"] { --pen: var(--mark-graphite); }
@@ -1000,18 +1006,39 @@ html[data-reader-theme] .reader-indented .reader-prose p {
 
 /* Focus mode: only the paragraph at the reading line stays lit */
 .reader-focus [data-para] {
-  transition: opacity 0.35s ease;
+  transition:
+    opacity 0.35s ease,
+    background-color 300ms ease-out,
+    box-shadow 300ms ease-out;
 }
 
-.reader-focus [data-para]:not([data-current]):not([data-speaking]):not([data-companion]) {
+.reader-focus [data-para]:not([data-current]):not([data-speaking]):not([data-speaking-pending]):not([data-companion]) {
   opacity: 0.22;
 }
 
-[data-speaking] {
-  background-color: color-mix(in srgb, var(--highlighter) 60%, transparent);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--highlighter) 60%, transparent);
+/* The paragraph carries the transition, so a wash fades out as well as in */
+[data-para] {
   border-radius: 3px;
-  transition: background-color 0.3s ease;
+  transition:
+    background-color 300ms ease-out,
+    box-shadow 300ms ease-out;
+}
+
+[data-speaking] {
+  background-color: var(--listen-wash);
+  box-shadow: 0 0 0 6px var(--listen-wash);
+}
+
+/* Waiting for its clip, or the clip failed: lights at once (--motion-press) */
+[data-para][data-speaking-pending] {
+  background-color: var(--listen-wash-pending);
+  box-shadow: 0 0 0 6px var(--listen-wash-pending);
+  transition-duration: 90ms;
+}
+
+/* The last highlight at the end of a listen */
+[data-para][data-fading] {
+  transition-duration: 600ms;
 }
 
 /* ───────────────────────── Reader: companion ───────────────────────── */
@@ -1269,20 +1296,267 @@ html.dark .reader-menu {
   }
 }
 
-@keyframes listen-pulse {
-  50% {
-    opacity: 0.25;
-  }
+/* ───────────────────────── Reader: Listen pill ───────────────────────── */
+
+.listen-wrap {
+  position: fixed;
+  z-index: 40;
+  left: 12px;
+  right: 12px;
+  bottom: 24px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+@media (max-width: 639px) {
+  /* 20px above the phone bar in every state */
+  .listen-wrap { bottom: calc(var(--reader-bottom-clearance) + 20px); }
 }
 
-.listen-pulse:not([data-paused]) {
-  animation: listen-pulse 1.2s ease-in-out infinite;
+.listen-anchor { position: relative; max-width: 100%; }
+
+.listen-pill {
+  --danger-on-pill: #e07a5f;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 999px;
+  font: 400 13px/1.4 var(--font-dm-sans), sans-serif;
+  letter-spacing: 0.005em;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.5);
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity var(--motion-quick),
+    transform var(--motion-quick),
+    visibility 0s linear 160ms;
+}
+/* On a dark theme the pill is a lighter surface, so it takes a lighter terracotta */
+.dark .listen-pill { --danger-on-pill: #f29a80; }
+.listen-wrap[data-open] .listen-pill {
+  visibility: visible;
+  pointer-events: auto;
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s;
+}
+.listen-pill[data-kind="failed"],
+.listen-pill[data-kind="nokey"] { border-radius: 26px; }
+
+.listen-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  transition:
+    background-color var(--motion-quick),
+    opacity var(--motion-quick),
+    width var(--motion-quick),
+    margin var(--motion-quick);
+}
+.listen-dot[data-mode="preparing"],
+.listen-dot[data-mode="playing"] { animation: listen-breathe 1.6s ease-in-out infinite; }
+.listen-dot[data-mode="paused"] { opacity: 0.6; }
+.listen-dot[data-mode="failed"] { background: var(--danger-on-pill); }
+.listen-dot[data-mode="none"] { width: 0; margin-right: 0; opacity: 0; }
+@keyframes listen-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.listen-body {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  animation: listen-body-in var(--motion-quick) both;
+}
+@keyframes listen-body-in { from { opacity: 0; } to { opacity: 1; } }
+.listen-label { white-space: nowrap; margin-right: 8px; }
+.listen-count {
+  font: 500 11.5px/1 var(--font-jetbrains-mono), monospace;
+  min-width: 6ch;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+.listen-controls { display: flex; align-items: center; gap: 2px; }
+
+.listen-btn {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  opacity: 0.72;
+  transition:
+    opacity var(--motion-press),
+    background-color var(--motion-press),
+    transform var(--motion-press);
+}
+.listen-btn svg { width: 14px; height: 14px; display: block; }
+.listen-btn:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+.listen-btn:active { transform: scale(0.92); }
+.listen-btn[data-primary] { opacity: 1; background: color-mix(in srgb, currentColor 17%, transparent); }
+.listen-btn[data-primary]:hover { background: color-mix(in srgb, currentColor 26%, transparent); }
+.listen-btn[data-primary] svg { fill: currentColor; }
+.listen-btn[data-quiet] { opacity: 0.62; }
+.listen-btn:disabled { opacity: 0.3; cursor: default; pointer-events: none; }
+.listen-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px 0 6px;
+  background: currentColor;
+  opacity: 0.22;
+}
+/* Inside the pill, focus takes the pill's own text colour: --reader-focus is under 3:1 on Sepia and Dusk */
+.listen-pill :is(a, button):focus-visible {
+  outline: 1.5px solid currentColor;
+  outline-offset: 2px;
+}
+
+.listen-msg { padding-right: 6px; min-width: 0; }
+.listen-link {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 16px;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+  transition:
+    background-color var(--motion-press),
+    text-decoration-color var(--motion-press);
+}
+.listen-link:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  text-decoration-color: currentColor;
+}
+.listen-link[data-strong] { font-weight: 500; }
+
+.listen-nokey { display: flex; align-items: center; }
+.listen-nokey-mid { opacity: 0.5; margin: 0 2px; }
+.listen-nokey .listen-link:first-child { padding-left: 0; }
+.listen-nokey .listen-link:not([data-strong]) { text-decoration-color: transparent; opacity: 0.85; }
+.listen-nokey .listen-link:not([data-strong]):hover { text-decoration-color: currentColor; opacity: 1; }
+
+@media (pointer: coarse) {
+  .listen-pill { padding: 4px 4px 4px 16px; }
+  .listen-btn { width: 44px; height: 44px; }
+  .listen-link { min-height: 44px; padding: 0 12px; }
+  .listen-pill[data-kind="failed"] .listen-link { padding: 0 10px; }
+}
+
+/* On a phone the no-key choices stack in two 46px rows, with Dismiss beside them */
+@media (max-width: 639px) {
+  .listen-pill[data-kind="nokey"] {
+    border-radius: 24px;
+    padding: 0 4px 0 20px;
+    width: calc(100vw - 24px);
+    max-width: 366px;
+  }
+  .listen-nokey {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    column-gap: 4px;
+    width: 100%;
+  }
+  .listen-nokey-mid { display: none; }
+  .listen-nokey .listen-link {
+    padding: 0;
+    justify-content: flex-start;
+    min-height: 46px;
+    text-decoration: none;
+  }
+  .listen-nokey .listen-link[data-strong] {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+    text-underline-offset: 3px;
+  }
+  .listen-nokey .listen-link:not([data-strong]) {
+    grid-column: 1;
+    grid-row: 2;
+    width: 100%;
+    border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: 0;
+    opacity: 0.8;
+  }
+  .listen-nokey .listen-btn { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
+}
+
+/* The pencil line under the pill, so the pill itself never moves (.sidenote-pencil is the house pattern) */
+.listen-pencil {
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 18px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: var(--reader-bg);
+  /* A halo, so article text scrolling underneath never reads through the sentence */
+  box-shadow: 0 0 6px 5px var(--reader-bg);
+  white-space: nowrap;
+  pointer-events: none;
+  font: 400 13px/18px var(--font-dm-sans), sans-serif;
+  color: var(--ink-muted);
+  opacity: 0;
+  transition: opacity var(--motion-quick);
+}
+.listen-pencil[data-show] { opacity: 1; }
+.listen-pencil svg { width: 72px; height: 14px; flex: none; overflow: visible; }
+.listen-pencil path {
+  fill: none;
+  stroke: var(--pencil);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 90;
+  stroke-dashoffset: 90;
+  animation: listen-write 2.4s ease-in-out infinite;
+}
+@keyframes listen-write { to { stroke-dashoffset: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-para] { transition: none; }
+  .listen-pill {
+    transform: none;
+    transition:
+      opacity 120ms ease-out,
+      visibility 0s linear 120ms;
+  }
+  .listen-wrap[data-open] .listen-pill { transition-delay: 0s; }
+  .listen-dot { animation: none !important; transition: background-color 120ms; }
+  .listen-dot[data-mode="preparing"] { opacity: 0.6; }
+  .listen-body { animation-duration: 120ms; }
+  .listen-pencil { transition: opacity 120ms; }
+  .listen-pencil path { animation: none; stroke-dashoffset: 0; }
+  .listen-btn:active { transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .companion-caret,
   .companion-shimmer,
-  .listen-pulse,
   .para-flash {
     animation: none;
   }
