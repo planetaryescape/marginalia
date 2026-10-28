@@ -41,7 +41,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 ## Rung 1: Skateboard: "My pen is mine again, and the reader gets out of the way"
 
 **Previously:** the pen colour paints links, drop caps, progress, hovers and settings actions. The reader toolbar has six equal icons, including GitHub and Re-annotate. The Ask pill covers Done at the end.
-**Now:** the pen colour appears only on the reader's own marks. The reader toolbar is ← Desk, Aa, ★, ♡ and ⋯, and it fades while reading. The end of the article is clean.
+**Now:** the pen colour appears only on the reader's own marks. The reader toolbar is ← Desk, Aa, ★, ♡ and ⋯. It stays visible while reading and shows a compact title once the heading scrolls away (D-DES-070). The end of the article is clean.
 
 **Promise:** "When I read, the only colour on the page is mine, and nothing sits on top of the text."
 
@@ -56,7 +56,7 @@ Two fixes shipped outside the rungs and stay: the notes pane no longer blocks th
 
 **New unknowns:** contrast of `--pencil` across six themes; whether toolbar fade fights the reader package's own controls.
 
-**Demo:** open an annotated article in Night on desktop and phone. Highlight a passage and see that it is the only saturated colour on screen. Scroll and see the toolbar fade, then scroll up and see it return. Reach the end and press Done without anything covering it.
+**Demo:** open an annotated article in Night on desktop and phone. Highlight a passage and see that it is the only saturated colour on screen. Scroll and see the title appear in the toolbar once the heading has gone. Reach the end and press Done without anything covering it.
 
 **Done when:**
 - `grep` shows `--pen` used only for marks, the pen and highlighter settings and the reader's notes.

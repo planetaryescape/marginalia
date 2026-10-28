@@ -84,9 +84,11 @@ Wide screens, top right:
 - **⋯:** Notes (also `n`), Summary, Listen, Mark unread, Copy link, Re-annotate (D-DES-023), Open original. Notes keeps its `n` key and its badge count; it moves into the overflow on wide screens because the margin now shows your notes in place.
 - **Removed:** the GitHub link (D-DES-022) and the time-left counter (it moves to the map).
 
-The toolbar fades to 0 opacity over `--motion-quick` once the reader scrolls 120 px into the text. It returns when the reader scrolls up, moves the pointer into the top 64 px, or presses Tab. The thin progress line at the very top stays, in `--ink-muted`, not pen.
+The toolbar stays visible at every width and scroll position. Once the article's heading has scrolled up under the bar, its title appears in the bar's middle slot, between Back and the tools, in `--ink-soft` at `text-sm`, one line with an ellipsis. It fades in and out over `--motion-quick` (opacity only, so nothing shifts), and drops to an instant change under reduced motion. While the heading is on screen the slot is empty, so the title never shows twice. The thin progress line at the very top stays, in `--ink-muted`, not pen.
 
-Phones keep today's bottom bar, renamed to the glossary: **Ask · Notes · Listen · Done** (and **Mark unread** once finished). The top bar keeps ← Desk, the truncated title, Aa and ⋯.
+Nothing under the bar is lost: `scroll-padding-top` on `html` (5rem) keeps anchor jumps and `scrollIntoView` targets clear of it, and so does the keyboard cursor's `scroll-margin-top`.
+
+Phones keep today's bottom bar, renamed to the glossary: **Ask · Notes · Listen · Done** (and **Mark unread** once finished). The top bar keeps ← Desk, Aa and ⋯, and shows the truncated title once the heading scrolls away, as on wide screens (D-DES-070).
 
 ## Front matter
 
@@ -198,6 +200,6 @@ S4 checks that the top progress line reaches the end when it should.
 
 - At 1440×900, a heavily annotated article shows every margin note as a pencil sidenote at its line, with no overlaps, in all six themes.
 - No element on the page uses `--pen` except the reader's own marks.
-- The toolbar fades while reading and returns on scroll-up, pointer and Tab.
+- The toolbar stays visible while reading, and a compact title appears in it once the heading scrolls away.
 - Ask never covers a control at any scroll position, at both widths.
 - Each key moment from [02](02-design-concept.md#key-moments) that this document touches (opening, a margin note arriving, marking, asking, finishing, waiting) is performed by hand and feels as described, including with reduced motion.

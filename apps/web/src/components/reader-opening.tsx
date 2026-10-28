@@ -1,6 +1,6 @@
 "use client";
 import { ArrowRight } from "lucide-react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, Ref } from "react";
 import { articleTitleName, rememberedTitle } from "@/lib/title-handoff";
 import { Skeleton, SkeletonBar } from "./in-place";
 import { ViewTransition } from "./view-transition";
@@ -14,9 +14,12 @@ export const READER_HEADING =
 export function ReaderTitle({
   articleId,
   title,
+  headingRef,
 }: {
   articleId: string;
   title: string;
+  /** The reader toolbar watches this heading to know when to show the title in the bar. */
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
     <ViewTransition
@@ -25,6 +28,7 @@ export function ReaderTitle({
       default="none"
     >
       <h1
+        ref={headingRef}
         className={READER_HEADING}
         style={{ fontFamily: "var(--reader-font)" }}
       >

@@ -44,8 +44,8 @@ function props(over: Partial<ReaderToolbarProps> = {}): ReaderToolbarProps {
     backHref: "/",
     backLabel: "Desk",
     maxWidth: "42rem",
+    headingElement: null,
     noteCount: 2,
-    notesOpen: false,
     rating: undefined,
     loved: false,
     listening: false,
@@ -86,20 +86,34 @@ const label = (el: Element) =>
     .filter((n) => n.nodeName !== "KBD")
     .map((n) => n.textContent)
     .join("");
-const scrollTo = (y: number) =>
+const titleSlot = () =>
+  required<HTMLElement>(toolbar(), "[data-testid=reader-toolbar-title]");
+
+/** Stands in for the browser's observer; `report` says whether the heading is on screen. */
+let observed: IntersectionObserverCallback | null = null;
+class FakeIntersectionObserver {
+  constructor(callback: IntersectionObserverCallback) {
+    observed = callback;
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+}
+const report = (visible: boolean) =>
   act(async () => {
-    Object.defineProperty(window, "scrollY", { value: y, configurable: true });
-    window.dispatchEvent(new Event("scroll"));
+    observed?.(
+      [{ isIntersecting: visible } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
   });
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("matchMedia", () => ({
-    matches: true,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  }));
-  Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
+  vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+  observed = null;
   document.body.innerHTML = '<div id="root"></div>';
   root = createRoot(document.getElementById("root") as HTMLElement);
 });
@@ -135,6 +149,38 @@ describe("toolbar", () => {
     await render({ rating: 3, loved: true });
     expect(toolbar().querySelector("[aria-keyshortcuts='r']")).toBeNull();
     expect(toolbar().querySelector("[aria-pressed]")).toBeNull();
+  });
+
+  it("keeps the title slot empty while the heading is on screen, then shows the title once it scrolls away", async () => {
+    const heading = document.createElement("h1");
+    document.body.append(heading);
+    await render({ headingElement: heading });
+    await report(true);
+    expect(titleSlot().textContent).toBe("");
+    expect(titleSlot().dataset.shown).toBe("false");
+
+    await report(false);
+    expect(titleSlot().textContent).toBe("A title");
+    expect(titleSlot().dataset.shown).toBe("true");
+
+    await report(true);
+    expect(titleSlot().dataset.shown).toBe("false");
+    // The text stays for the fade, then leaves
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(titleSlot().textContent).toBe("");
+    heading.remove();
+  });
+
+  it("has one title slot at every width, so phones never show the title twice", async () => {
+    await render();
+    expect(toolbar().querySelector("span.sm\\:hidden")).toBeNull();
+    const slot = required<HTMLElement>(
+      toolbar(),
+      '[data-testid="reader-toolbar-title"]',
+    );
+    expect(slot.className).not.toContain("hidden");
   });
 
   it("names the key in the Notes tooltip and shows no keycap without Alt", async () => {
@@ -250,19 +296,5 @@ describe("overflow menu", () => {
     trigger().focus();
     await key(trigger(), " ");
     expect(menuItems().length).toBeGreaterThan(0);
-  });
-
-  it("keeps the toolbar shown while it is open", async () => {
-    await render();
-    await scrollTo(400);
-    expect(toolbar().dataset.hidden).toBe("true");
-    await key(trigger(), "Enter");
-    expect(toolbar().dataset.hidden).toBe("false");
-  });
-
-  it("keeps the toolbar shown while the notes pane is open", async () => {
-    await render({ notesOpen: true });
-    await scrollTo(400);
-    expect(toolbar().dataset.hidden).toBe("false");
   });
 });
