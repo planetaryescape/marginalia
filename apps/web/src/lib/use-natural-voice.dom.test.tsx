@@ -174,6 +174,11 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  // The in-flight count is shared by every player in the module, so a test
+  // lets its unanswered requests answer before the next one starts
+  await act(async () => {
+    for (const call of calls) call.resolve();
+  });
   vi.useRealTimers();
   vi.unstubAllGlobals();
   URL.createObjectURL = realCreate;
@@ -811,6 +816,68 @@ describe("requests across a restart", () => {
   });
 });
 
+describe("requests across a remount", () => {
+  it("makes a new player on another article wait for the slots the last one left unanswered", async () => {
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    expect(calls).toHaveLength(2);
+    // Leave the page with both requests out, and open Listen on another article
+    await act(async () => root.unmount());
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    expect(calls).toHaveLength(2);
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+    await settle(0);
+    expect(calls).toHaveLength(3);
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("an ended event that is already queued when Pause runs", () => {
+  it("doesn't move on while paused, and Resume goes on to the next item with the usual gap", async () => {
+    mountArticle(plain(3));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    await settle(1);
+    expect(listen.status).toBe("playing");
+    await act(async () => {
+      listen.togglePause();
+      audio().fire("ended");
+    });
+    expect(listen.status).toBe("paused");
+    await elapse(2000);
+    expect(listen.status).toBe("paused");
+    expect(listen.index).toBe(0);
+    expect(speaking()).toBe(el(0));
+
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("gap");
+    await elapse(349);
+    expect(listen.status).toBe("gap");
+    await elapse(2);
+    expect(listen.status).toBe("playing");
+    expect(listen.index).toBe(1);
+    expect(speaking()).toBe(el(1));
+  });
+
+  it("finishes on Resume when the clip that ended was the last", async () => {
+    mountArticle(plain(1));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    await act(async () => {
+      listen.togglePause();
+      audio().fire("ended");
+    });
+    expect(listen.status).toBe("paused");
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("finished");
+  });
+});
+
 describe("a keyless reader who started before the capabilities loaded", () => {
   it("is offered the choice from the same paragraph once the capabilities say there's no key, after the request failed", async () => {
     query.value = undefined;
@@ -851,6 +918,19 @@ describe("a keyless reader who started before the capabilities loaded", () => {
     expect(calls[0].signal.aborted).toBe(true);
     expect(speak).not.toHaveBeenCalled();
     expect(listen.mode).toBe("natural");
+  });
+
+  it("doesn't reopen the choice from the last listen's snapshot when the capabilities arrive in the same render as a prose change", async () => {
+    query.value = undefined;
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(2);
+    expect(listen.status).toBe("preparing");
+    query.value = { providers: [] };
+    await act(async () => root.render(<Harness content="another part" />));
+    expect(listen.needsKey).toBe(false);
+    expect(listen.status).toBe("idle");
+    expect(listen.active).toBe(false);
   });
 
   it("lets a listen that has already been heard play on", async () => {

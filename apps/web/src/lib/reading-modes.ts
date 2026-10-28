@@ -181,7 +181,9 @@ export function useListen(
 
   const { status: naturalStatus, stop: stopNatural } = natural;
   useEffect(() => {
-    if (!missingKey) return;
+    // No start to offer the choice for means the listen it would belong to is
+    // gone: a change of article or prose cleared it in this same commit
+    if (!missingKey || pendingStart.current === null) return;
     if (naturalStatus === "preparing" || naturalStatus === "failed") {
       stopNatural();
       setChoosing(true);

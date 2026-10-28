@@ -71,6 +71,18 @@ const isAbort = (error: unknown) =>
   error instanceof Error && error.name === "AbortError";
 
 /**
+ * Requests that haven't settled, across Stop, restart and remount, for every
+ * player: an action can't be cancelled, so an abandoned request still costs a
+ * slot until it answers.
+ */
+let unsettled = 0;
+/** The planners of the players that are listening, woken whenever any request settles. */
+const planners = new Set<() => void>();
+const wakePlanners = () => {
+  for (const plan of [...planners]) plan();
+};
+
+/**
  * The state machine of 05-player. It lives outside React so that the audio
  * events, timers and fetch completions that drive it all see one current
  * state; the hook only publishes snapshots. Every async completion checks the
@@ -101,11 +113,6 @@ function createPlayer(env: PlayerEnv) {
   let fadeTimer: ReturnType<typeof setTimeout> | undefined;
   /** The item whose clip the element holds, which Previous measures its 3 s against. */
   let holding = -1;
-  /**
-   * Requests that haven't settled, across Stop and restart: an action can't be
-   * cancelled, so an abandoned request still costs a slot until it answers.
-   */
-  let unsettled = 0;
 
   function set(next: ListenStatus, error: string | null = null) {
     status = next;
@@ -139,21 +146,27 @@ function createPlayer(env: PlayerEnv) {
     // preparing has no element to pause
     loaded = null;
     const next = playing + 1;
-    if (next >= queue.length) {
-      finishRun();
-      return;
-    }
-    const wait = gapAfter(queue, playing, document.hidden);
-    if (wait === 0) {
-      begin(next);
-      return;
-    }
-    set("gap");
-    resume = () => begin(next);
-    gapTimer = setTimeout(() => {
-      resume = null;
-      begin(next);
-    }, wait);
+    const proceed = () => {
+      if (next >= queue.length) {
+        finishRun();
+        return;
+      }
+      const wait = gapAfter(queue, playing, document.hidden);
+      if (wait === 0) {
+        begin(next);
+        return;
+      }
+      set("gap");
+      resume = () => begin(next);
+      gapTimer = setTimeout(() => {
+        resume = null;
+        begin(next);
+      }, wait);
+    };
+    // Pause ran just before this event was handled: the reader asked for
+    // silence, so Resume is what moves on, with the usual gap
+    if (status === "paused") resume = proceed;
+    else proceed();
   }
 
   /** The end of a listen: the last highlight fades over 600 ms instead of vanishing. */
@@ -202,6 +215,7 @@ function createPlayer(env: PlayerEnv) {
     abort = null;
     clearTimeout(gapTimer);
     clearTimeout(fadeTimer);
+    planners.delete(fetchAhead);
     resume = null;
     loaded = null;
     holding = -1;
@@ -239,7 +253,7 @@ function createPlayer(env: PlayerEnv) {
           clips.set(i, { status: "ready", blob });
           if (status === "preparing" && playing === i) play(i, blob);
         }
-        fetchAhead();
+        wakePlanners();
       },
       (error: unknown) => {
         unsettled -= 1;
@@ -247,7 +261,7 @@ function createPlayer(env: PlayerEnv) {
           clips.set(i, { status: "failed", error });
           if (status === "preparing" && playing === i) fail(i, error);
         }
-        fetchAhead();
+        wakePlanners();
       },
     );
   }
@@ -349,6 +363,7 @@ function createPlayer(env: PlayerEnv) {
       el.play().catch(() => undefined);
       paragraphs = env.paragraphs();
       abort = new AbortController();
+      planners.add(fetchAhead);
       const lang = document.documentElement.lang || "en";
       const from = Math.max(0, block);
       queue = buildQueue(paragraphs.map(spokenBlock), from, lang, env.intro());
