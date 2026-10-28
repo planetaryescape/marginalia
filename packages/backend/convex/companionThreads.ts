@@ -191,13 +191,27 @@ export const keep = mutation({
             turn.role === args.turns[index].role &&
             turn.content === args.turns[index].content,
         );
-      // A retry neither creates another row nor launches another embedding.
+      // A retry neither creates another row nor launches another embedding,
+      // but a row kept before passages were anchored still learns where its
+      // passage is
       if (
         existing.answerId === args.answerId &&
         existing.keptAt !== undefined &&
         (stale || unchanged)
-      )
+      ) {
+        const anchors = {
+          ...(existing.occurrence === undefined && args.occurrence !== undefined
+            ? { occurrence: args.occurrence }
+            : {}),
+          ...(existing.paragraphEnd === undefined &&
+          args.paragraphEnd !== undefined
+            ? { paragraphEnd: args.paragraphEnd }
+            : {}),
+        };
+        if (Object.keys(anchors).length)
+          await ctx.db.patch("companionThreads", existing._id, anchors);
         return existing._id;
+      }
       await ctx.db.patch("companionThreads", existing._id, {
         answerId: args.answerId,
         summaryDefinition: args.summaryDefinition ?? existing.summaryDefinition,

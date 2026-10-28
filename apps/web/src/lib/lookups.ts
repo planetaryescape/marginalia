@@ -26,7 +26,12 @@ function matchStarts(text: string, needle: string): number[] {
  */
 export function occurrencesBefore(prefix: string, selection: string): number {
   const needle = squash(selection);
-  return needle ? matchStarts(squash(prefix), needle).length : 0;
+  if (!needle) return 0;
+  // A match that starts before the selection and runs into it counts too, as
+  // the first "ana" in "banana" does when the second is selected
+  const head = prefix.replace(/\s+/g, " ").replace(/^ /, "");
+  return matchStarts(head + needle, needle).filter((at) => at < head.length)
+    .length;
 }
 
 /**

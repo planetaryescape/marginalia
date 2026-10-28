@@ -528,6 +528,23 @@ it("keeps which match was selected and where the passage ends, and hands both ba
     await owner.query(api.companionThreads.getBody, { threadId: legacyId }),
   ).toMatchObject({ occurrence: 2, paragraphEnd: 4 });
 
+  // Retrying an unchanged keep still fills in what an older keep left out
+  const plain = await owner.mutation(api.companionThreads.keep, {
+    ...args,
+    answerId: "kept-before-anchors",
+    occurrence: undefined,
+    paragraphEnd: undefined,
+  });
+  expect(
+    await owner.mutation(api.companionThreads.keep, {
+      ...args,
+      answerId: "kept-before-anchors",
+    }),
+  ).toBe(plain);
+  expect(
+    await owner.query(api.companionThreads.getBody, { threadId: plain }),
+  ).toMatchObject({ occurrence: 1, paragraphEnd: 4 });
+
   await expect(
     owner.mutation(api.companionThreads.keep, {
       ...args,

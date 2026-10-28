@@ -1,5 +1,10 @@
 // Text-range anchoring lives in the shared reader package; this keeps app imports stable.
-import { createTextQuoteIndex, findTextRange } from "@planetaryescape/reader";
+import {
+  createTextQuoteIndex,
+  findTextRange,
+  normalizeText,
+} from "@planetaryescape/reader";
+import { occurrencesBefore } from "./lookups";
 
 export {
   findTextRange,
@@ -8,10 +13,12 @@ export {
 } from "@planetaryescape/reader";
 
 /**
- * Finds the `occurrence`-th match of `text` in its paragraph, the one the
- * reader selected, else the first match anywhere. Matches are counted as
- * `occurrencesBefore` counts them when a selection is captured: ignoring
- * case, overlapping ones separately.
+ * Finds the match of `text` the reader selected: among the matches that start
+ * in its paragraph (a selection can run on into later ones), the one whose
+ * place `occurrencesBefore` numbers `occurrence`, the same count taken when
+ * the selection was captured. Where two share that number, the one in the
+ * selected letter case wins. Without an occurrence or a paragraph, the first
+ * match, as `findTextRange` finds it.
  */
 export function findOccurrenceRange(
   root: HTMLElement,
@@ -19,15 +26,31 @@ export function findOccurrenceRange(
   preferred: HTMLElement | null,
   occurrence: number | undefined,
 ): Range | null {
-  if (occurrence && preferred && root.contains(preferred)) {
-    const range = createTextQuoteIndex(preferred).find(text, {
-      occurrence,
-      caseSensitive: false,
-    });
-    if (range) return range;
+  // An answer kept before occurrences were stored keeps the exact-case,
+  // first-match lookup it was saved under
+  if (occurrence !== undefined && preferred && root.contains(preferred)) {
+    const candidates = createTextQuoteIndex(root)
+      .findAll(text, { caseSensitive: false })
+      .filter((range) => preferred.contains(range.startContainer));
+    const placeOf = (range: Range) => {
+      const before = document.createRange();
+      before.selectNodeContents(preferred);
+      before.setEnd(range.startContainer, range.startOffset);
+      return occurrencesBefore(rangeText(before), text);
+    };
+    const placed = candidates.filter((range) => placeOf(range) === occurrence);
+    const exact = normalizeText(text);
+    const found =
+      placed.find((range) => rangeText(range) === exact) ?? placed[0];
+    if (found) return found;
   }
   return findTextRange(root, text, preferred);
 }
+
+// The reader package's READER_UI_HOST_SELECTOR, which it doesn't export: the
+// reader's own controls inside the article, such as an unfolded answer
+const READER_UI_HOSTS =
+  ".note-unfold, .companion-unfold, [data-reader-ui], [data-marginalia-ui]";
 
 /**
  * The prose a range covers, as anchoring reads it: annotation footnote numbers
@@ -47,5 +70,8 @@ export function rangeText(range: Range): string {
   );
   for (const sup of fragment.querySelectorAll("sup"))
     if (insideMark || sup.closest(".annotation-mark")) sup.remove();
+  // A selection across an unfolded note or answer takes only the article's
+  // words, which is all the anchoring index sees
+  for (const ui of fragment.querySelectorAll(READER_UI_HOSTS)) ui.remove();
   return (fragment.textContent ?? "").replace(/\s+/g, " ").trim();
 }

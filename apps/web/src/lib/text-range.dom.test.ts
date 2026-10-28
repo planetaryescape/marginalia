@@ -93,12 +93,71 @@ describe("findOccurrenceRange", () => {
     );
   });
 
-  it("keeps the first-match lookup when there's no occurrence, or it can't be found", () => {
+  it("keeps the exact-case first-match lookup when there's no occurrence, or it can't be found", () => {
     const { root, paragraph } = bass();
     const first = findTextRange(root, "bass", paragraph);
-    for (const occurrence of [undefined, 0, 9])
+    for (const occurrence of [undefined, 9])
       expect(
         startOf(findOccurrenceRange(root, "bass", paragraph, occurrence)),
       ).toBe(startOf(first));
+  });
+});
+
+describe("findOccurrenceRange where matches overlap, cross paragraphs or differ in case", () => {
+  const mount = (html: string) => {
+    document.body.innerHTML = `<div data-article-body>${html}</div>`;
+    return document.querySelector("[data-article-body]") as HTMLElement;
+  };
+  const textNode = (el: Element) => el.firstChild as Text;
+  /** The occurrence a selection over `node[start, start+length)` captures. */
+  const captured = (
+    paragraph: Element,
+    node: Text,
+    start: number,
+    length: number,
+  ) => {
+    const selection = document.createRange();
+    selection.setStart(node, start);
+    selection.setEnd(node, start + length);
+    const before = document.createRange();
+    before.selectNodeContents(paragraph);
+    before.setEnd(node, start);
+    return occurrencesBefore(rangeText(before), rangeText(selection));
+  };
+
+  it("finds the second of two overlapping matches", () => {
+    const root = mount(`<p data-para="1">banana</p>`);
+    const p = root.querySelector("p")!;
+    const occurrence = captured(p, textNode(p), 3, 3);
+    expect(occurrence).toBe(1);
+    const found = findOccurrenceRange(root, "ana", p, occurrence);
+    expect(found?.startOffset).toBe(3);
+  });
+
+  it("finds the selected letter case where case-blind counting ties", () => {
+    const root = mount(`<p data-para="1">ος οσ ΟΣ</p>`);
+    const p = root.querySelector("p")!;
+    const occurrence = captured(p, textNode(p), 6, 2);
+    const found = findOccurrenceRange(root, "ΟΣ", p, occurrence);
+    expect(found?.toString()).toBe("ΟΣ");
+  });
+
+  it("finds a selection that runs into the next paragraph where it started", () => {
+    const root = mount(
+      `<p data-para="1">alpha</p>\n<p data-para="2">beta</p>\n<p data-para="3">alpha</p>\n<p data-para="4">beta</p>`,
+    );
+    const [, , third] = root.querySelectorAll("p");
+    const found = findOccurrenceRange(root, "alpha beta", third, 0);
+    expect(third.contains(found!.startContainer)).toBe(true);
+  });
+
+  it("leaves the reader's own unfolded answer out of a selection's text", () => {
+    const root = mount(
+      `<p data-para="1">Before the <span data-marginalia-ui>An answer.</span>after.</p>`,
+    );
+    const range = document.createRange();
+    range.selectNodeContents(root.querySelector("p")!);
+    expect(rangeText(range)).toBe("Before the after.");
+    expect(findTextRange(root, rangeText(range))).not.toBeNull();
   });
 });
