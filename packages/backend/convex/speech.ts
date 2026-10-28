@@ -40,8 +40,18 @@ interface Failure {
   sentence: string;
   retry: Retry;
 }
+/** Where an attempt's time went: waiting for the response, then reading the audio. */
+interface Timing {
+  headersMs: number;
+  bodyMs: number;
+}
 type Attempt =
-  | { ok: true; audio: ArrayBuffer; generationId: string | null }
+  | {
+      ok: true;
+      audio: ArrayBuffer;
+      generationId: string | null;
+      timing: Timing;
+    }
   | ({ ok: false } & Failure);
 
 const NO_ANSWER: Failure = { sentence: COPY.unanswered, retry: "immediate" };
@@ -87,6 +97,7 @@ async function attemptRequest(
     return { ok: false as const, ...failure };
   };
 
+  const started = Date.now();
   let response: Response;
   try {
     response = await fetch(ENDPOINT, {
@@ -106,6 +117,7 @@ async function attemptRequest(
         : "network error";
     return fail(reason, null, NO_ANSWER);
   }
+  const headersMs = Date.now() - started;
   if (!response.ok)
     return fail("status", response.status, failureForStatus(response.status));
 
@@ -118,6 +130,7 @@ async function attemptRequest(
       ok: true,
       audio,
       generationId: response.headers.get("x-generation-id"),
+      timing: { headersMs, bodyMs: Date.now() - started - headersMs },
     };
   } catch {
     // The body was cut off, or the timeout fired while it was still arriving
@@ -133,12 +146,17 @@ async function synthesize(
   apiKey: string,
   voice: SpeechVoice,
   input: string,
-): Promise<{ audio: ArrayBuffer; generationId: string | null }> {
+): Promise<{
+  audio: ArrayBuffer;
+  generationId: string | null;
+  timing: Timing;
+  attempts: number;
+}> {
   let busyRetries = 0;
   let immediateRetries = 0;
-  for (;;) {
+  for (let attempts = 1; ; attempts++) {
     const attempt = await attemptRequest(apiKey, voice, input);
-    if (attempt.ok) return attempt;
+    if (attempt.ok) return { ...attempt, attempts };
     if (
       attempt.retry === "backoff" &&
       busyRetries < BUSY_RETRY_DELAYS_MS.length
@@ -213,6 +231,7 @@ export const clip = action({
   },
   returns: v.bytes(),
   handler: async (ctx, args): Promise<ArrayBuffer> => {
+    const started = Date.now();
     // requireArticle throws a plain Error, which would reach the reader as no
     // sentence at all; ownership still comes first, before any spend
     try {
@@ -231,11 +250,22 @@ export const clip = action({
     const apiKey = await openRouterKey(ctx, ctx.readerId);
     if (!apiKey) throw new ConvexError(COPY.noKey);
 
-    const { audio, generationId } = await synthesize(apiKey, voice, args.text);
+    // The checks before the request, so a slow clip says whether its time went
+    // here, waiting for OpenRouter or reading the audio
+    const setupMs = Date.now() - started;
+    const { audio, generationId, timing, attempts } = await synthesize(
+      apiKey,
+      voice,
+      args.text,
+    );
     console.log("Speech clip", {
       generationId,
       characters: args.text.length,
       voice: voice.id,
+      bytes: audio.byteLength,
+      attempts,
+      setupMs,
+      ...timing,
     });
     return audio;
   },
