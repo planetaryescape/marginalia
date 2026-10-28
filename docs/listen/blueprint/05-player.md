@@ -29,7 +29,7 @@ For each item the player needs a playable object URL. In rung 1, `speech.clip` r
 
 Either way, then `URL.createObjectURL(blob)`.
 
-The player keeps the playing item plus the next three ready or in flight (D-TTS-008), with at most two requests at once (counting any a Stop or restart left unanswered, because an action can't be cancelled), and never requests an item twice. Clips are held as blobs, not remote URLs, so moving to the next clip never waits on the network, which matters most with the screen locked. Object URLs are revoked once their block is two behind the voice's block, so Previous reuses the clips of the paragraph before; they are also revoked when the player stops.
+The player keeps the playing item plus the next three ready or in flight (D-TTS-008), with at most two requests at once (counting any a Stop or restart left unanswered, because an action can't be cancelled), and never requests an item twice. Clips are held as blobs, not remote URLs, so moving to the next clip never waits on the network, which matters most with the screen locked. A run keeps every clip it has synthesized, so Previous never pays for a clip twice, however far back it goes; only the playing clip has a live object URL, and Stop, a restart, a prose or article change and unmount drop every clip and revoke that URL (D-TTS-026).
 
 A voice change in settings while listening drops every ready item after the playing one and fetches them again in the new voice. The playing clip finishes in the old voice.
 

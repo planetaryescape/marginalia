@@ -118,3 +118,8 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Decision:** BK approved the rung 1 comp (design gate item 1) with the 30% variant for `--listen-wash-pending`.
 - **Why 30%:** at 20% the wash measured only 1.02–1.04:1 against the page on the light themes, so the "it starts where I am" moment barely showed.
 - **The comp's other resolutions, now part of the design:** one dot that stays through every state (breathing, dim when paused, terracotta on failure, absent with no key); the pill 20 px above the phone bar in every state; the slow-wait pencil line in the space under the pill, so the pill never moves; a pill-specific terracotta and focus ring for contrast in Sepia and Dusk; and the failed paragraph keeping the preparing wash.
+
+### D-TTS-026: A run keeps every clip it synthesized; only the playing clip has an object URL. (Claude, from verifier round 2, 2026-10-28)
+- **Decision:** within one run the player keeps each clip's blob until Stop, restart, a prose or article change or unmount. It mints an object URL when an item starts playing and revokes it when the voice moves on.
+- **Why:** the earlier rule revoked clips two blocks behind the voice, which contradicted "never requests an item twice": pressing Previous twice re-synthesized and re-charged a clip already heard. Revoking a URL while keeping its blob frees nothing, so distance-based revocation bought no memory.
+- **Cost:** memory grows with what a run has heard, about 0.5 MB per minute at Kokoro's 64 kbps MP3. A book part change starts a new run, so the bound is one article or part.
