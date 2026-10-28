@@ -191,6 +191,8 @@ type ReopenThread = Pick<
   | "selection"
   | "question"
   | "paragraphIndex"
+  | "occurrence"
+  | "paragraphEnd"
   | "summaryDefinition"
   | "turns"
   | "model"
@@ -208,6 +210,8 @@ const fromDoc = (doc: ReopenThread): CompanionThread => ({
   selection: doc.selection,
   question: doc.question,
   paragraphIndex: doc.paragraphIndex ?? null,
+  occurrence: doc.occurrence,
+  paragraphEnd: doc.paragraphEnd,
   summaryDefinition: doc.summaryDefinition,
   turns: doc.turns,
   doneTurns: doc.turns,
@@ -752,6 +756,8 @@ export function useCompanion({
           selection: current.selection,
           question: current.question,
           paragraphIndex: current.paragraphIndex ?? undefined,
+          occurrence: current.occurrence,
+          paragraphEnd: current.paragraphEnd,
           turns: current.turns,
           model: current.model ?? undefined,
         });

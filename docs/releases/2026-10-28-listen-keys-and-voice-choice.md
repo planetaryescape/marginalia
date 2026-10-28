@@ -18,9 +18,7 @@ Released 2026-10-28 to https://reader.bhekani.com. The backend runs `6462ce4` on
 - **Keyboard, 16:10–16:12, in Dia on an 81-paragraph article.** `l` started at ¶18. Space showed Paused without scrolling and resumed. `]` moved on, `[` five seconds into a paragraph kept its number, and `[` again within a second went back one. `l` stopped it, then Space scrolled the page. No leave-site prompt. The live stylesheet carries the restart animation; a still capture can't show the fade itself.
 - **Voice choice:** `userSettings:getSpeechVoice` and `userSettings:setSpeechVoice` are listed by `convex function-spec` on the live deployment, and the reader page's live bundle contains the Listen tab.
 
-## Not yet checked live
-
-- Choosing a voice and playing samples in the deployed app. The Dia check at 18:56 and 19:00 couldn't start, because Computer Use found no Dia window it could drive. The check to run: start Listen, open settings with `,`, Listen tab, play Emma and George, choose Emma, close settings, and confirm the Convex `Speech clip` log lines switch from `#af_heart` to `#bf_emma` at the next clip; then choose Heart again.
+- **Voice choice, 22:23–22:25, in Dia on an 83-paragraph article.** The Listen tab listed all eight voices. Emma's sample turned its button to Stop within a second and the pill said Paused; George's sample followed. Choosing Emma (`setSpeechVoice` at 22:23:51) and closing settings returned the pill to Listening. The `Speech clip` log lines show `af_heart` for the clips before, `bf_emma` and `bm_george` for the two samples (271 characters each), then `bf_emma` for every clip after the change, including the clips ahead asked for again. Heart was chosen again at 22:25:03. Earlier attempts at 18:56 and 19:00 couldn't start, because Computer Use found no Dia window it could drive.
 
 ## Review
 

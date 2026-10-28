@@ -690,6 +690,8 @@ describe("Keep", () => {
       selection: "tarn",
       question: undefined,
       paragraphIndex: 1,
+      // Which "tarn" was selected, so a reopened kept answer finds it again
+      occurrence: 0,
       turns: [{ role: "assistant", content: "A small mountain lake." }],
       model: "test/model",
     });

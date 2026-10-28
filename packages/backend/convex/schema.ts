@@ -1349,6 +1349,10 @@ export default defineSchema({
     selection: v.string(),
     question: v.optional(v.string()),
     paragraphIndex: v.optional(v.number()),
+    // Which match of `selection` in its paragraph was selected, from 0
+    occurrence: v.optional(v.number()),
+    // The last paragraph a multi-paragraph selection crosses
+    paragraphEnd: v.optional(v.number()),
     // The part of a book the passage is in; paragraphIndex counts within it
     unitIndex: v.optional(v.number()),
     turns: v.array(

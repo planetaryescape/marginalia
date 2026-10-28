@@ -101,7 +101,7 @@ import { sanitizeHtml } from "@/lib/sanitize";
 import { type PassageSource, useSavedPassages } from "@/lib/saved-passages";
 import { emitCommand, isOnControl, useShortcuts } from "@/lib/shortcuts";
 import { splitLeading, spokenBlock } from "@/lib/spoken-text";
-import { findTextRange, rangeText } from "@/lib/text-range";
+import { findOccurrenceRange, rangeText } from "@/lib/text-range";
 import { markFinished } from "@/lib/title-handoff";
 import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
@@ -563,11 +563,19 @@ export default function ReadPage() {
       openThread.paragraphIndex === null
         ? null
         : getParagraphs(body)[openThread.paragraphIndex];
-    setOpenRange(findTextRange(body, openThread.selection, preferred));
+    setOpenRange(
+      findOccurrenceRange(
+        body,
+        openThread.selection,
+        preferred,
+        openThread.occurrence,
+      ),
+    );
   }, [
     openThread?.id,
     openThread?.selection,
     openThread?.paragraphIndex,
+    openThread?.occurrence,
     paragraphs.version,
   ]);
   usePassageHighlight("companion-passage", openRange);
@@ -597,6 +605,7 @@ export default function ReadPage() {
         _id: a.id,
         selection: a.selection,
         paragraphIndex: a.paragraphIndex ?? undefined,
+        occurrence: a.occurrence,
         marked: Boolean(a.savedId || a.legacyId) || marginMode !== "sidenotes",
       })),
       ...(savedThreads ?? [])
@@ -610,6 +619,7 @@ export default function ReadPage() {
           _id: doc._id,
           selection: doc.selection,
           paragraphIndex: doc.paragraphIndex,
+          occurrence: doc.occurrence,
           marked: true,
         })),
     ].filter((p) => p.selection),
@@ -624,6 +634,8 @@ export default function ReadPage() {
     threads: passageSources,
     version: paragraphs.version,
     activeId: companion.thread?.savedId ?? companion.thread?.id,
+    isOpen: (id) =>
+      companion.thread?.id === id || companion.thread?.savedId === id,
     onOpen: ({ doc }) => {
       if (
         companion.thread?.id === doc._id ||
