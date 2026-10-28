@@ -179,6 +179,14 @@ async function* anthropicEvents(
   if (truncated) yield { type: "truncated" };
 }
 
+/**
+ * Room for reasoning on top of an answer's own budget. OpenRouter and OpenAI
+ * count thinking inside max_tokens, and every catalogue model thinks by
+ * default (DeepSeek ignores reasoning caps), so without it a 1,200-token answer
+ * was cut short after a few sentences. Anthropic's API only thinks when asked.
+ */
+export const REASONING_HEADROOM_TOKENS = 2048;
+
 export async function* streamChat({
   target,
   messages,
@@ -209,7 +217,9 @@ export async function* streamChat({
   const { url, headers, body } = chatRequest(
     { ...target, provider: target.provider },
     messages,
-    maxTokens,
+    target.provider === "anthropic"
+      ? maxTokens
+      : maxTokens + REASONING_HEADROOM_TOKENS,
     web,
     { stream: true },
   );
