@@ -1420,8 +1420,10 @@ html.dark .reader-menu {
   background: currentColor;
   opacity: 0.22;
 }
-/* Inside the pill, focus takes the pill's own text colour: --reader-focus is under 3:1 on Sepia and Dusk */
-.listen-pill :is(a, button):focus-visible {
+/* Inside the pill, focus takes the pill's own text colour: --reader-focus is under 3:1 on Sepia and Dusk.
+   Both pill classes are needed: Tailwind adds `.focus\:outline-none:focus` inside the global ring's :is(),
+   which lifts that rule to (0,3,0) for every button */
+.listen-pill.reader-float :is(a, button):focus-visible {
   outline: 1.5px solid currentColor;
   outline-offset: 2px;
 }
