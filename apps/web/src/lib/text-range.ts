@@ -14,11 +14,12 @@ export {
 
 /**
  * Finds the match of `text` the reader selected: among the matches that start
- * in its paragraph (a selection can run on into later ones), the one whose
- * place `occurrencesBefore` numbers `occurrence`, the same count taken when
- * the selection was captured. Where two share that number, the one in the
- * selected letter case wins. Without an occurrence or a paragraph, the first
- * match, as `findTextRange` finds it.
+ * in its paragraph, the one whose place `occurrencesBefore` numbers
+ * `occurrence`, the same count taken when the selection was captured. Where
+ * two share that number, the one in the selected letter case wins; matches
+ * of the words that overlap each other ("ana" in "banana") can still tie, as
+ * capture can't tell them apart either. Without an occurrence or a paragraph,
+ * the first match, as `findTextRange` finds it.
  */
 export function findOccurrenceRange(
   root: HTMLElement,
@@ -29,9 +30,16 @@ export function findOccurrenceRange(
   // An answer kept before occurrences were stored keeps the exact-case,
   // first-match lookup it was saved under
   if (occurrence !== undefined && preferred && root.contains(preferred)) {
-    const candidates = createTextQuoteIndex(root)
-      .findAll(text, { caseSensitive: false })
-      .filter((range) => preferred.contains(range.startContainer));
+    const inParagraph = createTextQuoteIndex(preferred).findAll(text, {
+      caseSensitive: false,
+    });
+    // Only a selection that runs on past its paragraph needs the whole
+    // article, and such a long quote matches in few places
+    const candidates = inParagraph.length
+      ? inParagraph
+      : createTextQuoteIndex(root)
+          .findAll(text, { caseSensitive: false })
+          .filter((range) => preferred.contains(range.startContainer));
     const placeOf = (range: Range) => {
       const before = document.createRange();
       before.selectNodeContents(preferred);

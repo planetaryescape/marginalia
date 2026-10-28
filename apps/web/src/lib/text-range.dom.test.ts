@@ -125,13 +125,16 @@ describe("findOccurrenceRange where matches overlap, cross paragraphs or differ 
     return occurrencesBefore(rangeText(before), rangeText(selection));
   };
 
-  it("finds the second of two overlapping matches", () => {
-    const root = mount(`<p data-para="1">banana</p>`);
+  it("keeps words apart at the edge of the selection", () => {
+    const root = mount(
+      `<p data-para="1">These notes test our assumptions; we test them daily.</p>`,
+    );
     const p = root.querySelector("p")!;
-    const occurrence = captured(p, textNode(p), 3, 3);
+    const second = p.textContent!.lastIndexOf("test");
+    const occurrence = captured(p, textNode(p), second, 4);
     expect(occurrence).toBe(1);
-    const found = findOccurrenceRange(root, "ana", p, occurrence);
-    expect(found?.startOffset).toBe(3);
+    const found = findOccurrenceRange(root, "test", p, occurrence);
+    expect(found?.startOffset).toBe(second);
   });
 
   it("finds the selected letter case where case-blind counting ties", () => {
