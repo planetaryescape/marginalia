@@ -2,7 +2,7 @@
 
 Raised by the owner on 2026-10-28: "I can keyboard navigate the paragraphs with j/k, would be nice if there was a keyboard shortcut to bring the context menu that has ask explain etc for the selected passage and then after that if the options on that menu were single key shortcuts. j/k should move one verse at a time for bible readings."
 
-## What exists at 59ac31d
+## What exists (read at 59ac31d; the code cited is unchanged at 0816ca1)
 
 - **j and k** move a paragraph cursor. `moveParagraph` in `apps/web/src/app/read/[articleId]/page.tsx` focuses the paragraph and marks it `data-keyboard-cursor`. Bible readings use the same paragraph blocks.
 - **Single-key passage actions already exist** without the menu: `a` Ask, `e` Explain, `s` Simplify, `d` Define, `h` Highlight, `p` Pen-mark (`SHORTCUTS` in `apps/web/src/components/selection-toolbar.tsx`). Each acts on the selection, or else on the paragraph at the cursor. They are listed in the shortcut help under Reading.
