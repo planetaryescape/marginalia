@@ -25,10 +25,10 @@ The previous frontend is `dpl_DbKm6UJEGQLDyKSf5SUUC2cCcctz`. The release has no 
   - The earlier slowness didn't recur. A slow clip's `Speech clip` log line now shows which step took the time.
 - **Pause and Resume, first smoke:** the button switched between the two.
 
-## Not verified
+## Later checks
 
-- **Phone and sound:** autoplay on a phone, and how the voice sounds through the deployed app.
-- **What's visible:** whether the highlight lands on the reading-line paragraph, and where Previous goes. Dia's screenshots were blank, so these checks used accessibility text only.
+- **Phone and sound:** the owner listened on their phone on 2026-10-28 and reported "listen on phone is fine".
+- **What's visible:** the QA run on 2026-10-28 captured the Dia window directly. Pressing `l` mid-article highlighted the paragraph at the reading line within about a second. Previous within 3 s of a new paragraph went back (¶7 → ¶6); later than that, it restarts the paragraph by design.
 
 ## Theme check
 
