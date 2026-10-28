@@ -147,22 +147,41 @@ describe("speech.clip", () => {
     });
   });
 
-  it("logs the generation, size and voice of a clip, never the text or key", async () => {
+  it("logs the generation, size, voice and timings of a clip, never the text or key", async () => {
     const { clip } = await setup();
     stubFetch(audio);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await clip();
+    const bytes = await clip();
 
     expect(log).toHaveBeenCalledWith("Speech clip", {
       generationId: "gen-test-1",
       characters: TEXT.length,
       voice: KOKORO,
+      bytes: bytes.byteLength,
+      attempts: 1,
+      setupMs: expect.any(Number),
+      headersMs: expect.any(Number),
+      bodyMs: expect.any(Number),
     });
     const logged = JSON.stringify([...log.mock.calls, ...error.mock.calls]);
     expect(logged).not.toContain(TEXT);
     expect(logged).not.toContain(READER_KEY);
+  });
+
+  it("counts a retried request in the clip's log", async () => {
+    const { clip } = await setup();
+    stubFetch(status(500), audio);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await clip();
+
+    expect(log).toHaveBeenCalledWith(
+      "Speech clip",
+      expect.objectContaining({ attempts: 2 }),
+    );
   });
 
   it("accepts text of exactly 2,000 characters and refuses 2,001", async () => {
