@@ -154,6 +154,23 @@ describe("findOccurrenceRange where matches overlap, cross paragraphs or differ 
     expect(third.contains(found!.startContainer)).toBe(true);
   });
 
+  it("finds a repeated phrase that runs into the next paragraph, past an earlier copy in the first", () => {
+    const root = mount(
+      `<p data-para="1">We take it one step at a time. We still take it one step</p>\n<p data-para="2">at a time.</p>`,
+    );
+    const [first] = root.querySelectorAll("p");
+    const text = "take it one step at a time.";
+    const node = textNode(first);
+    const second = node.data.lastIndexOf("take it");
+    const before = document.createRange();
+    before.selectNodeContents(first);
+    before.setEnd(node, second);
+    const occurrence = occurrencesBefore(rangeText(before), text);
+    expect(occurrence).toBe(1);
+    const found = findOccurrenceRange(root, text, first, occurrence);
+    expect(found?.startOffset).toBe(second);
+  });
+
   it("leaves the reader's own unfolded answer out of a selection's text", () => {
     const root = mount(
       `<p data-para="1">Before the <span data-marginalia-ui>An answer.</span>after.</p>`,

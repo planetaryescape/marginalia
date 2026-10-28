@@ -30,26 +30,29 @@ export function findOccurrenceRange(
   // An answer kept before occurrences were stored keeps the exact-case,
   // first-match lookup it was saved under
   if (occurrence !== undefined && preferred && root.contains(preferred)) {
-    const inParagraph = createTextQuoteIndex(preferred).findAll(text, {
-      caseSensitive: false,
-    });
-    // Only a selection that runs on past its paragraph needs the whole
-    // article, and such a long quote matches in few places
-    const candidates = inParagraph.length
-      ? inParagraph
-      : createTextQuoteIndex(root)
-          .findAll(text, { caseSensitive: false })
-          .filter((range) => preferred.contains(range.startContainer));
     const placeOf = (range: Range) => {
       const before = document.createRange();
       before.selectNodeContents(preferred);
       before.setEnd(range.startContainer, range.startOffset);
       return occurrencesBefore(rangeText(before), text);
     };
-    const placed = candidates.filter((range) => placeOf(range) === occurrence);
     const exact = normalizeText(text);
+    const pick = (candidates: Range[]) => {
+      const placed = candidates.filter((r) => placeOf(r) === occurrence);
+      return placed.find((r) => rangeText(r) === exact) ?? placed[0];
+    };
+    // The paragraph's own index first. Only a selection that runs on past its
+    // paragraph needs the whole article, and such a long quote matches in few
+    // places
     const found =
-      placed.find((range) => rangeText(range) === exact) ?? placed[0];
+      pick(
+        createTextQuoteIndex(preferred).findAll(text, { caseSensitive: false }),
+      ) ??
+      pick(
+        createTextQuoteIndex(root)
+          .findAll(text, { caseSensitive: false })
+          .filter((range) => preferred.contains(range.startContainer)),
+      );
     if (found) return found;
   }
   return findTextRange(root, text, preferred);
