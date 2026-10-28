@@ -959,6 +959,24 @@ export default function ReadPage() {
       ] ?? null
     );
   };
+  // Unlike the range below, this is null until the reader has put a cursor somewhere.
+  const getCursorRange = () => {
+    const at = paragraphIndexOf(document.activeElement) ?? cursor;
+    const paragraph =
+      at === null
+        ? null
+        : getParagraphs(getArticleBody(articleRef.current))[at];
+    if (!paragraph) return null;
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    return range;
+  };
+  const restoreCursorFocus = () => {
+    if (cursor === null) return;
+    getParagraphs(getArticleBody(articleRef.current))[cursor]?.focus({
+      preventScroll: true,
+    });
+  };
   const getCurrentParagraphRange = () => {
     const paragraph = currentParagraph();
     if (!paragraph) return null;
@@ -1474,6 +1492,8 @@ export default function ReadPage() {
       <SelectionToolbar
         containerRef={articleRef}
         getCurrentParagraphRange={getCurrentParagraphRange}
+        getCursorRange={getCursorRange}
+        restoreCursorFocus={restoreCursorFocus}
         onAddNote={handleAddNote}
         onCompanion={startCompanion}
         onDeepStudy={

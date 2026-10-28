@@ -106,6 +106,7 @@ The idea map is designed, not just generated (D-DES-048). The model is told to k
 
 The menu keeps its actions (Ask, Explain, Simplify, Define, Highlight, Underline, Note, Copy) and its `.reader-float` surface (D-DES-007).
 
+- **From the keyboard:** `Enter` opens the menu on the paragraph at the j/k cursor (or on the selection), anchored to that text as a mouse selection would be. A menu opened this way shows each action's key beside its label, as a quiet `reader-kbd` keycap; a pointer selection keeps keys in tooltips and under Alt (D-DES-021, D-DES-071). Inside it `e s d a h p` and `n` Note, `c` Copy, `t` Deep study act on the menu's own range, and `Escape` returns focus to the cursor. The colour pickers stay on the pointer and Tab.
 - **Order by hand:** first the pen actions that mark the page (Highlight, Underline, Note), then a hairline, then the pencil actions that ask Marginalia (Explain, Simplify, Define, Ask), then Copy.
 - **Highlight:** sweeps the selection (`--motion-sweep`) and adds a pen tick in the margin.
 - **Explain, Simplify, Define and Ask:** each opens its answer as an open note in the margin beside the passage (on phones, in the flow below it), not in a separate panel. Answers write in pencil as they stream. ¶ references in an answer are links that scroll to and briefly wash the cited paragraph. These tools exist so BK never leaves the page to understand something (D-DES-039).
