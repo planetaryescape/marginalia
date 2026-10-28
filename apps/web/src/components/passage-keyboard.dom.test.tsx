@@ -2,6 +2,9 @@
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useShortcuts } from "@/lib/shortcuts";
+import { rangeText } from "@/lib/text-range";
+import { useVerseCursor } from "@/lib/use-verse-cursor";
 import { SelectionToolbar } from "./selection-toolbar";
 
 vi.mock("@/lib/companion", () => ({ usePassageHighlight: vi.fn() }));
@@ -48,6 +51,13 @@ let cursorBlock = 0;
 
 const PROSE =
   "<p>First paragraph, read aloud.</p><p>Second paragraph with <a href='#x'>a link</a>.</p>";
+const VERSES =
+  '<h3 class="s">The shepherd</h3>' +
+  '<div class="q1"><span class="yv-v" v="3"></span><span class="yv-vlbl">3</span><span>He restores my soul.</span></div>' +
+  '<div class="q1"><span class="yv-v" v="4"></span><span class="yv-vlbl">4</span><span>Even though I walk </span></div>' +
+  '<div class="q2"><span>through the valley</span><span class="yv-n">a footnote</span></div>' +
+  '<div class="q1"><span class="yv-v" v="5"></span><span class="yv-vlbl">5</span><span>You prepare a table.</span></div>';
+
 function Prose() {
   const ref = useRef<HTMLElement>(null);
   return (
@@ -86,6 +96,48 @@ function Prose() {
   );
 }
 
+function Bible() {
+  const ref = useRef<HTMLElement>(null);
+  const verse = useVerseCursor({
+    articleRef: ref,
+    reference: "Psalms 23",
+    enabled: true,
+    version: 0,
+  });
+  useShortcuts({
+    j: () => void verse.move(1, null),
+    k: () => void verse.move(-1, null),
+  });
+  return (
+    <>
+      <article ref={ref}>
+        <div
+          data-article-body
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: fixed test markup
+          dangerouslySetInnerHTML={{ __html: VERSES }}
+        />
+      </article>
+      <SelectionToolbar
+        containerRef={ref}
+        getCurrentParagraphRange={() => verse.range()}
+        getCursorRange={() => verse.range()}
+        onAddNote={onAddNote}
+        onCompanion={onCompanion}
+        depth="quick"
+        onDepthChange={vi.fn()}
+        web={false}
+        onWebChange={vi.fn()}
+        isMarked={() => false}
+        onToggleMark={vi.fn()}
+        onMarkInColor={vi.fn()}
+        markedColor={() => null}
+        defaultColors={{ highlight: "green", underline: "cobalt" }}
+      />
+    </>
+  );
+}
+
+const painted = new Map<string, { ranges: Range[] }>();
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({
@@ -93,6 +145,21 @@ beforeEach(() => {
     addEventListener() {},
     removeEventListener() {},
   }));
+  painted.clear();
+  vi.stubGlobal(
+    "Highlight",
+    class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    },
+  );
+  vi.stubGlobal("CSS", {
+    escape: (value: string) => value,
+    highlights: painted,
+  });
+  window.scrollBy = vi.fn();
   Object.defineProperty(Range.prototype, "getBoundingClientRect", {
     configurable: true,
     value: () => new DOMRect(50, 200, 100, 30),
@@ -270,5 +337,49 @@ describe("Enter opens Passage actions on the cursor", () => {
       await new Promise((resolve) => setTimeout(resolve, 230));
     });
     expect(menu()).not.toBeNull();
+  });
+});
+
+describe("a verse cursor", () => {
+  beforeEach(async () => {
+    await act(async () => root.render(<Bible />));
+  });
+  const tint = () => painted.get("verse-cursor")?.ranges.map(String);
+
+  it("steps verse by verse, painting the verse's text across blocks without its number or footnote", () => {
+    press("j");
+    expect(tint()).toEqual(["He restores my soul."]);
+    press("j");
+    expect(tint()).toEqual(["Even though I walk", "through the valley"]);
+    press("j");
+    expect(tint()).toEqual(["You prepare a table."]);
+    press("j");
+    expect(tint()).toEqual(["You prepare a table."]);
+    press("k");
+    press("k");
+    expect(tint()).toEqual(["He restores my soul."]);
+    expect(window.scrollBy).toHaveBeenCalled();
+    expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("sends exactly that verse's text when a passage key is pressed", () => {
+    press("j");
+    press("j");
+    press("e");
+    const { range, mode } = onCompanion.mock.calls[0][0];
+    expect(mode).toBe("explain");
+    expect(rangeText(range)).toBe("Even though I walk through the valley");
+  });
+
+  it("opens the menu on the verse with Enter", async () => {
+    press("j");
+    press("j");
+    press("Enter");
+    await frame();
+    expect(menu()).not.toBeNull();
+    await act(async () => press("s"));
+    expect(rangeText(onCompanion.mock.calls[0][0].range)).toBe(
+      "Even though I walk through the valley",
+    );
   });
 });

@@ -51,6 +51,7 @@ const state = vi.hoisted(() => ({
   observers: 0,
   reflectionSaved: true,
   bible: false,
+  html: "",
   licensed: false,
   summarize: vi.fn(async () => {}),
   reflection: null as {
@@ -246,38 +247,52 @@ vi.mock("@/lib/use-start-annotation", () => ({
   useStartAnnotation: () => {},
   marginNotesPending: () => false,
 }));
+// React 19 rewrites innerHTML whenever the prop object changes, which would wipe the paragraph tags.
+const markups = new Map<string, { __html: string }>();
+const markup = (html: string) => {
+  const known = markups.get(html) ?? { __html: html };
+  markups.set(html, known);
+  return known;
+};
 vi.mock("@/components/article-renderer", () => ({
-  ArticleRenderer: () => (
-    <div data-article-body>
-      <p>
-        <mark
-          className="annotation-mark"
-          data-annotation-id="a1"
-          onClick={() => state.clicked.push("a1")}
-        >
-          Invented prose.
-        </mark>
-        {state.fragmented && (
-          <>
-            <mark
-              className="annotation-mark"
-              data-annotation-id="a1"
-              onClick={() => state.clicked.push("a1")}
-            >
-              Second fragment.
-            </mark>
-            <mark
-              className="annotation-mark"
-              data-annotation-id="a2"
-              onClick={() => state.clicked.push("a2")}
-            >
-              Another annotation.
-            </mark>
-          </>
-        )}
-      </p>
-    </div>
-  ),
+  ArticleRenderer: () =>
+    state.html ? (
+      <div
+        data-article-body
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: fixed test markup
+        dangerouslySetInnerHTML={markup(state.html)}
+      />
+    ) : (
+      <div data-article-body>
+        <p>
+          <mark
+            className="annotation-mark"
+            data-annotation-id="a1"
+            onClick={() => state.clicked.push("a1")}
+          >
+            Invented prose.
+          </mark>
+          {state.fragmented && (
+            <>
+              <mark
+                className="annotation-mark"
+                data-annotation-id="a1"
+                onClick={() => state.clicked.push("a1")}
+              >
+                Second fragment.
+              </mark>
+              <mark
+                className="annotation-mark"
+                data-annotation-id="a2"
+                onClick={() => state.clicked.push("a2")}
+              >
+                Another annotation.
+              </mark>
+            </>
+          )}
+        </p>
+      </div>
+    ),
 }));
 vi.mock("@/components/article-tags", () => ({ ArticleTags: () => null }));
 vi.mock("@/components/article-ask", () => ({
@@ -346,6 +361,7 @@ beforeEach(() => {
   state.observers = 0;
   state.reflectionSaved = true;
   state.bible = false;
+  state.html = "";
   state.licensed = false;
   state.summarize.mockClear();
   state.reflection = null;
@@ -595,6 +611,68 @@ it("cycles split annotations once per identity with the paragraph shortcut", asy
     );
   }
   expect(state.clicked).toEqual(["a1", "a2", "a1"]);
+});
+const keydown = (key: string) =>
+  act(async () => {
+    document.body.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+  });
+it("moves a plain article by paragraph with j and k", async () => {
+  state.html = "<p>First paragraph.</p><p>Second paragraph.</p>";
+  window.scrollBy = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+  await act(async () => {
+    root.render(<ReadPage />);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+  await keydown("j");
+  const cursor = () =>
+    [...document.querySelectorAll("[data-keyboard-cursor]")].map(
+      (el) => el.textContent,
+    );
+  expect(cursor()).toEqual(["First paragraph."]);
+  await keydown("j");
+  expect(cursor()).toEqual(["Second paragraph."]);
+  await keydown("k");
+  expect(cursor()).toEqual(["First paragraph."]);
+});
+it("moves a Bible reading by verse, painting the verse and leaving the paragraph cursor off", async () => {
+  state.bible = true;
+  state.html =
+    '<div class="q1"><span class="yv-v" v="3"></span><span class="yv-vlbl">3</span><span>He restores my soul.</span></div>' +
+    '<div class="q1"><span class="yv-v" v="4"></span><span class="yv-vlbl">4</span><span>Even though I walk </span></div>' +
+    '<div class="q2"><span>through the valley</span><span class="yv-n">a footnote</span></div>';
+  const painted = new Map<string, { ranges: Range[] }>();
+  vi.stubGlobal(
+    "Highlight",
+    class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    },
+  );
+  vi.stubGlobal("CSS", { escape: (v: string) => v, highlights: painted });
+  window.scrollBy = vi.fn();
+  vi.spyOn(Range.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 100, 100, 20),
+  );
+  await act(async () => {
+    root.render(<ReadPage />);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+  const tint = () => painted.get("verse-cursor")?.ranges.map(String);
+  await keydown("j");
+  expect(tint()).toEqual(["He restores my soul."]);
+  await keydown("j");
+  expect(tint()).toEqual(["Even though I walk", "through the valley"]);
+  expect(document.querySelector("[data-keyboard-cursor]")).toBeNull();
+  expect(document.querySelector('[role="status"]')?.textContent).toBe(
+    "Psalms 23:4. Even though I walk through the valley",
+  );
+  await keydown("k");
+  expect(tint()).toEqual(["He restores my soul."]);
 });
 afterEach(async () => {
   await act(async () => root.unmount());
