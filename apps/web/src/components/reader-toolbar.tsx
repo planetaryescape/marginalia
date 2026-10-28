@@ -4,7 +4,10 @@ import { ArrowLeft, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
-import { useToolbarFade } from "@/lib/use-toolbar-fade";
+import {
+  useCompactTitle,
+  useHeadingScrolledAway,
+} from "@/lib/use-compact-title";
 import { cn } from "@/lib/utils";
 import { RATINGS } from "./impression-panel";
 import { InlineError } from "./in-place";
@@ -35,8 +38,9 @@ function Kbd({ children }: { children: string }) {
 
 export interface ReaderToolbarProps {
   tools?: ReactNode;
-  toolsOpen?: boolean;
   title: string;
+  /** The article's own heading. Once it scrolls away, the bar shows `title` in its middle slot. */
+  headingElement: HTMLElement | null;
   /** Absent for a PDF the reader uploaded, which has no page to open. */
   originalUrl?: string;
   /** Where Back returns to, and the room it names (Desk, Library or Notes). */
@@ -46,7 +50,6 @@ export interface ReaderToolbarProps {
   maxWidth: string;
   noteCount: number;
   noteCountHasMore?: boolean;
-  notesOpen: boolean;
   onToggleNotes: () => void;
   rating: number | undefined;
   /** Scrolls to the impression in the back matter (★ and `r`). */
@@ -63,16 +66,16 @@ export interface ReaderToolbarProps {
   settings: Omit<ReaderSettingsPanelProps, "onOpenChange">;
 }
 
-/** The reader's top bar: Back, Aa, rate, love and an overflow menu. Notes lives in the menu. */
+/** The reader's top bar: Back, the title once the heading scrolls away, Aa, rate, love and an overflow menu. Notes lives in the menu. */
 export function ReaderToolbar({
   title,
+  headingElement,
   originalUrl,
   backHref,
   backLabel,
   maxWidth,
   noteCount,
   noteCountHasMore = false,
-  notesOpen,
   onToggleNotes,
   rating,
   onRate,
@@ -85,14 +88,11 @@ export function ReaderToolbar({
   onReannotate,
   settings,
   tools,
-  toolsOpen = false,
 }: ReaderToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  const { hidden, focusProps } = useToolbarFade(
-    menuOpen || settingsOpen || notesOpen || copyFailed || toolsOpen,
-  );
+  const headingAway = useHeadingScrolledAway(headingElement);
+  const compactTitle = useCompactTitle(title, headingAway);
 
   const copyLink = async () => {
     try {
@@ -115,8 +115,6 @@ export function ReaderToolbar({
     >
       <div
         data-testid="reader-toolbar"
-        data-hidden={hidden}
-        {...focusProps}
         className="reader-toolbar fixed top-0 left-0 right-[var(--notes-inset)] transition-[right] duration-200 pt-[env(safe-area-inset-top)] z-40 bg-[color-mix(in_srgb,var(--reader-bg)_82%,transparent)] backdrop-blur-sm"
       >
         <div
@@ -136,14 +134,19 @@ export function ReaderToolbar({
           <span className="sm:hidden flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]">
             {title}
           </span>
+          <span
+            data-testid="reader-toolbar-title"
+            data-shown={headingAway}
+            aria-hidden="true"
+            className="reader-toolbar-title hidden sm:block flex-1 min-w-0 truncate px-3 font-sans text-sm text-[var(--ink-soft)]"
+          >
+            {compactTitle}
+          </span>
 
           <div className="flex items-center gap-0.5">
             {tools}
             <span className="relative">
-              <ReaderSettingsPanel
-                {...settings}
-                onOpenChange={setSettingsOpen}
-              />
+              <ReaderSettingsPanel {...settings} />
               <Keycap className="absolute -bottom-1.5 left-1/2 -translate-x-1/2">
                 ,
               </Keycap>

@@ -127,7 +127,6 @@ import {
 import { cn } from "@/lib/utils";
 
 export default function ReadPage() {
-  const [bibleToolsOpen, setBibleToolsOpen] = useState(false);
   const { articleId } = useParams<{ articleId: string }>();
   // SAFETY: Convex validates this route-supplied article ID at every query/mutation boundary.
   const articleKey = articleId as Id<"articles">;
@@ -657,6 +656,8 @@ export default function ReadPage() {
     retry: () => Promise<void>;
   } | null>(null);
   const [toolbarRetrying, setToolbarRetrying] = useState(false);
+  const [headingElement, setHeadingElement] =
+    useState<HTMLHeadingElement | null>(null);
   const attemptToolbar = useCallback(
     async (message: string, run: () => Promise<void>): Promise<void> => {
       try {
@@ -1309,7 +1310,6 @@ export default function ReadPage() {
       />
 
       <ReaderToolbar
-        toolsOpen={bibleToolsOpen}
         tools={
           article.bible ? (
             <BibleReaderTools
@@ -1320,7 +1320,6 @@ export default function ReadPage() {
               articleId={article._id}
               skipReason={article.skipReason}
               display={bibleDisplay}
-              onOpenChange={setBibleToolsOpen}
               onWordStudy={(reference) => void requestWordStudy(reference)}
               onStudyHistory={
                 biblePreferences?.enabled
@@ -1331,13 +1330,13 @@ export default function ReadPage() {
           ) : undefined
         }
         title={article.title}
+        headingElement={headingElement}
         originalUrl={article.uploadedFileName ? undefined : article.url}
         backHref={back.href}
         backLabel={back.label}
         maxWidth={`max(${MAX_WIDTHS[settings.width]}, 42rem)`}
         noteCount={noteCount}
         noteCountHasMore={readerData.hasMore}
-        notesOpen={notesPanelOpen}
         onToggleNotes={() => {
           if (notesPanelOpen) void requestCloseNotes();
           else void requestOpenNotes();
@@ -1562,7 +1561,11 @@ export default function ReadPage() {
             }
           >
             <header className="mb-10">
-              <ReaderTitle articleId={articleId} title={article.title} />
+              <ReaderTitle
+                articleId={articleId}
+                title={article.title}
+                headingRef={setHeadingElement}
+              />
               <p
                 data-testid="reader-meta"
                 className="text-sm font-sans text-[var(--ink-muted)]"

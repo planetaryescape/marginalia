@@ -1220,15 +1220,20 @@ html ::highlight(user-underline) {
   transform-origin: var(--radix-popover-content-transform-origin);
 }
 
-/* The reader toolbar fades while reading. Focus inside it, the pointer near the
-   top, an open menu or the notes pane keep it shown (use-toolbar-fade.ts). */
-.reader-toolbar {
+/* Once the article heading scrolls under the bar, its title fades into the middle
+   slot (use-compact-title.ts). Opacity only, so nothing beside it moves. */
+.reader-toolbar-title {
   transition: opacity var(--motion-quick);
 }
 
-.reader-toolbar[data-hidden="true"] {
+.reader-toolbar-title[data-shown="false"] {
   opacity: 0;
-  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-toolbar-title {
+    transition: none;
+  }
 }
 
 /* Menus raised above the page: surface with a hairline, and a shadow only on light themes */
