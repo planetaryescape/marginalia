@@ -158,6 +158,8 @@ function createPlayer(env: PlayerEnv) {
   let holding = -1;
   /** Whether the playing item's clip has been heard: its play() resolved. */
   let started = false;
+  /** Items whose clip has sounded this run, which a voice change leaves alone. */
+  const heard = new Set<number>();
   let restartTimer: ReturnType<typeof setTimeout> | undefined;
 
   function set(next: ListenStatus, error: string | null = null) {
@@ -187,7 +189,8 @@ function createPlayer(env: PlayerEnv) {
   }
 
   function onEnded() {
-    if (loaded === null || audio?.src !== loaded) return;
+    // A failure waits for Retry, whatever the element reports afterwards
+    if (status === "failed" || loaded === null || audio?.src !== loaded) return;
     // Nothing is loaded for the next item yet, so a pause in the gap or while
     // preparing has no element to pause
     loaded = null;
@@ -273,6 +276,7 @@ function createPlayer(env: PlayerEnv) {
     }
     revokeLive();
     clips.clear();
+    heard.clear();
     queue = [];
     paragraphs = [];
     playing = -1;
@@ -338,6 +342,7 @@ function createPlayer(env: PlayerEnv) {
       () => {
         if (token !== session || loaded !== url || pausedAt !== pauses) return;
         started = true;
+        heard.add(i);
         mark(queue[i].block, "speaking");
         set("playing");
         resume = null;
@@ -501,8 +506,15 @@ function createPlayer(env: PlayerEnv) {
         !started &&
         status !== "failed" &&
         clips.get(playing)?.status !== "failed";
+      // Clips ahead, and any behind that were skipped before they sounded, are
+      // asked for again in the new voice when the voice reaches them
       for (const i of [...clips.keys()])
-        if (i > playing || (unheard && i === playing)) clips.delete(i);
+        if (
+          i > playing ||
+          (i < playing && !heard.has(i)) ||
+          (unheard && i === playing)
+        )
+          clips.delete(i);
       // Playback failed before the clip was heard: the failure stays on screen,
       // and marking the clip failed makes Retry ask for it in the new voice
       if (

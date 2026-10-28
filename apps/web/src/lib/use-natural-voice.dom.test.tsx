@@ -1011,6 +1011,42 @@ describe("changing voice before the current clip starts", () => {
     expect(listen.status).toBe("playing");
   });
 
+  it("re-voices a clip behind the voice that was skipped before it sounded", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await act(async () => listen.next());
+    await settle(1);
+    expect(listen.index).toBe(1);
+    expect(listen.status).toBe("playing");
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    await act(async () => listen.previous());
+    expect(listen.index).toBe(0);
+    await settle(0);
+    expect(listen.status).toBe("preparing");
+    const renewed = calls.findIndex(
+      (call) => call.text === `B:${paragraphText(0)}`,
+    );
+    expect(renewed).toBeGreaterThan(1);
+    await settle(renewed);
+    expect(listen.status).toBe("playing");
+  });
+
+  it("ignores an ended event while a failure waits for Retry", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    audio().play.mockImplementationOnce(() =>
+      Promise.reject(new DOMException("blocked", "NotAllowedError")),
+    );
+    await settle(0);
+    expect(listen.status).toBe("failed");
+    await ended();
+    await elapse(800);
+    expect(listen.status).toBe("failed");
+    expect(listen.index).toBe(0);
+  });
+
   it("re-voices a Retry whose playback hasn't started yet", async () => {
     mountArticle(plain());
     await act(async () => root.render(<Harness />));
