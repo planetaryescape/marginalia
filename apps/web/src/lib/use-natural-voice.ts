@@ -156,6 +156,8 @@ function createPlayer(env: PlayerEnv) {
   let fadeTimer: ReturnType<typeof setTimeout> | undefined;
   /** The item whose clip the element holds, which Previous measures its 3 s against. */
   let holding = -1;
+  /** Whether the playing item's clip has been heard: its play() resolved. */
+  let started = false;
   let restartTimer: ReturnType<typeof setTimeout> | undefined;
 
   function set(next: ListenStatus, error: string | null = null) {
@@ -334,6 +336,7 @@ function createPlayer(env: PlayerEnv) {
     attempt.then(
       () => {
         if (token !== session || loaded !== url || pausedAt !== pauses) return;
+        started = true;
         mark(queue[i].block, "speaking");
         set("playing");
         resume = null;
@@ -376,6 +379,7 @@ function createPlayer(env: PlayerEnv) {
   /** Moves the voice to item `i`: plays it if its clip is ready, else waits for it. */
   function begin(i: number) {
     playing = i;
+    started = false;
     loaded = null;
     clearTimeout(gapTimer);
     // The previous item's clip is done with: its URL goes, its Blob stays
@@ -490,13 +494,22 @@ function createPlayer(env: PlayerEnv) {
      */
     revoice() {
       if (playing < 0) return;
-      // A current clip that hasn't started is unheard, so it goes too, unless
-      // it failed: Retry owns a failure
-      const keep =
-        holding === playing || clips.get(playing)?.status === "failed"
-          ? playing
-          : playing - 1;
-      for (const i of [...clips.keys()]) if (i > keep) clips.delete(i);
+      // A current clip that hasn't been heard goes too, unless it failed:
+      // Retry owns a failure
+      const unheard =
+        !started && clips.get(playing)?.status !== "failed" && status !== "gap";
+      for (const i of [...clips.keys()])
+        if (i > playing || (unheard && i === playing)) clips.delete(i);
+      if (unheard && loaded !== null) {
+        // Loaded but not yet sounding (play() pending, or paused before it
+        // resolved): unload it, so the new voice's clip is what starts
+        loaded = null;
+        holding = -1;
+        audio?.pause();
+        revokeLive();
+        if (status === "paused") resume = () => begin(playing);
+        else prepare(playing);
+      }
       fetchAhead();
     },
   };

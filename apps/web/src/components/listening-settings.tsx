@@ -25,6 +25,13 @@ export interface VoiceSampleSource {
 type Sampling = { voice: string; token: number };
 type SampleRequest = Sampling & { text: string };
 
+// One sample request at a time, across closing and reopening settings: a
+// request already sent can't be called back, so it keeps the turn until it
+// answers. A press meanwhile waits in `nextSample`, and a later press replaces
+// it, so trying voices quickly sends one request for the first and the last.
+let sampleInFlight = false;
+let nextSample: (() => void) | null = null;
+
 /**
  * Settings › Listening (03-voices-and-providers): the Kokoro voices as a radio
  * group, each with a sample read from the paragraph the reader is on.
@@ -69,17 +76,12 @@ export function ListeningSettings({
   listen.current = sample;
   /** Set when a sample paused Listen, so leaving the voices resumes it. */
   const pausedListen = useRef(false);
-  // One sample request at a time; a press while it runs waits here, and a
-  // later press replaces it, so trying voices quickly sends one request each
-  // for the first and the last, not one per press
-  const requesting = useRef(false);
-  const queued = useRef<SampleRequest | null>(null);
   /** Drops a sample still waiting for a slot; one already sent can't be called back. */
   const waiting = useRef<AbortController | null>(null);
 
   const silence = () => {
     tokens.current += 1;
-    queued.current = null;
+    nextSample = null;
     waiting.current?.abort();
     audio.current?.pause();
     if (url.current) URL.revokeObjectURL(url.current);
@@ -101,6 +103,7 @@ export function ListeningSettings({
   useEffect(
     () => () => {
       tokens.current += 1;
+      nextSample = null;
       waiting.current?.abort();
       audio.current?.pause();
       if (url.current) URL.revokeObjectURL(url.current);
@@ -130,7 +133,10 @@ export function ListeningSettings({
     audio.current.src = SILENT_CLIP;
     audio.current.play().catch(() => undefined);
     const next = { voice, token, text: sample.text() };
-    if (requesting.current) queued.current = next;
+    if (sampleInFlight)
+      nextSample = () => {
+        if (tokens.current === token) send(next);
+      };
     else send(next);
   };
 
@@ -138,7 +144,7 @@ export function ListeningSettings({
     const reader = listen.current;
     const element = audio.current;
     if (!reader || !element) return;
-    requesting.current = true;
+    sampleInFlight = true;
     const controller = new AbortController();
     waiting.current = controller;
     trackSpeechRequest(
@@ -167,10 +173,10 @@ export function ListeningSettings({
         });
       })
       .finally(() => {
-        requesting.current = false;
-        const waiting = queued.current;
-        queued.current = null;
-        if (waiting && waiting.token === tokens.current) send(waiting);
+        sampleInFlight = false;
+        const waiting = nextSample;
+        nextSample = null;
+        waiting?.();
       });
   };
 

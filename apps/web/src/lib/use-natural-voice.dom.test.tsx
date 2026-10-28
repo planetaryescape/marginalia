@@ -898,6 +898,52 @@ describe("changing voice before the current clip starts", () => {
     expect(speaking()).toBe(el(0));
   });
 
+  it("asks again in the new voice for a Retry that hasn't played yet", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    await settle(1);
+    await settle(2);
+    await settle(3);
+    expect(listen.status).toBe("playing");
+    await act(async () => audio().fire("error"));
+    expect(listen.status).toBe("failed");
+    await act(async () => listen.retry());
+    expect(calls[4].text).toBe(paragraphText(0));
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    expect(calls[5].text).toBe(`B:${paragraphText(0)}`);
+    await settle(4);
+    expect(listen.status).toBe("preparing");
+    await settle(5);
+    expect(listen.status).toBe("playing");
+  });
+
+  it("unloads a clip paused before it sounded, and resumes in the new voice", async () => {
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    // play() never resolves: the clip is loaded but hasn't sounded
+    audio().play.mockImplementationOnce(() => new Promise<void>(() => {}));
+    await settle(0);
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("paused");
+    const oldSrc = audio().src;
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    // The old voice's requests hold both slots until they answer
+    await settle(1);
+    await settle(2);
+    const renewed = calls.findIndex(
+      (call) => call.text === `B:${paragraphText(0)}`,
+    );
+    expect(renewed).toBeGreaterThan(2);
+    await settle(renewed);
+    expect(listen.status).toBe("paused");
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("playing");
+    expect(audio().src).not.toBe(oldSrc);
+  });
+
   it("keeps a paused preparation paused, and resumes it in the new voice", async () => {
     mountArticle(plain());
     await act(async () => root.render(<Harness />));

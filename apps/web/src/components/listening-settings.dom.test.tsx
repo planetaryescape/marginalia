@@ -175,6 +175,27 @@ it("sends one request for the first and the last voice when voices are tried qui
   );
 });
 
+it("keeps one sample request at a time across closing and reopening settings", async () => {
+  let answer: (bytes: ArrayBuffer) => void = () => {};
+  state.clip.mockReturnValueOnce(
+    new Promise<ArrayBuffer>((resolve) => {
+      answer = resolve;
+    }),
+  );
+  await render();
+  await act(async () => playButton("Kokoro · Emma").click());
+  await act(async () => root.unmount());
+  root = createRoot(document.getElementById("mount") as HTMLElement);
+  await render();
+  await act(async () => playButton("Kokoro · Heart").click());
+  expect(state.clip).toHaveBeenCalledTimes(1);
+  await act(async () => answer(new Uint8Array([1]).buffer));
+  expect(state.clip).toHaveBeenCalledTimes(2);
+  expect(state.clip).toHaveBeenLastCalledWith(
+    expect.objectContaining({ voice: HEART }),
+  );
+});
+
 it("stops the sample when Listen resumes from elsewhere, and doesn't pause it again on close", async () => {
   await render();
   await act(async () => playButton("Kokoro · Emma").click());
