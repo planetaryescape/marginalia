@@ -47,7 +47,7 @@ Verify the actual web environment and Convex dashboard before deploying. This re
 
 The deployed baseline before Deep Study is commit `82a4a8d5fdcbb990ff37e77600968be7c25971b3` (tree `c5d87315ca85f4ab12b72ea5b973f5a946e5ac9c`): backend `stoic-hare-718` and Vercel frontend deployment `dpl_7DwA9HyVpZpSTREZoYM1N1f3dgbJ`, aliased to the reader domain on 2026-10-26. See the [Scripture margins release](releases/2026-10-26-scripture-margins.md).
 
-**2026-10-28 Listen natural voice:** backend `f55b36a` on `stoic-hare-718` and Vercel frontend `dpl_7DJeL1ANugXdTq8hZJUgYQCAmh35` (from `2399645`) are live. See the [Listen release](releases/2026-10-28-listen-natural-voice.md) for the snapshots, rollback target and what the live smoke did and didn't verify.
+**2026-10-28 Listen natural voice:** backend `f55b36a` on `stoic-hare-718` and Vercel frontend `dpl_6KKFnXNXDVAGsn4FqJE2dBns8BU4` (from `06cae83`) are live. See the [Listen release](releases/2026-10-28-listen-natural-voice.md) for the snapshots, rollback target and what the live smoke did and didn't verify.
 
 Deploy Deep Study backend-first, then the matching frontend. Verify selection → Deep study → evidence → Keep → reopen → ordinary reading and finish in a signed-in reader session. Use a compatible API deep model; the ChatGPT-plan adapter cannot enforce the study output cap. Do not describe component fixtures or automated checks as proof of this live journey.
 

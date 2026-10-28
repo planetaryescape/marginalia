@@ -1,6 +1,6 @@
 # Listen reads in Kokoro's Heart voice
 
-Released 2026-10-28 to https://reader.bhekani.com. The backend runs commit `f55b36a97e9a4d6eb4b142842b24d8ea834c3031` on `dev:stoic-hare-718`. The frontend runs Vercel deployment `dpl_7DJeL1ANugXdTq8hZJUgYQCAmh35`, built from `2399645a873b21500b0d0acaf5158ade76e61176`. The one later commit, `f55b36a`, changed only backend logging.
+Released 2026-10-28 to https://reader.bhekani.com. The backend runs commit `f55b36a97e9a4d6eb4b142842b24d8ea834c3031` on `dev:stoic-hare-718`. The frontend runs Vercel deployment `dpl_6KKFnXNXDVAGsn4FqJE2dBns8BU4`, built from `06cae83`, which adds the pill focus-ring fix (#61) to the first release frontend `dpl_7DJeL1ANugXdTq8hZJUgYQCAmh35` (`2399645`). `f55b36a` changed only backend logging.
 
 ## What changed for readers
 
@@ -29,4 +29,11 @@ The previous frontend is `dpl_DbKm6UJEGQLDyKSf5SUUC2cCcctz`. The release has no 
 
 - **Phone and sound:** autoplay on a phone, and how the voice sounds through the deployed app.
 - **What's visible:** whether the highlight lands on the reading-line paragraph, and where Previous goes. Dia's screenshots were blank, so these checks used accessibility text only.
-- **Themes:** screenshots of the bar in all six themes at desktop and phone widths are still outstanding.
+
+## Theme check
+
+The real `ListenBar` was rendered with the compiled production CSS in headless Chrome. It covered all six themes, 1440 and 390 px, and the preparing, playing, paused and failed states. Fonts fell back to system faces, and the four-second pencil line wasn't captured.
+- **Text and washes:** pill text is at least 5.26:1 on the pill in every theme (the quiet Stop icon is at least 3.24:1). Text on the speaking wash is at least 6.2:1. The preparing wash is faint against the page (1.04–1.20:1), but its colour difference is clear (ΔE 8.3–10.1).
+- **Phone layout:** at 390 px the pill fits with 12–14 px margins and sits 20 px above the phone bar.
+- **Focus ring:** keyboard focus inside the pill had been drawn by the global ring, at 2.71:1 on Sepia and 2.85:1 on Dusk, under the 3:1 minimum. Tailwind's `.focus\:outline-none:focus` inside the global rule's `:is()` raised it above the pill rule. After #61 the pill draws its ring in its own text colour: 11:1 on Sepia, 5.58:1 on Dusk.
+- **Dusk failure dot:** the terracotta failure dot is 3.03:1 on Dusk, which is just above the minimum.
