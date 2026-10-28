@@ -133,29 +133,3 @@ export function planFetches(
   }
   return planned;
 }
-
-/**
- * The first item whose clip is still worth keeping: the first item of the
- * block before the playing one, so Previous reuses its blobs. Distance is in
- * blocks, not items, because a long block is several clips.
- */
-export function keepFrom(queue: readonly QueueItem[], playing: number): number {
-  const block = queue[playing]?.block;
-  if (block === undefined) return 0;
-  const startOfBlock = queue.findIndex((item) => item.block === block);
-  if (startOfBlock <= 0) return 0;
-  const before = queue[startOfBlock - 1].block;
-  return queue.findIndex((item) => item.block === before);
-}
-
-/** Ready clips before `keepFrom`, whose object URLs can go. */
-export function planRevokes(
-  queue: readonly QueueItem[],
-  playing: number,
-  entries: ReadonlyMap<number, ClipStatus>,
-): number[] {
-  const from = keepFrom(queue, playing);
-  return [...entries]
-    .filter(([i, status]) => status === "ready" && i < from)
-    .map(([i]) => i);
-}

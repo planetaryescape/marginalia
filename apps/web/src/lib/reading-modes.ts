@@ -123,7 +123,7 @@ export function useListen(
   const capabilities = useQuery(api.providerCredentials.capabilities, {});
   const [deviceChosen, setDeviceChosen] = useState(readDeviceChoice);
   const [choosing, setChoosing] = useState(false);
-  const pendingStart = useRef(0);
+  const pendingStart = useRef<number | null>(null);
   const device = useDeviceVoice(
     containerRef,
     articleId,
@@ -171,6 +171,14 @@ export function useListen(
   // started a natural listen that can only fail. Once the capabilities say so,
   // offer the same choice, from the same paragraph, instead of a Retry that
   // can't work. The device voice still starts only when they pick it.
+  // A different article, part or prose makes the paragraph it would start at
+  // meaningless, so the choice goes with it, next to the voices' own stops
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes clear the pending choice
+  useEffect(() => {
+    pendingStart.current = null;
+    setChoosing(false);
+  }, [articleId, unitKey, content, contentHtml]);
+
   const { status: naturalStatus, stop: stopNatural } = natural;
   useEffect(() => {
     if (!missingKey) return;
@@ -184,7 +192,7 @@ export function useListen(
     writeDeviceChoice();
     setDeviceChosen(true);
     setChoosing(false);
-    device.speakFrom(pendingStart.current);
+    if (pendingStart.current !== null) device.speakFrom(pendingStart.current);
   }, [device.speakFrom]);
 
   const deviceIndex = device.index;

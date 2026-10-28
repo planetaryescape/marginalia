@@ -116,7 +116,6 @@ export function ListenBar({
                     className="listen-btn"
                     onClick={onPrevious}
                     aria-label="Previous paragraph"
-                    disabled={view.index === 0}
                   >
                     <SkipBack size={14} />
                   </button>

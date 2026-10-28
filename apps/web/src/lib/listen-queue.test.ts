@@ -8,7 +8,6 @@ import {
   MAX_IN_FLIGHT,
   nextBlockItem,
   planFetches,
-  planRevokes,
   previousItem,
   type QueueItem,
   TITLE_BLOCK,
@@ -201,41 +200,5 @@ describe("planFetches", () => {
   it("counts requests a Stop or restart left unsettled against the limit", () => {
     expect(planFetches(20, 9, entries([]), 2)).toEqual([]);
     expect(planFetches(20, 9, entries([]), 1)).toEqual([9]);
-  });
-});
-
-describe("planRevokes", () => {
-  // Blocks 0..5, with block 2 four clips long
-  const queue = buildQueue(
-    [prose(0), prose(1), long(300), prose(3), prose(4), prose(5)],
-    9,
-    "en",
-  );
-  const first = (block: number) => queue.findIndex((i) => i.block === block);
-  const allReady = () =>
-    new Map<number, ClipStatus>(queue.map((_i, n) => [n, "ready"]));
-
-  it("keeps the clips of the playing block and the block before it, by block not by item", () => {
-    expect(queue.filter((i) => i.block === 2).length).toBeGreaterThan(2);
-    // Playing block 3: block 2's clips (several items) all stay, so Previous reuses them
-    expect(planRevokes(queue, first(3), allReady()).sort()).toEqual([
-      ...Array(first(2)).keys(),
-    ]);
-    // Playing the last part of block 2 keeps block 1 and the whole of block 2
-    const lastOf2 = first(3) - 1;
-    expect(planRevokes(queue, lastOf2, allReady())).toEqual([first(0)]);
-  });
-
-  it("gives back only ready clips", () => {
-    const e = allReady();
-    e.set(0, "pending");
-    e.set(1, "failed");
-    expect(planRevokes(queue, first(5), e)).not.toContain(0);
-    expect(planRevokes(queue, first(5), e)).not.toContain(1);
-  });
-
-  it("keeps everything while the voice is on the first block or the one after it", () => {
-    expect(planRevokes(queue, 0, allReady())).toEqual([]);
-    expect(planRevokes(queue, first(1), allReady())).toEqual([]);
   });
 });

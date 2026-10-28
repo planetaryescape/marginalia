@@ -90,15 +90,15 @@ it("moves the dot between breathing and dim, and offers Resume when paused", asy
   expect(document.querySelector('[aria-label="Resume"]')).not.toBeNull();
 });
 
-it("can't go back from the first paragraph", async () => {
-  await render({ index: 0 });
-  expect(
-    (
-      document.querySelector(
-        '[aria-label="Previous paragraph"]',
-      ) as HTMLButtonElement
-    ).disabled,
-  ).toBe(true);
+it("lets Previous be pressed at the first paragraph, where it restarts it or goes back to the title", async () => {
+  const onPrevious = vi.fn();
+  await render({ index: 0, onPrevious });
+  const button = document.querySelector(
+    '[aria-label="Previous paragraph"]',
+  ) as HTMLButtonElement;
+  expect(button.disabled).toBe(false);
+  await act(async () => button.click());
+  expect(onPrevious).toHaveBeenCalledTimes(1);
 });
 
 it("writes the slow-wait line after 4 s of preparing, and takes it back when the voice plays", async () => {

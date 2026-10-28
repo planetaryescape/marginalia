@@ -5,10 +5,8 @@ import {
   buildQueue,
   firstItemFrom,
   gapAfter,
-  keepFrom,
   nextBlockItem,
   planFetches,
-  planRevokes,
   previousItem,
   type QueueItem,
   TITLE_BLOCK,
@@ -48,7 +46,7 @@ const SILENT_CLIP =
 
 type ClipEntry =
   | { status: "pending" }
-  | { status: "ready"; url: string }
+  | { status: "ready"; blob: Blob }
   | { status: "failed"; error: unknown };
 
 interface PlayerEnv {
@@ -88,6 +86,12 @@ function createPlayer(env: PlayerEnv) {
   let playing = -1;
   /** The object URL set on the audio element for the item at `playing`. */
   let loaded: string | null = null;
+  /**
+   * The one live object URL: the playing clip's, minted when it starts and
+   * revoked when the player moves to another item. Every other clip stays a Blob
+   * in `clips` for the whole run, so Previous never pays for a clip twice.
+   */
+  let liveUrl: string | null = null;
   let gapTimer: ReturnType<typeof setTimeout> | undefined;
   let resume: (() => void) | null = null;
   let status: ListenStatus = "idle";
@@ -180,16 +184,15 @@ function createPlayer(env: PlayerEnv) {
     return audio;
   }
 
-  function revokeEntry(i: number) {
-    const entry = clips.get(i);
-    if (entry?.status === "ready") URL.revokeObjectURL(entry.url);
-    clips.delete(i);
+  function revokeLive() {
+    if (liveUrl !== null) URL.revokeObjectURL(liveUrl);
+    liveUrl = null;
   }
 
   /** Drops a clip that can't be played and unloads it from the element. */
   function discard(i: number) {
     loaded = null;
-    revokeEntry(i);
+    revokeLive();
     clips.set(i, { status: "failed", error: new Error("playback") });
   }
 
@@ -207,7 +210,8 @@ function createPlayer(env: PlayerEnv) {
       audio.removeAttribute("src");
       audio.load();
     }
-    for (const i of [...clips.keys()]) revokeEntry(i);
+    revokeLive();
+    clips.clear();
     queue = [];
     paragraphs = [];
     playing = -1;
@@ -222,7 +226,6 @@ function createPlayer(env: PlayerEnv) {
     unsettled += 1;
     const source = env.clipSource();
     const signal = abort?.signal ?? new AbortController().signal;
-    const behind = () => i < keepFrom(queue, playing);
     // Whatever the outcome, a request that ends frees a slot, so the current run
     // plans again; otherwise a skip made while the slots were full never gets
     // its own item requested, and a restart waits on the slots the last run held
@@ -230,27 +233,19 @@ function createPlayer(env: PlayerEnv) {
       (blob) => {
         unsettled -= 1;
         // Stop, restart or unmount ran while this was in flight: the result is
-        // late, so no object URL is ever made for it
+        // late and is dropped. Otherwise it is kept for the run, wherever the
+        // voice is now, so nothing is ever requested twice
         if (token === session && clips.get(i) === entry) {
-          if (behind()) {
-            clips.delete(i);
-          } else {
-            const url = URL.createObjectURL(blob);
-            clips.set(i, { status: "ready", url });
-            if (status === "preparing" && playing === i) play(i, url);
-          }
+          clips.set(i, { status: "ready", blob });
+          if (status === "preparing" && playing === i) play(i, blob);
         }
         fetchAhead();
       },
       (error: unknown) => {
         unsettled -= 1;
         if (token === session && clips.get(i) === entry) {
-          if (behind()) {
-            clips.delete(i);
-          } else {
-            clips.set(i, { status: "failed", error });
-            if (status === "preparing" && playing === i) fail(i, error);
-          }
+          clips.set(i, { status: "failed", error });
+          if (status === "preparing" && playing === i) fail(i, error);
         }
         fetchAhead();
       },
@@ -267,10 +262,6 @@ function createPlayer(env: PlayerEnv) {
       request(i);
   }
 
-  function revokeBehind() {
-    for (const i of planRevokes(queue, playing, statuses())) revokeEntry(i);
-  }
-
   /** Starts the element on `loaded` and, once the sound has begun, moves the highlight. */
   function playLoaded(i: number) {
     const token = session;
@@ -278,6 +269,9 @@ function createPlayer(env: PlayerEnv) {
     const pausedAt = pauses;
     const attempt = ensureAudio().play();
     resume = null;
+    // A resumed clip is starting again: until play() resolves it is not paused,
+    // so Pause has to be able to stop it
+    if (status === "paused") set("preparing");
     attempt.then(
       () => {
         if (token !== session || loaded !== url || pausedAt !== pauses) return;
@@ -292,7 +286,10 @@ function createPlayer(env: PlayerEnv) {
     );
   }
 
-  function play(i: number, url: string) {
+  function play(i: number, blob: Blob) {
+    revokeLive();
+    const url = URL.createObjectURL(blob);
+    liveUrl = url;
     loaded = url;
     holding = i;
     ensureAudio().src = url;
@@ -322,10 +319,11 @@ function createPlayer(env: PlayerEnv) {
     playing = i;
     loaded = null;
     clearTimeout(gapTimer);
-    revokeBehind();
+    // The previous item's clip is done with: its URL goes, its Blob stays
+    revokeLive();
     fetchAhead();
     const entry = clips.get(i);
-    if (entry?.status === "ready") play(i, entry.url);
+    if (entry?.status === "ready") play(i, entry.blob);
     else if (entry?.status === "failed") fail(i, entry.error);
     else prepare(i);
   }

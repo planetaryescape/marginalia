@@ -273,23 +273,25 @@ describe("fetching ahead", () => {
     expect(maxInFlight).toBeLessThanOrEqual(2);
   });
 
-  it("gives back object URLs two items behind the voice", async () => {
+  it("holds at most one live object URL, the playing clip's, and revokes the rest as the voice moves on", async () => {
     mountArticle(plain(8));
     await act(async () => root.render(<Harness />));
     await start(0);
-    for (let item = 0; item < 4; item++) {
+    const live = () => created.length - revoked.length;
+    for (let item = 0; item < 5; item++) {
       for (const [n, call] of calls.entries())
         if (!call.settled) await settle(n);
-      if (item < 3) {
+      expect(live()).toBeLessThanOrEqual(1);
+      expect(revoked).not.toContain(audio().src);
+      if (item < 4) {
         await ended();
         await elapse(400);
       }
     }
-    // The voice is on item 3: items 0 and 1 are two behind or more
-    expect(revoked).toEqual(
-      expect.arrayContaining(["blob:clip-1", "blob:clip-2"]),
-    );
-    expect(revoked).not.toContain(audio().src);
+    expect(created.length).toBeGreaterThanOrEqual(4);
+    await act(async () => listen.stop());
+    expect(live()).toBe(0);
+    expect(revoked.sort()).toEqual(created.sort());
   });
 });
 
@@ -403,7 +405,9 @@ describe("the title", () => {
     await act(async () => listen.previous());
     expect(listen.status).toBe("playing");
     expect(speaking()).toBeNull();
-    expect(audio().src).toBe("blob:clip-1");
+    // The title's clip is reused, not asked for again
+    expect(new Set(calls.map((c) => c.text)).size).toBe(calls.length);
+    expect(audio().src).toMatch(/^blob:clip-/);
   });
 });
 
@@ -649,6 +653,41 @@ describe("pausing while a clip is loading", () => {
   });
 });
 
+describe("pausing a resumed clip", () => {
+  it("pauses again while the resumed play() is still pending", async () => {
+    mountArticle(plain(3));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    await settle(0);
+    await settle(1);
+    expect(listen.status).toBe("playing");
+    await act(async () => listen.togglePause());
+    expect(listen.status).toBe("paused");
+
+    let started = () => {};
+    const element = audio();
+    element.play.mockImplementationOnce(() => {
+      element.paused = false;
+      return new Promise<void>((resolve) => {
+        started = resolve;
+      });
+    });
+    await act(async () => listen.togglePause());
+    expect(element.paused).toBe(false);
+    // Resume is under way and play() hasn't resolved: a second press must pause
+    await act(async () => listen.togglePause());
+    expect(element.paused).toBe(true);
+    expect(listen.status).toBe("paused");
+    await act(async () => started());
+    expect(listen.status).toBe("paused");
+    expect(element.paused).toBe(true);
+
+    await act(async () => listen.togglePause());
+    expect(element.paused).toBe(false);
+    expect(listen.status).toBe("playing");
+  });
+});
+
 describe("going back", () => {
   const sentences = Array.from(
     { length: 130 },
@@ -677,13 +716,11 @@ describe("going back", () => {
       await settleAll();
     }
     expect(listen.index).toBe(1);
-    const firstClip = created[0];
     audio().currentTime = 1;
     await act(async () => listen.previous());
     expect(listen.index).toBe(0);
     await settleAll();
-    expect(audio().src).toBe(firstClip);
-    expect(revoked).not.toContain(firstClip);
+    expect(revoked).not.toContain(audio().src);
     expect(new Set(calls.map((c) => c.text)).size).toBe(calls.length);
     expect(listen.status).toBe("playing");
   });
@@ -700,6 +737,41 @@ describe("going back", () => {
     expect(listen.index).toBe(1);
     await act(async () => listen.previous());
     expect(listen.index).toBe(0);
+  });
+});
+
+describe("going back twice", () => {
+  it("never asks for a clip it already has: Previous twice, two blocks in, reuses the blobs", async () => {
+    mountArticle(plain(8));
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    const settleAll = async () => {
+      for (let round = 0; round < 4; round++)
+        for (const [k, call] of calls.entries())
+          if (!call.settled) await settle(k);
+    };
+    await settleAll();
+    await act(async () => listen.next());
+    await settleAll();
+    await act(async () => listen.next());
+    await settleAll();
+    expect(listen.index).toBe(2);
+    const requested = calls.length;
+    audio().currentTime = 1;
+    await act(async () => listen.previous());
+    await settleAll();
+    expect(listen.index).toBe(1);
+    audio().currentTime = 1;
+    await act(async () => listen.previous());
+    await settleAll();
+    expect(listen.index).toBe(0);
+    expect(listen.status).toBe("playing");
+    expect(speaking()).toBe(el(0));
+    expect(new Set(calls.map((c) => c.text)).size).toBe(calls.length);
+    // Only blocks past the lookahead may have been asked for since; none of 0 to 2 again
+    for (const call of calls.slice(requested))
+      expect(call.text).not.toMatch(/Paragraph [012] /);
+    expect(created.length - revoked.length).toBeLessThanOrEqual(1);
   });
 });
 
@@ -1054,6 +1126,30 @@ describe("choosing a voice", () => {
     await start(0);
     expect(speak).toHaveBeenCalledTimes(2);
     expect(calls).toHaveLength(0);
+  });
+
+  it("Previous on the device voice at the first paragraph restarts it, so the button is never dead there", async () => {
+    window.sessionStorage.setItem("marginalia.listenVoice", "device");
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(0);
+    expect(speak).toHaveBeenCalledTimes(1);
+    await act(async () => listen.previous());
+    expect(speak).toHaveBeenCalledTimes(2);
+    expect(speak.mock.calls[1][0].text).toBe(paragraphText(0));
+  });
+
+  it("clears a pending no-key choice when the article, part or prose changes, so the device voice isn't started at a stale paragraph", async () => {
+    query.value = { providers: [] };
+    mountArticle(plain());
+    await act(async () => root.render(<Harness />));
+    await start(5);
+    expect(listen.needsKey).toBe(true);
+    await act(async () => root.render(<Harness content="another part" />));
+    expect(listen.needsKey).toBe(false);
+    await act(async () => listen.chooseDeviceVoice());
+    expect(speak).not.toHaveBeenCalled();
+    expect(listen.active).toBe(false);
   });
 
   it("uses the device voice in a session where it was chosen, even with a key", async () => {
