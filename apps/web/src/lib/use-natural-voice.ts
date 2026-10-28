@@ -503,6 +503,17 @@ function createPlayer(env: PlayerEnv) {
         clips.get(playing)?.status !== "failed";
       for (const i of [...clips.keys()])
         if (i > playing || (unheard && i === playing)) clips.delete(i);
+      // Playback failed before the clip was heard: the failure stays on screen,
+      // and marking the clip failed makes Retry ask for it in the new voice
+      if (
+        status === "failed" &&
+        !started &&
+        clips.get(playing)?.status === "ready"
+      )
+        clips.set(playing, {
+          status: "failed",
+          error: new Error("The voice changed."),
+        });
       if (unheard && loaded !== null) {
         // Loaded but not yet sounding (play() pending, or paused before it
         // resolved): unload it, so the new voice's clip is what starts
