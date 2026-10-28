@@ -131,6 +131,8 @@ export const keep = mutation({
     selection: v.string(),
     question: v.optional(v.string()),
     paragraphIndex: v.optional(v.number()),
+    occurrence: v.optional(v.number()),
+    paragraphEnd: v.optional(v.number()),
     summaryDefinition: v.optional(v.boolean()),
     unitIndex: v.optional(v.number()),
     turns: v.array(turnValidator),
@@ -145,6 +147,8 @@ export const keep = mutation({
     if (args.question) assertBytes(args.question, 16_000, "Question");
     validateIndex(args.unitIndex, "unit");
     validateIndex(args.paragraphIndex, "paragraph");
+    validateIndex(args.occurrence, "occurrence");
+    validateIndex(args.paragraphEnd, "paragraph");
     if (args.model) assertBytes(args.model, 512, "Model");
     const now = Date.now();
     const identified = await ctx.db
@@ -197,6 +201,9 @@ export const keep = mutation({
       await ctx.db.patch("companionThreads", existing._id, {
         answerId: args.answerId,
         summaryDefinition: args.summaryDefinition ?? existing.summaryDefinition,
+        // An older row learns where its passage is when it is kept again
+        occurrence: args.occurrence ?? existing.occurrence,
+        paragraphEnd: args.paragraphEnd ?? existing.paragraphEnd,
         turns: stale ? existing.turns : args.turns,
         model: stale ? existing.model : args.model,
         keptAt: existing.keptAt ?? now,
@@ -315,6 +322,8 @@ export const getBody = query({
       selection: row.selection,
       question: row.question,
       paragraphIndex: row.paragraphIndex,
+      occurrence: row.occurrence,
+      paragraphEnd: row.paragraphEnd,
       summaryDefinition: row.summaryDefinition,
       unitIndex: row.unitIndex,
       turns: row.turns,

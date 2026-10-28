@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
-import { findTextRange, rangeText } from "./text-range";
+import { occurrencesBefore } from "./lookups";
+import { findOccurrenceRange, findTextRange, rangeText } from "./text-range";
 
 let body: HTMLElement;
 
@@ -52,5 +53,52 @@ describe("rangeText", () => {
 
   it("keeps the article's own superscripts outside annotations", () => {
     expect(rangeText(rangeOver("Plain", "text."))).toBe("Plain x2 text.");
+  });
+});
+
+describe("findOccurrenceRange", () => {
+  const bass = () => {
+    document.body.innerHTML = `<div data-article-body><p data-para="1">Bass and drums. The bass is low, the <b>bass</b> line moves.</p></div>`;
+    const root = document.querySelector("[data-article-body]") as HTMLElement;
+    return { root, paragraph: root.querySelector("p") as HTMLElement };
+  };
+  const startOf = (range: Range | null) => {
+    if (!range) return null;
+    const before = document.createRange();
+    before.selectNodeContents(
+      range.startContainer.parentElement!.closest("p")!,
+    );
+    before.setEnd(range.startContainer, range.startOffset);
+    return rangeText(before).length;
+  };
+
+  it("finds the match the reader selected, counted the way a selection is captured", () => {
+    const { root, paragraph } = bass();
+    const third = document.createRange();
+    third.selectNodeContents(paragraph.querySelector("b")!.firstChild!);
+    const prefix = document.createRange();
+    prefix.selectNodeContents(paragraph);
+    prefix.setEnd(third.startContainer, third.startOffset);
+    const occurrence = occurrencesBefore(rangeText(prefix), "bass");
+    expect(occurrence).toBe(2);
+    const found = findOccurrenceRange(root, "bass", paragraph, occurrence);
+    expect(found?.toString()).toBe("bass");
+    expect(found?.startContainer).toBe(third.startContainer);
+  });
+
+  it("finds the second match, not the first", () => {
+    const { root, paragraph } = bass();
+    expect(startOf(findOccurrenceRange(root, "bass", paragraph, 1))).toBe(
+      "Bass and drums. The".length,
+    );
+  });
+
+  it("keeps the first-match lookup when there's no occurrence, or it can't be found", () => {
+    const { root, paragraph } = bass();
+    const first = findTextRange(root, "bass", paragraph);
+    for (const occurrence of [undefined, 0, 9])
+      expect(
+        startOf(findOccurrenceRange(root, "bass", paragraph, occurrence)),
+      ).toBe(startOf(first));
   });
 });

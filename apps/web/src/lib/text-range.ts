@@ -1,9 +1,33 @@
 // Text-range anchoring lives in the shared reader package; this keeps app imports stable.
+import { createTextQuoteIndex, findTextRange } from "@planetaryescape/reader";
+
 export {
   findTextRange,
   normalizeText,
   rangeContainsPoint,
 } from "@planetaryescape/reader";
+
+/**
+ * Finds the `occurrence`-th match of `text` in its paragraph, the one the
+ * reader selected, else the first match anywhere. Matches are counted as
+ * `occurrencesBefore` counts them when a selection is captured: ignoring
+ * case, overlapping ones separately.
+ */
+export function findOccurrenceRange(
+  root: HTMLElement,
+  text: string,
+  preferred: HTMLElement | null,
+  occurrence: number | undefined,
+): Range | null {
+  if (occurrence && preferred && root.contains(preferred)) {
+    const range = createTextQuoteIndex(preferred).find(text, {
+      occurrence,
+      caseSensitive: false,
+    });
+    if (range) return range;
+  }
+  return findTextRange(root, text, preferred);
+}
 
 /**
  * The prose a range covers, as anchoring reads it: annotation footnote numbers

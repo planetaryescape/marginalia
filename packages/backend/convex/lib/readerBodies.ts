@@ -105,6 +105,7 @@ export async function threadPreview(row: Doc<"companionThreads">) {
     selection: row.selection,
     question: row.question,
     paragraphIndex: row.paragraphIndex,
+    occurrence: row.occurrence,
     unitIndex: row.unitIndex,
     preview: preview(
       row.turns.find((turn) => turn.role === "assistant" && turn.content.trim())

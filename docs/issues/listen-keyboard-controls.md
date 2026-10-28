@@ -19,4 +19,4 @@ Found in the 2026-10-28 QA run on reader.bhekani.com (frontend `06cae83`), in th
 
 ## Open questions
 
-- ~~Should Space pause Listen? In the reader it scrolls the page today.~~ Assumed yes while Listen is on, and scrolling otherwise (D-TTS-027). BK to confirm by use.
+- ~~Should Space pause Listen? In the reader it scrolls the page today.~~ Yes while Listen is on, and scrolling otherwise (D-TTS-027). BK confirmed on 2026-10-28.

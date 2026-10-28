@@ -1,13 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { getArticleBody, getParagraphs } from "./paragraphs";
-import { findTextRange, rangeContainsPoint } from "./text-range";
+import { findOccurrenceRange, rangeContainsPoint } from "./text-range";
 
 /** An answer with a passage in the article, kept or not. */
 export interface PassageSource {
   _id: string;
   selection: string;
   paragraphIndex?: number;
+  /** Which match of `selection` in its paragraph was selected. */
+  occurrence?: number;
   /** Tinted in the text and opened by a click. Answers with a margin note aren't until kept. */
   marked: boolean;
 }
@@ -31,6 +33,7 @@ export function useSavedPassages({
   threads,
   version,
   activeId,
+  isOpen = (id) => id === activeId,
   onOpen,
 }: {
   containerRef: React.RefObject<HTMLElement | null>;
@@ -38,11 +41,15 @@ export function useSavedPassages({
   /** Paragraph tagging version: bumps whenever the article DOM changes. */
   version: number;
   activeId: string | undefined;
+  /** Whether the answer with this passage id is the one open; defaults to `activeId`. */
+  isOpen?: (id: string) => boolean;
   onOpen: (passage: SavedPassage) => void;
 }): SavedPassage[] {
   const [passages, setPassages] = useState<SavedPassage[]>([]);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` signals a DOM change
   useEffect(() => {
@@ -58,7 +65,12 @@ export function useSavedPassages({
           doc.paragraphIndex === undefined
             ? null
             : paragraphs[doc.paragraphIndex];
-        const range = findTextRange(body, doc.selection, preferred);
+        const range = findOccurrenceRange(
+          body,
+          doc.selection,
+          preferred,
+          doc.occurrence,
+        );
         return range ? [{ doc, range }] : [];
       }),
     );
@@ -108,11 +120,19 @@ export function useSavedPassages({
       }
     }
 
-    const hitTest = (e: MouseEvent) =>
-      passages.find(
+    // Several answers can share a passage. Where the passage is the only
+    // handle (phone and sheet layouts), each tap opens the next one, and the
+    // tap after the last closes it, as one answer's second tap does
+    const hitTest = (e: MouseEvent) => {
+      const hits = passages.filter(
         (p) =>
           p.doc.marked && rangeContainsPoint(p.range, e.clientX, e.clientY),
-      ) ?? null;
+      );
+      const open = hits.findIndex((p) => isOpenRef.current(p.doc._id));
+      return (
+        hits[open === -1 ? 0 : Math.min(open + 1, hits.length - 1)] ?? null
+      );
+    };
 
     const onClick = (e: MouseEvent) => {
       const selection = window.getSelection();

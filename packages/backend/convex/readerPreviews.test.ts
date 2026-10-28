@@ -484,3 +484,55 @@ it("annotation bookkeeping does not alter presentation", async () => {
   ).toEqual(before);
   expect(before.page[0]).not.toHaveProperty("wasViewed");
 });
+
+it("keeps which match was selected and where the passage ends, and hands both back", async () => {
+  const { t, owner, articleId } = await fixture();
+  const args = {
+    articleId,
+    answerId: "second-bass",
+    mode: "define" as const,
+    selection: "bass",
+    paragraphIndex: 3,
+    occurrence: 1,
+    paragraphEnd: 4,
+    turns: [{ role: "assistant" as const, content: "A low voice." }],
+  };
+  const threadId = await owner.mutation(api.companionThreads.keep, args);
+  const body = await owner.query(api.companionThreads.getBody, { threadId });
+  expect(body).toMatchObject({ occurrence: 1, paragraphEnd: 4 });
+  const previews = await owner.query(
+    api.companionThreads.listPreviewsByArticle,
+    { articleId, paginationOpts: { numItems: 10, cursor: null } },
+  );
+  expect(previews.page[0]).toMatchObject({ occurrence: 1 });
+
+  // A row kept before occurrences were stored learns them when kept again
+  const legacyId = await t.run((ctx) =>
+    ctx.db.insert("companionThreads", {
+      articleId,
+      userId: "default_user",
+      mode: "define",
+      selection: "bass",
+      turns: [],
+      createdAt: 1,
+      updatedAt: 1,
+    }),
+  );
+  await owner.mutation(api.companionThreads.keep, {
+    ...args,
+    answerId: "old-bass",
+    legacyId,
+    occurrence: 2,
+  });
+  expect(
+    await owner.query(api.companionThreads.getBody, { threadId: legacyId }),
+  ).toMatchObject({ occurrence: 2, paragraphEnd: 4 });
+
+  await expect(
+    owner.mutation(api.companionThreads.keep, {
+      ...args,
+      answerId: "bad",
+      occurrence: -1,
+    }),
+  ).rejects.toThrow("Invalid occurrence");
+});

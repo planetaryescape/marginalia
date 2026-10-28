@@ -7,6 +7,7 @@ import { type PassageSource, useSavedPassages } from "./saved-passages";
 let root: Root;
 let article: HTMLElement;
 let sources: PassageSource[];
+let openId: string | undefined;
 const opened = vi.fn();
 function Harness() {
   const ref = useRef(article);
@@ -15,6 +16,7 @@ function Harness() {
     threads: sources,
     version: 1,
     activeId: undefined,
+    isOpen: (id) => id === openId,
     onOpen: opened,
   });
   return null;
@@ -51,6 +53,7 @@ beforeEach(() => {
   });
   root = createRoot(document.getElementById("mount")!);
   opened.mockReset();
+  openId = undefined;
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -115,4 +118,36 @@ it("does no drag hit testing, bounds hover to the target paragraph, and retains 
   expect(measure).not.toHaveBeenCalled();
   expect(article.style.cursor).toBe("");
   window.getSelection()?.removeAllRanges();
+});
+
+it("opens each answer on one passage in turn, then the open one again so it closes", async () => {
+  sources.unshift(
+    { ...sources[10], _id: "first-on-passage" },
+    { ...sources[10], _id: "second-on-passage" },
+  );
+  await act(async () => root.render(<Harness />));
+  const paragraph = article.querySelectorAll("p")[10];
+  const tap = () =>
+    act(async () =>
+      paragraph.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 10,
+          clientY: 1020,
+        }),
+      ),
+    );
+  await tap();
+  expect(opened.mock.calls.at(-1)?.[0].doc._id).toBe("first-on-passage");
+  openId = "first-on-passage";
+  await tap();
+  expect(opened.mock.calls.at(-1)?.[0].doc._id).toBe("second-on-passage");
+  openId = "second-on-passage";
+  await tap();
+  expect(opened.mock.calls.at(-1)?.[0].doc._id).toBe("answer-10");
+  openId = "answer-10";
+  await tap();
+  // The last one is open: tapping it again hands it back, and the page closes it
+  expect(opened.mock.calls.at(-1)?.[0].doc._id).toBe("answer-10");
 });

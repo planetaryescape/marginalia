@@ -125,9 +125,9 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Left as is:** switching voices back and forth (A, B, then A) asks again for A's clips ahead, because the player keeps clips by position, not by voice. Each repeat is about a hundredth of a cent and only follows the reader's own change; keying clips by voice would buy nothing they can hear. Found by the seventh review round.
 - **Why a tab:** the panel already groups by tab (Look, Text, Answers), and eight voices don't fit inside another tab without crowding it. The Listen toggle stays in Look.
 - **Why pause:** two voices at once can't be compared, and resuming on close matches the demo's "close settings while listening: the next paragraph is in Bella".
-- **Character text:** the blueprint asked for one or two words per voice written after listening. Nobody has listened to all eight in this change, so each says only what its Kokoro ID states (American or British, woman or man). Q7 asks BK to describe them by ear.
+- **Character text:** the blueprint asked for one or two words per voice written after listening. Nobody has listened to all eight in this change, so each says only what its Kokoro ID states (American or British, woman or man). BK chose to keep accent and speaker (Q7), since the play button is how a reader judges a voice.
 
-### D-TTS-027: While Listen is on, Space pauses and `[` `]` skip, and Media Session ships before rung 2. (Claude, assumed for BK to confirm; 2026-10-28)
+### D-TTS-027: While Listen is on, Space pauses and `[` `]` skip, and Media Session ships before rung 2. (Claude, confirmed by BK; 2026-10-28)
 - **From:** `docs/issues/listen-keyboard-controls.md`, the QA run's keyboard charter, after BK asked to "fix the remaining issues".
 - **Decision:** while a listen is active, Space pauses and resumes, and `[` and `]` go to the previous and next paragraph. Otherwise Space scrolls the page as before and the brackets do nothing in the reader. A focused button keeps its own Space. The keys match what `[` and `]` already mean on the list pages (previous and next tab).
 - **Why Space:** it is the pause key in every media player. Paging with Space while listening is the cost; the voice is already moving the page, and Space stops it, which is easy to see and undo.
