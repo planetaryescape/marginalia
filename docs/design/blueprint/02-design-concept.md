@@ -135,7 +135,7 @@ The reader always knows, without asking:
 
 ## Principles
 
-1. **The page is the hero.** In the reader, nothing overlaps the text column except a menu you asked for. Chrome fades after reading starts and returns when you scroll up or move the pointer to the top.
+1. **The page is the hero.** In the reader, nothing overlaps the text column except a menu you asked for. The top bar stays, small and translucent, and takes the title once the heading scrolls away (D-DES-070).
 2. **Colour belongs to a hand.** Ink for print and chrome, graphite plus kind dots for pencil, the reader's pen colour for the reader's own marks only (D-DES-020). If an element isn't someone's mark, it isn't coloured.
 3. **Beside the line, or at the ends.** Things about a passage live in the margin next to it. Things about the whole article live in front matter (summary, map) or back matter (impression, "Before you go"). Not in floating panels when a place on the page exists.
 4. **One question per screen.** The desk asks "How much time do you have?" Library asks "What are you looking for?" Each room has one primary action, and everything else recedes.
@@ -261,7 +261,7 @@ Reduced motion (`prefers-reduced-motion: reduce`): every move becomes a 120 ms o
 | Screen | Primary | Secondary | Hidden until asked | Left off, and why |
 |---|---|---|---|---|
 | Desk | The question; the one pick or Continue | Time choices; the bar | Keycaps; counts per window; sync detail; "Worth revisiting" when Continue is shown | The right-hand timeline (notes, ratings, sources): it's Notes' and Library's job, not the desk's |
-| Reader | The text | Margin notes in pencil; the paragraph map | Toolbar (fades while reading); rating; love; settings | GitHub; re-annotate (overflow menu); time-left counter (in the map's tooltip) |
+| Reader | The text | Margin notes in pencil; the paragraph map | Toolbar (stays, with the title once the heading scrolls away); rating; love; settings | GitHub; re-annotate (overflow menu); time-left counter (in the map's tooltip) |
 | Library | The ask field | Shelves; results | Filters | Example prompts as four pill buttons: show two, as plain text |
 | Notes | Your words | The line each is about; the article | AI answers you saved (collapsed to one line) | Boxes around every note |
 | Settings | The one thing each section sets | Status lines | Technical detail (document counts, phases) | Seven button styles |
@@ -305,7 +305,7 @@ The eye lands on the question, then on the one article already chosen. Time choi
 
 ```
  ← Desk                                                              Aa   ★   ♡   ⋯
-                                                                    (fades while reading)
+                                                  (title here once the heading scrolls away)
  ▕▔▔                The quiet cost of interruptions
  ▕▔▔▔               example.com · 7 min
  ▕▔▔ •
