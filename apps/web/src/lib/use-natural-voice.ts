@@ -41,7 +41,7 @@ const IDLE: PlayerSnapshot = { status: "idle", index: null, error: null };
 
 // A silent clip played inside the click or keypress, so mobile browsers count
 // the element as user-activated for the rest of the session (05-player)
-const SILENT_CLIP =
+export const SILENT_CLIP =
   "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
 
 type ClipEntry =
@@ -440,6 +440,16 @@ function createPlayer(env: PlayerEnv) {
       jump(target);
     },
     retry,
+    /**
+     * The voice changed: what's ahead is dropped and asked for again in the new
+     * voice. The playing clip finishes in the old one, and clips already heard
+     * stay for Previous. A request still in flight answers into nothing.
+     */
+    revoice() {
+      if (playing < 0) return;
+      for (const i of [...clips.keys()]) if (i > playing) clips.delete(i);
+      fetchAhead();
+    },
   };
 }
 
@@ -478,6 +488,11 @@ export function useNaturalVoice(
       ),
   });
   const current = player.current;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new source is a new voice
+  useEffect(() => {
+    current.revoice();
+  }, [current, clipSource]);
 
   // Prose identity, not paragraph geometry or arriving annotations, ends speech.
   // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes invalidate the captured paragraph array

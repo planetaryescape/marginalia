@@ -566,6 +566,27 @@ describe("pausing and moving", () => {
     expect(article.querySelector("[data-restarting]")).toBeNull();
   });
 
+  it("asks again for what's ahead when the voice changes, and lets the playing clip finish", async () => {
+    await playing();
+    // Items 2 and 3 were requested once 0 and 1 were in
+    expect(calls.map((call) => call.text)).toHaveLength(4);
+    await settle(2);
+    const src = audio().src;
+    const voiceB: ClipSource = (text, signal) => source(`B:${text}`, signal);
+    await act(async () => root.render(<Harness clip={voiceB} />));
+    expect(audio().src).toBe(src);
+    expect(listen.status).toBe("playing");
+    // Item 3 is still in flight under the old voice, so one slot is free
+    expect(calls[4].text).toBe(`B:${paragraphText(1)}`);
+    await settle(3);
+    expect(calls[5].text).toBe(`B:${paragraphText(2)}`);
+    await settle(4);
+    await ended();
+    await elapse(400);
+    expect(audio().src).not.toBe(src);
+    expect(listen.index).toBe(1);
+  });
+
   it("finishes when next is pressed on the last block", async () => {
     mountArticle(plain(2));
     await act(async () => root.render(<Harness />));

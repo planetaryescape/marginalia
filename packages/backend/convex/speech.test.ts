@@ -11,6 +11,7 @@ import type { Id } from "./_generated/dataModel";
 import {
   DEFAULT_SPEECH_VOICE,
   findSpeechVoice,
+  resolveSpeechVoice,
   SPEECH_VOICES,
 } from "./lib/speechVoices";
 import { READER_LIMITS } from "./limits";
@@ -101,7 +102,7 @@ async function settled<T>(work: Promise<T>): Promise<T> {
 }
 
 async function setup() {
-  const { t, reader, readerLibraryId } = await secondReaderTest(modules);
+  const { t, owner, reader, readerLibraryId } = await secondReaderTest(modules);
   const articleId: Id<"articles"> = await t.run((ctx) =>
     ctx.db.insert("articles", {
       userId: readerLibraryId,
@@ -124,7 +125,7 @@ async function setup() {
         ...(args.voice === undefined ? {} : { voice: args.voice }),
       }),
     );
-  return { t, reader, readerLibraryId, articleId, clip };
+  return { t, owner, reader, readerLibraryId, articleId, clip };
 }
 
 describe("speech.clip", () => {
@@ -217,7 +218,8 @@ describe("speech.clip", () => {
 
   it.each([
     "bm_george",
-    "openrouter:hexgrad/kokoro-82m#bm_george",
+    // A real Kokoro voice the catalog doesn't offer
+    "openrouter:hexgrad/kokoro-82m#am_adam",
     "constructor",
     "__proto__",
     "toString",
@@ -492,5 +494,71 @@ describe("speech voice catalog", () => {
     expect(findSpeechVoice("constructor")).toBeUndefined();
     expect(findSpeechVoice("__proto__")).toBeUndefined();
     expect(findSpeechVoice("hasOwnProperty")).toBeUndefined();
+  });
+});
+
+describe("choosing a voice", () => {
+  const EMMA = "openrouter:hexgrad/kokoro-82m#bf_emma";
+
+  it("offers the eight sampled Kokoro voices, defaulting to Heart", async () => {
+    const { reader } = await setup();
+    const choice = await reader.query(api.userSettings.getSpeechVoice, {});
+    expect(choice.selected).toBe(DEFAULT_SPEECH_VOICE);
+    expect(choice.voices.map((voice) => voice.id.split("#")[1])).toEqual([
+      "af_heart",
+      "af_bella",
+      "am_michael",
+      "am_fenrir",
+      "bf_emma",
+      "bf_isabella",
+      "bm_george",
+      "bm_fable",
+    ]);
+  });
+
+  it("keeps each reader's choice to themselves", async () => {
+    const { owner, reader } = await setup();
+    await reader.mutation(api.userSettings.setSpeechVoice, { voice: EMMA });
+    expect(
+      (await reader.query(api.userSettings.getSpeechVoice, {})).selected,
+    ).toBe(EMMA);
+    expect(
+      (await owner.query(api.userSettings.getSpeechVoice, {})).selected,
+    ).toBe(DEFAULT_SPEECH_VOICE);
+  });
+
+  it("refuses a voice outside the catalog and leaves the choice alone", async () => {
+    const { reader } = await setup();
+    await reader.mutation(api.userSettings.setSpeechVoice, { voice: EMMA });
+    await expect(
+      reader.mutation(api.userSettings.setSpeechVoice, {
+        voice: "openrouter:hexgrad/kokoro-82m#constructor",
+      }),
+    ).rejects.toThrow(COPY.unknownVoice);
+    expect(
+      (await reader.query(api.userSettings.getSpeechVoice, {})).selected,
+    ).toBe(EMMA);
+  });
+
+  it("reads a saved voice that left the catalog as the default", async () => {
+    const { t, reader, readerLibraryId } = await setup();
+    await t.run((ctx) =>
+      ctx.db.insert("userSettings", {
+        userId: readerLibraryId,
+        speechVoice: "openrouter:retired/model#gone",
+        updatedAt: 0,
+      }),
+    );
+    expect(
+      (await reader.query(api.userSettings.getSpeechVoice, {})).selected,
+    ).toBe(DEFAULT_SPEECH_VOICE);
+    expect(resolveSpeechVoice(undefined).id).toBe(DEFAULT_SPEECH_VOICE);
+  });
+
+  it("sends the chosen catalog voice to OpenRouter", async () => {
+    const { clip } = await setup();
+    const calls = stubFetch(audio);
+    await clip({ voice: EMMA });
+    expect(calls[0].body.voice).toBe("bf_emma");
   });
 });

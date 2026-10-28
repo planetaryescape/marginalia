@@ -28,3 +28,4 @@ The narrator instructions S1 tests, sent as `instructions` to models that accept
 | Q4 | Should the voice read the title and byline before the first paragraph, and read figure captions? | Open; blueprint assumes title and byline when starting from the top, and captions read (D-TTS-011) |
 | Q5 | Is 30 days after last play the right time to keep clips? Longer makes re-listening free; shorter keeps storage inside the free 1 GB. | Open, needed by rung 3; blueprint assumes 30 days (D-TTS-007, D-TTS-022) |
 | Q6 | Readers with only an Anthropic or OpenAI key get the device voice. Is that acceptable for now, or is a second path needed before release to other readers? | Open; blueprint assumes acceptable (D-TTS-002, D-TTS-005) |
+| Q7 | What one or two words describe each Kokoro voice? The catalog says only accent and speaker (D-TTS-028). | Open; BK by ear, then edit `character` in `packages/backend/convex/lib/speechVoices.ts` |

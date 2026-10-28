@@ -1714,6 +1714,8 @@ export default defineSchema({
     annotationModel: v.optional(v.string()),
     quickModel: v.optional(v.string()),
     deepModel: v.optional(v.string()),
+    // A speechVoices.ts catalog id; one that left the catalog reads as the default
+    speechVoice: v.optional(v.string()),
     bibleEnabled: v.optional(v.boolean()),
     bibleTranslation: v.optional(v.string()),
     readingScope: v.optional(

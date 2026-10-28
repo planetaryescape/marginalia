@@ -7,10 +7,13 @@ import { useMemo } from "react";
 import { getConvexToken } from "./convex-token";
 import type { ClipSource } from "./use-natural-voice";
 
-type SpeechClip = (args: {
+type SpeechClipArgs = {
   articleId: Id<"articles">;
   text: string;
-}) => Promise<ArrayBuffer>;
+  /** A catalog voice id; without one the action reads in the default voice. */
+  voice?: string;
+};
+type SpeechClip = (args: SpeechClipArgs) => Promise<ArrayBuffer>;
 
 // The sentence the action's own auth check gives a signed-out caller
 const SIGN_IN = "Sign in to your private reader.";
@@ -20,10 +23,9 @@ const SIGN_IN = "Sign in to your private reader.";
  * beforeunload prompt fires while any request it sent is pending, so a clip in
  * flight would make reloading ask about unsaved changes.
  */
-export async function requestSpeechClip(args: {
-  articleId: Id<"articles">;
-  text: string;
-}): Promise<ArrayBuffer> {
+export async function requestSpeechClip(
+  args: SpeechClipArgs,
+): Promise<ArrayBuffer> {
   const token = await getConvexToken();
   if (!token) throw new ConvexError(SIGN_IN);
   const client = new ConvexHttpClient(
@@ -41,17 +43,27 @@ export async function requestSpeechClip(args: {
 export function speechClipSource(
   clip: SpeechClip,
   articleId: Id<"articles">,
+  voice?: string,
 ): ClipSource {
   // Convex actions can't be cancelled, so the signal is left to the player,
   // which ignores a result that arrives after Stop
   return async (text) =>
-    new Blob([await clip({ articleId, text })], { type: "audio/mpeg" });
+    new Blob([await clip({ articleId, text, ...(voice ? { voice } : {}) })], {
+      type: "audio/mpeg",
+    });
 }
 
-/** The clip source for an article; a book's parts use the book's own id. */
-export function useSpeechClip(articleId: Id<"articles">): ClipSource {
+/**
+ * The clip source for an article in the reader's voice; a book's parts use the
+ * book's own id. A new voice makes a new source, which the player answers by
+ * fetching what's ahead again (05-player, Fetching ahead).
+ */
+export function useSpeechClip(
+  articleId: Id<"articles">,
+  voice: string | undefined,
+): ClipSource {
   return useMemo(
-    () => speechClipSource(requestSpeechClip, articleId),
-    [articleId],
+    () => speechClipSource(requestSpeechClip, articleId, voice),
+    [articleId, voice],
   );
 }

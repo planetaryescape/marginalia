@@ -12,6 +12,11 @@ import {
   settingsField,
   settingsRow,
 } from "./lib/readerAI";
+import {
+  findSpeechVoice,
+  resolveSpeechVoice,
+  SPEECH_VOICES,
+} from "./lib/speechVoices";
 
 const role = v.union(
   v.literal("annotations"),
@@ -89,6 +94,42 @@ export const setModel = mutation({
         ...patch,
       });
     }
+    return null;
+  },
+});
+
+/** The voice Listen reads in, and the voices the reader can choose from. */
+export const getSpeechVoice = query({
+  args: {},
+  returns: v.object({
+    selected: v.string(),
+    voices: v.array(
+      v.object({ id: v.string(), name: v.string(), character: v.string() }),
+    ),
+  }),
+  handler: async (ctx) => {
+    const row = await settingsRow(ctx, ctx.readerId);
+    return {
+      selected: resolveSpeechVoice(row?.speechVoice).id,
+      voices: SPEECH_VOICES.map(({ id, name, character }) => ({
+        id,
+        name,
+        character,
+      })),
+    };
+  },
+});
+
+export const setSpeechVoice = mutation({
+  args: { voice: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!findSpeechVoice(args.voice))
+      throw new ConvexError("That voice isn't available.");
+    const row = await settingsRow(ctx, ctx.readerId);
+    const patch = { speechVoice: args.voice, updatedAt: Date.now() };
+    if (row) await ctx.db.patch("userSettings", row._id, patch);
+    else await ctx.db.insert("userSettings", { userId: ctx.readerId, ...patch });
     return null;
   },
 });

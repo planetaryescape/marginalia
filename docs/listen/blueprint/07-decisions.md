@@ -119,6 +119,13 @@ Every decision from the planning session on 2026-10-22, including the options we
 - **Why 30%:** at 20% the wash measured only 1.02–1.04:1 against the page on the light themes, so the "it starts where I am" moment barely showed.
 - **The comp's other resolutions, now part of the design:** one dot that stays through every state (breathing, dim when paused, terracotta on failure, absent with no key); the pill 20 px above the phone bar in every state; the slow-wait pencil line in the space under the pill, so the pill never moves; a pill-specific terracotta and focus ring for contrast in Sepia and Dusk; and the failed paragraph keeping the preparing wash.
 
+### D-TTS-028: Voice choice lives in a Listen tab, and a sample pauses Listen. (Claude, assumed for BK to confirm; 2026-10-28)
+- **From:** BK's "fix the remaining issues please", with rung 1b the open Listen item.
+- **Decision:** the eight S1 Kokoro voices are a radio group in a new **Listen** tab of reading settings. The choice is `userSettings.speechVoice`, so it follows the reader across devices; a stored ID that left the catalog reads as Heart. Play beside each voice, or Space on it, reads the opening (at most 300 characters) of the paragraph being heard, or the one the reader is on. A sample pauses a playing listen, and leaving the tab or closing settings resumes it. A new voice drops the clips ahead and asks for them again; the playing clip finishes in the old voice.
+- **Why a tab:** the panel already groups by tab (Look, Text, Answers), and eight voices don't fit inside another tab without crowding it. The Listen toggle stays in Look.
+- **Why pause:** two voices at once can't be compared, and resuming on close matches the demo's "close settings while listening: the next paragraph is in Bella".
+- **Character text:** the blueprint asked for one or two words per voice written after listening. Nobody has listened to all eight in this change, so each says only what its Kokoro ID states (American or British, woman or man). Q7 asks BK to describe them by ear.
+
 ### D-TTS-027: While Listen is on, Space pauses and `[` `]` skip, and Media Session ships before rung 2. (Claude, assumed for BK to confirm; 2026-10-28)
 - **From:** `docs/issues/listen-keyboard-controls.md`, the QA run's keyboard charter, after BK asked to "fix the remaining issues".
 - **Decision:** while a listen is active, Space pauses and resumes, and `[` and `]` go to the previous and next paragraph. Otherwise Space scrolls the page as before and the brackets do nothing in the reader. A focused button keeps its own Space. The keys match what `[` and `]` already mean on the list pages (previous and next tab).

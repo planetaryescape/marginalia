@@ -51,6 +51,8 @@ Spikes S1, S2 and S3 gate rung 1. S4 gates rung 2. S5 gates rung 3 ([08](08-open
 
 ## Rung 1b: "I choose the Kokoro voice I like by hearing it"
 
+Built 2026-10-28 (D-TTS-028). The characters say only accent and speaker until BK describes the voices by ear (Q7).
+
 **Previously:** everyone hears Kokoro · Heart. **Now:** Settings › Listening lists the Kokoro voices from S1, each with a ▶ sample, and the choice follows the reader across devices (D-TTS-024).
 
 **Promise:** "I played three voices on the paragraph I was reading and picked the one I like."

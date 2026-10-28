@@ -17,6 +17,10 @@ import { useTheme } from "next-themes";
 import { type ReactNode, useEffect, useState } from "react";
 import { InlineError } from "@/components/in-place";
 import {
+  ListeningSettings,
+  type VoiceSampleSource,
+} from "@/components/listening-settings";
+import {
   DROP_CAP_FAMILIES,
   DROP_CAP_LINES,
   type DropCap,
@@ -117,7 +121,7 @@ const DROP_CAP_OPTIONS: { id: DropCap; label: string; family?: string }[] = [
   { id: "gothic", label: "Gothic", family: DROP_CAP_FAMILIES.gothic },
 ];
 
-type Tab = "look" | "text" | "answers";
+type Tab = "look" | "text" | "answers" | "listen";
 
 function Segmented<T extends string>({
   value,
@@ -245,6 +249,8 @@ export interface ReaderSettingsPanelProps {
   resetText: () => void;
   listening: boolean;
   onToggleListen: () => void;
+  /** What the Listen tab's samples read; absent until the article loads. */
+  voiceSample?: VoiceSampleSource;
   /** Lets the toolbar keep itself shown while the panel is open. */
   onOpenChange?: (open: boolean) => void;
 }
@@ -255,6 +261,7 @@ export function ReaderSettingsPanel({
   resetText,
   listening,
   onToggleListen,
+  voiceSample,
   onOpenChange,
 }: ReaderSettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("look");
@@ -315,6 +322,7 @@ export function ReaderSettingsPanel({
               { id: "look", label: "Look" },
               { id: "text", label: "Text" },
               { id: "answers", label: "Answers" },
+              { id: "listen", label: "Listen" },
             ]}
           />
 
@@ -757,6 +765,12 @@ export function ReaderSettingsPanel({
                 <kbd className="reader-kbd">D</kbd> to define in context.
               </p>
             </div>
+          )}
+          {tab === "listen" && (
+            <ListeningSettings
+              sample={voiceSample}
+              onAddKey={() => setOpen(false)}
+            />
           )}
         </Popover.Content>
       </Popover.Portal>
