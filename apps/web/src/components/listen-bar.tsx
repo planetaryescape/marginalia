@@ -102,7 +102,9 @@ export function ListenBar({
           <div className="listen-body" key={view.kind}>
             {view.kind === "listening" && (
               <>
-                <span className="listen-label">Listening</span>
+                <span className="listen-label">
+                  {paused ? "Paused" : "Listening"}
+                </span>
                 <span
                   role="img"
                   className="listen-count"

@@ -1036,6 +1036,17 @@ html[data-reader-theme] .reader-indented .reader-prose p {
   transition-duration: 90ms;
 }
 
+/* Previous restarted this paragraph: the wash fades in again, so the press shows */
+[data-para][data-speaking][data-restarting] {
+  animation: listen-restart 600ms ease-out;
+}
+@keyframes listen-restart {
+  from {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
 /* The last highlight at the end of a listen */
 [data-para][data-fading] {
   transition-duration: 600ms;

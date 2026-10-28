@@ -549,6 +549,23 @@ describe("pausing and moving", () => {
     expect(listen.index).toBe(1);
   });
 
+  it("replays the wash when Previous restarts the block, and not when it goes back one", async () => {
+    await playing();
+    await act(async () => listen.next());
+    await settle(2);
+    audio().currentTime = 5;
+    await act(async () => listen.previous());
+    expect(listen.index).toBe(1);
+    expect(speaking()).toBe(el(1));
+    expect(el(1).hasAttribute("data-restarting")).toBe(true);
+    await elapse(700);
+    expect(el(1).hasAttribute("data-restarting")).toBe(false);
+    audio().currentTime = 1;
+    await act(async () => listen.previous());
+    expect(listen.index).toBe(0);
+    expect(article.querySelector("[data-restarting]")).toBeNull();
+  });
+
   it("finishes when next is pressed on the last block", async () => {
     mountArticle(plain(2));
     await act(async () => root.render(<Harness />));

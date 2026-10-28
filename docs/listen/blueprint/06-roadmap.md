@@ -81,7 +81,7 @@ Spikes S1, S2 and S3 gate rung 1. S4 gates rung 2. S5 gates rung 3 ([08](08-open
 
 **Build:**
 
-- Media Session metadata and handlers ([05](05-player.md#media-session); D-TTS-009).
+- Media Session metadata and handlers ([05](05-player.md#media-session); D-TTS-009). Shipped early with the keyboard fix (D-TTS-027); rung 2 checks them on the lock screen and AirPods, and adds the artwork.
 - Shape A or B from S4 ([05](05-player.md#background-playback)).
 - Speed: `setSpeed`, the bar's speed button and storage (D-TTS-010).
 - Follow: the own-scroll flag, `following`, and Follow in the bar (D-TTS-012).

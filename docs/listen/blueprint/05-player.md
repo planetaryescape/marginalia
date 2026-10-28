@@ -5,7 +5,8 @@ The player turns the article's blocks into a queue of clips, keeps the next thre
 ## Where it lives
 
 - `apps/web/src/lib/listen-queue.ts`: pure logic. Builds the queue from blocks, decides what to fetch next, and computes the state after each event. No DOM, no React; unit-tested.
-- `apps/web/src/lib/use-natural-voice.ts`: the hook that owns the audio element, the fetches, Media Session and follow.
+- `apps/web/src/lib/use-natural-voice.ts`: the hook that owns the audio element, the fetches and follow.
+- `apps/web/src/lib/use-listen-media-session.ts`: Media Session metadata and handlers, for either voice (D-TTS-027).
 - `apps/web/src/lib/device-voice.ts`: today's Web Speech code from `reading-modes.ts` (`pickVoice` and the body of `useListen`), moved verbatim. It's the fallback (D-TTS-013).
 - `useListen` in `lib/reading-modes.ts` keeps its name and return shape (`supported`, `index`, `paused`, `active`, `speakFrom`, `togglePause`, `stop`) so `app/read/[articleId]/page.tsx` and the engagement tracker barely change. It adds `speed`, `setSpeed`, `following`, `follow`, `status`, `error`, `retry` and `mode` (`"natural"` or `"device"`), and delegates to one of the two implementations.
 - `components/listen-bar.tsx` gains the states in [02](02-design-concept.md#the-listen-bar).
@@ -91,6 +92,8 @@ navigator.mediaSession.metadata = new MediaMetadata({
 ```
 
 Handlers: `play`, `pause`, `stop`, `previoustrack` and `nexttrack` (paragraph), `seekbackward` and `seekforward` (also paragraph, because a paragraph is the unit). `playbackState` follows the state. Handlers are removed and metadata cleared on stop, so the lock screen doesn't keep a dead player.
+
+As shipped (D-TTS-027), `play` only resumes and `pause` only pauses, so a repeated key never flips the state back. The artwork is left out until the reader's article query returns the image. In the reader, Space, `[` and `]` reach the same controls while a listen is active.
 
 ## Background playback
 
