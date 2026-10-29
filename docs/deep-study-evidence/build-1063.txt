@@ -1,0 +1,469 @@
+agent-work: checking memory before start
+agent-work: starting bun
+$ next build
+▲ Next.js 16.3.8 (Turbopack)
+✓ Running next.config.ts took 257ms
+
+  Creating an optimized production build ...
+Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ Compiled successfully in 21.6s
+  Running TypeScript ...
+  Finished TypeScript in 40s ...
+  Collecting page data using 5 workers ...
+  Generating static pages using 5 workers (0/17) ...
+  Generating static pages using 5 workers (4/17) 
+  Generating static pages using 5 workers (8/17) 
+  Generating static pages using 5 workers (12/17) 
+✓ Generating static pages using 5 workers (17/17) in 1362ms
+Turbopack build encountered 15 warnings:
+./apps/web/src/app/globals.css:4569:13
+Warning: Parsing CSS source code failed
+  [90m4567 |[0m
+  [90m4568 |[0m [90m/* Marginalia's marks are pencil, never the highlighter: ::highlight allows the text-dec...[0m
+[33m[1m>[0m [90m4569 |[0m ::highlight(companion-passage),
+  [90m     |[0m             [33m[1m^[0m
+  [90m4570 |[0m ::highlight(companion-pending) {
+  [90m4571 |[0m   background-color: color-mix([36min[0m srgb, [36mvar[0m(--reader-fg) [35m6[0m%, transparent);
+  [90m4572 |[0m   color: inherit;
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4569:13
+  [90m4567 |[0m
+  [90m4568 |[0m [90m/* Marginalia's marks are pencil, never the highlighter: ::highlight allows the text-dec...[0m
+[33m[1m>[0m [90m4569 |[0m ::highlight(companion-passage),
+  [90m     |[0m             [33m[1m^[0m
+  [90m4570 |[0m ::highlight(companion-pending) {
+  [90m4571 |[0m   background-color: color-mix([36min[0m srgb, [36mvar[0m(--reader-fg) [35m6[0m%, transparent);
+  [90m4572 |[0m   color: inherit;
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4570:13
+Warning: Parsing CSS source code failed
+  [90m4568 |[0m [90m/* Marginalia's marks are pencil, never the highlighter: ::highlight allows the text-dec...[0m
+  [90m4569 |[0m ::highlight(companion-passage),
+[33m[1m>[0m [90m4570 |[0m ::highlight(companion-pending) {
+  [90m     |[0m             [33m[1m^[0m
+  [90m4571 |[0m   background-color: color-mix([36min[0m srgb, [36mvar[0m(--reader-fg) [35m6[0m%, transparent);
+  [90m4572 |[0m   color: inherit;
+  [90m4573 |[0m   text-decoration-line: underline;
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4570:13
+  [90m4568 |[0m [90m/* Marginalia's marks are pencil, never the highlighter: ::highlight allows the text-dec...[0m
+  [90m4569 |[0m ::highlight(companion-passage),
+[33m[1m>[0m [90m4570 |[0m ::highlight(companion-pending) {
+  [90m     |[0m             [33m[1m^[0m
+  [90m4571 |[0m   background-color: color-mix([36min[0m srgb, [36mvar[0m(--reader-fg) [35m6[0m%, transparent);
+  [90m4572 |[0m   color: inherit;
+  [90m4573 |[0m   text-decoration-line: underline;
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4580:13
+Warning: Parsing CSS source code failed
+  [90m4578 |[0m
+  [90m4579 |[0m [90m/* The j/k cursor in a Bible reading: a quiet tint on the verse's own text, never the pe...[0m
+[33m[1m>[0m [90m4580 |[0m ::highlight(verse-cursor) {
+  [90m     |[0m             [33m[1m^[0m
+  [90m4581 |[0m   background-color: color-mix([36min[0m srgb, [36mvar[0m(--reader-focus) [35m14[0m%, transparent);
+  [90m4582 |[0m   color: inherit;
+  [90m4583 |[0m }
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4580:13
+  [90m4578 |[0m
+  [90m4579 |[0m [90m/* The j/k cursor in a Bible reading: a quiet tint on the verse's own text, never the pe...[0m
+[33m[1m>[0m [90m4580 |[0m ::highlight(verse-cursor) {
+  [90m     |[0m             [33m[1m^[0m
+  [90m4581 |[0m   background-color: color-mix([36min[0m srgb, [36mvar[0m(--reader-focus) [35m14[0m%, transparent);
+  [90m4582 |[0m   color: inherit;
+  [90m4583 |[0m }
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4589:18
+Warning: Parsing CSS source code failed
+  [90m4587 |[0m [90m   colour's name instead (use-mark-paint.ts), so those two stay unpainted. The[0m
+  [90m4588 |[0m [90m   package's stylesheet loads after this one, so the extra `html` is what wins. */[0m
+[33m[1m>[0m [90m4589 |[0m html ::highlight(user-highlight),
+  [90m     |[0m                  [33m[1m^[0m
+  [90m4590 |[0m html ::highlight(user-underline) {
+  [90m4591 |[0m   background-color: transparent;
+  [90m4592 |[0m   text-decoration: none;
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4589:18
+  [90m4587 |[0m [90m   colour's name instead (use-mark-paint.ts), so those two stay unpainted. The[0m
+  [90m4588 |[0m [90m   package's stylesheet loads after this one, so the extra `html` is what wins. */[0m
+[33m[1m>[0m [90m4589 |[0m html ::highlight(user-highlight),
+  [90m     |[0m                  [33m[1m^[0m
+  [90m4590 |[0m html ::highlight(user-underline) {
+  [90m4591 |[0m   background-color: transparent;
+  [90m4592 |[0m   text-decoration: none;
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4590:18
+Warning: Parsing CSS source code failed
+  [90m4588 |[0m [32m   package'[0ms stylesheet loads after [36mthis[0m one, so the extra [32m`html`[0m is what wins. */
+  [90m4589 |[0m html ::highlight(user-highlight),
+[33m[1m>[0m [90m4590 |[0m html ::highlight(user-underline) {
+  [90m     |[0m                  [33m[1m^[0m
+  [90m4591 |[0m   background-color: transparent;
+  [90m4592 |[0m   text-decoration: none;
+  [90m4593 |[0m }
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4590:18
+  [90m4588 |[0m [32m   package'[0ms stylesheet loads after [36mthis[0m one, so the extra [32m`html`[0m is what wins. */
+  [90m4589 |[0m html ::highlight(user-highlight),
+[33m[1m>[0m [90m4590 |[0m html ::highlight(user-underline) {
+  [90m     |[0m                  [33m[1m^[0m
+  [90m4591 |[0m   background-color: transparent;
+  [90m4592 |[0m   text-decoration: none;
+  [90m4593 |[0m }
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4595:13
+Warning: Parsing CSS source code failed
+  [90m4593 |[0m }
+  [90m4594 |[0m
+[33m[1m>[0m [90m4595 |[0m ::highlight(mark-yellow) { background-color: [36mvar[0m(--mark-yellow); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4595:13
+  [90m4593 |[0m }
+  [90m4594 |[0m
+[33m[1m>[0m [90m4595 |[0m ::highlight(mark-yellow) { background-color: [36mvar[0m(--mark-yellow); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4596:13
+Warning: Parsing CSS source code failed
+  [90m4594 |[0m
+  [90m4595 |[0m ::highlight(mark-yellow) { background-color: [36mvar[0m(--mark-yellow); color: inherit; }
+[33m[1m>[0m [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4596:13
+  [90m4594 |[0m
+  [90m4595 |[0m ::highlight(mark-yellow) { background-color: [36mvar[0m(--mark-yellow); color: inherit; }
+[33m[1m>[0m [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4597:13
+Warning: Parsing CSS source code failed
+  [90m4595 |[0m ::highlight(mark-yellow) { background-color: [36mvar[0m(--mark-yellow); color: inherit; }
+  [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+[33m[1m>[0m [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4597:13
+  [90m4595 |[0m ::highlight(mark-yellow) { background-color: [36mvar[0m(--mark-yellow); color: inherit; }
+  [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+[33m[1m>[0m [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4598:13
+Warning: Parsing CSS source code failed
+  [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+[33m[1m>[0m [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4598:13
+  [90m4596 |[0m ::highlight(mark-green) { background-color: [36mvar[0m(--mark-green); color: inherit; }
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+[33m[1m>[0m [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m     |[0m             [33m[1m^[0m
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4599:13
+Warning: Parsing CSS source code failed
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+[33m[1m>[0m [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+  [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4599:13
+  [90m4597 |[0m ::highlight(mark-blue) { background-color: [36mvar[0m(--mark-blue); color: inherit; }
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+[33m[1m>[0m [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+  [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4600:13
+Warning: Parsing CSS source code failed
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+[33m[1m>[0m [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+  [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+  [90m4603 |[0m
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4600:13
+  [90m4598 |[0m ::highlight(mark-pink) { background-color: [36mvar[0m(--mark-pink); color: inherit; }
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+[33m[1m>[0m [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+  [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+  [90m4603 |[0m
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4601:13
+Warning: Parsing CSS source code failed
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+[33m[1m>[0m [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+  [90m4603 |[0m
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4601:13
+  [90m4599 |[0m ::highlight(mark-vermilion) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-vermilio...
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+[33m[1m>[0m [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+  [90m4603 |[0m
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4602:13
+Warning: Parsing CSS source code failed
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+[33m[1m>[0m [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4603 |[0m
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+  [90m4605 |[0m ::highlight(companion-saved),
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4602:13
+  [90m4600 |[0m ::highlight(mark-cobalt) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-cobalt); te...
+  [90m4601 |[0m ::highlight(mark-forest) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-forest); te...
+[33m[1m>[0m [90m4602 |[0m ::highlight(mark-graphite) { -webkit-text-decoration: underline [35m2[0mpx [36mvar[0m(--mark-graphite)...
+  [90m     |[0m             [33m[1m^[0m
+  [90m4603 |[0m
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+  [90m4605 |[0m ::highlight(companion-saved),
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4605:13
+Warning: Parsing CSS source code failed
+  [90m4603 |[0m
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+[33m[1m>[0m [90m4605 |[0m ::highlight(companion-saved),
+  [90m     |[0m             [33m[1m^[0m
+  [90m4606 |[0m ::highlight(companion-saved-hover) {
+  [90m4607 |[0m   background-color: transparent;
+  [90m4608 |[0m   color: inherit;
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4605:13
+  [90m4603 |[0m
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+[33m[1m>[0m [90m4605 |[0m ::highlight(companion-saved),
+  [90m     |[0m             [33m[1m^[0m
+  [90m4606 |[0m ::highlight(companion-saved-hover) {
+  [90m4607 |[0m   background-color: transparent;
+  [90m4608 |[0m   color: inherit;
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+./apps/web/src/app/globals.css:4606:13
+Warning: Parsing CSS source code failed
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+  [90m4605 |[0m ::highlight(companion-saved),
+[33m[1m>[0m [90m4606 |[0m ::highlight(companion-saved-hover) {
+  [90m     |[0m             [33m[1m^[0m
+  [90m4607 |[0m   background-color: transparent;
+  [90m4608 |[0m   color: inherit;
+  [90m4609 |[0m   text-decoration-line: underline;
+
+'highlight' is not recognized as a valid pseudo-element. Did you mean ':highlight' (pseudo-class) or is this a typo?
+
+Generated code of PostCSS transform of file content of apps/web/src/app/globals.css:
+./apps/web/src/app/globals.css:4606:13
+  [90m4604 |[0m [90m/* Kept Ask / Explain / Simplify passages: a pencil dotted underline */[0m
+  [90m4605 |[0m ::highlight(companion-saved),
+[33m[1m>[0m [90m4606 |[0m ::highlight(companion-saved-hover) {
+  [90m     |[0m             [33m[1m^[0m
+  [90m4607 |[0m   background-color: transparent;
+  [90m4608 |[0m   color: inherit;
+  [90m4609 |[0m   text-decoration-line: underline;
+
+Import trace:
+  Client Component Browser:
+    ./apps/web/src/app/globals.css [Client Component Browser]
+    ./apps/web/src/app/layout.tsx [Server Component]
+
+
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /account
+├ ƒ /api/auth/[...all]
+├ ƒ /api/chatgpt/callback
+├ ƒ /api/engagement
+├ ƒ /api/reader/[...path]
+├ ƒ /api/v1/[...path]
+├ ○ /bible
+├ ○ /feeds
+├ ○ /help/deep-study
+├ ○ /library
+├ ○ /manifest.webmanifest
+├ ○ /notes
+├ ○ /privacy
+├ ƒ /read/[articleId]
+├ ○ /readers
+├ ○ /reading
+├ ○ /saved
+├ ƒ /session/[id]
+└ ○ /terms
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

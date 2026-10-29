@@ -1,0 +1,18 @@
+{
+  "revision": "44cdcb7ec57d7b9adda00cb2b637ca632eadbed7",
+  "equivalentRevision": "d269ddce8c0d30b5252a7f74a6e6c418021a1dda",
+  "followUpSuite": {
+    "job": 1080,
+    "exitCode": 0,
+    "files": 5,
+    "passed": 53,
+    "durationSeconds": 14.6,
+    "start": "2026-10-29T13:21:56Z"
+  },
+  "backendTypecheck": {
+    "job": 1083,
+    "command": "bun run --cwd packages/backend typecheck",
+    "exitCode": 0
+  },
+  "equivalence": "All five corrected follow-up paths are byte-identical across these revisions. Initial-study source/test behavior matches tested7a8e4c0 after reverting the straddling-source experiment."
+}

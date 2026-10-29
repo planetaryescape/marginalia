@@ -1,0 +1,6 @@
+{
+  "state": "cancelled_superseded",
+  "candidate": "d269ddce8c0d30b5252a7f74a6e6c418021a1dda",
+  "reason": "Fresh origin/main advanced to e70e7b0 while review ran; task rebased before final integration checks. No report returned.",
+  "sessionPersistence": false
+}

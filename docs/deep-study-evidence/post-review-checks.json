@@ -1,0 +1,24 @@
+{
+  "revision": "7a6d93cac4bfcbc60c08421379743a59a6da919e",
+  "tree": "485ba6c2a50fb2abdb9eb06f1bdf646f063991ef",
+  "reviewedRevision": "9b73b31fca589553630f49ec7662fab5686c7f30",
+  "backendStudyTests": {
+    "job": 647,
+    "files": 15,
+    "passed": 161,
+    "durationSeconds": 41.1,
+    "exitCode": 0
+  },
+  "backendTypecheck": {
+    "job": 648,
+    "exitCode": 0
+  },
+  "evaluatorSafetyTests": {
+    "job": 649,
+    "passed": 6,
+    "failed": 0,
+    "durationSeconds": 2.97,
+    "exitCode": 0
+  },
+  "delta": "post-review-trivial-changes.txt"
+}

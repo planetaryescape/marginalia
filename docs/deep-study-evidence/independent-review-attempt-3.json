@@ -1,0 +1,9 @@
+{
+  "state": "cancelled_superseded",
+  "candidate": "44cdcb7ec57d7b9adda00cb2b637ca632eadbed7",
+  "reason": "Unneeded straddling selector extension was reverted after loader admission disproved the regression claim. No report returned; not counted as a successful review.",
+  "requestedModel": "sonnet",
+  "effort": "max",
+  "outputTokenCap": 32000,
+  "sessionPersistence": false
+}

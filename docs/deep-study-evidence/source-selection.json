@@ -1,0 +1,46 @@
+{
+  "candidate": "7a8e4c006a5fa511b6fd29ef9cb1948fc88ef875",
+  "reference": "Colossians 2:1-23",
+  "notes": [
+    {
+      "title": "Aquifer Open Study Notes (adapted from Tyndale Open Study Notes): Colossians 2:1–5",
+      "reference": "COL.2.1-COL.2.5",
+      "chars": 223,
+      "locator": "51.content.json#9824"
+    },
+    {
+      "title": "Aquifer Open Study Notes (adapted from Tyndale Open Study Notes): Colossians 2:6–15",
+      "reference": "COL.2.6-COL.2.15",
+      "chars": 222,
+      "locator": "51.content.json#9837"
+    },
+    {
+      "title": "Aquifer Open Study Notes (adapted from Tyndale Open Study Notes): Colossians 2:16–23",
+      "reference": "COL.2.16-COL.2.23",
+      "chars": 185,
+      "locator": "51.content.json#9829"
+    },
+    {
+      "title": "Aquifer Open Study Notes (adapted from Tyndale Open Study Notes): Colossians 2:23",
+      "reference": "COL.2.23",
+      "chars": 126,
+      "locator": "51.content.json#9834"
+    },
+    {
+      "title": "Aquifer Open Study Notes (adapted from Tyndale Open Study Notes): Colossians 2:12",
+      "reference": "COL.2.12",
+      "chars": 414,
+      "locator": "51.content.json#9826"
+    },
+    {
+      "title": "Aquifer Open Study Notes (adapted from Tyndale Open Study Notes): Colossians 2:2",
+      "reference": "COL.2.2",
+      "chars": 61,
+      "locator": "51.content.json#9835"
+    }
+  ],
+  "warnings": [
+    "9 matching Aquifer notes were omitted by the bounded, passage-coverage selection.",
+    "ByzTxt comparisons were truncated at the response limit."
+  ]
+}

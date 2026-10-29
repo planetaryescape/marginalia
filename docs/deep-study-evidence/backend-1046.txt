@@ -1,0 +1,43 @@
+agent-work: checking memory before start
+agent-work: starting bun
+$ vitest run "--maxWorkers=1" "--testTimeout=30000" "--hookTimeout=30000"
+
+ RUN  v4.1.2 /Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/packages/backend
+
+reader-purge-completed {"jobs":108}
+{"label":"offrow-max-document","answered":false,"beforeBytes":1048576,"afterBytes":1048576,"eligibilityGrowthBytes":0,"guardedWrites":11,"largestGuardedWrite":1048576,"sourceRetained":false,"guard":"test-only; native convex-test does not enforce individual document cap"}
+{"label":"offrow-max-document","answered":true,"beforeBytes":1048576,"afterBytes":1048576,"eligibilityGrowthBytes":0,"guardedWrites":8,"largestGuardedWrite":1048576,"sourceRetained":true,"guard":"test-only; native convex-test does not enforce individual document cap"}
+{"label":"feed-removal-native-cleanup","phase":"annotations","measured":{"bytesRead":{"remaining":13805949,"used":2971267},"bytesWritten":{"remaining":16777082,"used":134},"databaseQueries":{"remaining":4086,"used":10},"documentsRead":{"remaining":31995,"used":5},"documentsWritten":{"remaining":15998,"used":2},"functionsScheduled":{"remaining":999,"used":1},"scheduledFunctionArgsBytes":{"remaining":16777174,"used":42}}}
+{"label":"feed-removal-native-cleanup","phase":"summaries","measured":{"bytesRead":{"remaining":13806302,"used":2970914},"bytesWritten":{"remaining":16777082,"used":134},"databaseQueries":{"remaining":4086,"used":10},"documentsRead":{"remaining":31995,"used":5},"documentsWritten":{"remaining":15998,"used":2},"functionsScheduled":{"remaining":999,"used":1},"scheduledFunctionArgsBytes":{"remaining":16777174,"used":42}}}
+{"label":"feed-removal-native-cleanup","phase":"reflections","measured":{"bytesRead":{"remaining":13806153,"used":2971063},"bytesWritten":{"remaining":16777216,"used":0},"databaseQueries":{"remaining":4086,"used":10},"documentsRead":{"remaining":31995,"used":5},"documentsWritten":{"remaining":15999,"used":1},"functionsScheduled":{"remaining":999,"used":1},"scheduledFunctionArgsBytes":{"remaining":16777174,"used":42}}}
+{"label":"feed-removal-native-cleanup","phase":"savedArticles","measured":{"bytesRead":{"remaining":16776228,"used":988},"bytesWritten":{"remaining":16777075,"used":141},"databaseQueries":{"remaining":4087,"used":9},"documentsRead":{"remaining":31994,"used":6},"documentsWritten":{"remaining":15998,"used":2},"functionsScheduled":{"remaining":999,"used":1},"scheduledFunctionArgsBytes":{"remaining":16777174,"used":42}}}
+{"label":"feed-removal-native-cleanup","phase":"lovedArticles","measured":{"bytesRead":{"remaining":16776036,"used":1180},"bytesWritten":{"remaining":16777075,"used":141},"databaseQueries":{"remaining":4087,"used":9},"documentsRead":{"remaining":31994,"used":6},"documentsWritten":{"remaining":15998,"used":2},"functionsScheduled":{"remaining":999,"used":1},"scheduledFunctionArgsBytes":{"remaining":16777174,"used":42}}}
+{"label":"feed-removal-native-cleanup","phase":"articleTags","measured":{"bytesRead":{"remaining":12812972,"used":3964244},"bytesWritten":{"remaining":15786186,"used":991030},"databaseQueries":{"remaining":4075,"used":21},"documentsRead":{"remaining":31977,"used":23},"documentsWritten":{"remaining":15992,"used":8},"functionsScheduled":{"remaining":999,"used":1},"scheduledFunctionArgsBytes":{"remaining":16777174,"used":42}}}
+{"label":"feed-removal-native-source","metrics":{"bytesRead":{"remaining":8846723,"used":7930493},"bytesWritten":{"remaining":15785813,"used":991403},"databaseQueries":{"remaining":4050,"used":46},"documentsRead":{"remaining":31959,"used":41},"documentsWritten":{"remaining":15987,"used":13},"functionsScheduled":{"remaining":996,"used":4},"scheduledFunctionArgsBytes":{"remaining":16776913,"used":303}}}
+{"label":"feed-removal-native-classification","metrics":{"bytesRead":{"remaining":14794763,"used":1982453},"bytesWritten":{"remaining":16776771,"used":445},"databaseQueries":{"remaining":4080,"used":16},"documentsRead":{"remaining":31992,"used":8},"documentsWritten":{"remaining":15999,"used":1},"functionsScheduled":{"remaining":999,"used":1},"scheduledFunctionArgsBytes":{"remaining":16777174,"used":42}}}
+ ❯ convex/dictionary-index.test.ts (12 tests | 1 failed) 47690ms
+     × pages all >2000 headwords, jumps to rare letters directly and retains accent/# ordering 30019ms
+readable-queue-native-budget {"maximumRead":1983619,"maximumWrite":1568,"reads":13734}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  convex/dictionary-index.test.ts > indexed dictionary > pages all >2000 headwords, jumps to rare letters directly and retains accent/# ordering
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ convex/dictionary-index.test.ts:61:3
+     59|
+     60| describe("indexed dictionary", () => {
+     61|   it("pages all >2000 headwords, jumps to rare letters directly and re…
+       |   ^
+     62|     const f = await fixture(2050);
+     63|     for (const word of [
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 174 passed (175)
+      Tests  1 failed | 2027 passed (2028)
+   Start at  13:02:33
+   Duration  761.49s (transform 60.00s, setup 0ms, import 115.08s, tests 512.63s, environment 20.07s)
+
+error: script "test" exited with code 1

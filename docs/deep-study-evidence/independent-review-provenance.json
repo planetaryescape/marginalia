@@ -1,0 +1,17 @@
+{
+  "reviewedSha": "9b73b31fca589553630f49ec7662fab5686c7f30",
+  "reviewedTree": "2110587c1830783a2465dab06e2263a10926a837",
+  "base": "e70e7b07ef1a9c65a37414d59976046e0e98243a",
+  "requestedModel": "sonnet",
+  "resolvedModel": "claude-sonnet-5-5",
+  "effort": "max",
+  "outputAllowance": 128000,
+  "provider": "Anthropic firstParty",
+  "mode": "One-turn static review of complete diff plus exact git-show supporting context; no tools, changes or test execution.",
+  "bundleSha256": "10770c47cf592b9fc52279beb37599fd09ad027f14bf8ab7a545f475b8b6dd30",
+  "bundleBytes": 548209,
+  "supportingFiles": 13,
+  "sessionPersistence": false,
+  "persistedHistoryFiles": 0,
+  "result": "No blockers; two should-fix items and nonblocking nits triaged separately."
+}
