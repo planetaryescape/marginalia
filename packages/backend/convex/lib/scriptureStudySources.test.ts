@@ -82,6 +82,59 @@ describe("bounded pinned Scripture evidence adapters", () => {
     expect(select([...candidates].reverse())).toEqual(select(candidates));
   });
 
+  it("keeps specific conclusion detail after broad notes cover the whole passage", () => {
+    const range = parseBibleReference("Colossians 2:1-23");
+    if (!range) throw new Error("Test reference should parse.");
+    const candidates = [
+      {
+        identity: "specific-conclusion",
+        referenceKey: "COL.2.23",
+        excerpt: "Specific conclusion detail.",
+      },
+      {
+        identity: "broad-middle",
+        referenceKey: "COL.2.6-COL.2.15",
+        excerpt: "Middle argument overview.",
+      },
+      {
+        identity: "specific-opening",
+        referenceKey: "COL.2.1",
+        excerpt: "Specific opening detail.",
+      },
+      {
+        identity: "broad-conclusion",
+        referenceKey: "COL.2.16-COL.2.23",
+        excerpt: "Conclusion argument overview.",
+      },
+      {
+        identity: "specific-middle",
+        referenceKey: "COL.2.12",
+        excerpt: "Specific middle detail.",
+      },
+      {
+        identity: "broad-opening",
+        referenceKey: "COL.2.1-COL.2.5",
+        excerpt: "Opening argument overview.",
+      },
+    ];
+    const select = (items: typeof candidates) =>
+      selectCommentaryCandidates(items, {
+        reference: range,
+        maxItems: 6,
+        maxChars: 1_000,
+      }).map((item) => item.identity);
+    const selected = select(candidates);
+    expect(selected.slice(0, 3)).toEqual([
+      "broad-opening",
+      "broad-middle",
+      "broad-conclusion",
+    ]);
+    expect(selected.slice(3)).toContain("specific-conclusion");
+    expect(selected.slice(3)).toContain("specific-middle");
+    expect(selected.slice(3)).toContain("specific-opening");
+    expect(select([...candidates].reverse())).toEqual(selected);
+  });
+
   it("keeps sparse commentary and source identity within record and character budgets", () => {
     const range = parseBibleReference("Acts 21:6");
     if (!range) throw new Error("Test reference should parse.");
@@ -667,7 +720,7 @@ describe("bounded pinned Scripture evidence adapters", () => {
     const many = Array.from({ length: 12 }, (_, index) => ({
       ...aquiferItem,
       content_id: `note-${index}`,
-      content: `<p>${"x".repeat(2000)}</p>`,
+      content: `<p>Note ${index}: ${"x".repeat(2000)}</p>`,
     }));
     const result = await loadAdditionalStudyEvidence(john, {
       fetch: async (input) =>

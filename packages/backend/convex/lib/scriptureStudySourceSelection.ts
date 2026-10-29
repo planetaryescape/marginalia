@@ -41,7 +41,14 @@ function compareCandidate(a: CommentaryCandidate, b: CommentaryCandidate) {
   );
 }
 
-/** Select a stable, nonredundant sample that covers the selected range. */
+function detailDistance(range: { start: number; end: number }, target: number) {
+  return (
+    Math.abs((range.start + range.end) / 2 - target) +
+    (range.end - range.start + 1) / 2
+  );
+}
+
+/** Select a stable sample that covers the passage and adds localized detail. */
 export function selectCommentaryCandidates<T extends CommentaryCandidate>(
   candidates: T[],
   options: { reference: BibleReference; maxItems: number; maxChars: number },
@@ -75,6 +82,10 @@ export function selectCommentaryCandidates<T extends CommentaryCandidate>(
   let chars = 0;
 
   while (selected.length < maxItems) {
+    const selectedRanges = selected.flatMap((item) => {
+      const range = bounds(item.referenceKey, reference);
+      return range ? [range] : [];
+    });
     const ranked = available
       .filter((candidate) => !selected.includes(candidate))
       .map((candidate) => {
@@ -99,6 +110,17 @@ export function selectCommentaryCandidates<T extends CommentaryCandidate>(
           verse++
         )
           if (!coveredVerses.has(verse)) newVerses++;
+        const detailGain =
+          selectedRanges.length > 0
+            ? targets.reduce((gain, target) => {
+                const current = Math.min(
+                  ...selectedRanges.map((item) => detailDistance(item, target)),
+                );
+                return (
+                  gain + Math.max(0, current - detailDistance(range, target))
+                );
+              }, 0)
+            : 0;
         const density =
           (newlyCoveredTargets * 100 + Math.min(newVerses, 12)) /
           candidate.excerpt.length;
@@ -110,6 +132,7 @@ export function selectCommentaryCandidates<T extends CommentaryCandidate>(
           newlyCoveredTargets,
           firstUncoveredTarget,
           newVerses,
+          detailGain,
         };
       })
       .filter((entry) => chars + entry.cost <= maxChars)
@@ -123,6 +146,7 @@ export function selectCommentaryCandidates<T extends CommentaryCandidate>(
               : b.firstUncoveredTarget) ||
           b.newlyCoveredTargets - a.newlyCoveredTargets ||
           b.newVerses - a.newVerses ||
+          b.detailGain - a.detailGain ||
           b.density - a.density ||
           compareCandidate(a.candidate, b.candidate),
       );

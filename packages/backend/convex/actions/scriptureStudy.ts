@@ -54,7 +54,10 @@ function referenceCoveredByRanges(
   reference: ReturnType<typeof canonicalReference>,
   ranges: string[],
 ) {
-  if (!reference || reference.verse === undefined) return false;
+  if (!reference) return false;
+  const startVerse = reference.verse;
+  if (startVerse === undefined) return false;
+  const endVerse = reference.endVerse ?? startVerse;
   return ranges.some((rangeKey) => {
     const range = canonicalReference(rangeKey);
     return Boolean(
@@ -63,9 +66,8 @@ function referenceCoveredByRanges(
         range.chapter === reference.chapter &&
         range.endChapter === reference.endChapter &&
         range.verse !== undefined &&
-        reference.verse >= range.verse &&
-        (reference.endVerse ?? reference.verse) <=
-          (range.endVerse ?? range.verse),
+        startVerse >= range.verse &&
+        endVerse <= (range.endVerse ?? range.verse),
     );
   });
 }
