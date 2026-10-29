@@ -330,13 +330,23 @@ function PublishedStudy({
     runId,
     paginationOpts: { cursor: null, numItems: 6 },
   });
+  const followUpSources = useQuery(api.scriptureStudyFollowUps.sources, {
+    runId,
+  });
   const keep = useMutation(api.scriptureKeeps.keep);
   if (!result) return <StudySkeleton />;
   return (
     <ScriptureStudyResult
       findings={result.page}
       teaching={teaching}
-      sources={sources}
+      sources={[
+        ...(sources ?? []),
+        ...(followUpSources ?? []).map((item) => ({
+          evidenceId: item.evidenceId,
+          title: item.source.title,
+          referenceKey: item.referenceKey,
+        })),
+      ]}
       renderFollowUps={(citations) => (
         <ScriptureStudyFollowUps runId={runId} renderCitations={citations} />
       )}

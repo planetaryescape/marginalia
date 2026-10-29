@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { BIBLE_BOOKS, type BibleReference } from "./bible";
 
-export const SCRIPTURE_STUDY_SOURCE_POLICY_REVISION = "2026-10-27.1";
+export const SCRIPTURE_STUDY_SOURCE_POLICY_REVISION = "2026-10-29.1";
 export const SCRIPTURE_STUDY_SOURCE_LIMITS = {
   commentaryBytes: 4 * 1024 * 1024,
   variantsBytes: 2 * 1024 * 1024,
   commentaryNotes: 6,
   commentaryExcerptChars: 1800,
+  relatedReferencesPerNote: 12,
   variantsPerVerse: 8,
   timeoutMs: 20_000,
 } as const;
@@ -232,9 +233,25 @@ export function relatedReferencesFromHtml(
         end.verse,
       ),
     );
-    if (candidates.size >= 4) break;
   }
-  return [...candidates];
+  return [...candidates]
+    .sort((a, b) => {
+      const contextScore = (key: string) => {
+        const match = /^([1-3]?[A-Z]{2,3})\.(\d+)\./.exec(key);
+        if (!match) return 0;
+        if (
+          match[1] === reference.bookId &&
+          Number(match[2]) === reference.chapter
+        )
+          return -100;
+        return match[1] === reference.bookId &&
+          Math.abs(Number(match[2]) - reference.chapter) <= 1
+          ? 2
+          : 0;
+      };
+      return contextScore(b) - contextScore(a) || (a < b ? -1 : a > b ? 1 : 0);
+    })
+    .slice(0, SCRIPTURE_STUDY_SOURCE_LIMITS.relatedReferencesPerNote);
 }
 
 function parseNumericReference(value: string | undefined) {

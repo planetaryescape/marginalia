@@ -41,6 +41,76 @@ describe("generateObjectWithFallback", () => {
   beforeEach(() => {
     generateObject.mockReset();
   });
+  it("reports numeric usage and resolved model without retaining provider bodies", async () => {
+    const observe = vi.fn();
+    generateObject.mockResolvedValueOnce({
+      object: { ok: true },
+      response: { modelId: "resolved-model", headers: { secret: "private" } },
+      finishReason: "stop",
+      usage: {
+        inputTokens: 12,
+        inputTokenDetails: { cacheReadTokens: 4 },
+        outputTokens: 9,
+        outputTokenDetails: { textTokens: 6, reasoningTokens: 3 },
+        totalTokens: 21,
+        raw: { private: "not telemetry" },
+      },
+    });
+    await generateObjectWithFallback({
+      schema: z.object({ ok: z.boolean() }),
+      targets: [target("requested")],
+      onGeneration: observe,
+    });
+    expect(observe).toHaveBeenCalledExactlyOnceWith({
+      modelId: "requested",
+      responseModel: "resolved-model",
+      durationMs: expect.any(Number),
+      finishReason: "stop",
+      parsed: true,
+      tokens: {
+        input: 12,
+        cachedInput: 4,
+        output: 9,
+        visibleOutput: 6,
+        reasoning: 3,
+        total: 21,
+      },
+    });
+  });
+  it("accounts for an unparseable billed attempt before its retry", async () => {
+    const observe = vi.fn();
+    generateObject
+      .mockRejectedValueOnce(unparseable())
+      .mockResolvedValueOnce({ object: { ok: true } });
+    await generateObjectWithFallback({
+      schema: z.object({ ok: z.boolean() }),
+      targets: [target("only")],
+      onGeneration: observe,
+    });
+    expect(observe).toHaveBeenCalledTimes(2);
+    expect(observe.mock.calls[0][0]).toMatchObject({
+      parsed: false,
+      finishReason: "length",
+      tokens: { input: 1, output: 1, total: 2 },
+    });
+    expect(observe.mock.calls[1][0]).toMatchObject({
+      parsed: true,
+      tokens: { input: null, output: null, total: null },
+    });
+  });
+  it("does not repeat a billed request when its telemetry observer throws", async () => {
+    generateObject.mockResolvedValueOnce({ object: { ok: true } });
+    await expect(
+      generateObjectWithFallback({
+        schema: z.object({ ok: z.boolean() }),
+        targets: [target("only")],
+        onGeneration: () => {
+          throw new Error("observer failed");
+        },
+      }),
+    ).resolves.toMatchObject({ object: { ok: true } });
+    expect(generateObject).toHaveBeenCalledTimes(1);
+  });
   it("normalizes SDK retry wrappers and uses explicit zero hidden retries", async () => {
     generateObject
       .mockRejectedValueOnce(

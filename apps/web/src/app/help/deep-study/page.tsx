@@ -60,12 +60,16 @@ export default function DeepStudyHelpPage() {
       </p>
       <p>
         After a study finishes, use <strong>Ask a follow-up</strong> to ask
-        about the passage, a finding or its sources. The answer uses the saved
-        study and evidence; it does not start the research over or search the
-        web. Completed questions and answers stay with that version of the study
-        while that version is saved. A question outside those sources may
-        receive an explanation of what is missing, rather than a speculative
-        answer.
+        about the passage, a finding or its sources. When another Bible passage
+        is needed, the answer can retrieve its WEB text and save it with its
+        citations. Earlier answers keep their original sources. This does not
+        search the wider web. If the available sources cannot settle a question,
+        the answer explains what is missing.
+      </p>
+      <p>
+        Completed questions, answers and their additional sources stay with that
+        version of the study while it is saved. You can open a citation to check
+        the text used, including after reopening the study.
       </p>
 
       <h2>Saved results, new requests and cost</h2>

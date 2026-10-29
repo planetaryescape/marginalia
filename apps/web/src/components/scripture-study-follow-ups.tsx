@@ -166,7 +166,7 @@ export function ScriptureStudyFollowUps({
           </p>
           {row.answer?.evidenceCoverage === "outside_saved_sources" && (
             <p className="font-sans text-[13px] text-[var(--ink-muted)]">
-              Beyond this study’s saved sources
+              Beyond the available study sources
             </p>
           )}
           {row.answer ? (

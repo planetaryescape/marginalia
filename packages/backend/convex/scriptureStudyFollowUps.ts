@@ -3,13 +3,21 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
-import { STUDY_LIMITS } from "./lib/scriptureStudy";
+import { citedScriptureReferences } from "./lib/scriptureReferences";
+import {
+  evidenceValidator,
+  STUDY_LIMITS,
+  type StudyEvidence,
+} from "./lib/scriptureStudy";
+import { evidenceVerses } from "./lib/scriptureStudyFollowUpEvidence";
 import {
   FOLLOW_UP_LIMITS,
-  studyAnswerSchema,
+  followUpPolicyHash,
+  followUpSourceOutcomeValidator,
   studyAnswerValidator,
 } from "./lib/scriptureStudyFollowUps";
-import { ownedStudy, studyPolicy } from "./lib/scriptureStudyState";
+import { validateFollowUpAnswer } from "./lib/scriptureStudyFollowUpValidation";
+import { currentRun, ownedStudy, studyPolicy } from "./lib/scriptureStudyState";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 
 async function completed(
@@ -25,6 +33,21 @@ async function completed(
     throw new Error("A newer study is available. Reopen it before asking.");
   return run;
 }
+async function refreshing(
+  ctx: Pick<QueryCtx, "db">,
+  run: Doc<"scriptureStudyRuns">,
+) {
+  const study = await ctx.db.get(run.studyId);
+  if (!study?.activeRunId) return false;
+  const replacement = await ctx.db.get(study.activeRunId);
+  return (
+    !!replacement &&
+    replacement.studyId === run.studyId &&
+    replacement.userId === run.userId &&
+    !!(await currentRun(ctx, replacement))
+  );
+}
+
 async function active(
   ctx: Pick<QueryCtx, "db">,
   row: Doc<"scriptureStudyFollowUps">,
@@ -35,9 +58,11 @@ async function active(
   )
     return false;
   try {
-    await completed(ctx, row.userId, row.runId);
+    const run = await completed(ctx, row.userId, row.runId);
+    if (await refreshing(ctx, run)) return false;
     const policy = await studyPolicy(ctx, row.userId);
     return (
+      row.followUpPolicyHash === (await followUpPolicyHash()) &&
       policy.hash === row.modelPolicyHash &&
       policy.credentialHash === row.credentialHash
     );
@@ -53,17 +78,19 @@ export const list = query({
       .query("scriptureStudyFollowUps")
       .withIndex("by_runId", (q) => q.eq("runId", runId))
       .take(FOLLOW_UP_LIMITS.attempts);
-    return rows.map((row) => ({
-      id: row._id,
-      requestKey: row.requestKey,
-      question: row.question,
-      status:
-        (row.status === "running" || row.status === "queued") &&
-        row.leaseUntil <= Date.now()
-          ? ("failed" as const)
-          : row.status,
-      answer: row.answer ?? null,
-    }));
+    return rows
+      .filter((row) => row.userId === ctx.readerId)
+      .map((row) => ({
+        id: row._id,
+        requestKey: row.requestKey,
+        question: row.question,
+        status:
+          (row.status === "running" || row.status === "queued") &&
+          row.leaseUntil <= Date.now()
+            ? ("failed" as const)
+            : row.status,
+        answer: row.answer ?? null,
+      }));
   },
 });
 export const ask = mutation({
@@ -74,6 +101,8 @@ export const ask = mutation({
   },
   handler: async (ctx, args) => {
     const run = await completed(ctx, ctx.readerId, args.runId);
+    if (await refreshing(ctx, run))
+      throw new Error("Wait for the refreshed study before asking a question.");
     if (!run.evidence?.length)
       throw new Error(
         "This study has no saved sources for follow-up questions.",
@@ -123,6 +152,7 @@ export const ask = mutation({
       modelPolicyHash: policy.hash,
       credentialHash: policy.credentialHash,
       modelId: policy.modelId,
+      followUpPolicyHash: await followUpPolicyHash(),
     });
     await ctx.scheduler.runAfter(
       0,
@@ -152,8 +182,11 @@ export const claim = internalMutation({
   args: { id: v.id("scriptureStudyFollowUps"), token: v.string() },
   handler: async (ctx, { id, token }) => {
     const row = await ctx.db.get(id);
-    if (!row || row.status !== "queued" || !(await active(ctx, row)))
+    if (!row || row.status !== "queued") return null;
+    if (!(await active(ctx, row))) {
+      await ctx.db.patch(id, { status: "failed" });
       return null;
+    }
     const run = await completed(ctx, row.userId, row.runId);
     const findings = await ctx.db
       .query("scriptureStudyFindings")
@@ -164,13 +197,42 @@ export const claim = internalMutation({
       .withIndex("by_runId", (q) => q.eq("runId", row.runId))
       .take(FOLLOW_UP_LIMITS.attempts);
     const history: { question: string; answer: string }[] = [];
+    const carried = new Map<string, StudyEvidence>();
+    const requested = citedScriptureReferences(row.question);
+    const earlier = rows.filter(
+      (item) =>
+        item.userId === row.userId &&
+        item.status === "complete" &&
+        item._creationTime <= row._creationTime,
+    );
+    const available = earlier.flatMap((item) => item.additionalEvidence ?? []);
+    const carry = (ids: string[]) => {
+      for (const id of ids) {
+        const item = available.find((evidence) => evidence.evidenceId === id);
+        if (
+          !item ||
+          carried.has(id) ||
+          carried.size >= FOLLOW_UP_LIMITS.carriedEvidence ||
+          [...carried.values()].reduce(
+            (n, evidence) => n + evidence.excerpt.length,
+            0,
+          ) +
+            item.excerpt.length >
+            FOLLOW_UP_LIMITS.additionalChars
+        )
+          continue;
+        carried.set(id, item);
+      }
+    };
+    carry(
+      available
+        .filter((item) =>
+          requested.some((ref) => evidenceVerses([item], ref).length > 0),
+        )
+        .map((item) => item.evidenceId),
+    );
     let chars = 0;
-    for (const previous of rows
-      .filter(
-        (item) =>
-          item.status === "complete" && item._creationTime <= row._creationTime,
-      )
-      .reverse()) {
+    for (const previous of [...earlier].reverse()) {
       const answer = previous.answer?.answer;
       if (history.length >= 4) break;
       if (
@@ -181,8 +243,16 @@ export const claim = internalMutation({
         break;
       chars += previous.question.length + answer.length;
       history.unshift({ question: previous.question, answer });
+      carry(previous.answer?.evidenceIds ?? []);
     }
-    await ctx.db.patch(id, { status: "running", token });
+    const carriedEvidenceIds = [...carried.keys()];
+    const evidence = [...(run.evidence ?? []), ...carried.values()];
+    if (
+      new TextEncoder().encode(JSON.stringify(evidence)).byteLength >
+      FOLLOW_UP_LIMITS.evidenceBytes
+    )
+      throw new Error("Follow-up evidence exceeds limits.");
+    await ctx.db.patch(id, { status: "running", token, carriedEvidenceIds });
     return {
       userId: row.userId,
       modelId: row.modelId,
@@ -191,7 +261,16 @@ export const claim = internalMutation({
       history,
       teaching: run.teaching ?? null,
       findings: findings.map((item) => item.finding),
-      evidence: run.evidence ?? [],
+      evidence,
+      completeChapterKeys:
+        run.contextSummary?.chapterCoverage === "full_retrieved_chapter"
+          ? [
+              run.contextSummary.chapterReferenceKey
+                .split(".")
+                .slice(0, 2)
+                .join("."),
+            ]
+          : [],
     };
   },
 });
@@ -212,8 +291,13 @@ export const publish = internalMutation({
     id: v.id("scriptureStudyFollowUps"),
     token: v.string(),
     answer: studyAnswerValidator,
+    additionalEvidence: v.optional(v.array(evidenceValidator)),
+    sourceOutcomes: v.optional(v.array(followUpSourceOutcomeValidator)),
   },
-  handler: async (ctx, { id, token, answer: raw }) => {
+  handler: async (
+    ctx,
+    { id, token, answer: raw, additionalEvidence = [], sourceOutcomes = [] },
+  ) => {
     const row = await ctx.db.get(id);
     if (
       !row ||
@@ -223,19 +307,37 @@ export const publish = internalMutation({
     )
       return false;
     const run = await completed(ctx, row.userId, row.runId);
-    const answer = studyAnswerSchema.parse(raw);
-    if (
-      answer.evidenceCoverage !== "outside_saved_sources" &&
-      !answer.evidenceIds.length
-    )
-      throw new Error("An explanation requires saved-source citations.");
-    if (
-      answer.evidenceIds.some(
-        (id) => !run.evidence?.some((item) => item.evidenceId === id),
-      )
-    )
-      throw new Error("Unknown answer source.");
-    await ctx.db.patch(id, { status: "complete", answer });
+    const previous = await ctx.db
+      .query("scriptureStudyFollowUps")
+      .withIndex("by_runId", (q) => q.eq("runId", row.runId))
+      .take(FOLLOW_UP_LIMITS.attempts);
+    const carried = (row.carriedEvidenceIds ?? []).map((id) =>
+      previous
+        .filter(
+          (item) =>
+            item.userId === row.userId &&
+            item.status === "complete" &&
+            item._creationTime <= row._creationTime,
+        )
+        .flatMap((item) => item.additionalEvidence ?? [])
+        .find((item) => item.evidenceId === id),
+    );
+    if (carried.some((item) => !item))
+      throw new Error("Unknown carried answer source.");
+    const { answer, evidenceSetHash } = await validateFollowUpAnswer({
+      answer: raw,
+      baseEvidence: run.evidence ?? [],
+      carriedEvidence: carried.filter((item) => item !== undefined),
+      additionalEvidence,
+      sourceOutcomes,
+    });
+    await ctx.db.patch(id, {
+      status: "complete",
+      answer,
+      additionalEvidence,
+      sourceOutcomes,
+      evidenceSetHash,
+    });
     return true;
   },
 });
@@ -257,5 +359,32 @@ export const expire = internalMutation({
       row.leaseUntil <= Date.now()
     )
       await ctx.db.patch(id, { status: "failed" });
+  },
+});
+
+export const sources = query({
+  args: { runId: v.id("scriptureStudyRuns") },
+  handler: async (ctx, { runId }) => {
+    await completed(ctx, ctx.readerId, runId);
+    const rows = await ctx.db
+      .query("scriptureStudyFollowUps")
+      .withIndex("by_runId", (q) => q.eq("runId", runId))
+      .take(FOLLOW_UP_LIMITS.attempts);
+    return [
+      ...new Map(
+        rows
+          .filter(
+            (row) => row.userId === ctx.readerId && row.status === "complete",
+          )
+          .flatMap((row) => row.additionalEvidence ?? [])
+          .map((item) => [item.evidenceId, item]),
+      ).values(),
+    ].map(({ evidenceId, source, locator, referenceKey, limitations }) => ({
+      evidenceId,
+      source,
+      locator,
+      referenceKey,
+      limitations,
+    }));
   },
 });

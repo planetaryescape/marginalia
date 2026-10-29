@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseBibleReference } from "./bible";
 import {
+  rankRelatedReferences,
+  selectCommentaryCandidates,
+  selectRelatedReferences,
+  selectStudySourceRecords,
+} from "./scriptureStudySourceSelection";
+import {
   getSourceText,
   relatedReferencesFromHtml,
 } from "./scriptureStudySourceShared";
@@ -40,6 +46,270 @@ function response(text: string, status = 200, headers: HeadersInit = {}) {
 }
 
 describe("bounded pinned Scripture evidence adapters", () => {
+  it("selects commentary across the passage regardless of source order", () => {
+    const range = parseBibleReference("Colossians 2:6-23");
+    if (!range) throw new Error("Test reference should parse.");
+    const candidates = [
+      {
+        identity: "end",
+        referenceKey: "COL.2.20-COL.2.23",
+        excerpt: "end",
+      },
+      {
+        identity: "opening",
+        referenceKey: "COL.2.6-COL.2.9",
+        excerpt: "opening",
+      },
+      {
+        identity: "middle",
+        referenceKey: "COL.2.12-COL.2.17",
+        excerpt: "middle",
+      },
+      {
+        identity: "duplicate",
+        referenceKey: "COL.2.18-COL.2.19",
+        excerpt: " middle ",
+      },
+      { identity: "unrelated", referenceKey: "COL.1.1", excerpt: "unrelated" },
+    ];
+    const select = (items: typeof candidates) =>
+      selectCommentaryCandidates(items, {
+        reference: range,
+        maxItems: 3,
+        maxChars: 100,
+      }).map((item) => item.identity);
+    expect(select(candidates)).toEqual(["opening", "middle", "end"]);
+    expect(select([...candidates].reverse())).toEqual(select(candidates));
+  });
+
+  it("keeps specific conclusion detail after broad notes cover the whole passage", () => {
+    const range = parseBibleReference("Colossians 2:1-23");
+    if (!range) throw new Error("Test reference should parse.");
+    const candidates = [
+      {
+        identity: "specific-conclusion",
+        referenceKey: "COL.2.23",
+        excerpt: "Specific conclusion detail.",
+      },
+      {
+        identity: "broad-middle",
+        referenceKey: "COL.2.6-COL.2.15",
+        excerpt: "Middle argument overview.",
+      },
+      {
+        identity: "specific-opening",
+        referenceKey: "COL.2.1",
+        excerpt: "Specific opening detail.",
+      },
+      {
+        identity: "broad-conclusion",
+        referenceKey: "COL.2.16-COL.2.23",
+        excerpt: "Conclusion argument overview.",
+      },
+      {
+        identity: "specific-middle",
+        referenceKey: "COL.2.12",
+        excerpt: "Specific middle detail.",
+      },
+      {
+        identity: "broad-opening",
+        referenceKey: "COL.2.1-COL.2.5",
+        excerpt: "Opening argument overview.",
+      },
+    ];
+    const select = (items: typeof candidates) =>
+      selectCommentaryCandidates(items, {
+        reference: range,
+        maxItems: 6,
+        maxChars: 1_000,
+      }).map((item) => item.identity);
+    const selected = select(candidates);
+    expect(selected.slice(0, 3)).toEqual([
+      "broad-opening",
+      "broad-middle",
+      "broad-conclusion",
+    ]);
+    expect(selected.slice(3)).toContain("specific-conclusion");
+    expect(selected.slice(3)).toContain("specific-middle");
+    expect(selected.slice(3)).toContain("specific-opening");
+    expect(select([...candidates].reverse())).toEqual(selected);
+  });
+
+  it("keeps sparse commentary and source identity within record and character budgets", () => {
+    const range = parseBibleReference("Acts 21:6");
+    if (!range) throw new Error("Test reference should parse.");
+    const note = {
+      sourceId: "aquifer-open-study-notes",
+      title: "Aquifer note",
+      revision: "r1:item1",
+      locator: "41.content.json#item1",
+      referenceKey: "ACT.21.6",
+      excerpt: "A useful explanation.",
+      sourceUrl: "https://example.test/source",
+      contentHash: "hash",
+      license: "CC BY-SA 4.0",
+      licenseUrl: "https://example.test/license",
+      attribution: "attribution",
+      capabilities: ["attributed-study-note"],
+      limitations: ["source limitation"],
+    };
+    const selected = selectStudySourceRecords([note], {
+      reference: range,
+      maxRecords: 2,
+      maxChars: 100,
+    });
+    expect(selected).toEqual([note]);
+    expect(selected[0]).toMatchObject({
+      locator: note.locator,
+      revision: note.revision,
+      contentHash: note.contentHash,
+      license: note.license,
+      attribution: note.attribution,
+      limitations: note.limitations,
+    });
+    expect(
+      selectStudySourceRecords([note], {
+        reference: range,
+        maxRecords: 1,
+        maxChars: 5,
+      }),
+    ).toEqual([]);
+    const comparison = {
+      ...note,
+      sourceId: "byztxt-printed-edition-variants",
+      locator: "ACT.csv:21:6:NA",
+      excerpt: "A comparison.",
+    };
+    for (const records of [
+      [note, comparison],
+      [comparison, note],
+    ]) {
+      expect(
+        selectStudySourceRecords(records, {
+          reference: range,
+          maxRecords: 1,
+          maxChars: 100,
+        }),
+      ).toEqual([note]);
+      expect(
+        selectStudySourceRecords(records, {
+          reference: range,
+          maxRecords: 2,
+          maxChars: note.excerpt.length,
+        }),
+      ).toEqual([note]);
+      expect(
+        selectStudySourceRecords(records, {
+          reference: range,
+          maxRecords: 2,
+          maxChars: 100,
+        }),
+      ).toEqual([note, comparison]);
+    }
+    expect(
+      selectStudySourceRecords([comparison], {
+        reference: range,
+        maxRecords: 1,
+        maxChars: 100,
+      }),
+    ).toEqual([comparison]);
+  });
+
+  it("allocates the same source identities when action evidence order changes", () => {
+    const range = parseBibleReference("Colossians 2:6-23");
+    if (!range) throw new Error("Test reference should parse.");
+    const makeRecord = (
+      sourceId: string,
+      locator: string,
+      referenceKey: string,
+      excerpt: string,
+    ) => ({
+      sourceId,
+      title: locator,
+      revision: `${sourceId}:revision`,
+      locator,
+      referenceKey,
+      excerpt,
+      sourceUrl: "https://example.test/source",
+      contentHash: locator,
+      license: "CC BY-SA 4.0",
+      licenseUrl: "https://example.test/license",
+      attribution: "attribution",
+      capabilities: ["attributed-study-note"],
+      limitations: [],
+    });
+    const records = [
+      makeRecord(
+        "aquifer-open-study-notes",
+        "end",
+        "COL.2.20-COL.2.23",
+        "end note",
+      ),
+      makeRecord(
+        "aquifer-open-study-notes",
+        "middle",
+        "COL.2.12-COL.2.15",
+        "middle note",
+      ),
+      makeRecord(
+        "byztxt-printed-edition-variants",
+        "variants",
+        "COL.2.18",
+        "variant comparison",
+      ),
+      makeRecord(
+        "aquifer-open-study-notes",
+        "opening",
+        "COL.2.6-COL.2.9",
+        "opening note",
+      ),
+    ];
+    const select = (items: typeof records) =>
+      selectStudySourceRecords(items, {
+        reference: range,
+        maxRecords: 4,
+        maxChars: 200,
+      }).map((record) => [record.locator, record.contentHash]);
+    expect(select([...records].reverse())).toEqual(select(records));
+  });
+
+  it("ranks repeated cross-chapter references ahead of supplied same-chapter links", () => {
+    const note = (relatedReferences: string[]) => ({
+      sourceId: "aquifer-open-study-notes",
+      title: "Aquifer note",
+      revision: "r1:item1",
+      locator: "41.content.json#item1",
+      referenceKey: "COL.2.6-COL.2.23",
+      excerpt: "note",
+      sourceUrl: "https://example.test/source",
+      contentHash: "hash",
+      license: "CC BY-SA 4.0",
+      licenseUrl: "https://example.test/license",
+      attribution: "attribution",
+      capabilities: ["attributed-study-note"],
+      limitations: [],
+      relatedReferences,
+    });
+    const range = parseBibleReference("Colossians 2:6-23");
+    if (!range) throw new Error("Test reference should parse.");
+    const records = [
+      note(["COL.2.18", "JHN.15.4", "ROM.6.3"]),
+      note(["JHN.15.4"]),
+    ];
+    expect(rankRelatedReferences(records, range)).toEqual([
+      "JHN.15.4",
+      "ROM.6.3",
+      "COL.2.18",
+    ]);
+    expect(
+      selectRelatedReferences(records, {
+        reference: range,
+        suppliedRanges: ["COL.2.6-COL.2.23"],
+        limit: 2,
+      }),
+    ).toEqual(["JHN.15.4", "ROM.6.3"]);
+  });
+
   it("parses the inspected John 1:18 printed-edition difference exactly", () => {
     const csv =
       'chapter,verse,text\n1,18,"Θεὸν οὐδεὶς ἑώρακεν πώποτε· ὁ {NA ὁ μονογενὴς υἱός > μονογενὴς θεός } μονογενὴς υἱός, ὁ ὢν εἰς τὸν κόλπον τοῦ πατρός, ἐκεῖνος ἐξηγήσατο."\n';
@@ -131,6 +401,100 @@ describe("bounded pinned Scripture evidence adapters", () => {
     expect(variant?.excerpt).toContain("not a manuscript-witness collation");
   });
 
+  it("covers the start, middle and end before stable detail ties regardless of file order", async () => {
+    const colossians = parseBibleReference("Colossians 2:6-23");
+    if (!colossians) throw new Error("Test reference should parse.");
+    const intervals = [
+      [6, 9],
+      [10, 11],
+      [12, 15],
+      [16, 17],
+      [18, 19],
+      [20, 23],
+    ];
+    const items = intervals.map(([start, end]) => ({
+      ...aquiferItem,
+      content_id: `col-${start}`,
+      title: `Colossians 2:${start}-${end}`,
+      content: `<p>Explanation for verses ${start}-${end}.</p>`,
+      associations: {
+        passage: [
+          {
+            start_ref_usfm: `COL 2:${start}`,
+            end_ref_usfm: `COL 2:${end}`,
+            start_ref: `51002${String(start).padStart(3, "0")}`,
+            end_ref: `51002${String(end).padStart(3, "0")}`,
+          },
+        ],
+      },
+    }));
+    const load = async (notes: typeof items) =>
+      loadAdditionalStudyEvidence(colossians, {
+        fetch: async (input) =>
+          String(input).includes("Aquifer")
+            ? response(JSON.stringify(notes))
+            : response("chapter,verse,text\n"),
+      });
+    const forward = await load(items);
+    const reverse = await load([...items].reverse());
+    const refs = (result: Awaited<ReturnType<typeof load>>) =>
+      result.records
+        .filter((record) => record.sourceId === "aquifer-open-study-notes")
+        .map((record) => record.referenceKey);
+    expect(refs(forward).slice(0, 3)).toEqual([
+      "COL.2.6-COL.2.9",
+      "COL.2.12-COL.2.15",
+      "COL.2.20-COL.2.23",
+    ]);
+    expect(refs(forward)).toHaveLength(
+      SCRIPTURE_STUDY_SOURCE_LIMITS.commentaryNotes,
+    );
+    expect(refs(forward).slice(3)).toEqual(
+      expect.arrayContaining([
+        "COL.2.10-COL.2.11",
+        "COL.2.16-COL.2.17",
+        "COL.2.18-COL.2.19",
+      ]),
+    );
+    expect(refs(reverse)).toEqual(refs(forward));
+  });
+
+  it("keeps supplied related references as lower-ranked fallbacks", () => {
+    const note = (relatedReferences: string[]) => ({
+      sourceId: "aquifer-open-study-notes",
+      title: "Aquifer note",
+      revision: "r1:item1",
+      locator: "41.content.json#item1",
+      referenceKey: "COL.2.6-COL.2.23",
+      excerpt: "note",
+      sourceUrl: "https://example.test/source",
+      contentHash: "hash",
+      license: "CC BY-SA 4.0",
+      licenseUrl: "https://example.test/license",
+      attribution: "attribution",
+      capabilities: ["attributed-study-note"],
+      limitations: [],
+      relatedReferences,
+    });
+    const reference = parseBibleReference("Colossians 2:6-23");
+    if (!reference) throw new Error("Test reference should parse.");
+    const records = [note(["COL.2.18", "ROM.6.3", "JHN.15.4"])];
+    const options = {
+      reference,
+      suppliedRanges: ["COL.2.6-COL.2.23"],
+      limit: 3,
+    };
+    expect(selectRelatedReferences(records, { ...options, limit: 2 })).toEqual([
+      "JHN.15.4",
+      "ROM.6.3",
+    ]);
+    expect(selectRelatedReferences(records, options)).toEqual([
+      "JHN.15.4",
+      "ROM.6.3",
+      "COL.2.18",
+    ]);
+  });
+
   it("matches note associations by chapter as well as verse", async () => {
     const psalm = parseBibleReference("Psalm 23:4");
     if (!psalm) throw new Error("Test reference should parse.");
@@ -175,13 +539,13 @@ describe("bounded pinned Scripture evidence adapters", () => {
     });
     expect(result.records[0].excerpt).toContain("SELECTED_CHAPTER_CANARY");
     expect(result.records[0].relatedReferences).toEqual([
+      "EZK.23.4",
       "EZK.34.12",
       "JHN.10.11",
-      "EZK.23.4",
     ]);
   });
 
-  it("deduplicates related references, rejects selected-range overlap, and caps at four", () => {
+  it("deduplicates related references, rejects selected-range overlap, and caps at twelve", () => {
     const psalm = parseBibleReference("Psalm 23:4");
     if (!psalm) throw new Error("Test reference should parse.");
     const ids = [
@@ -201,11 +565,41 @@ describe("bounded pinned Scripture evidence adapters", () => {
       )
       .join("");
     expect(relatedReferencesFromHtml(html, psalm)).toEqual([
+      "EZK.23.4",
       "EZK.34.12",
+      "JHN.1.11",
+      "JHN.1.12",
       "JHN.10.11",
       "PSA.1.1",
-      "EZK.23.4",
     ]);
+    expect(
+      relatedReferencesFromHtml(
+        [...ids]
+          .reverse()
+          .map(
+            (id) =>
+              `<data class="bible-ref" data-start-ref="${id}" data-end-ref="${id}"></data>`,
+          )
+          .join(""),
+        psalm,
+      ),
+    ).toEqual(relatedReferencesFromHtml(html, psalm));
+    const many = Array.from({ length: 15 }, (_, index) => {
+      const id = `19001${String(index + 1).padStart(3, "0")}`;
+      return `<data class="bible-ref" data-start-ref="${id}" data-end-ref="${id}"></data>`;
+    }).join("");
+    expect(relatedReferencesFromHtml(many, psalm)).toHaveLength(
+      SCRIPTURE_STUDY_SOURCE_LIMITS.relatedReferencesPerNote,
+    );
+    expect(
+      relatedReferencesFromHtml(
+        many
+          .split(/(?=<data)/)
+          .reverse()
+          .join(""),
+        psalm,
+      ),
+    ).toEqual(relatedReferencesFromHtml(many, psalm));
   });
 
   it("does not treat context-only, cross-book, or wrong numeric associations as matches", async () => {
@@ -408,7 +802,7 @@ describe("bounded pinned Scripture evidence adapters", () => {
     const many = Array.from({ length: 12 }, (_, index) => ({
       ...aquiferItem,
       content_id: `note-${index}`,
-      content: `<p>${"x".repeat(2000)}</p>`,
+      content: `<p>Note ${index}: ${"x".repeat(2000)}</p>`,
     }));
     const result = await loadAdditionalStudyEvidence(john, {
       fetch: async (input) =>
