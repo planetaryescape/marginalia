@@ -7,7 +7,9 @@ import {
   parseOpenRouterPricingPayload,
   validateStudyEvaluationSnapshot,
 } from "../../packages/backend/convex/lib/scriptureStudyEvaluationSchema";
+import { StudyRepairExhaustedError } from "../../packages/backend/convex/lib/scriptureStudyGeneration";
 import { validateSnapshotArtifact } from "./fixtures";
+import { studyEvaluationFailureState } from "./generation";
 
 const runner = resolve(import.meta.dirname, "runner.ts");
 function invoke(args: string[], env: NodeJS.ProcessEnv = {}) {
@@ -18,6 +20,24 @@ function invoke(args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 describe("deep study runner safety", () => {
+  it("distinguishes unverifiable model output from transport and deadline failures", () => {
+    assert.equal(
+      studyEvaluationFailureState(new StudyRepairExhaustedError()),
+      "unverifiable_output",
+    );
+    assert.equal(
+      studyEvaluationFailureState(new DOMException("Expired", "TimeoutError")),
+      "deadline_exceeded",
+    );
+    assert.equal(
+      studyEvaluationFailureState(new Error("Network unavailable")),
+      "dispatch_failed",
+    );
+    assert.equal(
+      studyEvaluationFailureState(new Error("Stopped"), true),
+      "deadline_exceeded",
+    );
+  });
   it("does not enter generation without the explicit flag", () => {
     const result = invoke(["run", "--fixtures", "colossians-2-whole"]);
     assert.equal(result.status, 1);

@@ -18,7 +18,10 @@ import {
   parseOpenRouterPricingPayload,
   scriptureStudyEvaluationSchemaJson,
 } from "../../packages/backend/convex/lib/scriptureStudyEvaluationSchema";
-import { generateStudyWithRepair } from "../../packages/backend/convex/lib/scriptureStudyGeneration";
+import {
+  generateStudyWithRepair,
+  StudyRepairExhaustedError,
+} from "../../packages/backend/convex/lib/scriptureStudyGeneration";
 import { STUDY_TEACHING_PROMPT } from "../../packages/backend/convex/lib/scriptureStudyPrompt";
 import { positiveNumber, type RunnerValues, required } from "./cliArgs";
 import { catalog, definedCase, hash, loadSnapshot } from "./fixtures";
@@ -37,13 +40,26 @@ type StudyEvaluationOutcome =
       object: StudyResult;
     }
   | {
-      state: "dispatch_failed" | "deadline_exceeded";
+      state: "dispatch_failed" | "deadline_exceeded" | "unverifiable_output";
       error: ReturnType<typeof safeError>;
       telemetry: GenerationTelemetry[];
     };
 
 export function systemPrompt() {
   return `${STUDY_SYSTEM_PROMPT}\n${STUDY_TEACHING_PROMPT}`;
+}
+export function studyEvaluationFailureState(
+  error: unknown,
+  runAborted = false,
+) {
+  const cause = underlyingAIError(error);
+  if (
+    runAborted ||
+    (cause instanceof DOMException && cause.name === "TimeoutError")
+  )
+    return "deadline_exceeded";
+  if (cause instanceof StudyRepairExhaustedError) return "unverifiable_output";
+  return "dispatch_failed";
 }
 function safeError(error: unknown) {
   const diagnostic = studyFailureDiagnostic(underlyingAIError(error));
@@ -273,9 +289,10 @@ export async function run(values: RunnerValues) {
           };
         } catch (error) {
           outcome = {
-            state: controller.signal.aborted
-              ? "deadline_exceeded"
-              : "dispatch_failed",
+            state: studyEvaluationFailureState(
+              error,
+              controller.signal.aborted,
+            ),
             error: safeError(error),
             telemetry,
           };

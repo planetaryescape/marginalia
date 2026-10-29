@@ -4,7 +4,7 @@ Use this harness to compare the frozen baseline prompt with the candidate prompt
 
 ## Inspect the public fixtures
 
-The checked-in catalog contains nine cases: five calibration cases and four held-out cases. They cover Colossians 2 as a whole and in ranges, Psalm 13, Proverbs 26:4–5, Jonah 4, Matthew 13:1–23 and Acts 21:6. Each case records a question, contrary claims, evidence boundaries and scoring criteria. Snapshots pin public WEB text and retrieved source records, along with input, evidence, prompt and schema hashes.
+The checked-in catalog contains nine cases: four calibration cases and five held-out cases. They cover Colossians 2 as a whole and in ranges, Psalm 13, Proverbs 26:4–5, Jonah 4, Matthew 13:1–23 and Acts 21:6. Each case records a question, contrary claims, evidence boundaries and scoring criteria. Snapshots pin public WEB text and retrieved source records, along with input, evidence, prompt and schema hashes.
 
 Inspect the snapshots before running generation:
 
@@ -32,9 +32,9 @@ bun scripts/deep-study/runner.ts run --generate \
   --out /tmp/deep-study-pilot
 ```
 
-The runner checks listed OpenRouter pricing before generation and stops if its conservative reservation exceeds `--max-estimated-usd`. A paired fixture reserves up to four model calls: two per arm, including a possible repair attempt. The output cap must match production’s 6,000-token limit. The runner alternates which arm goes first across fixtures and writes a JSONL record for every answer or failure. Records include the evaluation and snapshot identities, prompt and schema hashes, requested and resolved model IDs when available, call limits, pricing estimate, token telemetry and validation result. `actualBilledUsd` is always null; these records do not query provider billing.
+The runner checks listed OpenRouter pricing before generation and stops if its conservative reservation exceeds `--max-estimated-usd`. A paired fixture reserves up to four model calls: two per arm, including a possible repair attempt. The output cap must match production’s 6,000-token limit. The runner alternates which arm goes first across fixtures and writes a JSONL record for every answer or failure. Records include the evaluation and snapshot identities, prompt and schema hashes, requested and resolved model IDs when available, call limits, pricing estimate, token telemetry and structural anchor/citation validation. Structural validation does not establish reasoning quality. `actualBilledUsd` is always null; these records do not query provider billing.
 
-The command prints the JSONL path when the run completes. It writes one record for each attempted arm. Dispatch errors and deadline failures are recorded as failures, not answers, and must not be scored as evidence of reasoning quality.
+The command prints the JSONL path when the run completes. It writes one record for each attempted arm. Transport failures use `dispatch_failed`; exhausted model repairs use `unverifiable_output`; run and per-arm timeouts use `deadline_exceeded`. Unverifiable output is a model-output failure to include in the comparison, not infrastructure noise. Transport and deadline failures provide no answer to score. The `--per-call-deadline-ms` flag sets one lease for an arm, shared by its initial and repair dispatches.
 
 ## Blind and score the answers
 
