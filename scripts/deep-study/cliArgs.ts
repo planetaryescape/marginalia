@@ -40,17 +40,15 @@ export function parseCommand(argv: string[]) {
 }
 export function required(
   values: RunnerValues,
-  name: keyof RunnerValues,
+  name: Exclude<keyof RunnerValues, "generate">,
 ): string {
   const value = values[name];
   if (!value) throw new Error(`Required: ${name}`);
-  if (typeof value !== "string")
-    throw new Error(`Expected a value for --${name}`);
   return value.trim();
 }
 export function positiveNumber(
   values: RunnerValues,
-  name: keyof RunnerValues,
+  name: Exclude<keyof RunnerValues, "generate">,
 ): number {
   const value = Number(required(values, name));
   if (!Number.isFinite(value) || value <= 0)

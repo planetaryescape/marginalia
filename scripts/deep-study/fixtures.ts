@@ -203,7 +203,7 @@ export async function prepare(id?: string) {
       },
       readerContext: {
         role: "untrusted_personal_context_not_evidence" as const,
-        notes: [] as [],
+        notes: [],
         limited: false as const,
       },
     };

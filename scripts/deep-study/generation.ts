@@ -9,6 +9,7 @@ import {
   STUDY_LIMITS,
   STUDY_SYSTEM_PROMPT,
   STUDY_VERSION,
+  type StudyGeneration,
   type StudyResult,
   validateResult,
 } from "../../packages/backend/convex/lib/scriptureStudy";
@@ -22,13 +23,31 @@ import { STUDY_TEACHING_PROMPT } from "../../packages/backend/convex/lib/scriptu
 import { positiveNumber, type RunnerValues, required } from "./cliArgs";
 import { catalog, definedCase, hash, loadSnapshot } from "./fixtures";
 
+type StudyEvaluationOutcome =
+  | {
+      state: "complete";
+      routeModel: string;
+      responseModel: string | null;
+      validation: "valid" | "invalid";
+      generation: StudyGeneration;
+      telemetry: GenerationTelemetry[];
+      usageBasedEstimateUsd: number | null;
+      usageBasedEstimateComplete: boolean;
+      actualBilledUsd: null;
+      object: StudyResult;
+    }
+  | {
+      state: "dispatch_failed" | "deadline_exceeded";
+      error: ReturnType<typeof safeError>;
+      telemetry: GenerationTelemetry[];
+    };
+
 export function systemPrompt() {
   return `${STUDY_SYSTEM_PROMPT}\n${STUDY_TEACHING_PROMPT}`;
 }
 function safeError(error: unknown) {
   const diagnostic = studyFailureDiagnostic(underlyingAIError(error));
   return {
-    state: "dispatch_failed",
     errorType: diagnostic.errorType,
     statusCode: diagnostic.status,
     signals: diagnostic.signals,
@@ -130,7 +149,6 @@ export async function run(values: RunnerValues) {
     );
   const target = { ...catalogModel, apiKey };
   const startedAt = Date.now();
-  const results: Record<string, unknown>[] = [];
   const outDir = resolve(required(values, "out"));
   await mkdir(outDir, { recursive: true });
   const runId = new Date().toISOString().replaceAll(":", "-");
@@ -154,7 +172,7 @@ export async function run(values: RunnerValues) {
         if (Date.now() - startedAt >= deadlineMs)
           throw new DOMException("Run deadline exceeded", "TimeoutError");
         const telemetry: GenerationTelemetry[] = [];
-        const record: Record<string, unknown> = {
+        const metadata = {
           runId,
           evaluationScope:
             "Isolated synthesis over frozen public evidence; no reader settings, private notes, or full action retrieval behavior",
@@ -192,6 +210,7 @@ export async function run(values: RunnerValues) {
           perCallDeadlineMs,
           startedAt: new Date().toISOString(),
         };
+        let outcome: StudyEvaluationOutcome;
         try {
           const result = await generateStudyWithRepair({
             target,
@@ -212,11 +231,10 @@ export async function run(values: RunnerValues) {
             },
             onFailure: async () => {},
             onGeneration: (event) => telemetry.push(event),
-            ...(arm === "baseline"
-              ? { system: snapshot.baselineSystemPrompt }
-              : {}),
+            system:
+              arm === "baseline" ? snapshot.baselineSystemPrompt : undefined,
           });
-          const object = resultSchema.parse(result.object) as StudyResult;
+          const object = resultSchema.parse(result.object);
           let validation: "valid" | "invalid" = "valid";
           try {
             validateResult(
@@ -228,17 +246,11 @@ export async function run(values: RunnerValues) {
           } catch {
             validation = "invalid";
           }
-          record.state = "complete";
-          record.routeModel = result.modelId;
-          record.responseModel = telemetry.at(-1)?.responseModel ?? null;
-          record.validation = validation;
-          record.generation = result.generation;
-          record.telemetry = telemetry;
           const hasUsageForEveryCall = telemetry.every(
             (event) =>
               event.tokens.input !== null && event.tokens.output !== null,
           );
-          record.usageBasedEstimateUsd = hasUsageForEveryCall
+          const usageBasedEstimateUsd = hasUsageForEveryCall
             ? telemetry.reduce(
                 (total, event) =>
                   total +
@@ -247,22 +259,36 @@ export async function run(values: RunnerValues) {
                 0,
               )
             : null;
-          record.usageBasedEstimateComplete = hasUsageForEveryCall;
-          record.actualBilledUsd = null;
-          record.object = object;
+          outcome = {
+            state: "complete",
+            routeModel: result.modelId,
+            responseModel: telemetry.at(-1)?.responseModel ?? null,
+            validation,
+            generation: result.generation,
+            telemetry,
+            usageBasedEstimateUsd,
+            usageBasedEstimateComplete: hasUsageForEveryCall,
+            actualBilledUsd: null,
+            object,
+          };
         } catch (error) {
-          record.state = controller.signal.aborted
-            ? "deadline_exceeded"
-            : "dispatch_failed";
-          record.error = safeError(error);
-          record.telemetry = telemetry;
+          outcome = {
+            state: controller.signal.aborted
+              ? "deadline_exceeded"
+              : "dispatch_failed",
+            error: safeError(error),
+            telemetry,
+          };
         }
-        record.finishedAt = new Date().toISOString();
-        results.push(record);
+        const record = {
+          ...metadata,
+          ...outcome,
+          finishedAt: new Date().toISOString(),
+        };
         await writeFile(outputPath, `${JSON.stringify(record)}\n`, {
           flag: "a",
         });
-        console.log(`${snapshot.case.id} ${arm}: ${String(record.state)}`);
+        console.log(`${snapshot.case.id} ${arm}: ${outcome.state}`);
         if (controller.signal.aborted)
           throw new Error("Run deadline exceeded; stopping without retries");
       }
