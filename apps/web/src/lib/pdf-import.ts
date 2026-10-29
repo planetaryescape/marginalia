@@ -123,6 +123,9 @@ export function uploadWithProgress(
         onProgress(Math.round((event.loaded / event.total) * 100));
     };
     request.onerror = () => reject(new Error("The upload didn't finish."));
+    // A cancelled request fires neither error nor load, which left the import busy
+    request.onabort = () => reject(new Error("The upload didn't finish."));
+    request.ontimeout = () => reject(new Error("The upload didn't finish."));
     request.onload = () => {
       if (request.status < 200 || request.status >= 300)
         return reject(new Error("The upload didn't finish."));

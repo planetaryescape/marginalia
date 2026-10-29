@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   FAILURE_COPY,
   firstPdf,
@@ -6,6 +6,7 @@ import {
   isPdfFile,
   MAX_PDF_MB,
   problemWithFile,
+  uploadWithProgress,
 } from "./pdf-import";
 
 const file = (name: string, type: string, size = 10) => {
@@ -76,5 +77,33 @@ describe("FAILURE_COPY", () => {
     );
     for (const copy of Object.values(FAILURE_COPY))
       expect(copy.detail).toContain("Nothing was added to your library.");
+  });
+});
+
+describe("uploadWithProgress", () => {
+  class FakeRequest {
+    static last: FakeRequest;
+    upload: { onprogress?: (event: ProgressEvent) => void } = {};
+    onerror?: () => void;
+    onload?: () => void;
+    onabort?: () => void;
+    ontimeout?: () => void;
+    constructor() {
+      FakeRequest.last = this;
+    }
+    open() {}
+    setRequestHeader() {}
+    send() {}
+  }
+
+  it("settles when the request is cancelled or times out, so the import isn't left busy", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeRequest);
+    const file = new File(["%PDF-"], "a.pdf", { type: "application/pdf" });
+    for (const end of ["onabort", "ontimeout"] as const) {
+      const upload = uploadWithProgress("https://upload", file, () => {});
+      FakeRequest.last[end]?.();
+      await expect(upload).rejects.toThrow("The upload didn't finish.");
+    }
+    vi.unstubAllGlobals();
   });
 });
