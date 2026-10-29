@@ -48,9 +48,38 @@ export function createFollower(onChange: () => void): Follower {
     following = false;
     onChange();
   };
-  // Wheel and touch are always the reader's, even in the middle of our own smooth scroll
+  // Wheel, touch, scroll keys and the scrollbar are always the reader's, even in the middle of our own smooth scroll
   const onScroll = () => {
     if (!own) release();
+  };
+  // The keys the reader page scrolls or navigates with. Space is left out: while
+  // Listen is on it pauses (D-TTS-027), and the follower only watches while on.
+  const SCROLL_KEYS = new Set([
+    "j",
+    "k",
+    "ArrowUp",
+    "ArrowDown",
+    "PageUp",
+    "PageDown",
+    "Home",
+    "End",
+  ]);
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!SCROLL_KEYS.has(event.key)) return;
+    const target = event.target;
+    // Typing in a field isn't scrolling
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+    )
+      return;
+    release();
+  };
+  // A click on the page's own scrollbar lands on the root element
+  const onPointerDown = (event: PointerEvent) => {
+    if (event.target === document.documentElement) release();
   };
   const onScrollEnd = () => {
     own = false;
@@ -95,6 +124,8 @@ export function createFollower(onChange: () => void): Follower {
       window.addEventListener("scrollend", onScrollEnd);
       window.addEventListener("wheel", release, { passive: true });
       window.addEventListener("touchmove", release, { passive: true });
+      window.addEventListener("keydown", onKeyDown);
+      window.addEventListener("pointerdown", onPointerDown);
     },
     stop() {
       if (!watching) return;
@@ -103,6 +134,8 @@ export function createFollower(onChange: () => void): Follower {
       window.removeEventListener("scrollend", onScrollEnd);
       window.removeEventListener("wheel", release);
       window.removeEventListener("touchmove", release);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
       clearTimeout(ownTimer);
       own = false;
       shown = null;

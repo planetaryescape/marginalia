@@ -46,22 +46,3 @@ it("preserves authoritative saved text/HTML while excluding vectors and operatio
     await f.reader.query(api.readerBootstrap.get, { articleId }),
   ).toBeNull();
 });
-
-it("returns the article's image for the lock screen", async () => {
-  const f = await secondReaderTest(modules);
-  const articleId = await f.t.run((ctx) =>
-    ctx.db.insert("articles", {
-      userId: "default_user",
-      guid: "image-fixture",
-      url: "https://example.com/image",
-      title: "With a cover",
-      content: "Saved text",
-      imageUrl: "https://example.com/cover.jpg",
-      extractionStatus: "extracted",
-      annotationStatus: "annotated",
-      createdAt: Date.now(),
-    }),
-  );
-  const result = await f.owner.query(api.readerBootstrap.get, { articleId });
-  expect(result?.article?.imageUrl).toBe("https://example.com/cover.jpg");
-});

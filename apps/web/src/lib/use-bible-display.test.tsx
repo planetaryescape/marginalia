@@ -18,7 +18,6 @@ const source: NonNullable<Parameters<typeof useBibleDisplay>[0]> = {
   title: "John 3:16",
   url: "https://bible-api.com",
   author: "WEB",
-  imageUrl: undefined,
   content: "3:16 Public study words",
   contentHtml: '<p id="JHN.3.16">3:16 Public study words</p>',
   wordCount: 4,

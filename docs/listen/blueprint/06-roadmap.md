@@ -77,7 +77,7 @@ Built 2026-10-28 (D-TTS-028). The characters say only accent and speaker until B
 
 ## Rung 2: Scooter: "I lock my phone and keep listening"
 
-**Status (2026-10-29):** built on branch `feat/listen-rung-2`: speed (D-TTS-010), Follow (D-TTS-012), lock-screen artwork, shape A. Not done until BK runs S4 on his iPhone (installed PWA and Safari) and an Android phone, and the five-minute locked-screen listen of the design gate passes. See D-TTS-029.
+**Status (2026-10-29):** built on branch `feat/listen-rung-2`: speed (D-TTS-010), Follow (D-TTS-012), lock-screen artwork from an already-loaded body image, shape A. Not done until BK runs S4 on his iPhone (installed PWA and Safari) and an Android phone, and the five-minute locked-screen listen of the design gate passes. See D-TTS-029.
 
 **Previously:** listening only with the screen on, at one speed, with the page pulling BK back. **Now:** lock-screen and headphone controls, speed, and Follow.
 

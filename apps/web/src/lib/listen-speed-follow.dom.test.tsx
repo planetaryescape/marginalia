@@ -325,6 +325,63 @@ describe("following", () => {
     expect(listen.following).toBe(false);
   });
 
+  it("treats j, k, the arrow and paging keys and a scrollbar press as the reader's inside the player's own scroll window", async () => {
+    mountArticle();
+    place(0, 2000);
+    place(1, 2000);
+    await render();
+    for (const key of ["j", "k", "ArrowDown", "PageUp", "Home"]) {
+      await start(0);
+      await settle(0);
+      expect(listen.following).toBe(true);
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+      });
+      expect(listen.following).toBe(false);
+    }
+    await start(0);
+    await act(async () => {
+      document.documentElement.dispatchEvent(
+        new Event("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(listen.following).toBe(false);
+  });
+
+  it("doesn't take Space, typing in a field, or a shortcut chord for scrolling", async () => {
+    mountArticle();
+    place(0, 2000);
+    await render();
+    await start(0);
+    const field = document.createElement("input");
+    document.body.append(field);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "j", bubbles: true }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+      );
+    });
+    expect(listen.following).toBe(true);
+  });
+
+  it("after j inside the window, Next doesn't pull the reader back", async () => {
+    mountArticle();
+    place(0, 2000);
+    place(1, 2000);
+    await render();
+    await start(0);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
+    });
+    await act(async () => listen.next());
+    expect(listen.index).toBe(1);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
   it("counts the reader's scroll again once our own has ended", async () => {
     mountArticle();
     place(0, 2000);

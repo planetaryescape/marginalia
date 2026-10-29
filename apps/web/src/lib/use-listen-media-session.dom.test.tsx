@@ -53,10 +53,10 @@ afterEach(async () => {
 
 function Harness({
   status,
-  imageUrl,
+  container,
 }: {
   status: ListenStatus;
-  imageUrl?: string;
+  container?: { current: HTMLElement | null };
 }) {
   useListenMediaSession(
     { ...controls, status, active: !["idle", "finished"].includes(status) },
@@ -64,13 +64,36 @@ function Harness({
       title: "On walking",
       author: null,
       url: "https://example.com/walk",
-      imageUrl,
+      container,
     },
   );
   return null;
 }
-const render = (status: ListenStatus, imageUrl?: string) =>
-  act(async () => root.render(<Harness status={status} imageUrl={imageUrl} />));
+const render = (status: ListenStatus, article?: HTMLElement) =>
+  act(async () =>
+    root.render(
+      <Harness status={status} container={{ current: article ?? null }} />,
+    ),
+  );
+
+/** An article whose body holds the given images, each loaded or not. */
+function articleWith(
+  ...images: { src: string; loaded: boolean; current?: string }[]
+) {
+  const article = document.createElement("article");
+  const body = document.createElement("div");
+  body.setAttribute("data-article-body", "");
+  for (const { src, loaded, current } of images) {
+    const img = document.createElement("img");
+    img.setAttribute("src", src);
+    Object.defineProperty(img, "complete", { value: loaded });
+    Object.defineProperty(img, "naturalWidth", { value: loaded ? 640 : 0 });
+    Object.defineProperty(img, "currentSrc", { value: current ?? src });
+    body.append(img);
+  }
+  article.append(body);
+  return article;
+}
 
 it("names the article and hands the media keys to the player while listening", async () => {
   await render("playing");
@@ -88,14 +111,32 @@ it("names the article and hands the media keys to the player while listening", a
   expect(controls.stop).toHaveBeenCalledTimes(1);
 });
 
-it("shows the article's image on the lock screen, and nothing when there is none or it isn't a web address", async () => {
-  await render("playing", "https://example.com/cover.jpg");
+it("shows the first image the page has already loaded, and nothing when there is none", async () => {
+  await render(
+    "playing",
+    articleWith(
+      { src: "https://cdn.example.com/broken.jpg", loaded: false },
+      { src: "https://cdn.example.com/a.jpg", loaded: true },
+      { src: "https://cdn.example.com/b.jpg", loaded: true },
+    ),
+  );
   expect((session.metadata as FakeMetadata).init.artwork).toEqual([
-    { src: "https://example.com/cover.jpg" },
+    { src: "https://cdn.example.com/a.jpg" },
   ]);
-  await render("playing", "data:image/png;base64,AAAA");
+  await render("playing", articleWith());
   expect((session.metadata as FakeMetadata).init.artwork).toEqual([]);
   await render("playing");
+  expect((session.metadata as FakeMetadata).init.artwork).toEqual([]);
+});
+
+it("offers no artwork for an image that hasn't loaded, is broken, or isn't a web address", async () => {
+  await render(
+    "playing",
+    articleWith(
+      { src: "https://cdn.example.com/slow.jpg", loaded: false },
+      { src: "data:image/png;base64,AAAA", loaded: true },
+    ),
+  );
   expect((session.metadata as FakeMetadata).init.artwork).toEqual([]);
 });
 

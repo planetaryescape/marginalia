@@ -484,7 +484,7 @@ export default function ReadPage() {
           title: article.title,
           author: article.author,
           url: article.uploadedFileName ? undefined : article.url,
-          imageUrl: article.imageUrl,
+          container: articleRef,
         }
       : undefined,
   );

@@ -126,7 +126,7 @@ export function ListenBar({
                 title="Scroll to the voice and follow it again"
               >
                 <ArrowDownToLine size={14} aria-hidden="true" />
-                Follow
+                <span className="listen-follow-text">Follow</span>
               </button>
               <i className="listen-sep" aria-hidden="true" />
             </>
