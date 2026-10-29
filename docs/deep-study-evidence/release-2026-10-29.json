@@ -140,10 +140,40 @@
     "groupsReturned": 0
   },
   "limitations": [
-    "No browser click-through; Computer Use unavailable and agent-browser permission unanswered.",
     "No blinded baseline/candidate answer-quality comparison.",
-    "Old studies are retained, not automatically regenerated."
+    "Old studies are retained, not automatically regenerated.",
+    "Browser smoke reopened an existing study; text-selection admission and physical mobile interaction were not exercised."
   ],
   "backendReadyAt": "2026-10-29T17:34:21Z",
-  "frontendPromotedAt": "2026-10-29T17:35:12.585Z"
+  "frontendPromotedAt": "2026-10-29T17:35:12.585Z",
+  "browserSmoke": {
+    "mode": "Signed-in Dia through Computer Use Node runtime (@oai/sky)",
+    "sourceSha": "cec94f5c4f117ee7f5b12ef081cedb8a0d8938e5",
+    "url": "https://reader.bhekani.com/read/jd7363wg9cg2tc9gybfyvd67ss8h65t3",
+    "checks": {
+      "savedStudyOpened": true,
+      "followUpRendered": true,
+      "bothSupplementCitationsOpened": true,
+      "psalmExcerptLines": 3,
+      "galatiansVerses": 4,
+      "browserReloadAndSavedStudyReopen": true,
+      "citationsResolveAfterReload": true,
+      "refreshQueued": true,
+      "stopShowsCancelled": true,
+      "previousResultAndFollowUpRetained": true,
+      "unsentDraftEnablesAsk": true,
+      "clearingDraftDisablesAsk": true
+    },
+    "serverReadback": {
+      "checkedAt": "2026-10-29T18:02:55.712287+00:00",
+      "publishedRunUnchanged": true,
+      "refreshStatus": "cancelled",
+      "supplementSourceCount": 2
+    },
+    "limits": [
+      "Initial study and submitted follow-up used public backend contracts; no new question was submitted in the browser.",
+      "Text-selection admission and physical mobile interaction were not exercised in this release smoke."
+    ],
+    "result": "passed"
+  }
 }
