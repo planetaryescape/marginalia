@@ -47,7 +47,9 @@ Verify the actual web environment and Convex dashboard before deploying. This re
 
 The deployed baseline before Deep Study is commit `82a4a8d5fdcbb990ff37e77600968be7c25971b3` (tree `c5d87315ca85f4ab12b72ea5b973f5a946e5ac9c`): backend `stoic-hare-718` and Vercel frontend deployment `dpl_7DwA9HyVpZpSTREZoYM1N1f3dgbJ`, aliased to the reader domain on 2026-10-26. See the [Scripture margins release](releases/2026-10-26-scripture-margins.md).
 
-**2026-10-29 kept answers and stale tabs:** the backend and the Vercel frontend `dpl_DXgKAtAteDA41fukDtukd85fDTRN` both run `25aba24`, which adds kept answers reopening on the selected words (#73) and refusing a stale tab's follow-up (#74). The snapshot before that backend update is `marginalia-before-release-2026-10-29.zip`. See [the release](releases/2026-10-29-kept-answers-and-stale-tabs.md).
+**2026-10-29 Listen rung 2, exact feed counts and upload binding:** the backend and the Vercel frontend `dpl_AyB3AmsDnhK5bFfLBagPqT2B6Eeq` both run `e70e7b0` (#76–#79). The snapshot before that backend update is `marginalia-before-release-2026-10-29b.zip`. See [the release](releases/2026-10-29-listen-rung-2-and-fixes.md).
+
+**Earlier on 2026-10-29, kept answers and stale tabs:** the backend and the Vercel frontend `dpl_DXgKAtAteDA41fukDtukd85fDTRN` both ran `25aba24`, which adds kept answers reopening on the selected words (#73) and refusing a stale tab's follow-up (#74). The snapshot before that backend update is `marginalia-before-release-2026-10-29.zip`. See [the release](releases/2026-10-29-kept-answers-and-stale-tabs.md).
 
 **Earlier, 2026-10-28 Listen keyboard controls and voice choice:** the backend and the Vercel frontend `dpl_4qAfVwN5oH1Yc1GaBBqNr3UA8yTb` both ran `6462ce4`, which adds Listen's keyboard and media-key controls (#70) and choosing a Kokoro voice (#71). The snapshot before that backend update is `marginalia-before-voice-choice.zip`. See [the release](releases/2026-10-28-listen-keys-and-voice-choice.md), including the live check still to run.
 
