@@ -431,6 +431,75 @@ describe("following", () => {
     }
   });
 
+  it("looks again once the pill has mounted, so the first paragraph isn't left under it", async () => {
+    mountArticle();
+    const bar = document.createElement("nav");
+    bar.className = "mobile-reader-bar";
+    bar.getBoundingClientRect = () =>
+      ({ top: 767, bottom: 852, height: 85 }) as DOMRect;
+    document.body.append(bar);
+    // Clear of the bar, but the pill isn't there yet to be measured
+    place(0, 300, 430);
+    await render();
+    await start(0);
+    expect(scrollTo).not.toHaveBeenCalled();
+    const wrap = document.createElement("div");
+    wrap.className = "listen-wrap";
+    wrap.getBoundingClientRect = () =>
+      ({ top: 695, bottom: 747, height: 52 }) as DOMRect;
+    document.body.append(wrap);
+    await elapse(20);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(listen.following).toBe(true);
+  });
+
+  it("rechecks the current block when the viewport changes, without unfollowing or restarting", async () => {
+    mountArticle();
+    place(0, 300, 120);
+    await render();
+    await start(0);
+    await settle(0);
+    expect(scrollTo).not.toHaveBeenCalled();
+    const plays = audio().play.mock.calls.length;
+    // The window shrinks: a bar now rises behind the paragraph
+    const bar = document.createElement("nav");
+    bar.className = "mobile-reader-bar";
+    bar.getBoundingClientRect = () =>
+      ({ top: 340, bottom: 390, height: 50 }) as DOMRect;
+    document.body.append(bar);
+    for (const event of ["resize", "orientationchange"]) {
+      scrollTo.mockClear();
+      await act(async () => {
+        window.dispatchEvent(new Event(event));
+      });
+      await elapse(20);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(listen.following).toBe(true);
+      await scrollEnd();
+    }
+    expect(audio().play.mock.calls.length).toBe(plays);
+    expect(listen.status).toBe("playing");
+  });
+
+  it("doesn't recheck once the reader has scrolled away", async () => {
+    mountArticle();
+    place(0, 300, 120);
+    await render();
+    await start(0);
+    await scrollByUser();
+    expect(listen.following).toBe(false);
+    const bar = document.createElement("nav");
+    bar.className = "mobile-reader-bar";
+    bar.getBoundingClientRect = () =>
+      ({ top: 340, bottom: 390, height: 50 }) as DOMRect;
+    document.body.append(bar);
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await elapse(20);
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
   it("keeps a block that fits clear of the phone's bottom bar", async () => {
     mountArticle();
     const bar = document.createElement("nav");

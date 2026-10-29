@@ -42,7 +42,9 @@ function clearance() {
     toolbar && toolbar.bottom > 0
       ? Math.max(toolbar.bottom + GAP, FALLBACK_MARGIN)
       : FALLBACK_MARGIN;
-  const lids = [".listen-pill", ".mobile-reader-bar"]
+  // The wrap, not the pill: it is laid out where the pill rests, while the pill
+  // itself is shifted 12px mid-transition when it opens
+  const lids = [".listen-wrap", ".mobile-reader-bar"]
     .map((selector) =>
       document.querySelector(selector)?.getBoundingClientRect(),
     )
@@ -90,6 +92,9 @@ export function createFollower(onChange: () => void): Follower {
   let flightTimer: ReturnType<typeof setTimeout> | undefined;
   let settleTimer: ReturnType<typeof setTimeout> | undefined;
   let shown: HTMLElement | null = null;
+  /** The block the voice is on, which a change of viewport or clearance rechecks. */
+  let current: HTMLElement | null = null;
+  let recheckFrame = 0;
 
   const release = () => {
     if (!following) return;
@@ -123,6 +128,23 @@ export function createFollower(onChange: () => void): Follower {
     // keeps ownership until the page has been still for a moment (or `scrollend`)
     clearTimeout(settleTimer);
     settleTimer = setTimeout(land, SETTLE_MS);
+  };
+
+  /**
+   * Looks at the current block again, bypassing the once-per-block guard: the
+   * clearance it was measured against may have changed (the pill mounted after
+   * the first look, the viewport resized or turned). The player's own scroll,
+   * so it never unfollows; nothing is restarted.
+   */
+  const recheck = () => {
+    if (!following || !current || flight) return;
+    const rect = current.getBoundingClientRect();
+    const { top, bottom } = clearance();
+    if (rect.top < top || rect.bottom > bottom) scrollTo(current);
+  };
+  const recheckSoon = () => {
+    cancelAnimationFrame(recheckFrame);
+    recheckFrame = requestAnimationFrame(recheck);
   };
 
   function scrollTo(el: HTMLElement) {
@@ -174,17 +196,29 @@ export function createFollower(onChange: () => void): Follower {
       watching = true;
       window.addEventListener("scroll", onScroll, { passive: true });
       window.addEventListener("scrollend", land);
+      window.addEventListener("resize", recheckSoon);
+      window.addEventListener("orientationchange", recheckSoon);
+      window.visualViewport?.addEventListener("resize", recheckSoon);
     },
     stop() {
       if (!watching) return;
       watching = false;
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("scrollend", land);
+      window.removeEventListener("resize", recheckSoon);
+      window.removeEventListener("orientationchange", recheckSoon);
+      window.visualViewport?.removeEventListener("resize", recheckSoon);
+      cancelAnimationFrame(recheckFrame);
+      current = null;
       land();
       shown = null;
     },
     reveal(el) {
-      if (!following || shown === el) return;
+      if (!following) return;
+      current = el;
+      // The pill mounts after the first look, so look again once it has
+      recheckSoon();
+      if (shown === el) return;
       shown = el;
       const rect = el.getBoundingClientRect();
       const { top, bottom } = clearance();
@@ -195,6 +229,7 @@ export function createFollower(onChange: () => void): Follower {
       following = true;
       if (el) {
         shown = el;
+        current = el;
         scrollTo(el);
       }
       if (!was) onChange();
