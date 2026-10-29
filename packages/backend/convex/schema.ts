@@ -27,7 +27,10 @@ import {
   selectionValidator,
   teachingValidator,
 } from "./lib/scriptureStudy";
-import { studyAnswerValidator } from "./lib/scriptureStudyFollowUps";
+import {
+  followUpSourceOutcomeValidator,
+  studyAnswerValidator,
+} from "./lib/scriptureStudyFollowUps";
 import { tagAliasTables } from "./lib/tagAliasSchema";
 import { tagVectorTables } from "./lib/tagVectorSchema";
 import { tagVocabularyTables } from "./lib/tagVocabularySchema";
@@ -67,6 +70,11 @@ export default defineSchema({
     modelId: v.string(),
     token: v.optional(v.string()),
     answer: v.optional(studyAnswerValidator),
+    followUpPolicyHash: v.optional(v.string()),
+    additionalEvidence: v.optional(v.array(evidenceValidator)),
+    carriedEvidenceIds: v.optional(v.array(v.string())),
+    sourceOutcomes: v.optional(v.array(followUpSourceOutcomeValidator)),
+    evidenceSetHash: v.optional(v.string()),
   })
     .index("by_runId", ["runId"])
     .index("by_userId_and_requestKey", ["userId", "requestKey"])
