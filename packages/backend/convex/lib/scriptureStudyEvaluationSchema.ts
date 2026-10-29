@@ -182,13 +182,52 @@ export function parseOpenRouterPricingPayload(value: unknown, modelId: string) {
 
 export const studyEvaluationResultRowSchema = z
   .object({
+    runId: z.string().min(1),
+    evaluationSha: z.string().regex(/^[a-f0-9]{40}$/),
     fixtureId: z.string().min(1),
+    split: z.enum(["calibration", "heldout"]),
+    fixtureHash: z.string().regex(/^[a-f0-9]{64}$/),
+    inputHash: z.string().regex(/^[a-f0-9]{64}$/),
+    evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+    schemaHash: z.string().regex(/^[a-f0-9]{64}$/),
+    requestedModel: z.string().min(1),
+    reasoningEffort: z.string().min(1),
+    maxOutputTokens: z.number().int().positive(),
     arm: z.enum(["baseline", "candidate"]),
-    state: z.string().min(1),
+    state: z.enum([
+      "complete",
+      "dispatch_failed",
+      "deadline_exceeded",
+      "unverifiable_output",
+    ]),
+    routeModel: z.string().min(1).optional(),
+    responseModel: z.string().min(1).nullable().optional(),
+    validation: z.enum(["valid", "invalid"]).optional(),
     object: resultSchema.optional(),
     error: z.unknown().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((row, ctx) => {
+    if (row.state === "complete") {
+      if (!row.object)
+        ctx.addIssue({
+          code: "custom",
+          message: "A complete record requires an answer",
+          path: ["object"],
+        });
+      if (!row.routeModel || row.responseModel === undefined || !row.validation)
+        ctx.addIssue({
+          code: "custom",
+          message: "A complete record requires model and validation metadata",
+        });
+    } else if (row.object) {
+      ctx.addIssue({
+        code: "custom",
+        message: "A failed record cannot contain a completed answer",
+        path: ["object"],
+      });
+    }
+  });
 export type StudyEvaluationResultRow = z.infer<
   typeof studyEvaluationResultRowSchema
 >;
