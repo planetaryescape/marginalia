@@ -418,3 +418,51 @@ it("shares one chapter fetch across distinct requested ranges", async () => {
   expect(row?.additionalEvidence).toHaveLength(2);
   expect(row?.sourceOutcomes).toHaveLength(2);
 });
+it("preserves multiline WEB verse text through retrieval, publication and source reload", async () => {
+  const fixture = await setup();
+  const id = await askFollowUp(
+    fixture,
+    "multiline",
+    "How does this relate to Psalm 13:1?",
+  );
+  // Public WEB response from https://bible-api.com/data/web/PSA/13.
+  const text =
+    "How long, Yahweh?\nWill you forget me forever?\nHow long will you hide your face from me?";
+  fixture.fetch.mockImplementation(async () =>
+    Response.json({
+      translation: { identifier: "web" },
+      verses: [{ book_id: "PSA", chapter: 13, verse: 1, text }],
+    }),
+  );
+  fixture.model.mockImplementation(async (options) => {
+    if (fixture.model.mock.calls.length === 1)
+      return {
+        object: { requestedReferences: ["Psalm 13:1"] },
+        modelId: options.targets[0].id,
+      };
+    const context = JSON.parse(options.prompt ?? "{}");
+    const supplement = context.savedEvidence.find(
+      (item: { referenceKey: string }) => item.referenceKey === "PSA.13.1",
+    );
+    return {
+      object: { ...answer, evidenceIds: [supplement.evidenceId] },
+      modelId: options.targets[0].id,
+    };
+  });
+  await fixture.t.action(internal.actions.scriptureStudyFollowUps.generate, {
+    id,
+  });
+  expect(fixture.model).toHaveBeenCalledTimes(2);
+  expect(fixture.fetch).toHaveBeenCalledTimes(1);
+  const saved = await fixture.t.run((ctx) => ctx.db.get(id));
+  expect(saved?.status).toBe("complete");
+  const evidence = saved?.additionalEvidence?.[0];
+  if (!evidence) throw new Error("Missing multiline WEB evidence");
+  expect(evidence.excerpt).toBe(`PSA.13.1 ${text}`);
+  expect(
+    await fixture.t.query(api.scriptureStudy.evidence, {
+      runId: fixture.run.runId,
+      evidenceId: evidence.evidenceId,
+    }),
+  ).toEqual(evidence);
+});

@@ -116,7 +116,9 @@ Do not include raw IDs, citation markers or URLs in prose. Use plain text.
 Set evidenceCoverage to in_saved_sources, partial or outside_saved_sources, relative to all
 supplied verified evidence including supplements. When expansion is open, an answer sets
 requestedReferences to an empty array. Positive explanation requires citations
-including WEB passage_text evidence. An outside_saved_sources answer explains the specific
+including WEB passage_text evidence. If any sourceOutcomes entry is unavailable, invalid or limit, evidenceCoverage must be
+partial or outside_saved_sources, even when other supplied evidence supports a useful answer.
+An outside_saved_sources answer explains the specific
 missing coverage without inventing an answer and may have no citations.
 Be direct and useful, normally 150–350 words. Never present an AI interpretation as Scripture.`;
 export async function followUpPolicyHash() {

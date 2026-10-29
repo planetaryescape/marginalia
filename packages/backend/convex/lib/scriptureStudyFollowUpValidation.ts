@@ -6,6 +6,7 @@ import {
   type FollowUpSourceOutcome,
   followUpEvidenceIdentity,
   followUpReference,
+  webEvidenceVerses,
 } from "./scriptureStudyFollowUpEvidence";
 import { FOLLOW_UP_LIMITS, studyAnswerSchema } from "./scriptureStudyFollowUps";
 import { sha256Hex } from "./tokens";
@@ -34,10 +35,12 @@ export async function validateFollowUpAnswer({
   let verses = 0;
   for (const item of additionalEvidence) {
     const ref = referenceFromKey(item.referenceKey);
+    const markedVerses = webEvidenceVerses(item.excerpt);
+    const firstVerse = ref?.verse;
     if (
       !ref ||
       ref.chapter !== ref.endChapter ||
-      ref.verse === undefined ||
+      firstVerse === undefined ||
       item.locator !== item.referenceKey ||
       item.source.id !== "web" ||
       item.source.title !== "World English Bible" ||
@@ -52,15 +55,17 @@ export async function validateFollowUpAnswer({
         JSON.stringify(["passage_text"]) ||
       item.contentHash !== (await sha256Hex(item.excerpt)) ||
       item.evidenceId !== (await followUpEvidenceIdentity(item)) ||
-      evidenceVerses([item], ref).length !==
-        (ref.endVerse ?? ref.verse) - ref.verse + 1 ||
-      item.excerpt.split("\n").length !==
-        (ref.endVerse ?? ref.verse) - ref.verse + 1 ||
+      markedVerses.length !== (ref.endVerse ?? firstVerse) - firstVerse + 1 ||
+      markedVerses.some(
+        (verse, index) =>
+          !verse.text ||
+          verse.id !== `${ref.bookId}.${ref.chapter}.${firstVerse + index}`,
+      ) ||
       !Number.isFinite(item.retrievedAt) ||
       item.retrievedAt > Date.now()
     )
       throw new Error("Invalid additional answer source.");
-    verses += (ref.endVerse ?? ref.verse) - ref.verse + 1;
+    verses += (ref.endVerse ?? firstVerse) - firstVerse + 1;
   }
   if (verses > FOLLOW_UP_LIMITS.verses)
     throw new Error("Follow-up verse limit exceeded.");

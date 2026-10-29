@@ -24,6 +24,34 @@ export function followUpReference(input: string) {
     ? ref
     : null;
 }
+export function webEvidenceVerses(excerpt: string) {
+  const verses: {
+    id: string;
+    bookId: string;
+    chapter: number;
+    verse: number;
+    text: string;
+  }[] = [];
+  for (const line of excerpt.split("\n")) {
+    const marker = /^([1-3]?[A-Z]{2,3})\.(\d+)\.(\d+)(?:[ \t]+(.*))?$/.exec(
+      line.trimStart(),
+    );
+    if (marker) {
+      verses.push({
+        id: `${marker[1]}.${marker[2]}.${marker[3]}`,
+        bookId: marker[1],
+        chapter: Number(marker[2]),
+        verse: Number(marker[3]),
+        text: marker[4] ?? "",
+      });
+    } else {
+      const current = verses.at(-1);
+      if (!current) return [];
+      current.text += `\n${line}`;
+    }
+  }
+  return verses.map((verse) => ({ ...verse, text: verse.text.trim() }));
+}
 export function evidenceVerses(evidence: StudyEvidence[], ref: BibleReference) {
   const verses = new Map<
     number,
@@ -35,22 +63,20 @@ export function evidenceVerses(evidence: StudyEvidence[], ref: BibleReference) {
       !item.source.capabilities.includes("passage_text")
     )
       continue;
-    for (const line of item.excerpt.split("\n")) {
-      const match = /^([1-3]?[A-Z]{2,3})\.(\d+)\.(\d+)\s+(.+)$/.exec(
-        line.trim(),
-      );
-      if (!match || match[1] !== ref.bookId || Number(match[2]) !== ref.chapter)
-        continue;
-      const verse = Number(match[3]);
+    for (const verse of webEvidenceVerses(item.excerpt)) {
       if (
-        ref.verse !== undefined &&
-        (verse < ref.verse || verse > (ref.endVerse ?? ref.verse))
+        verse.bookId !== ref.bookId ||
+        verse.chapter !== ref.chapter ||
+        !verse.text ||
+        (ref.verse !== undefined &&
+          (verse.verse < ref.verse ||
+            verse.verse > (ref.endVerse ?? ref.verse)))
       )
         continue;
-      verses.set(verse, {
-        id: `${ref.bookId}.${ref.chapter}.${verse}`,
-        verse,
-        text: match[4],
+      verses.set(verse.verse, {
+        id: verse.id,
+        verse: verse.verse,
+        text: verse.text,
         evidenceId: item.evidenceId,
       });
     }
