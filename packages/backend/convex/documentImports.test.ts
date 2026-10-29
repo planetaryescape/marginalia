@@ -5,6 +5,7 @@ import { secondReaderTest } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { MAX_PDF_BYTES } from "./documentImports";
+import { storedSha256AsHex } from "./lib/uploadFingerprint";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -31,6 +32,29 @@ async function upload(
   blob: Blob = pdf(),
 ) {
   return t.run((ctx) => ctx.storage.store(blob));
+}
+
+type Fixture = Awaited<ReturnType<typeof secondReaderTest>>;
+
+/** What the browser would send for a file: its SHA-256 as hex, and its size. */
+async function fingerprintOf(t: Fixture["t"], storageId: Id<"_storage">) {
+  const file = await t.run((ctx) => ctx.db.system.get("_storage", storageId));
+  if (!file) throw new Error("not in storage");
+  return { sha256: storedSha256AsHex(file.sha256) as string, size: file.size };
+}
+
+/** Asks for an upload URL for exactly this stored file's content. */
+async function grantFor(
+  t: Fixture["t"],
+  client: unknown,
+  storageId: Id<"_storage">,
+) {
+  await (
+    client as { mutation: (f: never, a: never) => Promise<unknown> }
+  ).mutation(
+    api.documentImports.generateUploadUrl as never,
+    (await fingerprintOf(t, storageId)) as never,
+  );
 }
 
 describe("starting an import", () => {
@@ -65,10 +89,17 @@ describe("starting an import", () => {
         type: "application/pdf",
       }),
     );
-    const result = await startImport(owner, {
-      storageId,
-      fileName: "huge.pdf",
-    });
+    // generateUploadUrl would refuse this size, so the grant is written as an
+    // older or hand-built request could have left it
+    const fingerprint = await fingerprintOf(t, storageId);
+    await t.run((ctx) =>
+      ctx.db.insert("uploadGrants", {
+        userId: "default_user",
+        issuedAt: Date.now(),
+        ...fingerprint,
+      }),
+    );
+    const result = await rawStart(owner, storageId);
     expect(result.ok).toBe(false);
     expect(
       await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
@@ -171,8 +202,15 @@ describe("starting an import", () => {
         type: "application/pdf",
       }),
     );
-    await reader.mutation(api.documentImports.generateUploadUrl, {});
-    expect((await rawStart(reader, big)).ok).toBe(false);
+    const bigFingerprint = await fingerprintOf(t, big);
+    await t.run((ctx) =>
+      ctx.db.insert("uploadGrants", {
+        userId: "default_user",
+        issuedAt: Date.now(),
+        ...bigFingerprint,
+      }),
+    );
+    expect((await rawStart(owner, big)).ok).toBe(false);
     expect(await exists(big)).toBe(true);
     // A grant, and two imports already running
     for (const name of ["a", "b"])
@@ -181,7 +219,7 @@ describe("starting an import", () => {
         fileName: `${name}.pdf`,
       });
     const late = await upload(t);
-    await owner.mutation(api.documentImports.generateUploadUrl, {});
+    await grantFor(t, owner, late);
     expect((await rawStart(owner, late)).ok).toBe(false);
     expect(await exists(late)).toBe(true);
   });
@@ -193,14 +231,20 @@ describe("starting an import", () => {
       t.mutation(api.documentImports.start, { storageId, fileName: "x.pdf" }),
     ).rejects.toThrow();
     await expect(
-      t.mutation(api.documentImports.generateUploadUrl, {}),
+      t.mutation(api.documentImports.generateUploadUrl, {
+        ...(await fingerprintOf(t, storageId)),
+      }),
     ).rejects.toThrow();
   });
 
   it("hands a signed-in reader an upload URL", async () => {
-    const { owner } = await secondReaderTest(modules);
+    const { t, owner } = await secondReaderTest(modules);
+    const fingerprint = await fingerprintOf(t, await upload(t));
     expect(
-      typeof (await owner.mutation(api.documentImports.generateUploadUrl, {})),
+      typeof (await owner.mutation(
+        api.documentImports.generateUploadUrl,
+        fingerprint,
+      )),
     ).toBe("string");
   });
 });
@@ -262,6 +306,10 @@ describe("an import's steps belong to its reader", () => {
 
 describe("upload grants", () => {
   const start = rawStart;
+  const stored = (t: Fixture["t"], id: Id<"_storage">) =>
+    t.run((ctx) => ctx.db.system.get("_storage", id));
+  const noImports = (t: Fixture["t"]) =>
+    t.run((ctx) => ctx.db.query("documentImports").first());
 
   it("refuses a reader who was never given an upload URL, and leaves the file alone", async () => {
     const { t, reader } = await secondReaderTest(modules);
@@ -269,35 +317,131 @@ describe("upload grants", () => {
     const result = await start(reader, storageId);
     expect(result.ok).toBe(false);
     // The file may be another reader's in-flight upload
-    expect(
-      await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
-    ).not.toBeNull();
-    expect(
-      await t.run((ctx) => ctx.db.query("documentImports").first()),
-    ).toBeNull();
+    expect(await stored(t, storageId)).not.toBeNull();
+    expect(await noImports(t)).toBeNull();
+  });
+
+  it("spends the grant of the reader whose hash and size match the stored file", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const storageId = await upload(t);
+    await grantFor(t, owner, storageId);
+    expect((await start(owner, storageId)).ok).toBe(true);
+    const grants = await t.run((ctx) => ctx.db.query("uploadGrants").collect());
+    expect(grants).toHaveLength(1);
+    expect(grants[0]?.usedAt).toBeDefined();
+  });
+
+  it("matches the right grant when the reader has several", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const other = await upload(t, new Blob(["%PDF-1.7 other"]));
+    const mine = await upload(t);
+    await grantFor(t, owner, other);
+    await grantFor(t, owner, mine);
+    expect((await start(owner, mine)).ok).toBe(true);
+    const unspent = await t.run(async (ctx) =>
+      (await ctx.db.query("uploadGrants").collect()).filter(
+        (g) => g.usedAt === undefined,
+      ),
+    );
+    expect(unspent).toHaveLength(1);
+    expect(unspent[0]).toMatchObject(await fingerprintOf(t, other));
   });
 
   it("does not let one reader spend another's grant", async () => {
     const { t, owner, reader } = await secondReaderTest(modules);
-    await owner.mutation(api.documentImports.generateUploadUrl, {});
     const storageId = await upload(t);
+    await grantFor(t, owner, storageId);
     expect((await start(reader, storageId)).ok).toBe(false);
     expect((await start(owner, storageId)).ok).toBe(true);
   });
 
+  it("does not let a reader claim another reader's file with a grant for different content", async () => {
+    const { t, owner, reader } = await secondReaderTest(modules);
+    // The reader holds a live grant for a file of their own...
+    const theirs = await upload(t, new Blob(["%PDF-1.7 theirs"]));
+    await grantFor(t, reader, theirs);
+    // ...and learns the ID of the owner's finished, unclaimed upload
+    const victims = await upload(t);
+    await grantFor(t, owner, victims);
+    expect((await start(reader, victims)).ok).toBe(false);
+    expect(await stored(t, victims)).not.toBeNull();
+    expect(await noImports(t)).toBeNull();
+    // The owner's claim still works, and the reader's grant is unspent
+    expect((await start(owner, victims)).ok).toBe(true);
+    expect((await start(reader, theirs)).ok).toBe(true);
+  });
+
+  it("refuses a grant with the right hash but the wrong size, leaving the file", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const storageId = await upload(t);
+    const { sha256, size } = await fingerprintOf(t, storageId);
+    await owner.mutation(api.documentImports.generateUploadUrl, {
+      sha256,
+      size: size + 1,
+    });
+    expect((await start(owner, storageId)).ok).toBe(false);
+    expect(await stored(t, storageId)).not.toBeNull();
+    expect(await noImports(t)).toBeNull();
+  });
+
   it("is spent by one import", async () => {
     const { t, owner } = await secondReaderTest(modules);
-    await owner.mutation(api.documentImports.generateUploadUrl, {});
-    expect((await start(owner, await upload(t))).ok).toBe(true);
-    expect((await start(owner, await upload(t))).ok).toBe(false);
+    const first = await upload(t);
+    await grantFor(t, owner, first);
+    expect((await start(owner, first)).ok).toBe(true);
+    // A second file with the very same content needs a grant of its own
+    const second = await upload(t);
+    expect((await start(owner, second)).ok).toBe(false);
+    expect(await stored(t, second)).not.toBeNull();
   });
 
   it("expires after an hour", async () => {
     const { t, owner } = await secondReaderTest(modules);
-    await owner.mutation(api.documentImports.generateUploadUrl, {});
     const storageId = await upload(t);
+    await grantFor(t, owner, storageId);
     vi.setSystemTime(Date.now() + 61 * 60_000);
     expect((await start(owner, storageId)).ok).toBe(false);
+    expect(await stored(t, storageId)).not.toBeNull();
+  });
+
+  it("tells a reader with a grant from before hashes existed to reload", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    const storageId = await upload(t);
+    await t.run((ctx) =>
+      ctx.db.insert("uploadGrants", {
+        userId: "default_user",
+        issuedAt: Date.now(),
+      }),
+    );
+    const result = (await start(owner, storageId)) as { error?: string };
+    expect(result.error).toMatch(/Reload/);
+    expect(await stored(t, storageId)).not.toBeNull();
+  });
+
+  it("asks an older client that sends no hash to reload, without recording a grant", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await expect(
+      owner.mutation(api.documentImports.generateUploadUrl, {}),
+    ).rejects.toThrow(/Reload/);
+    expect(
+      await t.run((ctx) => ctx.db.query("uploadGrants").first()),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["a short hash", { sha256: "abc", size: 10 }],
+    ["an uppercase hash", { sha256: "A".repeat(64), size: 10 }],
+    ["a negative size", { sha256: "a".repeat(64), size: -1 }],
+    ["a fractional size", { sha256: "a".repeat(64), size: 1.5 }],
+    ["an over-limit size", { sha256: "a".repeat(64), size: MAX_PDF_BYTES + 1 }],
+  ])("refuses %s without recording a grant", async (_name, args) => {
+    const { t, owner } = await secondReaderTest(modules);
+    await expect(
+      owner.mutation(api.documentImports.generateUploadUrl, args),
+    ).rejects.toThrow();
+    expect(
+      await t.run((ctx) => ctx.db.query("uploadGrants").first()),
+    ).toBeNull();
   });
 });
 

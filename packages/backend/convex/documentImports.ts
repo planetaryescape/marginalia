@@ -9,6 +9,7 @@ import {
   query,
 } from "./functions";
 import { importLibraryActive } from "./lib/importJobs";
+import { isHexSha256, storedSha256AsHex } from "./lib/uploadFingerprint";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 
 /** Past this a PDF is refused before any work: pdf.js holds it in memory. */
@@ -54,16 +55,33 @@ function isStale(row: Doc<"documentImports">, now: number) {
 /**
  * A short-lived URL the browser POSTs the PDF to. The bytes never pass through
  * a function argument (5 MiB cap): the file goes to storage, and `start` is
- * given only its ID.
+ * given only its ID. The grant is bound to the file's SHA-256 and size, which
+ * the browser computes before asking, so `start` can tell that the stored file
+ * is the one this reader meant to upload. The hash and size are optional in
+ * the validator only so a tab running the previous release gets a sentence
+ * telling it to reload instead of a validation error.
  */
 export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { sha256: v.optional(v.string()), size: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const { sha256, size } = args;
+    if (sha256 === undefined || size === undefined)
+      throw new ConvexError(
+        "Marginalia has been updated. Reload the page and try again.",
+      );
+    if (!isHexSha256(sha256) || !Number.isSafeInteger(size) || size < 0)
+      throw new ConvexError("That file couldn't be checked. Try again.");
+    if (size > MAX_PDF_BYTES)
+      throw new ConvexError(
+        `That file is over ${MAX_PDF_BYTES / 1024 / 1024} MB, which is more than Marginalia can read.`,
+      );
     if (!(await spendReaderLimit(ctx, ctx.readerId, "pdfImport")))
       throw new ConvexError(READER_LIMITS.pdfImport.message);
     await ctx.db.insert("uploadGrants", {
       userId: ctx.readerId,
       issuedAt: Date.now(),
+      sha256,
+      size,
     });
     return ctx.storage.generateUploadUrl();
   },
@@ -93,28 +111,37 @@ export const start = mutation({
         ok: false as const,
         error: "That upload is already being read.",
       };
-    // Only a reader who was given an upload URL can import a file. A grant
-    // doesn't say which file it covers, so this narrows who may try, and a
-    // refusal here leaves the file alone: it may be another reader's.
+    // Only a reader who was given an upload URL for this very content can
+    // import a file: the grant carries the SHA-256 and size the browser
+    // computed, and they must match what storage recorded. A refusal here
+    // leaves the file alone: it may be another reader's.
     const now = Date.now();
-    const grant = (
+    const storedHash = storedSha256AsHex(file.sha256);
+    const unused = (
       await ctx.db
         .query("uploadGrants")
         .withIndex("by_userId_and_issuedAt", (q) =>
           q.eq("userId", ctx.readerId).gt("issuedAt", now - GRANT_TTL_MS),
         )
         .take(50)
-    ).find((g) => g.usedAt === undefined);
+    ).filter((g) => g.usedAt === undefined);
+    const grant = unused.find(
+      (g) =>
+        storedHash !== null && g.sha256 === storedHash && g.size === file.size,
+    );
     if (!grant)
       return {
         ok: false as const,
-        error: "That upload didn't come from you.",
+        // A grant issued before hashes existed can never match
+        error: unused.some((g) => g.sha256 === undefined)
+          ? "Marginalia has been updated. Reload the page and try again."
+          : "That upload didn't come from you.",
       };
 
     // No refusal deletes the file. Until this reader's claim exists the file may
-    // be someone else's in-flight upload (a grant does not say which file it
-    // covers; docs/issues/pdf-upload-ownership.md), so refused files are left
-    // for sweepUploads, which removes anything unclaimed.
+    // be someone else's in-flight upload (a matching grant only proves the
+    // reader has the same bytes; docs/issues/pdf-upload-ownership.md), so
+    // refused files are left for sweepUploads, which removes anything unclaimed.
     const refuse = (error: string) => ({ ok: false as const, error });
     // The header is the browser's word; the action checks the file's own bytes
     if (

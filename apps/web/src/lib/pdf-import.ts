@@ -92,6 +92,22 @@ export function importSteps(input: {
   return { done, current };
 }
 
+/**
+ * The file's SHA-256 as lowercase hex, which the server checks against the
+ * stored file so an upload grant covers only these bytes. WebCrypto cannot
+ * hash a stream, so this holds the whole file in memory once more (up to
+ * MAX_PDF_MB) for the length of one digest call.
+ */
+export async function sha256Hex(file: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await file.arrayBuffer(),
+  );
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 /** Uploads with progress, which `fetch` can't report. */
 export function uploadWithProgress(
   url: string,
@@ -107,6 +123,9 @@ export function uploadWithProgress(
         onProgress(Math.round((event.loaded / event.total) * 100));
     };
     request.onerror = () => reject(new Error("The upload didn't finish."));
+    // A cancelled request fires neither error nor load, which left the import busy
+    request.onabort = () => reject(new Error("The upload didn't finish."));
+    request.ontimeout = () => reject(new Error("The upload didn't finish."));
     request.onload = () => {
       if (request.status < 200 || request.status >= 300)
         return reject(new Error("The upload didn't finish."));

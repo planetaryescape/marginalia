@@ -699,6 +699,10 @@ export default defineSchema({
     userId: v.string(),
     issuedAt: v.number(),
     usedAt: v.optional(v.number()),
+    // The file this grant is for, as the browser measured it. Absent only on
+    // grants issued before binding; those can't be spent.
+    sha256: v.optional(v.string()),
+    size: v.optional(v.number()),
   }).index("by_userId_and_issuedAt", ["userId", "issuedAt"]),
 
   // One row per book: where the reader is, so the desk can offer only the
