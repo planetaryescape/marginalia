@@ -97,13 +97,15 @@ export function gapAfter(
   queue: readonly QueueItem[],
   index: number,
   hidden: boolean,
+  speed = 1,
 ): number {
   const here = queue[index];
   const next = queue[index + 1];
   // Parts of one block run on; background timers are throttled, so a hidden page
   // relies on the silence at the ends of the clips (S4)
   if (!here || !next || here.block === next.block || hidden) return 0;
-  return here.heading ? GAP_AFTER_HEADING_MS : GAP_MS;
+  // Silence shortens with the speech, so a faster listener isn't left waiting
+  return (here.heading ? GAP_AFTER_HEADING_MS : GAP_MS) / speed;
 }
 
 export type ClipStatus = "pending" | "ready" | "failed";

@@ -9,6 +9,7 @@ export function readerArticle(article: Doc<"articles">) {
     title: article.title,
     url: article.url,
     author: article.author,
+    imageUrl: article.imageUrl,
     content: article.content,
     contentHtml: article.contentHtml,
     wordCount: article.wordCount,

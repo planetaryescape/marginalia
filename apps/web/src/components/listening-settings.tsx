@@ -7,6 +7,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { InlineError } from "@/components/in-place";
 import { failureSentence } from "@/lib/failure-copy";
+import {
+  formatSpeed,
+  MAX_SPEED,
+  MIN_SPEED,
+  SPEED_STEP,
+} from "@/lib/listen-speed";
 import { SILENT_CLIP, trackSpeechRequest } from "@/lib/use-natural-voice";
 import { requestSpeechClip } from "@/lib/use-speech-clip";
 import { cn } from "@/lib/utils";
@@ -38,9 +44,12 @@ let nextSample: (() => void) | null = null;
  */
 export function ListeningSettings({
   sample,
+  speed,
   onAddKey,
 }: {
   sample: VoiceSampleSource | undefined;
+  /** The reader's listening speed, mirrored by the pill's speed button. */
+  speed?: { value: number; onChange: (value: number) => void };
   onAddKey: () => void;
 }) {
   const choice = useQuery(api.userSettings.getSpeechVoice, {});
@@ -258,6 +267,33 @@ export function ListeningSettings({
           );
         })}
       </div>
+      {speed && (
+        <div className="flex items-center gap-2.5 pt-1">
+          <label
+            htmlFor="listening-speed"
+            className="text-[13px] text-[var(--reader-fg-soft)]"
+          >
+            Speed
+          </label>
+          <input
+            id="listening-speed"
+            type="range"
+            min={MIN_SPEED}
+            max={MAX_SPEED}
+            step={SPEED_STEP}
+            value={speed.value}
+            onChange={(event) => speed.onChange(Number(event.target.value))}
+            aria-valuetext={formatSpeed(speed.value)}
+            className="reader-range min-w-0 flex-1"
+          />
+          <output
+            htmlFor="listening-speed"
+            className="w-11 shrink-0 text-right font-mono text-[12px] tabular-nums text-[var(--reader-fg)]"
+          >
+            {formatSpeed(speed.value)}
+          </output>
+        </div>
+      )}
       {chooseFailed && (
         <InlineError
           message="Couldn't change the voice."

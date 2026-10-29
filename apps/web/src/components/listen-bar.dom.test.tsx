@@ -34,6 +34,10 @@ function Bar(props: Partial<Parameters<typeof ListenBar>[0]> = {}) {
       error={null}
       needsKey={false}
       deviceSupported
+      following
+      speed={1}
+      onFollow={noop}
+      onSpeed={noop}
       onTogglePause={noop}
       onPrevious={noop}
       onNext={noop}
@@ -80,6 +84,47 @@ it("shows the paragraph count with its total, one dot, and the controls", async 
       .querySelector('[aria-label="Pause"]')
       ?.hasAttribute("data-primary"),
   ).toBe(true);
+});
+
+const follow = () =>
+  document.querySelector(".listen-follow") as HTMLButtonElement | null;
+const speedButton = () =>
+  document.querySelector(".listen-speed") as HTMLButtonElement;
+
+it("offers Follow only when the page isn't following, keeping the dot", async () => {
+  await render({ following: true });
+  expect(follow()).toBeNull();
+  const onFollow = vi.fn();
+  await render({ following: false, onFollow });
+  expect(follow()?.textContent).toBe("Follow");
+  expect(document.querySelectorAll(".listen-dot")).toHaveLength(1);
+  await act(async () => follow()?.click());
+  expect(onFollow).toHaveBeenCalledTimes(1);
+  await render({ following: true });
+  expect(follow()).toBeNull();
+});
+
+it("never offers Follow on the failure or no-key pills", async () => {
+  await render({ following: false, status: "failed", error: "Stopped." });
+  expect(follow()).toBeNull();
+  await render({ following: false, needsKey: true, index: null });
+  expect(follow()).toBeNull();
+});
+
+it("shows the speed after Next, names it for assistive tech, and steps it on press", async () => {
+  const onSpeed = vi.fn();
+  await render({ speed: 1.75, onSpeed });
+  expect(speedButton().textContent).toBe("1.75×");
+  expect(speedButton().getAttribute("aria-label")).toBe(
+    "Speed 1.75×. Change speed",
+  );
+  expect(speedButton().previousElementSibling?.getAttribute("aria-label")).toBe(
+    "Next paragraph",
+  );
+  await act(async () => speedButton().click());
+  expect(onSpeed).toHaveBeenCalledTimes(1);
+  await render({ speed: 1 });
+  expect(speedButton().textContent).toBe("1×");
 });
 
 it("moves the dot between breathing and dim, and offers Resume when paused", async () => {
@@ -240,6 +285,10 @@ it("shows the sentence of a ConvexError from the voice, with Retry", async () =>
         error={listen.error}
         needsKey={listen.needsKey}
         deviceSupported={listen.deviceSupported}
+        following={listen.following}
+        speed={listen.speed}
+        onFollow={listen.follow}
+        onSpeed={() => listen.setSpeed(2)}
         onTogglePause={listen.togglePause}
         onPrevious={listen.previous}
         onNext={listen.next}

@@ -15,6 +15,8 @@ interface ListenMetadata {
   title: string;
   author?: string | null;
   url?: string;
+  /** The article's image, shown on the lock screen. */
+  imageUrl?: string;
 }
 
 const ACTIONS = [
@@ -26,6 +28,19 @@ const ACTIONS = [
   "seekbackward",
   "seekforward",
 ] as const satisfies readonly MediaSessionAction[];
+
+/** Lock screens fetch the artwork themselves, so only a web address is worth handing over. */
+function artworkFor(imageUrl: string | undefined): MediaImage[] {
+  if (!imageUrl) return [];
+  try {
+    const { protocol } = new URL(imageUrl);
+    return protocol === "https:" || protocol === "http:"
+      ? [{ src: imageUrl }]
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 function hostname(url: string | undefined) {
   if (!url) return undefined;
@@ -49,7 +64,7 @@ export function useListenMediaSession(
   const controls = useRef(listen);
   controls.current = listen;
   const { active, status } = listen;
-  const { title, author, url } = metadata ?? {};
+  const { title, author, url, imageUrl } = metadata ?? {};
 
   useEffect(() => {
     if (!active || title === undefined || !("mediaSession" in navigator))
@@ -58,8 +73,8 @@ export function useListenMediaSession(
     session.metadata = new MediaMetadata({
       title,
       artist: author ?? hostname(url) ?? "",
-      // No artwork: the reader's article query doesn't carry the image
       album: "Marginalia",
+      artwork: artworkFor(imageUrl),
     });
     const paused = () => controls.current.status === "paused";
     const handlers: Record<(typeof ACTIONS)[number], () => void> = {
@@ -91,7 +106,7 @@ export function useListenMediaSession(
       session.metadata = null;
       session.playbackState = "none";
     };
-  }, [active, title, author, url]);
+  }, [active, title, author, url, imageUrl]);
 
   useEffect(() => {
     if (!active || !("mediaSession" in navigator)) return;

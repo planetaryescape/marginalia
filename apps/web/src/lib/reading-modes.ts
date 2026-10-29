@@ -3,6 +3,7 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import { useQuery } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDeviceVoice } from "./device-voice";
+import { clampSpeed, readSpeed, writeSpeed } from "./listen-speed";
 import {
   observeParagraphGeometry,
   paragraphGeometry,
@@ -124,12 +125,20 @@ export function useListen(
   const [deviceChosen, setDeviceChosen] = useState(readDeviceChoice);
   const [choosing, setChoosing] = useState(false);
   const pendingStart = useRef<number | null>(null);
+  // One speed for both voices, kept per browser (D-TTS-010)
+  const [speed, setSpeedState] = useState(readSpeed);
+  const setSpeed = useCallback((value: number) => {
+    const next = clampSpeed(value);
+    setSpeedState(next);
+    writeSpeed(next);
+  }, []);
   const device = useDeviceVoice(
     containerRef,
     articleId,
     unitKey,
     content,
     contentHtml,
+    speed,
   );
   const natural = useNaturalVoice(
     containerRef,
@@ -139,6 +148,7 @@ export function useListen(
     contentHtml,
     clipSource,
     heading ? spokenTitle(heading.title, heading.author) : undefined,
+    speed,
   );
 
   const mode: "natural" | "device" = deviceChosen ? "device" : "natural";
@@ -215,6 +225,10 @@ export function useListen(
       active: natural.active,
       status: natural.status,
       error: natural.error,
+      speed,
+      setSpeed,
+      following: natural.following,
+      follow: natural.follow,
       needsKey: choosing && missingKey,
       deviceSupported: device.supported,
       speakFrom,
@@ -239,6 +253,10 @@ export function useListen(
     active: device.active,
     status,
     error: null,
+    speed,
+    setSpeed,
+    following: device.following,
+    follow: device.follow,
     needsKey: false,
     deviceSupported: device.supported,
     speakFrom,

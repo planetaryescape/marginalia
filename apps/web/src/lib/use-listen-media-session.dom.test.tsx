@@ -51,15 +51,26 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-function Harness({ status }: { status: ListenStatus }) {
+function Harness({
+  status,
+  imageUrl,
+}: {
+  status: ListenStatus;
+  imageUrl?: string;
+}) {
   useListenMediaSession(
     { ...controls, status, active: !["idle", "finished"].includes(status) },
-    { title: "On walking", author: null, url: "https://example.com/walk" },
+    {
+      title: "On walking",
+      author: null,
+      url: "https://example.com/walk",
+      imageUrl,
+    },
   );
   return null;
 }
-const render = (status: ListenStatus) =>
-  act(async () => root.render(<Harness status={status} />));
+const render = (status: ListenStatus, imageUrl?: string) =>
+  act(async () => root.render(<Harness status={status} imageUrl={imageUrl} />));
 
 it("names the article and hands the media keys to the player while listening", async () => {
   await render("playing");
@@ -75,6 +86,17 @@ it("names the article and hands the media keys to the player while listening", a
   expect(controls.next).toHaveBeenCalledTimes(1);
   expect(controls.previous).toHaveBeenCalledTimes(1);
   expect(controls.stop).toHaveBeenCalledTimes(1);
+});
+
+it("shows the article's image on the lock screen, and nothing when there is none or it isn't a web address", async () => {
+  await render("playing", "https://example.com/cover.jpg");
+  expect((session.metadata as FakeMetadata).init.artwork).toEqual([
+    { src: "https://example.com/cover.jpg" },
+  ]);
+  await render("playing", "data:image/png;base64,AAAA");
+  expect((session.metadata as FakeMetadata).init.artwork).toEqual([]);
+  await render("playing");
+  expect((session.metadata as FakeMetadata).init.artwork).toEqual([]);
 });
 
 it("pauses only when playing and plays only when paused, so a repeated key doesn't flip it back", async () => {

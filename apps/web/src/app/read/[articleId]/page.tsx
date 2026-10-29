@@ -70,6 +70,7 @@ import {
 import { isSummarySelection } from "@/lib/companion-context";
 import { sweepHighlight } from "@/lib/highlight-sweep";
 import { findMark, type MarkKind, useHighlights } from "@/lib/highlights";
+import { nextSpeed } from "@/lib/listen-speed";
 import { defaultColor, type MarkColor, markColor } from "@/lib/mark-colours";
 import { paragraphGeometry } from "@/lib/paragraph-geometry";
 import {
@@ -483,6 +484,7 @@ export default function ReadPage() {
           title: article.title,
           author: article.author,
           url: article.uploadedFileName ? undefined : article.url,
+          imageUrl: article.imageUrl,
         }
       : undefined,
   );
@@ -1480,6 +1482,7 @@ export default function ReadPage() {
           resetText,
           listening: listen.active,
           onToggleListen: toggleListen,
+          listenSpeed: { value: listen.speed, onChange: listen.setSpeed },
           voiceSample: {
             articleId: articleKey,
             text: voiceSampleText,
@@ -1506,6 +1509,10 @@ export default function ReadPage() {
         onStop={listen.stop}
         onRetry={listen.retry}
         onUseDeviceVoice={listen.chooseDeviceVoice}
+        following={listen.following}
+        speed={listen.speed}
+        onFollow={listen.follow}
+        onSpeed={() => listen.setSpeed(nextSpeed(listen.speed))}
       />
 
       {listenUnavailable && (

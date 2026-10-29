@@ -231,3 +231,47 @@ it("disables the voices and points to Your account without an OpenRouter key", a
     "Add an OpenRouter key in Your account",
   );
 });
+
+it("sets the listening speed with a slider from 0.8 to 2 in 0.05 steps, and says it", async () => {
+  const onChange = vi.fn();
+  await act(async () =>
+    root.render(
+      <ListeningSettings
+        sample={listen}
+        speed={{ value: 1.2, onChange }}
+        onAddKey={() => {}}
+      />,
+    ),
+  );
+  const slider = document.getElementById("listening-speed") as HTMLInputElement;
+  expect([slider.min, slider.max, slider.step]).toEqual(["0.8", "2", "0.05"]);
+  expect(slider.value).toBe("1.2");
+  expect(slider.getAttribute("aria-valuetext")).toBe("1.2×");
+  expect(document.querySelector("output")?.textContent).toBe("1.2×");
+  expect(slider.disabled).toBe(false);
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    set?.call(slider, "1.55");
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(onChange).toHaveBeenCalledWith(1.55);
+});
+
+it("keeps the speed slider usable without a key, since the device voice has a speed too", async () => {
+  state.providers = [];
+  await act(async () =>
+    root.render(
+      <ListeningSettings
+        sample={listen}
+        speed={{ value: 1, onChange: () => {} }}
+        onAddKey={() => {}}
+      />,
+    ),
+  );
+  expect(
+    (document.getElementById("listening-speed") as HTMLInputElement).disabled,
+  ).toBe(false);
+});
