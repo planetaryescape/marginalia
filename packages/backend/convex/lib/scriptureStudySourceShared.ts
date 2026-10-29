@@ -233,27 +233,25 @@ export function relatedReferencesFromHtml(
         end.verse,
       ),
     );
-    if (
-      candidates.size >= SCRIPTURE_STUDY_SOURCE_LIMITS.relatedReferencesPerNote
-    )
-      break;
   }
-  return [...candidates].sort((a, b) => {
-    const contextScore = (key: string) => {
-      const match = /^([1-3]?[A-Z]{2,3})\.(\d+)\./.exec(key);
-      if (!match) return 0;
-      if (
-        match[1] === reference.bookId &&
-        Number(match[2]) === reference.chapter
-      )
-        return -100;
-      return match[1] === reference.bookId &&
-        Math.abs(Number(match[2]) - reference.chapter) <= 1
-        ? 2
-        : 0;
-    };
-    return contextScore(b) - contextScore(a);
-  });
+  return [...candidates]
+    .sort((a, b) => {
+      const contextScore = (key: string) => {
+        const match = /^([1-3]?[A-Z]{2,3})\.(\d+)\./.exec(key);
+        if (!match) return 0;
+        if (
+          match[1] === reference.bookId &&
+          Number(match[2]) === reference.chapter
+        )
+          return -100;
+        return match[1] === reference.bookId &&
+          Math.abs(Number(match[2]) - reference.chapter) <= 1
+          ? 2
+          : 0;
+      };
+      return contextScore(b) - contextScore(a) || (a < b ? -1 : a > b ? 1 : 0);
+    })
+    .slice(0, SCRIPTURE_STUDY_SOURCE_LIMITS.relatedReferencesPerNote);
 }
 
 function parseNumericReference(value: string | undefined) {

@@ -61,7 +61,7 @@ export function selectCommentaryCandidates<T extends CommentaryCandidate>(
   for (const candidate of candidates) {
     if (!candidate.excerpt.trim() || !bounds(candidate.referenceKey, reference))
       continue;
-    const key = candidate.excerpt.trim().toLowerCase();
+    const key = `${candidate.referenceKey}\0${candidate.excerpt.trim().toLowerCase()}`;
     const previous = unique.get(key);
     if (!previous || compareCandidate(candidate, previous) < 0)
       unique.set(key, candidate);
@@ -155,21 +155,31 @@ export function selectStudySourceRecords(
       options.maxRecords > 0 &&
       comparison.excerpt.length <= options.maxChars,
   );
-  const comments = selectCommentaryCandidates(
-    records.filter((record) => record.sourceId === "aquifer-open-study-notes"),
-    {
-      reference: options.reference,
-      maxItems: options.maxRecords - Number(includeComparison),
-      maxChars:
-        options.maxChars -
-        (includeComparison ? (comparison?.excerpt.length ?? 0) : 0),
-    },
-  );
+  const commentCandidates = records
+    .filter((record) => record.sourceId === "aquifer-open-study-notes")
+    .map((record) => ({
+      identity: JSON.stringify([
+        record.sourceId,
+        record.revision,
+        record.locator,
+        record.contentHash,
+      ]),
+      record,
+      referenceKey: record.referenceKey,
+      excerpt: record.excerpt,
+    }));
+  const comments = selectCommentaryCandidates(commentCandidates, {
+    reference: options.reference,
+    maxItems: options.maxRecords - Number(includeComparison),
+    maxChars:
+      options.maxChars -
+      (includeComparison ? (comparison?.excerpt.length ?? 0) : 0),
+  });
   const prioritized = [
     ...new Set([
-      ...comments.slice(0, 1),
+      ...comments.slice(0, 1).map(({ record }) => record),
       ...(includeComparison && comparison ? [comparison] : []),
-      ...comments.slice(1),
+      ...comments.slice(1).map(({ record }) => record),
     ]),
   ];
   const result: ScriptureStudySourceRecord[] = [];

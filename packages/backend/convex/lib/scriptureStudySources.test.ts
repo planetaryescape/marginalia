@@ -50,12 +50,24 @@ describe("bounded pinned Scripture evidence adapters", () => {
     const range = parseBibleReference("Colossians 2:6-23");
     if (!range) throw new Error("Test reference should parse.");
     const candidates = [
-      { identity: "end", referenceKey: "COL.2.20-23", excerpt: "end" },
-      { identity: "opening", referenceKey: "COL.2.6-9", excerpt: "opening" },
-      { identity: "middle", referenceKey: "COL.2.12-17", excerpt: "middle" },
+      {
+        identity: "end",
+        referenceKey: "COL.2.20-COL.2.23",
+        excerpt: "end",
+      },
+      {
+        identity: "opening",
+        referenceKey: "COL.2.6-COL.2.9",
+        excerpt: "opening",
+      },
+      {
+        identity: "middle",
+        referenceKey: "COL.2.12-COL.2.17",
+        excerpt: "middle",
+      },
       {
         identity: "duplicate",
-        referenceKey: "COL.2.18-19",
+        referenceKey: "COL.2.18-COL.2.19",
         excerpt: " middle ",
       },
       { identity: "unrelated", referenceKey: "COL.1.1", excerpt: "unrelated" },
@@ -135,11 +147,16 @@ describe("bounded pinned Scripture evidence adapters", () => {
       limitations: [],
     });
     const records = [
-      makeRecord("aquifer-open-study-notes", "end", "COL.2.20-23", "end note"),
+      makeRecord(
+        "aquifer-open-study-notes",
+        "end",
+        "COL.2.20-COL.2.23",
+        "end note",
+      ),
       makeRecord(
         "aquifer-open-study-notes",
         "middle",
-        "COL.2.12-15",
+        "COL.2.12-COL.2.15",
         "middle note",
       ),
       makeRecord(
@@ -151,7 +168,7 @@ describe("bounded pinned Scripture evidence adapters", () => {
       makeRecord(
         "aquifer-open-study-notes",
         "opening",
-        "COL.2.6-9",
+        "COL.2.6-COL.2.9",
         "opening note",
       ),
     ];
@@ -170,7 +187,7 @@ describe("bounded pinned Scripture evidence adapters", () => {
       title: "Aquifer note",
       revision: "r1:item1",
       locator: "41.content.json#item1",
-      referenceKey: "COL.2.6-23",
+      referenceKey: "COL.2.6-COL.2.23",
       excerpt: "note",
       sourceUrl: "https://example.test/source",
       contentHash: "hash",
@@ -387,9 +404,9 @@ describe("bounded pinned Scripture evidence adapters", () => {
     });
     expect(result.records[0].excerpt).toContain("SELECTED_CHAPTER_CANARY");
     expect(result.records[0].relatedReferences).toEqual([
+      "EZK.23.4",
       "EZK.34.12",
       "JHN.10.11",
-      "EZK.23.4",
     ]);
   });
 
@@ -413,13 +430,25 @@ describe("bounded pinned Scripture evidence adapters", () => {
       )
       .join("");
     expect(relatedReferencesFromHtml(html, psalm)).toEqual([
-      "EZK.34.12",
-      "JHN.10.11",
-      "PSA.1.1",
       "EZK.23.4",
+      "EZK.34.12",
       "JHN.1.11",
       "JHN.1.12",
+      "JHN.10.11",
+      "PSA.1.1",
     ]);
+    expect(
+      relatedReferencesFromHtml(
+        [...ids]
+          .reverse()
+          .map(
+            (id) =>
+              `<data class="bible-ref" data-start-ref="${id}" data-end-ref="${id}"></data>`,
+          )
+          .join(""),
+        psalm,
+      ),
+    ).toEqual(relatedReferencesFromHtml(html, psalm));
     const many = Array.from({ length: 15 }, (_, index) => {
       const id = `19001${String(index + 1).padStart(3, "0")}`;
       return `<data class="bible-ref" data-start-ref="${id}" data-end-ref="${id}"></data>`;
@@ -427,6 +456,15 @@ describe("bounded pinned Scripture evidence adapters", () => {
     expect(relatedReferencesFromHtml(many, psalm)).toHaveLength(
       SCRIPTURE_STUDY_SOURCE_LIMITS.relatedReferencesPerNote,
     );
+    expect(
+      relatedReferencesFromHtml(
+        many
+          .split(/(?=<data)/)
+          .reverse()
+          .join(""),
+        psalm,
+      ),
+    ).toEqual(relatedReferencesFromHtml(many, psalm));
   });
 
   it("does not treat context-only, cross-book, or wrong numeric associations as matches", async () => {
