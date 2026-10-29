@@ -340,7 +340,8 @@ describe("following", () => {
       await elapse(16);
       expect(listen.following).toBe(true);
     }
-    // Still for a moment: it has finished, and the next scroll is the reader's
+    // The block has arrived in view; still for a moment: it has finished, and the next scroll is the reader's
+    place(0, 300);
     await elapse(200);
     await scrollTo_(target + 20);
     expect(listen.following).toBe(false);
@@ -481,6 +482,65 @@ describe("following", () => {
     expect(listen.status).toBe("playing");
   });
 
+  it("a viewport change during the voice's scroll is rechecked once the scroll has landed", async () => {
+    mountArticle();
+    place(0, 2000);
+    smooth();
+    await render();
+    await start(0);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    // The window shrinks mid-scroll, and a bar rises behind where it is headed
+    const bar = document.createElement("nav");
+    bar.className = "mobile-reader-bar";
+    bar.getBoundingClientRect = () =>
+      ({ top: 340, bottom: 390, height: 50 }) as DOMRect;
+    document.body.append(bar);
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await elapse(20);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    await scrollEnd();
+    await elapse(20);
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(listen.following).toBe(true);
+  });
+
+  it("measures visibility and the reading line inside the visual viewport when pinch zoom shrinks it", async () => {
+    vi.stubGlobal("visualViewport", {
+      offsetTop: 100,
+      height: 450,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    });
+    mountArticle();
+    // In the layout viewport, but below the 100-550 the reader can see
+    place(0, 600, 100);
+    await render();
+    await start(0);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    const top = (scrollTo.mock.calls[0][0] as ScrollToOptions).top ?? 0;
+    // Lands on the reading line of the visible band: 40% of 450 below its top
+    expect(600 - top).toBe(100 + 450 * 0.4 - 50);
+    expect(600 - top).toBeGreaterThanOrEqual(100);
+    expect(600 - top + 100).toBeLessThanOrEqual(550);
+    expect(listen.following).toBe(true);
+  });
+
+  it("leaves a block that is inside the visual viewport alone", async () => {
+    vi.stubGlobal("visualViewport", {
+      offsetTop: 100,
+      height: 450,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    });
+    mountArticle();
+    place(0, 300, 100);
+    await render();
+    await start(0);
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
   it("doesn't recheck once the reader has scrolled away", async () => {
     mountArticle();
     place(0, 300, 120);
@@ -554,6 +614,8 @@ describe("following", () => {
     smooth();
     await render();
     await start(0);
+    // The block has reached view by the time the second is up
+    place(0, 300);
     await elapse(1100);
     await scrollTo_(400);
     expect(listen.following).toBe(false);

@@ -38,10 +38,19 @@ function clearance() {
   const toolbar = document
     .querySelector(".reader-toolbar")
     ?.getBoundingClientRect();
-  const top =
+  // Pinch zoom shrinks the visual viewport inside the layout one; rects are in
+  // layout coordinates, so the visible band is [offsetTop, offsetTop + height].
+  // Scrolling the document moves the layout viewport under it, not this offset,
+  // so a target computed in this band stays visible after the scroll.
+  const visual = window.visualViewport;
+  const seenTop = visual ? visual.offsetTop : 0;
+  const seenHeight = visual ? visual.height : window.innerHeight;
+  const top = Math.max(
     toolbar && toolbar.bottom > 0
       ? Math.max(toolbar.bottom + GAP, FALLBACK_MARGIN)
-      : FALLBACK_MARGIN;
+      : FALLBACK_MARGIN,
+    seenTop,
+  );
   // The wrap, not the pill: it is laid out where the pill rests, while the pill
   // itself is shifted 12px mid-transition when it opens
   const lids = [".listen-wrap", ".mobile-reader-bar"]
@@ -51,10 +60,14 @@ function clearance() {
     .filter((rect): rect is DOMRect => Boolean(rect && rect.height > 0))
     .map((rect) => rect.top)
     .filter((y) => y > 0);
-  const bottom = lids.length
-    ? Math.min(...lids) - GAP
-    : window.innerHeight - FALLBACK_MARGIN;
-  return { top, bottom };
+  const bottom = Math.min(
+    lids.length
+      ? Math.min(...lids) - GAP
+      : window.innerHeight - FALLBACK_MARGIN,
+    seenTop + seenHeight,
+  );
+  // The reading line, 40% down what the reader can actually see
+  return { top, bottom, line: seenTop + seenHeight * READING_LINE };
 }
 
 /** The furthest the document can scroll; unmeasured (no layout) means unlimited. */
@@ -95,6 +108,7 @@ export function createFollower(onChange: () => void): Follower {
   /** The block the voice is on, which a change of viewport or clearance rechecks. */
   let current: HTMLElement | null = null;
   let recheckFrame = 0;
+  let recheckPending = false;
 
   const release = () => {
     if (!following) return;
@@ -105,6 +119,11 @@ export function createFollower(onChange: () => void): Follower {
     flight = null;
     clearTimeout(flightTimer);
     clearTimeout(settleTimer);
+    // A viewport change that arrived mid-flight was dropped: look again now
+    if (recheckPending) {
+      recheckPending = false;
+      if (watching && following) recheckSoon();
+    }
   };
   const onScroll = () => {
     if (!flight) {
@@ -137,7 +156,11 @@ export function createFollower(onChange: () => void): Follower {
    * so it never unfollows; nothing is restarted.
    */
   const recheck = () => {
-    if (!following || !current || flight) return;
+    if (!following || !current) return;
+    if (flight) {
+      recheckPending = true;
+      return;
+    }
     const rect = current.getBoundingClientRect();
     const { top, bottom } = clearance();
     if (rect.top < top || rect.bottom > bottom) scrollTo(current);
@@ -149,9 +172,8 @@ export function createFollower(onChange: () => void): Follower {
 
   function scrollTo(el: HTMLElement) {
     const rect = el.getBoundingClientRect();
-    const { top, bottom } = clearance();
+    const { top, bottom, line } = clearance();
     const height = rect.height;
-    const line = window.innerHeight * READING_LINE;
     // A block that fits is centred on the reading line, kept between the
     // toolbar and the bars; a taller one starts just below the toolbar
     const fits = height <= (bottom - top) * 0.6;
