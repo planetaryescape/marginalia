@@ -8,8 +8,11 @@ import {
   validateStudyEvaluationSnapshot,
 } from "../../packages/backend/convex/lib/scriptureStudyEvaluationSchema";
 import { StudyRepairExhaustedError } from "../../packages/backend/convex/lib/scriptureStudyGeneration";
-import { validateSnapshotArtifact } from "./fixtures";
-import { studyEvaluationFailureState } from "./generation";
+import { loadSnapshot, validateSnapshotArtifact } from "./fixtures";
+import {
+  evaluationReservation,
+  studyEvaluationFailureState,
+} from "./generation";
 
 const runner = resolve(import.meta.dirname, "runner.ts");
 function invoke(args: string[], env: NodeJS.ProcessEnv = {}) {
@@ -161,8 +164,9 @@ describe("deep study runner safety", () => {
         "model",
       ),
       {
-        prompt: 0.0000002,
+        prompt: 0.00000025,
         completion: 0.00000075,
+        request: 0,
         listed: {
           prompt: 0.0000001,
           completion: 0.0000005,
@@ -181,5 +185,95 @@ describe("deep study runner safety", () => {
         },
       },
     );
+  });
+
+  it("accepts the observed Gemini pricing fields for a text-only evaluation", () => {
+    const pricing = {
+      prompt: "0.000000825",
+      completion: "0.000004125",
+      image: "0.000000825",
+      audio: "0.000000825",
+      input_audio_cache: "0.0000000825",
+      web_search: "0.014",
+      internal_reasoning: "0.000004125",
+      input_cache_read: "0.0000000825",
+      input_cache_write: "0.0000000416666666666667",
+    };
+    const result = parseOpenRouterPricingPayload(
+      { data: [{ id: "google/gemini-3.8-flash", pricing }] },
+      "google/gemini-3.8-flash",
+    );
+    assert.equal(result.prompt, 0.000000825);
+    assert.equal(result.completion, 0.000004125);
+    assert.equal(result.request, 0);
+    assert.equal(result.listed.audio, Number(pricing.audio));
+  });
+
+  it("rejects malformed modality, reasoning, cache and request prices", () => {
+    for (const field of [
+      "image",
+      "audio",
+      "input_audio_cache",
+      "internal_reasoning",
+      "input_cache_write_1h",
+      "request",
+    ]) {
+      assert.throws(
+        () =>
+          parseOpenRouterPricingPayload(
+            {
+              data: [
+                {
+                  id: "model",
+                  pricing: {
+                    prompt: "0.1",
+                    completion: "0.2",
+                    [field]: "not-a-price",
+                  },
+                },
+              ],
+            },
+            "model",
+          ),
+        /invalid structure/,
+      );
+    }
+  });
+
+  it("reserves the highest cache and reasoning rates from partial overrides", () => {
+    const result = parseOpenRouterPricingPayload(
+      {
+        data: [
+          {
+            id: "model",
+            pricing: {
+              prompt: "0.1",
+              completion: "0.2",
+              request: "0.25",
+              overrides: [
+                { input_cache_write_1h: "0.5" },
+                { internal_reasoning: "3" },
+              ],
+            },
+          },
+        ],
+      },
+      "model",
+    );
+    assert.equal(result.prompt, 0.5);
+    assert.equal(result.completion, 3);
+    assert.equal(result.request, 0.25);
+  });
+
+  it("reserves flat request fees for all four allowed dispatches", async () => {
+    const snapshots = [await loadSnapshot("colossians-2-whole")];
+    const price = { prompt: 0.000001, completion: 0.000002, request: 0 };
+    const withoutFees = evaluationReservation(snapshots, price, 6000);
+    const withFees = evaluationReservation(
+      snapshots,
+      { ...price, request: 0.5 },
+      6000,
+    );
+    assert.ok(Math.abs(withFees - withoutFees - 2) < 1e-10);
   });
 });

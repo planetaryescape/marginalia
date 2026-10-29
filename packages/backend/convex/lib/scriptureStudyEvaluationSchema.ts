@@ -134,22 +134,29 @@ const openRouterPricingCatalogSchema = z
     data: z.array(z.object({ id: z.string() }).passthrough()),
   })
   .passthrough();
+const textTokenPrices = {
+  prompt: modelPrice,
+  completion: modelPrice,
+  internal_reasoning: modelPrice.optional(),
+  input_cache_read: modelPrice.optional(),
+  input_cache_write: modelPrice.optional(),
+  input_cache_write_1h: modelPrice.optional(),
+};
 const modelPricingSchema = z
   .object({
-    prompt: modelPrice,
-    completion: modelPrice,
+    ...textTokenPrices,
+    request: modelPrice.optional(),
+    image: modelPrice.optional(),
+    audio: modelPrice.optional(),
+    input_audio_cache: modelPrice.optional(),
     web_search: modelPrice.optional(),
-    input_cache_read: modelPrice.optional(),
-    input_cache_write: modelPrice.optional(),
     overrides: z
       .array(
         z
-          .object({
-            prompt: modelPrice,
-            completion: modelPrice,
+          .object(textTokenPrices)
+          .partial()
+          .extend({
             min_prompt_tokens: z.number().int().nonnegative().optional(),
-            input_cache_read: modelPrice.optional(),
-            input_cache_write: modelPrice.optional(),
           })
           .strict(),
       )
@@ -169,26 +176,84 @@ export function parseOpenRouterPricingPayload(value: unknown, modelId: string) {
     throw new Error(
       "Selected OpenRouter model pricing had an invalid structure",
     );
-  const { prompt, completion, overrides = [] } = pricing.data;
+  const rates = [pricing.data, ...(pricing.data.overrides ?? [])];
   return {
-    prompt: Math.max(prompt, ...overrides.map((item) => item.prompt)),
-    completion: Math.max(
-      completion,
-      ...overrides.map((item) => item.completion),
+    // Caching and reasoning may have distinct rates; reserve their maximum
+    // even when only part of an override applies to this text-only request.
+    prompt: Math.max(
+      ...rates.flatMap((item) => [
+        item.prompt ?? 0,
+        item.input_cache_read ?? 0,
+        item.input_cache_write ?? 0,
+        item.input_cache_write_1h ?? 0,
+      ]),
     ),
+    completion: Math.max(
+      ...rates.flatMap((item) => [
+        item.completion ?? 0,
+        item.internal_reasoning ?? 0,
+      ]),
+    ),
+    request: pricing.data.request ?? 0,
     listed: pricing.data,
   };
 }
 
 export const studyEvaluationResultRowSchema = z
   .object({
+    runId: z.string().min(1),
+    evaluationSha: z.string().regex(/^[a-f0-9]{40}$/),
     fixtureId: z.string().min(1),
+    split: z.enum(["calibration", "heldout"]),
+    fixtureHash: z.string().regex(/^[a-f0-9]{64}$/),
+    inputHash: z.string().regex(/^[a-f0-9]{64}$/),
+    evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+    schemaHash: z.string().regex(/^[a-f0-9]{64}$/),
+    requestedModel: z.string().min(1),
+    reasoningEffort: z.string().min(1),
+    maxOutputTokens: z.number().int().positive(),
     arm: z.enum(["baseline", "candidate"]),
-    state: z.string().min(1),
+    state: z.enum([
+      "complete",
+      "dispatch_failed",
+      "deadline_exceeded",
+      "unverifiable_output",
+    ]),
+    routeModel: z.string().min(1).optional(),
+    responseModel: z.string().min(1).nullable().optional(),
+    validation: z.enum(["valid", "invalid"]).optional(),
     object: resultSchema.optional(),
     error: z.unknown().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((row, ctx) => {
+    if (row.state === "complete") {
+      if (!row.object)
+        ctx.addIssue({
+          code: "custom",
+          message: "A complete record requires an answer",
+          path: ["object"],
+        });
+      if (!row.routeModel || row.responseModel === undefined || !row.validation)
+        ctx.addIssue({
+          code: "custom",
+          message: "A complete record requires model and validation metadata",
+        });
+    } else {
+      if (row.object)
+        ctx.addIssue({
+          code: "custom",
+          message: "A failed record cannot contain a completed answer",
+          path: ["object"],
+        });
+      if (row.error == null)
+        ctx.addIssue({
+          code: "custom",
+          message: "A failed record requires error evidence",
+          path: ["error"],
+        });
+    }
+  });
 export type StudyEvaluationResultRow = z.infer<
   typeof studyEvaluationResultRowSchema
 >;

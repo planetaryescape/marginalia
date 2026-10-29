@@ -4,6 +4,20 @@ Released through [PR #81](https://github.com/planetaryescape/marginalia/pull/81)
 
 The pre-release observations below are retained with their original SHAs. Statements that the change was not merged or deployed, or that no live generation had completed, are superseded by the release above. The operator’s rejected general credential and the app’s successful saved key are separate credentials.
 
+## The comparison tool rejects mismatched pairs
+
+The follow-up at `81ad9adea9875c30dbaa2165b394ff703c7a6ef8`, based on fresh main `5e9cf59fd3b65d839855f50e75e75bb9901c708a`, rejects missing or duplicate arms, mixed runs and inconsistent model/input/snapshot metadata. It preserves failed arms without assigning them reasoning scores and refuses to overwrite an existing blinded packet. The review packet now distinguishes the fixture's review task from the passage-and-evidence input actually sent to generation.
+
+All 28 offline evaluator checks passed, including 17 new cases reproduced against the old comparison implementation and four additional pricing cases. Backend TypeScript, strict evaluator TypeScript, scoped Biome and the diff check passed. The initial comparison fix rebased unchanged over upstream documentation; the later pricing repair was checked separately. [Exact source hashes, model query, credential check and next command](quality-comparison-2026-10-29.json).
+
+The public pricing preflight exposed a second blocker: the old parser rejected Gemini’s modality and reasoning fields. The repair validates those fields, partial overrides and cache TTL prices, takes conservative maximum token rates, and includes flat request fees. Public pricing now validates for all six supported OpenRouter models; the Colossians calibration pair reserves $0.5867169 against the $1 estimated ceiling. This is a reservation, not measured billing.
+
+The automated review identified two valid issues. The handover now requires refreshing the model argument, and failed records require non-null error evidence. The new regression failed against the reviewed code and passes with the correction.
+
+No new paired generation was sent. At 18:19 UTC the live owner contract still selected `openrouter:google/gemini-3.8-flash`. The general `OpenRouter API` 1Password item returned HTTP 401 at 18:10 UTC, and no operator environment key is configured. The app's encrypted credential remains inside the app. BK has been asked for the active item name; keys named for other projects were not used.
+
+The next action is to re-query the Deep selection and replace the recorded `--model` argument with that fresh supported OpenRouter ID. Stop if the selection is unsupported; do not substitute another model. Validate the item BK names, then run the calibration pair with four reserved calls, a $1 estimated ceiling and the production output limit. Blind the run into a fresh directory, retaining failed arms, and score completed answers for reasoning and source support separately before revealing the mapping. This comparison isolates synthesis over frozen evidence; it cannot establish an improvement to live source allocation. The original release remains live, and this tooling change needs no app deployment.
+
 ## Pre-release implementation evidence
 
 The implementation is committed on local branch `fix/deep-study-quality`. Runtime candidate `7a6d93cac4bfcbc60c08421379743a59a6da919e`, tree `485ba6c2a50fb2abdb9eb06f1bdf646f063991ef`, is based on `origin/main` at `e70e7b07ef1a9c65a37414d59976046e0e98243a`, fetched at 13:43 UTC on 2026-10-29. No push, merge or deployment has occurred. All required local implementation checks are complete; the live quality comparison and authenticated flow remain unverified.
