@@ -159,6 +159,12 @@ const STEPS: Step[] = [
   ),
   rows((ctx, u) =>
     ctx.db
+      .query("feedOpenCounts")
+      .withIndex("by_key", (q) => q.eq("userId", u))
+      .take(BATCH),
+  ),
+  rows((ctx, u) =>
+    ctx.db
       .query("feedStatsBackfill")
       .withIndex("by_user", (q) => q.eq("userId", u))
       .take(BATCH),

@@ -23,8 +23,6 @@ function outcomeOf(action: Doc<"articleInteractions">["action"]) {
 
 // Held to a few articles because each carries its full text
 const BACKFILL_PAGE = 8;
-// Most opens of one article that are compared when pairing them
-const GROUP_LIMIT = 200;
 
 async function addCounts(
   ctx: MutationCtx,
@@ -50,47 +48,131 @@ async function addCounts(
   else await ctx.db.insert("feedStats", { userId, feedId, ...next });
 }
 
+// Most opens of one article and session read when a counter is first built
+// from history. Past it the opens are left undecided rather than miscounted.
+const INIT_LIMIT = 1000;
+
 /**
- * Whether this interaction is a new outcome rather than the same event
- * recorded twice. The desk records an open before the reader page's first
- * checkpoint records the visit's, so within one article and session the two
- * kinds pair off in time order, and only the larger kind adds to the count.
- * A visit's finish retried across midnight is recorded once per day; only the
- * first counts. Decided from stored rows alone, so the live path and the
- * backfill reach the same answer.
+ * How many feed opens the `opened` interaction adds (0 or 1, or more when it
+ * is the first touch of a key whose undecided history is decided with it), or
+ * undefined when it cannot be decided yet.
+ *
+ * A desk open (no visitId) and the reader page's first checkpoint (a visitId)
+ * are one open, so for each reader, article and session (no session is its own
+ * key) the opens counted are max(desk, visit) whatever order rows arrive in.
+ * `feedOpenCounts` holds the two numbers and the feed gains one when the larger
+ * rises: exact and O(1).
+ *
+ * Invariant: where a counter row exists it includes every `opened` row of its
+ * key that is marked `feedCounted`. A row is never in two counters or counted
+ * twice, because the marker is set in the same transaction as the tally.
+ *
+ * History: a key's counter is built from its own rows the first time the key
+ * is touched, in creation order, in the same transaction. Rows already marked
+ * (decided before the counters existed) only enter the tally, since feedStats
+ * already includes them; unmarked rows are decided as they are tallied. This
+ * is chosen over a per-reader backfill with a fall-back to the old window
+ * because it needs no readiness state, is exact immediately and for any
+ * interleaving with the feedStats backfill, and untouched keys cost nothing.
+ * Its one cost is reading a key's rows once; past INIT_LIMIT it declines.
  */
-async function isNewOutcome(
+async function settleOpen(
+  ctx: MutationCtx,
+  interaction: Doc<"articleInteractions">,
+): Promise<number | undefined> {
+  const { userId, articleId, sessionId } = interaction;
+  const counter = await ctx.db
+    .query("feedOpenCounts")
+    .withIndex("by_key", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("articleId", articleId)
+        .eq("sessionId", sessionId),
+    )
+    .unique();
+  if (counter) {
+    const isVisit = interaction.visitId !== undefined;
+    const before = Math.max(counter.desk, counter.visit);
+    const desk = counter.desk + (isVisit ? 0 : 1);
+    const visit = counter.visit + (isVisit ? 1 : 0);
+    await ctx.db.patch(counter._id, { desk, visit });
+    await ctx.db.patch(interaction._id, { feedCounted: true });
+    return Math.max(desk, visit) > before ? 1 : 0;
+  }
+  const history = await ctx.db
+    .query("articleInteractions")
+    .withIndex("by_user_article_action_session", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("articleId", articleId)
+        .eq("action", "opened")
+        .eq("sessionId", sessionId),
+    )
+    .take(INIT_LIMIT + 1);
+  if (history.length > INIT_LIMIT) {
+    console.error("feedStats: too many opens to build a counter", {
+      articleId,
+      sessionId,
+    });
+    return undefined;
+  }
+  let desk = 0;
+  let visit = 0;
+  let added = 0;
+  for (const row of history) {
+    const before = Math.max(desk, visit);
+    if (row.visitId === undefined) desk++;
+    else visit++;
+    if (!row.feedCounted) {
+      await ctx.db.patch(row._id, { feedCounted: true });
+      if (Math.max(desk, visit) > before) added++;
+    }
+  }
+  await ctx.db.insert("feedOpenCounts", {
+    userId,
+    articleId,
+    sessionId,
+    desk,
+    visit,
+  });
+  return added;
+}
+
+/**
+ * Whether a visit's finish is a new outcome. A visit retried across midnight
+ * is recorded once per day; only the first one decided counts, found with one
+ * indexed lookup rather than a window, so it holds however many rows the
+ * visit has. The caller has already marked this row, so it is excluded by id.
+ */
+async function isNewFinish(
   ctx: MutationCtx,
   interaction: Doc<"articleInteractions">,
 ) {
-  if (interaction.action !== "opened" && interaction.action !== "finished")
-    return true;
-  const same = await ctx.db
+  if (interaction.visitId === undefined) return true;
+  const decided = await ctx.db
     .query("articleInteractions")
-    .withIndex("by_user_article_action", (q) =>
+    .withIndex("by_user_article_action_visit_counted", (q) =>
       q
         .eq("userId", interaction.userId)
         .eq("articleId", interaction.articleId)
-        .eq("action", interaction.action),
+        .eq("action", "finished")
+        .eq("visitId", interaction.visitId)
+        .eq("feedCounted", true),
     )
-    .take(GROUP_LIMIT);
-  const at = same.findIndex((row) => row._id === interaction._id);
-  // Beyond the window nothing is paired; counting it is the safer error
-  if (at === -1) return true;
-  if (interaction.action === "finished") {
-    if (interaction.visitId === undefined) return true;
-    return !same
-      .slice(0, at)
-      .some((row) => row.visitId === interaction.visitId);
-  }
-  const session = same.filter((row) => row.sessionId === interaction.sessionId);
-  const position = session.findIndex((row) => row._id === interaction._id);
-  const isVisit = interaction.visitId !== undefined;
-  const kind = (row: Doc<"articleInteractions">) =>
-    (row.visitId !== undefined) === isVisit;
-  const rank = session.slice(0, position + 1).filter(kind).length;
-  const otherBefore = session.slice(0, position).filter((r) => !kind(r)).length;
-  return rank > otherBefore;
+    .take(2);
+  return decided.every((row) => row._id === interaction._id);
+}
+
+/** Decides one unmarked interaction and marks it. Returns how much it adds. */
+async function decide(
+  ctx: MutationCtx,
+  interaction: Doc<"articleInteractions">,
+): Promise<number | undefined> {
+  if (interaction.action === "opened") return settleOpen(ctx, interaction);
+  await ctx.db.patch(interaction._id, { feedCounted: true });
+  if (interaction.action === "finished")
+    return (await isNewFinish(ctx, interaction)) ? 1 : 0;
+  return 1;
 }
 
 /**
@@ -135,9 +217,11 @@ export async function countFeedOutcome(
       userId: interaction.userId,
     });
   }
-  await ctx.db.patch(interaction._id, { feedCounted: true });
-  if (await isNewOutcome(ctx, interaction))
-    await addCounts(ctx, interaction.userId, article.feedId, { [outcome]: 1 });
+  const added = await decide(ctx, interaction);
+  if (added)
+    await addCounts(ctx, interaction.userId, article.feedId, {
+      [outcome]: added,
+    });
 }
 
 /**
@@ -167,9 +251,11 @@ export const backfill = internalMutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .paginate({ cursor: state.cursor ?? null, numItems: BACKFILL_PAGE });
     const feeds = new Map<Id<"articles">, Id<"feeds"> | undefined>();
-    for (const interaction of page.page) {
-      const outcome = outcomeOf(interaction.action);
-      if (!outcome || interaction.feedCounted) continue;
+    for (const seen of page.page) {
+      // Re-read: an earlier open in this page may have decided it with its key
+      const interaction = await ctx.db.get(seen._id);
+      const outcome = interaction && outcomeOf(interaction.action);
+      if (!interaction || !outcome || interaction.feedCounted) continue;
       if (!feeds.has(interaction.articleId)) {
         const article = await ctx.db.get(interaction.articleId);
         // Deleted articles keep their history rows but have no feed to credit
@@ -180,9 +266,8 @@ export const backfill = internalMutation({
       }
       const feedId = feeds.get(interaction.articleId);
       if (!feedId) continue;
-      await ctx.db.patch(interaction._id, { feedCounted: true });
-      if (await isNewOutcome(ctx, interaction))
-        await addCounts(ctx, userId, feedId, { [outcome]: 1 });
+      const added = await decide(ctx, interaction);
+      if (added) await addCounts(ctx, userId, feedId, { [outcome]: added });
     }
     await ctx.db.patch(state._id, {
       cursor: page.continueCursor,

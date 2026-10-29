@@ -1,6 +1,15 @@
 # Feed counts can over-count an article opened more than about 100 times
 
-Status: open, not near the limit. On 2026-10-29 the live library had 286 interactions; the most `opened` rows for one article was 50, all without a session, against the 200-row window.
+Status: done, 2026-10-29. Feed opens and finishes no longer read a window of rows.
+
+## What was built (2026-10-29)
+
+- `feedOpenCounts` (userId, articleId, optional sessionId, desk, visit; index `by_key`) holds, per reader, article and session (no session is its own key), the desk opens (no `visitId`) and reader-page visit opens. A new `opened` row bumps the right number, and the feed gains one only when `max(desk, visit)` rises, in the same transaction. Exact, O(1) and independent of row order.
+- A repeated finish is found with the index `by_user_article_action_visit_counted`: a visit's finish counts only if no other `finished` row of that visit has already been decided (`feedCounted`). One lookup, whatever the row count.
+- History: no separate backfill. The first time a key is touched, its counter is built from that key's own `opened` rows (index `by_user_article_action_session`) in creation order, in the same transaction. Rows already marked `feedCounted` before this change only enter the tally, because `feedStats` already includes them; unmarked rows are decided as they are tallied. So the live path never trusts an empty counter, the feedStats backfill and live counting can interleave in any order, and keys nobody touches cost nothing. This was chosen over a per-reader backfill with a fall-back to the old window because it needs no readiness state and keeps the old window out of the code entirely.
+- Limits that remain: building a counter reads at most 1000 opens of one article and session; beyond that it logs an error and leaves those opens undecided rather than miscount (undercount, never overcount). Counts the old window already got wrong stay wrong, since history marked `feedCounted` is trusted. Deleting a library purges `feedOpenCounts`.
+
+
 
 ## Why a different window doesn't fix it (2026-10-29)
 

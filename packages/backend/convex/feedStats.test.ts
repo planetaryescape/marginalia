@@ -560,3 +560,187 @@ describe("a library being deleted", () => {
     vi.useRealTimers();
   });
 });
+
+describe("opens and finishes past any scan window", () => {
+  const VISIT = (n: number) => `visit-${n}`;
+
+  async function setup() {
+    const f = await secondReaderTest(modules);
+    const article = await f.t.run((ctx) => feedWithArticle(ctx, OWNER, "busy"));
+    const sessionId = await f.owner.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    const sessionB = await f.owner.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    /** Inserts and counts in its own transaction, as the live path does. */
+    const live = (
+      action: "opened" | "finished",
+      extra: { sessionId?: Id<"sessions">; visitId?: string },
+    ) =>
+      f.t.run(async (ctx) => {
+        const id = await ctx.db.insert("articleInteractions", {
+          userId: OWNER,
+          articleId: article.articleId,
+          action,
+          createdAt: Date.now(),
+          ...extra,
+        });
+        const row = await ctx.db.get(article.articleId);
+        if (row) await countFeedOutcome(ctx, row, id);
+      });
+    const seed = (
+      rows: {
+        action?: "opened" | "finished";
+        sessionId?: Id<"sessions">;
+        visitId?: string;
+        feedCounted?: boolean;
+      }[],
+    ) =>
+      f.t.run(async (ctx) => {
+        for (const row of rows)
+          await ctx.db.insert("articleInteractions", {
+            userId: OWNER,
+            articleId: article.articleId,
+            action: row.action ?? "opened",
+            sessionId: row.sessionId,
+            visitId: row.visitId,
+            feedCounted: row.feedCounted,
+            createdAt: Date.now(),
+          });
+      });
+    const opened = async () => (await stats(f.t))[0]?.opened;
+    return { ...f, ...article, sessionId, sessionB, live, seed, opened };
+  }
+
+  it("counts 101 alternating desk and visit pairs in one session as 101", async () => {
+    const { live, opened, sessionId } = await setup();
+    for (let i = 0; i < 101; i++) {
+      await live("opened", { sessionId });
+      await live("opened", { sessionId, visitId: VISIT(i) });
+    }
+    expect(await opened()).toBe(101);
+  });
+
+  it("counts 101 pairs with no session as 101, and visit-first pairs the same", async () => {
+    const { live, opened } = await setup();
+    for (let i = 0; i < 101; i++) {
+      if (i % 2) {
+        await live("opened", { visitId: VISIT(i) });
+        await live("opened", {});
+      } else {
+        await live("opened", {});
+        await live("opened", { visitId: VISIT(i) });
+      }
+    }
+    expect(await opened()).toBe(101);
+  });
+
+  it("counts a new desk open in a session whose earlier pair is over 200 rows back", async () => {
+    const { live, opened, sessionId, sessionB } = await setup();
+    await live("opened", { sessionId });
+    await live("opened", { sessionId, visitId: VISIT(0) });
+    for (let i = 0; i < 200; i++) await live("opened", { sessionId: sessionB });
+    expect(await opened()).toBe(201);
+    await live("opened", { sessionId });
+    expect(await opened()).toBe(202);
+  });
+
+  it("counts a backfill over 202 rows, a pair before 200 desk-only opens elsewhere, as 201", async () => {
+    vi.useFakeTimers();
+    const { t, seed, opened, sessionId, sessionB } = await setup();
+    await seed([
+      { sessionId },
+      { sessionId, visitId: VISIT(0) },
+      ...Array.from({ length: 200 }, () => ({ sessionId: sessionB })),
+    ]);
+    vi.advanceTimersByTime(10);
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    await finish(t);
+    expect(await opened()).toBe(201);
+    const counters = await t.run((ctx) =>
+      ctx.db.query("feedOpenCounts").collect(),
+    );
+    expect(
+      counters.map(({ sessionId: s, desk, visit }) => [s, desk, visit]),
+    ).toEqual(
+      expect.arrayContaining([
+        [sessionId, 1, 1],
+        [sessionB, 200, 0],
+      ]),
+    );
+    vi.useRealTimers();
+  });
+
+  it("counts a visit's finish once however many finished rows it has", async () => {
+    const { live, t, feedId, seed } = await setup();
+    for (let i = 0; i < 250; i++) await live("finished", { visitId: VISIT(1) });
+    await live("finished", { visitId: VISIT(2) });
+    expect((await stats(t))[0]).toMatchObject({ feedId, finished: 2 });
+    // The backfill agrees on the same rows stored as history
+    vi.useFakeTimers();
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("articleInteractions").collect())
+        await ctx.db.delete(row._id);
+      for (const row of await ctx.db.query("feedStats").collect())
+        await ctx.db.delete(row._id);
+    });
+    await seed(
+      Array.from({ length: 250 }, () => ({
+        action: "finished" as const,
+        visitId: VISIT(1),
+      })),
+    );
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    await finish(t);
+    expect((await stats(t))[0]).toMatchObject({ finished: 1 });
+    vi.useRealTimers();
+  });
+
+  it("stays exact for opens arriving while a backfill is half done", async () => {
+    vi.useFakeTimers();
+    const { t, seed, live, opened, sessionId } = await setup();
+    await seed(Array.from({ length: 20 }, () => ({ sessionId })));
+    vi.advanceTimersByTime(10);
+    // One page of eight: its first open builds the key's counter from all 20
+    // rows, so the pages still to come find them decided
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    expect(
+      (await t.run((ctx) => ctx.db.query("feedStatsBackfill").collect()))[0]
+        .ready,
+    ).toBe(false);
+    // A visit open pairs with a desk open already in history: no new open
+    await live("opened", { sessionId, visitId: VISIT(1) });
+    expect(await opened()).toBe(20);
+    await live("opened", { sessionId });
+    expect(await opened()).toBe(21);
+    await finish(t);
+    expect(await opened()).toBe(21);
+    const counter = await t.run((ctx) =>
+      ctx.db.query("feedOpenCounts").unique(),
+    );
+    expect(counter).toMatchObject({ desk: 21, visit: 1 });
+    vi.useRealTimers();
+  });
+
+  it("does not count again what an earlier version already counted", async () => {
+    const { t, feedId, seed, live, opened, sessionId } = await setup();
+    // History decided before the counters existed, and its feedStats row
+    await seed([{ sessionId, feedCounted: true }]);
+    await t.run((ctx) =>
+      ctx.db.insert("feedStats", {
+        userId: OWNER,
+        feedId: feedId as Id<"feeds">,
+        offered: 0,
+        opened: 1,
+        finished: 0,
+        skipped: 0,
+        updatedAt: Date.now(),
+      }),
+    );
+    await live("opened", { sessionId, visitId: VISIT(1) });
+    expect(await opened()).toBe(1);
+    await live("opened", { sessionId });
+    expect(await opened()).toBe(2);
+  });
+});
