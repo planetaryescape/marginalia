@@ -1,4 +1,10 @@
-# Deep study is implemented; answer quality remains unmeasured
+# Deep study is live; comparative quality remains unmeasured
+
+Released through [PR #81](https://github.com/planetaryescape/marginalia/pull/81) from merged source `cec94f5c4f117ee7f5b12ef081cedb8a0d8938e5`. The backend and canonical Vercel frontend are live. A signed-in backend-contract smoke completed a Colossians 2 study and follow-up on the owner’s configured Gemini 3.8 Flash model, persisted two supplemental passages including multiline Psalm text, and resolved them on fresh requests. See [the release record](../releases/2026-10-29-deep-study-quality.md) and [exact evidence](release-2026-10-29.json). Browser click-through and a blinded quality comparison remain unverified.
+
+The pre-release observations below are retained with their original SHAs. Statements that the change was not merged or deployed, or that no live generation had completed, are superseded by the release above. The operator’s rejected general credential and the app’s successful saved key are separate credentials.
+
+## Pre-release implementation evidence
 
 The implementation is committed on local branch `fix/deep-study-quality`. Runtime candidate `7a6d93cac4bfcbc60c08421379743a59a6da919e`, tree `485ba6c2a50fb2abdb9eb06f1bdf646f063991ef`, is based on `origin/main` at `e70e7b07ef1a9c65a37414d59976046e0e98243a`, fetched at 13:43 UTC on 2026-10-29. No push, merge or deployment has occurred. All required local implementation checks are complete; the live quality comparison and authenticated flow remain unverified.
 

@@ -1,0 +1,149 @@
+{
+  "sourceSha": "cec94f5c4f117ee7f5b12ef081cedb8a0d8938e5",
+  "tree": "b5d4021a63c698898140c55b18f4a114ef4556fa",
+  "pullRequest": "https://github.com/planetaryescape/marginalia/pull/81",
+  "frontend": {
+    "projectId": "prj_K2luiLxIplvWv37Ev2q0pPWLUPfG",
+    "team": "planetaryescape",
+    "deploymentId": "dpl_CKLTAKHC65y9HrKHYyyNbrx9KEAM",
+    "url": "https://reader.bhekani.com",
+    "target": "production",
+    "previousDeploymentId": "dpl_AyB3AmsDnhK5bFfLBagPqT2B6Eeq"
+  },
+  "backend": {
+    "deployment": "stoic-hare-718",
+    "url": "https://stoic-hare-718.eu-west-1.convex.cloud",
+    "functions": 544,
+    "newSourceQueryRegistered": true,
+    "typecheckEnabled": true
+  },
+  "backup": {
+    "filename": "marginalia-before-deep-study-20261029T172535Z.zip",
+    "bytes": 46881857,
+    "mode": "0o600",
+    "zipValid": true,
+    "includesAuthComponent": true,
+    "includesFileStorage": true
+  },
+  "liveSmoke": {
+    "mode": "Convex CLI public contracts using the owner\u2019s existing live session; not a browser smoke",
+    "studyModel": "openrouter:google/gemini-3.8-flash",
+    "studyStatus": "complete",
+    "generation": {
+      "correctedCitations": 0,
+      "modelAttempts": 1,
+      "omittedFindings": 0,
+      "repairAttempted": false
+    },
+    "contextSummary": {
+      "chapterCoverage": "full_retrieved_chapter",
+      "chapterRanges": [
+        "COL.2.1-COL.2.23"
+      ],
+      "chapterReferenceKey": "COL.2.1-COL.2.23",
+      "notesLimited": false,
+      "readerContextChars": 0,
+      "readerNoteCount": 0
+    },
+    "followUpStatus": "complete",
+    "supplementReferences": [
+      "GAL.5.13-GAL.5.16",
+      "PSA.13.1"
+    ],
+    "evidenceInspections": [
+      {
+        "reference": "GAL.5.13-GAL.5.16",
+        "excerptLines": 4,
+        "resolves": true
+      },
+      {
+        "reference": "PSA.13.1",
+        "excerptLines": 3,
+        "resolves": true
+      }
+    ],
+    "reopenPreservesRunAndSources": true,
+    "fixtureArticleId": "jd7363wg9cg2tc9gybfyvd67ss8h65t3",
+    "studyId": "zd73d0g2d7dg62pve2q9jz8v6h8h65p5",
+    "runId": "zx791ce8mfk5yf1n594e6ky9vn8h6qas",
+    "contractFlowElapsedSeconds": 53.325,
+    "result": "passed"
+  },
+  "livePolicy": {
+    "followUpPolicyHash": "2bf23bf3e96777fa137296968586e44c661cb952ead17b5bfcf90092dd695f75",
+    "sourceOutcomes": [
+      {
+        "evidenceIds": [
+          "followup-web-c8c56919795c220850b19be9c9cacddbb24199e6b2c10345e560b2437eae1739"
+        ],
+        "referenceKey": "GAL.5.13-GAL.5.16",
+        "requestedReference": "Galatians 5:13-16",
+        "status": "retrieved"
+      },
+      {
+        "evidenceIds": [
+          "followup-web-2ccb4d4dfa6c803720d0c28604ee83156ae5e5c9d665e48b52f3153409a9a559"
+        ],
+        "referenceKey": "PSA.13.1",
+        "requestedReference": "Psalm 13:1",
+        "status": "retrieved"
+      }
+    ],
+    "sourcePolicy": "web-context-adapters-2026-10-29.1",
+    "studyVersion": "selected-study-exegesis-v4",
+    "supplementEvidenceCount": 2
+  },
+  "http": {
+    "checkedAt": "2026-10-29T17:36:34.084211+00:00",
+    "routes": [
+      {
+        "path": "/",
+        "status": 200,
+        "bytes": 23217,
+        "contentType": "text/html; charset=utf-8"
+      },
+      {
+        "path": "/help/deep-study",
+        "status": 200,
+        "bytes": 36414,
+        "contentType": "text/html; charset=utf-8"
+      },
+      {
+        "path": "/manifest.webmanifest",
+        "status": 200,
+        "bytes": 508,
+        "contentType": "application/manifest+json; charset=utf-8"
+      }
+    ]
+  },
+  "authSessionRoute": {
+    "path": "/api/auth/get-session",
+    "status": 200,
+    "anonymousSessionNull": true,
+    "checkedAt": "2026-10-29T17:40:41.970846+00:00"
+  },
+  "anonymousSourceQuery": {
+    "query": "scriptureStudyFollowUps:sources",
+    "anonymousDenied": true,
+    "httpStatus": 200,
+    "checkedAt": "2026-10-29T17:43:29.652061+00:00"
+  },
+  "observability": {
+    "tool": "Vercel runtime logs",
+    "since": "2026-10-29T17:35:12.585Z",
+    "checkedAt": "2026-10-29T17:46:57Z",
+    "filter": [
+      "error",
+      "fatal"
+    ],
+    "groupBy": "requestPath",
+    "groupsReturned": 0
+  },
+  "limitations": [
+    "No browser click-through; Computer Use unavailable and agent-browser permission unanswered.",
+    "No blinded baseline/candidate answer-quality comparison.",
+    "Old studies are retained, not automatically regenerated."
+  ],
+  "backendReadyAt": "2026-10-29T17:34:21Z",
+  "frontendPromotedAt": "2026-10-29T17:35:12.585Z"
+}

@@ -39,6 +39,8 @@ Include owner/auth component records in backups. Rolling back only the frontend 
 
 ## Current deployment
 
+**2026-10-29 Deep study quality:** backend `stoic-hare-718` and frontend `dpl_CKLTAKHC65y9HrKHYyyNbrx9KEAM` run merged source `cec94f5` (#81). The live owner-contract study/follow-up and supplemental-source readback passed on Gemini 3.8 Flash. Browser interaction and a blinded quality comparison remain unverified. See [the release](releases/2026-10-29-deep-study-quality.md).
+
 The established reader is **https://reader.bhekani.com**, hosted in Vercel's `planetaryescape` scope. At the time of this documentation pass, its frontend points at the Convex **development** deployment `stoic-hare-718` in `eu-west-1`. Local development has used that same backend.
 
 Treat it as live: `convex dev --once` uploads changes to the real reader's backend, and local mutations affect real notes. Moving to a separate production deployment requires a planned data migration, backup and coordinated web URL change; it is not accomplished by blindly running `convex deploy`.
