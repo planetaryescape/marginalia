@@ -78,9 +78,15 @@ describe("selected Scripture Study public lifecycle", () => {
         evidenceId: "related-1",
       }),
     ).toMatchObject({
+      locator: "JHN.1.4",
       referenceKey: "JHN.1.4",
-      excerpt: expect.stringContaining("Public WEB verse four"),
+      excerpt: "JHN.1.4 Public WEB verse four",
     });
+    expect(
+      fetch.mock.calls.filter(
+        ([input]) => new URL(input).hostname === "bible-api.com",
+      ),
+    ).toHaveLength(1);
   });
   it("independently rejects an invented teaching citation at the publication boundary", async () => {
     const { t, args, model } = await setup();

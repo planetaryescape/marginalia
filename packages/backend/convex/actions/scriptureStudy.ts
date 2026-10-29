@@ -496,16 +496,21 @@ export const generate = internalAction({
       for (const [index, candidate] of verifiedRelatedCandidates.entries()) {
         if (!candidate.ref) continue;
         try {
-          const related = await interruptible(
-            fetchBiblePassage(candidate.ref, "web", cache, {
-              signal: attempt.signal,
-              beforeRequest,
-            }),
-            attempt.signal,
-          );
+          const sameFetchedChapter =
+            candidate.ref.bookId === contextRef.bookId &&
+            candidate.ref.chapter === contextRef.chapter;
+          const relatedPassage = sameFetchedChapter
+            ? permitted
+            : await interruptible(
+                fetchBiblePassage(candidate.ref, "web", cache, {
+                  signal: attempt.signal,
+                  beforeRequest,
+                }),
+                attempt.signal,
+              );
           await check();
           const relatedVerses = selectedVerses(
-            related.content,
+            relatedPassage.content,
             {
               referenceKey: candidate.referenceKey,
               startVerseId: candidate.ref.passageId.split("-")[0],
@@ -522,8 +527,8 @@ export const generate = internalAction({
               revision: "bible-api WEB response",
               rights: "Public domain",
               licenseUrl: "https://worldenglish.bible/",
-              attribution: related.copyright,
-              url: related.url,
+              attribution: relatedPassage.copyright,
+              url: relatedPassage.url,
               capabilities: ["passage_text"],
             },
             locator: candidate.referenceKey,

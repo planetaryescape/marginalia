@@ -362,7 +362,7 @@ describe("bounded pinned Scripture evidence adapters", () => {
     expect(variant?.excerpt).toContain("not a manuscript-witness collation");
   });
 
-  it("selects the start, middle and end of a longer passage independent of file order", async () => {
+  it("covers the start, middle and end before stable detail ties regardless of file order", async () => {
     const colossians = parseBibleReference("Colossians 2:6-23");
     if (!colossians) throw new Error("Test reference should parse.");
     const intervals = [
@@ -402,15 +402,58 @@ describe("bounded pinned Scripture evidence adapters", () => {
       result.records
         .filter((record) => record.sourceId === "aquifer-open-study-notes")
         .map((record) => record.referenceKey);
-    expect(refs(forward)).toEqual([
+    expect(refs(forward).slice(0, 3)).toEqual([
       "COL.2.6-COL.2.9",
       "COL.2.12-COL.2.15",
       "COL.2.20-COL.2.23",
-      "COL.2.10-COL.2.11",
-      "COL.2.16-COL.2.17",
-      "COL.2.18-COL.2.19",
     ]);
+    expect(refs(forward)).toHaveLength(
+      SCRIPTURE_STUDY_SOURCE_LIMITS.commentaryNotes,
+    );
+    expect(refs(forward).slice(3)).toEqual(
+      expect.arrayContaining([
+        "COL.2.10-COL.2.11",
+        "COL.2.16-COL.2.17",
+        "COL.2.18-COL.2.19",
+      ]),
+    );
     expect(refs(reverse)).toEqual(refs(forward));
+  });
+
+  it("keeps supplied related references as lower-ranked fallbacks", () => {
+    const note = (relatedReferences: string[]) => ({
+      sourceId: "aquifer-open-study-notes",
+      title: "Aquifer note",
+      revision: "r1:item1",
+      locator: "41.content.json#item1",
+      referenceKey: "COL.2.6-COL.2.23",
+      excerpt: "note",
+      sourceUrl: "https://example.test/source",
+      contentHash: "hash",
+      license: "CC BY-SA 4.0",
+      licenseUrl: "https://example.test/license",
+      attribution: "attribution",
+      capabilities: ["attributed-study-note"],
+      limitations: [],
+      relatedReferences,
+    });
+    const reference = parseBibleReference("Colossians 2:6-23");
+    if (!reference) throw new Error("Test reference should parse.");
+    const records = [note(["COL.2.18", "ROM.6.3", "JHN.15.4"])];
+    const options = {
+      reference,
+      suppliedRanges: ["COL.2.6-COL.2.23"],
+      limit: 3,
+    };
+    expect(selectRelatedReferences(records, { ...options, limit: 2 })).toEqual([
+      "JHN.15.4",
+      "ROM.6.3",
+    ]);
+    expect(selectRelatedReferences(records, options)).toEqual([
+      "JHN.15.4",
+      "ROM.6.3",
+      "COL.2.18",
+    ]);
   });
 
   it("matches note associations by chapter as well as verse", async () => {

@@ -261,20 +261,27 @@ export function selectRelatedReferences(
     limit: number;
   },
 ) {
-  return rankRelatedReferences(records, options.reference)
-    .filter((referenceKey) => {
+  const unsupplied: string[] = [];
+  const alreadyCovered: string[] = [];
+  for (const referenceKey of rankRelatedReferences(records, options.reference)) {
+    const isAlreadyCovered = (() => {
       const candidate = sameChapterRange(referenceKey);
-      if (!candidate) return true;
-      return !options.suppliedRanges.some((key) => {
-        const supplied = sameChapterRange(key);
+      if (!candidate) return false;
+      return options.suppliedRanges.some((key) => {
+        const range = sameChapterRange(key);
         return (
-          supplied &&
-          supplied.bookId === candidate.bookId &&
-          supplied.chapter === candidate.chapter &&
-          candidate.start >= supplied.start &&
-          candidate.end <= supplied.end
+          range &&
+          range.bookId === candidate.bookId &&
+          range.chapter === candidate.chapter &&
+          candidate.start >= range.start &&
+          candidate.end <= range.end
         );
       });
-    })
-    .slice(0, Math.max(0, options.limit));
+    })();
+    (isAlreadyCovered ? alreadyCovered : unsupplied).push(referenceKey);
+  }
+  return [...unsupplied, ...alreadyCovered].slice(
+    0,
+    Math.max(0, options.limit),
+  );
 }
