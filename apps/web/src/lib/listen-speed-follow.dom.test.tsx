@@ -59,6 +59,7 @@ class Utterance {
   constructor(public text: string) {}
 }
 const scrollTo = vi.fn();
+let scrollY = 0;
 let reduced = false;
 const store = new Map<string, string>();
 
@@ -98,10 +99,21 @@ const scrollEnd = () =>
   act(async () => {
     window.dispatchEvent(new Event("scrollend"));
   });
-const scrollByUser = () =>
+/** The document scroller moves to `y`, whoever moved it. */
+const scrollTo_ = (y: number) =>
   act(async () => {
+    scrollY = y;
     window.dispatchEvent(new Event("scroll"));
   });
+const scrollByUser = (y = 50) => scrollTo_(y);
+/** The player's scrolls land at once, as with reduced motion. */
+const instant = () =>
+  scrollTo.mockImplementation((options: ScrollToOptions) => {
+    scrollY = options.top ?? 0;
+    window.dispatchEvent(new Event("scroll"));
+  });
+/** The player's scrolls are smooth: the test moves the page itself. */
+const smooth = () => scrollTo.mockImplementation(() => undefined);
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -122,10 +134,13 @@ beforeEach(() => {
   store.clear();
   reduced = false;
   speak.mockClear();
-  // Our own scroll raises a scroll event, as a browser's does
-  scrollTo.mockReset().mockImplementation(() => {
-    window.dispatchEvent(new Event("scroll"));
+  scrollY = 0;
+  Object.defineProperty(window, "scrollY", {
+    configurable: true,
+    get: () => scrollY,
   });
+  scrollTo.mockReset();
+  instant();
   window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
   window.sessionStorage.clear();
   URL.createObjectURL = () => `blob:${Math.random()}`;
@@ -242,7 +257,7 @@ describe("speed", () => {
 });
 
 describe("following", () => {
-  it("follows at the start, and a scroll the player makes itself doesn't end it", async () => {
+  it("follows at the start, and the player's own scroll doesn't end it", async () => {
     mountArticle();
     place(2, 2000);
     await render();
@@ -252,7 +267,7 @@ describe("following", () => {
     expect(listen.following).toBe(true);
   });
 
-  it("brings the block to the reading line, instantly when the reader prefers reduced motion", async () => {
+  it("brings the block to the reading line, instantly when the reader prefers reduced motion, without ending following", async () => {
     reduced = true;
     mountArticle();
     place(1, 1500, 80);
@@ -262,11 +277,16 @@ describe("following", () => {
     expect(call.behavior).toBe("instant");
     // The block's middle lands 40% down the viewport
     expect(call.top).toBe(1500 + 40 - window.innerHeight * 0.4);
+    expect(listen.following).toBe(true);
+    // Once landed, the next document scroll is the reader's
+    await scrollByUser(0);
+    expect(listen.following).toBe(false);
   });
 
   it("eases the scroll when motion is welcome", async () => {
     mountArticle();
     place(1, 1500);
+    smooth();
     await render();
     await start(1);
     expect((scrollTo.mock.calls[0][0] as ScrollToOptions).behavior).toBe(
@@ -291,7 +311,68 @@ describe("following", () => {
     expect(scrollTo).toHaveBeenCalledTimes(1);
   });
 
-  it("a scroll of the reader's own ends following, and the player stops scrolling", async () => {
+  it("a voice-driven smooth scroll, through several positions on its path, doesn't unfollow", async () => {
+    mountArticle();
+    place(0, 2000);
+    smooth();
+    await render();
+    await start(0);
+    const target = 2000 + 40 - window.innerHeight * 0.4;
+    for (const y of [120, 600, 1200, target - 10, target]) {
+      await scrollTo_(y);
+      expect(listen.following).toBe(true);
+    }
+    // It has landed: anything after is the reader's
+    await scrollTo_(target + 300);
+    expect(listen.following).toBe(false);
+  });
+
+  it("a reader's scroll in the opposite direction, or past the target, during the voice's scroll unfollows", async () => {
+    mountArticle();
+    place(0, 2000);
+    smooth();
+    scrollY = 1000;
+    await render();
+    await start(0);
+    await scrollTo_(1500);
+    expect(listen.following).toBe(true);
+    await scrollTo_(200);
+    expect(listen.following).toBe(false);
+
+    await act(async () => listen.stop());
+    scrollY = 0;
+    await start(0);
+    await scrollTo_(900);
+    expect(listen.following).toBe(true);
+    // Scroll anchoring or the reader pushing past where the voice is headed
+    await scrollTo_(5000);
+    expect(listen.following).toBe(false);
+  });
+
+  it("any scroll after the voice's scroll has ended is the reader's, even on its old path", async () => {
+    mountArticle();
+    place(0, 2000);
+    smooth();
+    await render();
+    await start(0);
+    await scrollTo_(400);
+    await scrollEnd();
+    await scrollTo_(500);
+    expect(listen.following).toBe(false);
+  });
+
+  it("stops expecting the voice's scroll after a second, where scrollend isn't supported", async () => {
+    mountArticle();
+    place(0, 2000);
+    smooth();
+    await render();
+    await start(0);
+    await elapse(1100);
+    await scrollTo_(400);
+    expect(listen.following).toBe(false);
+  });
+
+  it("the reader's scroll ends following, and the player stops scrolling", async () => {
     mountArticle();
     place(0, 300);
     place(1, 2000);
@@ -307,186 +388,87 @@ describe("following", () => {
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
-  it("treats a wheel or a touch as the reader's even in the middle of its own scroll", async () => {
+  it("decides from the page's movement, not from keys or gestures that don't move it", async () => {
     mountArticle();
-    place(0, 2000);
-    await render();
-    await start(0);
-    // Our scroll is under way, so a plain scroll event would be ignored
-    await act(async () => {
-      window.dispatchEvent(new Event("wheel"));
-    });
-    expect(listen.following).toBe(false);
-    await start(0);
-    expect(listen.following).toBe(true);
-    await act(async () => {
-      window.dispatchEvent(new Event("touchmove"));
-    });
-    expect(listen.following).toBe(false);
-  });
-
-  it("treats the arrow, paging, Home and End keys and a scrollbar press as the reader's inside the player's own scroll window", async () => {
-    mountArticle();
-    place(0, 2000);
-    place(1, 2000);
-    await render();
-    for (const key of [
-      "ArrowUp",
-      "ArrowDown",
-      "PageUp",
-      "PageDown",
-      "Home",
-      "End",
-    ]) {
-      await start(0);
-      await settle(0);
-      expect(listen.following).toBe(true);
-      await act(async () => {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
-      });
-      expect(listen.following).toBe(false);
-    }
-    await start(0);
-    await act(async () => {
-      document.documentElement.dispatchEvent(
-        new Event("pointerdown", { bubbles: true }),
-      );
-    });
-    expect(listen.following).toBe(false);
-  });
-
-  it("doesn't take Space, typing in a field, a chord, a prevented key or j/k for scrolling", async () => {
-    mountArticle();
-    place(0, 2000);
+    place(0, 300);
     await render();
     await start(0);
     const field = document.createElement("input");
     document.body.append(field);
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+      for (const key of ["j", "J", "k", " ", "ArrowDown", "PageDown", "r", "o"])
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
       field.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
       );
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "PageDown", metaKey: true }),
+      window.dispatchEvent(new Event("wheel"));
+      window.dispatchEvent(new Event("touchmove"));
+      window.dispatchEvent(new Event("pointerdown"));
+      document.documentElement.dispatchEvent(
+        new Event("pointerdown", { bubbles: true }),
       );
-      // The shortcut dispatcher or a control already took this key
-      document.addEventListener("keydown", (e) => e.preventDefault(), {
-        once: true,
-        capture: true,
+    });
+    expect(listen.following).toBe(true);
+  });
+
+  it("ignores scrolls of a contained scroller, such as the settings panel, and a slider drag", async () => {
+    mountArticle();
+    place(0, 300);
+    await render();
+    await start(0);
+    const panel = document.createElement("div");
+    const slider = document.createElement("input");
+    slider.type = "range";
+    panel.append(slider);
+    document.body.append(panel);
+    await act(async () => {
+      // Scroll events from an element don't bubble to the window
+      panel.dispatchEvent(new Event("scroll"));
+      panel.dispatchEvent(new Event("wheel", { bubbles: true }));
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      slider.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(listen.following).toBe(true);
+  });
+
+  it("a sidenote that opens in the margin, moving nothing, leaves Follow on", async () => {
+    mountArticle();
+    place(0, 300);
+    await render();
+    await start(0);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "o" }));
+    });
+    expect(listen.following).toBe(true);
+  });
+
+  it("j, Shift+J, r, Backspace, arrows and PageDown unfollow when they move the page, inside the voice's scroll or after it", async () => {
+    mountArticle();
+    place(0, 2000);
+    place(1, 300);
+    smooth();
+    await render();
+    for (const key of ["j", "J", "r", "Backspace", "ArrowDown", "PageDown"]) {
+      // Inside the voice's scroll window, to a place off its path
+      scrollY = 0;
+      await act(async () => listen.stop());
+      await start(0);
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
       });
-      document.body.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowDown",
-          cancelable: true,
-          bubbles: true,
-        }),
-      );
-      // j and k are the page's own navigation: it calls unfollow where it moves
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "J" }));
-    });
-    expect(listen.following).toBe(true);
-  });
-
-  it("ignores scroll keys while a dialog, menu or the settings popover has the keyboard", async () => {
-    mountArticle();
-    place(0, 2000);
-    await render();
-    await start(0);
-    const popover = document.createElement("div");
-    popover.setAttribute("data-radix-popper-content-wrapper", "");
-    const tab = document.createElement("button");
-    popover.append(tab);
-    document.body.append(popover);
-    await act(async () => {
-      tab.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      );
-    });
-    expect(listen.following).toBe(true);
-    popover.remove();
-    const menu = document.createElement("div");
-    menu.setAttribute("role", "menu");
-    const item = document.createElement("button");
-    menu.append(item);
-    document.body.append(menu);
-    await act(async () => {
-      item.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "PageDown", bubbles: true }),
-      );
-    });
-    expect(listen.following).toBe(true);
-  });
-
-  it("unfollow() from the page's own navigation, including Shift+J, wins inside the player's scroll window", async () => {
-    mountArticle();
-    place(0, 2000);
-    place(1, 2000);
-    await render();
-    await start(0);
-    expect(scrollTo).toHaveBeenCalledTimes(1);
-    await act(async () => listen.unfollow());
-    expect(listen.following).toBe(false);
-    await act(async () => listen.next());
-    expect(listen.index).toBe(1);
-    expect(scrollTo).toHaveBeenCalledTimes(1);
-  });
-
-  it("does nothing when no listen is running", async () => {
-    mountArticle();
-    await render();
-    await act(async () => listen.unfollow());
-    await start(0);
-    expect(listen.following).toBe(true);
-  });
-
-  it("a scroll the voice makes itself still doesn't unfollow", async () => {
-    mountArticle();
-    place(0, 2000);
-    place(1, 2000);
-    await render();
-    await start(0);
-    await act(async () => listen.next());
-    expect(scrollTo).toHaveBeenCalledTimes(2);
-    expect(listen.following).toBe(true);
-  });
-
-  it("after an arrow key inside the window, Next doesn't pull the reader back", async () => {
-    mountArticle();
-    place(0, 2000);
-    place(1, 2000);
-    await render();
-    await start(0);
-    expect(scrollTo).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
-    });
-    await act(async () => listen.next());
-    expect(listen.index).toBe(1);
-    expect(scrollTo).toHaveBeenCalledTimes(1);
-  });
-
-  it("counts the reader's scroll again once our own has ended", async () => {
-    mountArticle();
-    place(0, 2000);
-    await render();
-    await start(0);
-    await act(async () => {
-      window.dispatchEvent(new Event("scrollend"));
-    });
-    await scrollByUser();
-    expect(listen.following).toBe(false);
-  });
-
-  it("stops expecting its own scroll's end after a second, where scrollend isn't supported", async () => {
-    mountArticle();
-    place(0, 2000);
-    await render();
-    await start(0);
-    await elapse(1100);
-    await scrollByUser();
-    expect(listen.following).toBe(false);
+      await scrollTo_(4000);
+      expect(listen.following).toBe(false);
+      // After it has landed
+      await act(async () => listen.stop());
+      scrollY = 0;
+      await start(0);
+      await scrollEnd();
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+      });
+      await scrollTo_(600);
+      expect(listen.following).toBe(false);
+    }
   });
 
   it("Follow scrolls the speaking block to the reading line and follows again", async () => {
@@ -511,6 +493,7 @@ describe("following", () => {
     await act(async () => listen.next());
     expect(listen.index).toBe(2);
     expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(listen.following).toBe(true);
   });
 
   it("keeps not following across paragraph skips until Follow is pressed", async () => {
@@ -546,12 +529,15 @@ describe("following", () => {
     mountArticle();
     place(0, 2000);
     place(1, 2000);
+    smooth();
     await render();
     await start(0);
     expect(listen.following).toBe(true);
     expect(scrollTo).toHaveBeenCalledTimes(1);
+    await scrollTo_(400);
+    expect(listen.following).toBe(true);
     await scrollEnd();
-    await scrollByUser();
+    await scrollTo_(900);
     expect(listen.following).toBe(false);
     // Skipping on the device voice doesn't quietly follow again
     await act(async () => listen.next());

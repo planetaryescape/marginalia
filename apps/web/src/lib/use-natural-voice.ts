@@ -530,8 +530,6 @@ function createPlayer(env: PlayerEnv) {
     setSpeed() {
       if (audio) applyRate(audio);
     },
-    /** The page moved by the reader's own navigation; stop following. */
-    unfollow: follower.unfollow,
     /** Scrolls the speaking block to the reading line and follows it again. */
     follow() {
       if (playing < 0) return;
@@ -653,7 +651,6 @@ export function useNaturalVoice(
     error: snapshot.error,
     following: snapshot.following,
     follow: current.follow,
-    unfollow: current.unfollow,
     speakFrom: current.start,
     togglePause: current.togglePause,
     stop: current.stop,
