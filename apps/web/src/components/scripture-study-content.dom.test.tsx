@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   failed: false,
   running: false,
   aquifer: false,
+  followUp: false,
   mutate: vi.fn(),
 }));
 vi.mock("convex/react", () => ({
@@ -76,8 +77,47 @@ vi.mock("convex/react", () => ({
                 },
         }
       : getFunctionName(ref) === "scriptureStudyFollowUps:list"
-        ? []
-        : { page: [], isDone: true, continueCursor: "" },
+        ? state.followUp
+          ? [
+              {
+                id: "question-1",
+                question: "How does this relate to Galatians 5?",
+                status: "complete",
+                answer: {
+                  answer: "The Spirit bears fruit.",
+                  evidenceCoverage: "in_saved_sources",
+                  evidenceIds: ["related-galatians"],
+                },
+              },
+            ]
+          : []
+        : getFunctionName(ref) === "scriptureStudyFollowUps:sources"
+          ? state.followUp
+            ? [
+                {
+                  evidenceId: "related-galatians",
+                  source: { title: "World English Bible" },
+                  referenceKey: "GAL.5.22-GAL.5.23",
+                },
+              ]
+            : []
+          : getFunctionName(ref) === "scriptureStudy:evidence"
+            ? {
+                excerpt: "But the fruit of the Spirit is love, joy, peace",
+                locator: "GAL.5.22-GAL.5.23",
+                contentHash: "public-fixture",
+                retrievedAt: 0,
+                limitations: [],
+                source: {
+                  title: "World English Bible",
+                  attribution: "WEB",
+                  rights: "Public domain",
+                  revision: "fixture",
+                  url: "https://bible-api.com/data/web/GAL/5",
+                  licenseUrl: "https://worldenglish.bible/",
+                },
+              }
+            : { page: [], isDone: true, continueCursor: "" },
 }));
 let root: Root, host: HTMLDivElement;
 beforeEach(() => {
@@ -86,6 +126,7 @@ beforeEach(() => {
   state.failed = false;
   state.running = false;
   state.aquifer = false;
+  state.followUp = false;
   state.mutate.mockReset();
   host = document.createElement("div");
   document.body.append(host);
@@ -108,6 +149,23 @@ const render = () =>
       />,
     ),
   );
+
+it("opens a follow-up's additional passage from its saved citation after reopening", () => {
+  state.followUp = true;
+  render();
+  act(() => root.render(null));
+  render();
+  const citation = host.querySelector<HTMLButtonElement>(
+    'button[aria-label="Source 1: World English Bible · Galatians 5:22–23"]',
+  );
+  expect(citation).not.toBeNull();
+  act(() => citation?.click());
+  expect(host.querySelector("blockquote")?.textContent).toContain(
+    "the fruit of the Spirit",
+  );
+  expect(host.textContent).not.toContain("Saved source unavailable");
+  expect(state.mutate).not.toHaveBeenCalled();
+});
 
 it("discloses omitted findings, bounded chapter coverage and personal-note context on saved replay without generation", () => {
   render();
