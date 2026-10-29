@@ -1087,13 +1087,6 @@ export default defineSchema({
     .index("by_article", ["articleId"])
     .index("by_user_article", ["userId", "articleId"])
     .index("by_user_article_action", ["userId", "articleId", "action"])
-    // Feed counts pair a desk open with its visit within one session
-    .index("by_user_article_action_session", [
-      "userId",
-      "articleId",
-      "action",
-      "sessionId",
-    ])
     .index("by_user_action_created", ["userId", "action", "createdAt"]),
 
   // Cumulative checkpoints per page visit and local day make retries idempotent.

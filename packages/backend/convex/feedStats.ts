@@ -65,32 +65,26 @@ async function isNewOutcome(
 ) {
   if (interaction.action !== "opened" && interaction.action !== "finished")
     return true;
-  // Pairs and repeats only happen within one session (a visit belongs to one
-  // session, checkpoint enforces it), so the window is this interaction's
-  // session up to and including it: the same rows whenever it is decided,
-  // live or in the backfill, however often the article was opened elsewhere
-  const session = await ctx.db
+  const same = await ctx.db
     .query("articleInteractions")
-    .withIndex("by_user_article_action_session", (q) =>
+    .withIndex("by_user_article_action", (q) =>
       q
         .eq("userId", interaction.userId)
         .eq("articleId", interaction.articleId)
-        .eq("action", interaction.action)
-        .eq("sessionId", interaction.sessionId)
-        .lte("_creationTime", interaction._creationTime),
+        .eq("action", interaction.action),
     )
-    .order("desc")
-    .take(GROUP_LIMIT)
-    .then((rows) => rows.reverse());
-  const position = session.findIndex((row) => row._id === interaction._id);
+    .take(GROUP_LIMIT);
+  const at = same.findIndex((row) => row._id === interaction._id);
   // Beyond the window nothing is paired; counting it is the safer error
-  if (position === -1) return true;
+  if (at === -1) return true;
   if (interaction.action === "finished") {
     if (interaction.visitId === undefined) return true;
-    return !session
-      .slice(0, position)
+    return !same
+      .slice(0, at)
       .some((row) => row.visitId === interaction.visitId);
   }
+  const session = same.filter((row) => row.sessionId === interaction.sessionId);
+  const position = session.findIndex((row) => row._id === interaction._id);
   const isVisit = interaction.visitId !== undefined;
   const kind = (row: Doc<"articleInteractions">) =>
     (row.visitId !== undefined) === isVisit;
