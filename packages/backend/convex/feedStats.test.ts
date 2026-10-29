@@ -185,6 +185,37 @@ describe("per-feed outcome counts", () => {
       expect((await stats(t))[0].opened - before).toBe(1);
     });
 
+    it("counts a new desk open in a session whose last pair is more than 200 rows back", async () => {
+      const { t, owner, articleId, sessionId, checkpoint } = await setup();
+      await owner.mutation(api.sessions.recordInteraction, {
+        articleId,
+        sessionId,
+        action: "opened",
+      });
+      await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
+      const other = await owner.mutation(api.sessions.create, {
+        requestedMinutes: 5,
+      });
+      await t.run(async (ctx) => {
+        for (let i = 0; i < 198; i++)
+          await ctx.db.insert("articleInteractions", {
+            userId: OWNER,
+            articleId,
+            sessionId: other,
+            action: "opened",
+            feedCounted: true,
+            createdAt: i,
+          });
+      });
+      const before = (await stats(t))[0].opened;
+      await owner.mutation(api.sessions.recordInteraction, {
+        articleId,
+        sessionId,
+        action: "opened",
+      });
+      expect((await stats(t))[0].opened - before).toBe(1);
+    });
+
     it("counts the same pair once when the checkpoint beats the desk's record", async () => {
       const { t, owner, articleId, sessionId, checkpoint } = await setup();
       await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
@@ -379,6 +410,40 @@ describe("feed stats backfill", () => {
         });
     });
   }
+  it("pairs old history beyond 200 rows of one article exactly as it would a short one", async () => {
+    vi.useFakeTimers();
+    const { t, owner } = await secondReaderTest(modules);
+    const { articleId } = await t.run((ctx) =>
+      feedWithArticle(ctx, OWNER, "long-history"),
+    );
+    const paired = await owner.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    const elsewhere = await owner.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    await t.run(async (ctx) => {
+      const row = (sessionId: typeof paired, visitId?: string) =>
+        ctx.db.insert("articleInteractions", {
+          userId: OWNER,
+          articleId,
+          sessionId,
+          visitId,
+          action: "opened",
+          createdAt: Date.now(),
+        });
+      // A desk open and its visit: one open
+      await row(paired);
+      await row(paired, "visit-1");
+      // Then 200 desk opens in another session, one open each
+      for (let i = 0; i < 200; i++) await row(elsewhere);
+    });
+    vi.advanceTimersByTime(10);
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    for (let i = 0; i < 10; i++) await finish(t);
+    expect((await stats(t))[0].opened).toBe(201);
+  });
+
   it("counts existing history in resumable pages, once, whatever order it was stored", async () => {
     vi.useFakeTimers();
     const { t, readerLibraryId } = await secondReaderTest(modules);

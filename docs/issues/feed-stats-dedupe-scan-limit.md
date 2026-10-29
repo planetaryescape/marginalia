@@ -1,6 +1,6 @@
 # Feed counts can over-count an article opened more than about 100 times
 
-Status: done 2026-10-28. `isNewOutcome` now reads the newest 200 rows and puts them back in order, so the interaction just inserted and its session are always in the window. A test opens an article 250 times before a paired open and counts it once.
+Status: done 2026-10-29. `isNewOutcome` now reads only the interaction's own session, up to and including it, through a new index `by_user_article_action_session`. Pairs and repeated finishes only happen within a session (a visit belongs to one session, and `checkpoint` refuses one that doesn't), so the window no longer depends on how often the article was opened elsewhere, and the live path and the backfill see the same rows. Tests cover 250 earlier opens, a backfill over 202 rows, and a session whose earlier pair is more than 200 rows back.
 
 `isNewOutcome` in `packages/backend/convex/feedStats.ts` pairs a desk open with the reader page's checkpoint open, and drops a repeated finish for one visit, by reading the article's same-action interactions with `take(200)`. The index returns the oldest first, so once an article has more than 200 `opened` rows (about 100 opens, because each open is usually a desk row plus a visit row) a newer interaction is not in the window. The function then counts it unpaired, so the desk and visit rows of every open past that point each add to `opened`. The same cut-off applies to `finished`, though 200 finishes of one article is far less likely.
 
