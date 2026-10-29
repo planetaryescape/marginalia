@@ -161,8 +161,8 @@ export function useTopicSearch(
       ).matches;
 
     // A strong title match, else a strong text match, is the first card
-    // without waiting for the query to be embedded. Whichever lands first
-    // stays: a card already on screen is never swapped for a better one, and
+    // without waiting for the query to be embedded. The first card
+    // to show stays: a card already on screen is never swapped for a better one, and
     // once `find` has answered a late result is dropped rather than put in
     // front. All of it is decided synchronously here, so nothing interleaves.
     let firstCard: TopicMatch | null = null;
@@ -197,12 +197,14 @@ export function useTopicSearch(
         // The title match is a shortcut; the library search still answers.
       }
     };
-    // The server returns only strong text hits, so any hit may be shown.
-    const showText = async () => {
+    // The server returns only strong text hits, so any hit may be shown. It
+    // waits for the title query to settle, so a title match always wins.
+    const showText = async (titleSettled: Promise<void>) => {
       try {
         const hits = await convex.query(api.titleSearch.matchText, {
           query: text,
         });
+        await titleSettled;
         showFirst(hits[0]);
       } catch {
         // The text match is a shortcut; the library search still answers.
@@ -213,8 +215,7 @@ export function useTopicSearch(
       async () => {
         if (!current()) return;
         if (!cached) {
-          void showTitle();
-          void showText();
+          void showText(showTitle());
         }
         try {
           let find: CacheEntry["find"];

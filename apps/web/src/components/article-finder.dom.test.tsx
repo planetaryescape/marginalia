@@ -568,6 +568,30 @@ describe("topic picker", () => {
     expect(title()).toBe("Slow cheese making");
   });
 
+  it("prefers a title match even when the text result arrives first", async () => {
+    let lateTitle: (hits: unknown[]) => void = () => {};
+    titleQuery.mockReturnValue(new Promise((resolve) => (lateTitle = resolve)));
+    textQuery.mockResolvedValue([find("x1", "On patience", 6)]);
+    await show();
+    await type("slow chee");
+    await settle();
+    expect(title()).toBeUndefined();
+    await act(async () => lateTitle([find("t1", "Slow cheese making", 9)]));
+    expect(title()).toBe("Slow cheese making");
+  });
+
+  it("shows the text match once the title query settles without a strong match", async () => {
+    let lateTitle: (hits: unknown[]) => void = () => {};
+    titleQuery.mockReturnValue(new Promise((resolve) => (lateTitle = resolve)));
+    textQuery.mockResolvedValue([find("x1", "On patience", 6)]);
+    await show();
+    await type("sourdough");
+    await settle();
+    expect(title()).toBeUndefined();
+    await act(async () => lateTitle([]));
+    expect(title()).toBe("On patience");
+  });
+
   it("keeps the first card when the other match lands later", async () => {
     let lateText: (hits: unknown[]) => void = () => {};
     titleQuery.mockResolvedValue([find("t1", "Slow cheese making", 9)]);
