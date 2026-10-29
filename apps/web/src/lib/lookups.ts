@@ -6,6 +6,12 @@ const sentences = (text: string): string[] =>
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** Quotes, brackets and sentence punctuation around a term, as the lookup log's key drops them (`wordKeyOf` in the backend's lookups.ts). */
+const AROUND = /^[\s.,;:!?"'“”‘’()[\]{}<>«»]+|[\s.,;:!?"'“”‘’()[\]{}<>«»]+$/g;
+
+/** The selected term without the punctuation around it: "bass," and "bass." are both "bass". */
+export const termOf = (selection: string) => selection.replace(AROUND, "");
+
 /** Where each match of `needle` starts in `text`, ignoring case. */
 function matchStarts(text: string, needle: string): number[] {
   const haystack = text.toLowerCase();

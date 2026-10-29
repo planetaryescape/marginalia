@@ -1045,6 +1045,37 @@ describe("forgetting a deleted record", () => {
 });
 
 describe("Define is told which usage was selected", () => {
+  it('logs "bass," and "bass." in one sentence as the first and second "bass"', async () => {
+    article.innerHTML =
+      '<div data-article-body><p data-para="1">She played the bass, then put the bass. Nobody cared.</p></div>';
+    const text = article.querySelector("p")?.firstChild as Text;
+    // Each selection takes its punctuation with it
+    const pick = (word: string) => {
+      const r = document.createRange();
+      const at = text.data.indexOf(word);
+      r.setStart(text, at);
+      r.setEnd(text, at + word.length);
+      return r;
+    };
+    await mount();
+    for (const word of ["bass,", "bass."]) {
+      await act(async () =>
+        latest.start({ mode: "define", range: pick(word) }),
+      );
+      await settle();
+      await finish(`A meaning of ${word}`);
+    }
+    expect(
+      mocks.recordLookup.mock.calls.map(([call]) => [
+        call.word,
+        call.occurrence,
+      ]),
+    ).toEqual([
+      ["bass,", 0],
+      ["bass.", 1],
+    ]);
+  });
+
   it("sends different requests for the first and the second 'bass'", async () => {
     article.innerHTML =
       '<div data-article-body><p data-para="1">He caught a bass. She played the bass. Nobody cared.</p></div>';
