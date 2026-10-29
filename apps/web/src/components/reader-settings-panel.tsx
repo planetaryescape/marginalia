@@ -251,6 +251,8 @@ export interface ReaderSettingsPanelProps {
   onToggleListen: () => void;
   /** What the Listen tab's samples read; absent until the article loads. */
   voiceSample?: VoiceSampleSource;
+  /** The listening speed, which the Listen tab's slider sets. */
+  listenSpeed?: { value: number; onChange: (value: number) => void };
   /** Lets the toolbar keep itself shown while the panel is open. */
   onOpenChange?: (open: boolean) => void;
 }
@@ -262,6 +264,7 @@ export function ReaderSettingsPanel({
   listening,
   onToggleListen,
   voiceSample,
+  listenSpeed,
   onOpenChange,
 }: ReaderSettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("look");
@@ -769,6 +772,7 @@ export function ReaderSettingsPanel({
           {tab === "listen" && (
             <ListeningSettings
               sample={voiceSample}
+              speed={listenSpeed}
               onAddKey={() => setOpen(false)}
             />
           )}

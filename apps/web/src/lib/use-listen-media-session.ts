@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef } from "react";
+import { getArticleBody } from "./paragraphs";
 import type { ListenStatus } from "./use-natural-voice";
 
 interface ListenControls {
@@ -15,6 +16,8 @@ interface ListenMetadata {
   title: string;
   author?: string | null;
   url?: string;
+  /** The article's container, where an image the page already loaded is found for the lock screen. */
+  container?: RefObject<HTMLElement | null>;
 }
 
 const ACTIONS = [
@@ -26,6 +29,26 @@ const ACTIONS = [
   "seekbackward",
   "seekforward",
 ] as const satisfies readonly MediaSessionAction[];
+
+/**
+ * Artwork is an image the reader page has already loaded, so the lock screen
+ * never makes a request the page didn't (extracted metadata can name any
+ * host): the first image in the body that decoded and has a web address.
+ */
+function artworkFor(container: HTMLElement | null | undefined): MediaImage[] {
+  const body = getArticleBody(container ?? null);
+  for (const img of body?.querySelectorAll("img") ?? []) {
+    if (!img.complete || img.naturalWidth === 0) continue;
+    try {
+      const { protocol } = new URL(img.currentSrc);
+      if (protocol === "https:" || protocol === "http:")
+        return [{ src: img.currentSrc }];
+    } catch {
+      // Not an address: try the next image
+    }
+  }
+  return [];
+}
 
 function hostname(url: string | undefined) {
   if (!url) return undefined;
@@ -49,7 +72,7 @@ export function useListenMediaSession(
   const controls = useRef(listen);
   controls.current = listen;
   const { active, status } = listen;
-  const { title, author, url } = metadata ?? {};
+  const { title, author, url, container } = metadata ?? {};
 
   useEffect(() => {
     if (!active || title === undefined || !("mediaSession" in navigator))
@@ -58,8 +81,8 @@ export function useListenMediaSession(
     session.metadata = new MediaMetadata({
       title,
       artist: author ?? hostname(url) ?? "",
-      // No artwork: the reader's article query doesn't carry the image
       album: "Marginalia",
+      artwork: artworkFor(container?.current),
     });
     const paused = () => controls.current.status === "paused";
     const handlers: Record<(typeof ACTIONS)[number], () => void> = {
@@ -91,7 +114,7 @@ export function useListenMediaSession(
       session.metadata = null;
       session.playbackState = "none";
     };
-  }, [active, title, author, url]);
+  }, [active, title, author, url, container]);
 
   useEffect(() => {
     if (!active || !("mediaSession" in navigator)) return;

@@ -202,3 +202,12 @@ describe("planFetches", () => {
     expect(planFetches(20, 9, entries([]), 1)).toEqual([9]);
   });
 });
+
+describe("gapAfter at a speed", () => {
+  it("shortens the silence with the speech", () => {
+    const q = buildQueue([heading(0), prose(1), prose(2)], 0, "en");
+    expect(gapAfter(q, 0, false, 2)).toBe(350);
+    expect(gapAfter(q, 1, false, 2)).toBe(175);
+    expect(gapAfter(q, 1, false, 0.8)).toBe(437.5);
+  });
+});

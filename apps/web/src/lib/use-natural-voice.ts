@@ -1,6 +1,7 @@
 "use client";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { failureSentence } from "./failure-copy";
+import { createFollower } from "./listen-follow";
 import {
   buildQueue,
   firstItemFrom,
@@ -36,9 +37,16 @@ export interface PlayerSnapshot {
   index: number | null;
   /** The sentence to show while `failed`. */
   error: string | null;
+  /** Whether the page is following the voice (D-TTS-012). */
+  following: boolean;
 }
 
-const IDLE: PlayerSnapshot = { status: "idle", index: null, error: null };
+const IDLE: PlayerSnapshot = {
+  status: "idle",
+  index: null,
+  error: null,
+  following: true,
+};
 
 // A silent clip played inside the click or keypress, so mobile browsers count
 // the element as user-activated for the rest of the session (05-player)
@@ -55,6 +63,8 @@ interface PlayerEnv {
   clipSource: () => ClipSource;
   /** The spoken title, said before the first paragraph of a listen from the top. */
   intro: () => string | undefined;
+  /** The reader's speed, read whenever a clip starts. */
+  speed: () => number;
   publish: (snapshot: PlayerSnapshot) => void;
 }
 
@@ -150,7 +160,8 @@ function createPlayer(env: PlayerEnv) {
   let gapTimer: ReturnType<typeof setTimeout> | undefined;
   let resume: (() => void) | null = null;
   let status: ListenStatus = "idle";
-  let scrolledBlock = -1;
+  let lastError: string | null = null;
+  const follower = createFollower(() => set(status, lastError));
   /** Counts pauses, so a play() that began before one doesn't announce "playing" after it. */
   let pauses = 0;
   let fadeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -164,12 +175,18 @@ function createPlayer(env: PlayerEnv) {
 
   function set(next: ListenStatus, error: string | null = null) {
     status = next;
+    lastError = error;
     // The title item is announced as the first paragraph, which it precedes
     const block = queue[playing] ? Math.max(0, queue[playing].block) : null;
     env.publish(
       next === "idle" || next === "finished"
-        ? { status: next, index: null, error: null }
-        : { status: next, index: block, error },
+        ? { status: next, index: null, error: null, following: true }
+        : {
+            status: next,
+            index: block,
+            error,
+            following: follower.following,
+          },
     );
   }
 
@@ -181,11 +198,13 @@ function createPlayer(env: PlayerEnv) {
       kind === "speaking" ? "data-speaking" : "data-speaking-pending",
       "",
     );
-    if (scrolledBlock === block) return;
-    scrolledBlock = block;
-    const rect = el.getBoundingClientRect();
-    if (rect.top < 80 || rect.bottom > window.innerHeight - 80)
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+    follower.reveal(el);
+  }
+
+  /** The block the voice is on, which Follow brings back. */
+  function currentBlock(): HTMLElement | undefined {
+    const item = queue[playing];
+    return item ? paragraphs[Math.max(0, item.block)] : undefined;
   }
 
   function onEnded() {
@@ -200,7 +219,7 @@ function createPlayer(env: PlayerEnv) {
         finishRun();
         return;
       }
-      const wait = gapAfter(queue, playing, document.hidden);
+      const wait = gapAfter(queue, playing, document.hidden, env.speed());
       if (wait === 0) {
         begin(next);
         return;
@@ -240,10 +259,21 @@ function createPlayer(env: PlayerEnv) {
     if (!audio) {
       audio = new Audio();
       audio.preservesPitch = true;
+      applyRate(audio);
       audio.addEventListener("ended", onEnded);
       audio.addEventListener("error", onError);
     }
     return audio;
+  }
+
+  /**
+   * Loading a new `src` resets `playbackRate` to `defaultPlaybackRate`, so both
+   * are set, and again before every clip starts.
+   */
+  function applyRate(el: HTMLAudioElement) {
+    const rate = env.speed();
+    el.defaultPlaybackRate = rate;
+    el.playbackRate = rate;
   }
 
   function revokeLive() {
@@ -280,7 +310,7 @@ function createPlayer(env: PlayerEnv) {
     queue = [];
     paragraphs = [];
     playing = -1;
-    scrolledBlock = -1;
+    follower.stop();
     clearMarks();
   }
 
@@ -332,7 +362,9 @@ function createPlayer(env: PlayerEnv) {
     const token = session;
     const url = loaded;
     const pausedAt = pauses;
-    const attempt = ensureAudio().play();
+    const el = ensureAudio();
+    applyRate(el);
+    const attempt = el.play();
     resume = null;
     // A resumed or retried clip is starting again: until play() resolves it is
     // neither paused nor failed, so Pause can stop it and a voice change can
@@ -437,6 +469,7 @@ function createPlayer(env: PlayerEnv) {
       el.src = SILENT_CLIP;
       el.play().catch(() => undefined);
       paragraphs = env.paragraphs();
+      follower.start();
       abort = new AbortController();
       planners.add(fetchAhead);
       const lang = document.documentElement.lang || "en";
@@ -493,6 +526,15 @@ function createPlayer(env: PlayerEnv) {
       jump(target);
     },
     retry,
+    /** Applies the reader's speed to the clip that is playing; later clips read it as they start. */
+    setSpeed() {
+      if (audio) applyRate(audio);
+    },
+    /** Scrolls the speaking block to the reading line and follows it again. */
+    follow() {
+      if (playing < 0) return;
+      follower.follow(currentBlock());
+    },
     /**
      * The voice changed: what's ahead is dropped and asked for again in the new
      * voice. The playing clip finishes in the old one, and clips already heard
@@ -553,6 +595,7 @@ export function useNaturalVoice(
   contentHtml: string | undefined,
   clipSource: ClipSource,
   intro?: string,
+  speed = 1,
 ) {
   const [snapshot, setSnapshot] = useState<PlayerSnapshot>(IDLE);
   const source = useRef(clipSource);
@@ -561,16 +604,20 @@ export function useNaturalVoice(
   container.current = containerRef;
   const spokenIntro = useRef(intro);
   spokenIntro.current = intro;
+  const rate = useRef(speed);
+  rate.current = speed;
   const player = useRef<ReturnType<typeof createPlayer>>(null);
   player.current ??= createPlayer({
     paragraphs: () => getParagraphs(getArticleBody(container.current.current)),
     clipSource: () => source.current,
     intro: () => spokenIntro.current,
+    speed: () => rate.current,
     publish: (next) =>
       setSnapshot((prev) =>
         prev.status === next.status &&
         prev.index === next.index &&
-        prev.error === next.error
+        prev.error === next.error &&
+        prev.following === next.following
           ? prev
           : next,
       ),
@@ -581,6 +628,12 @@ export function useNaturalVoice(
   useEffect(() => {
     current.revoice();
   }, [current, clipSource]);
+
+  // Speed applies at once, mid-clip; the next clip reads it when it starts
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new speed is the trigger
+  useEffect(() => {
+    current.setSpeed();
+  }, [current, speed]);
 
   // Prose identity, not paragraph geometry or arriving annotations, ends speech.
   // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes invalidate the captured paragraph array
@@ -596,6 +649,8 @@ export function useNaturalVoice(
     active: !["idle", "finished"].includes(snapshot.status),
     status: snapshot.status,
     error: snapshot.error,
+    following: snapshot.following,
+    follow: current.follow,
     speakFrom: current.start,
     togglePause: current.togglePause,
     stop: current.stop,

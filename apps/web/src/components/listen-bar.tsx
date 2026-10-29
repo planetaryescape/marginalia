@@ -1,7 +1,16 @@
 "use client";
-import { Pause, Play, SkipBack, SkipForward, Square, X } from "lucide-react";
+import {
+  ArrowDownToLine,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Square,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { formatSpeed } from "@/lib/listen-speed";
 import type { ListenStatus } from "@/lib/use-natural-voice";
 
 /** How long the pill waits on one paragraph before it says so. */
@@ -14,6 +23,8 @@ interface View {
   total: number;
   error: string | null;
   deviceSupported: boolean;
+  following: boolean;
+  speed: number;
 }
 
 function dotMode(view: View) {
@@ -30,12 +41,16 @@ export function ListenBar({
   error,
   needsKey,
   deviceSupported,
+  following,
+  speed,
   onTogglePause,
   onPrevious,
   onNext,
   onStop,
   onRetry,
   onUseDeviceVoice,
+  onFollow,
+  onSpeed,
 }: {
   status: ListenStatus;
   index: number | null;
@@ -43,12 +58,18 @@ export function ListenBar({
   error: string | null;
   needsKey: boolean;
   deviceSupported: boolean;
+  /** Whether the page is following the voice; Follow shows only when it isn't. */
+  following: boolean;
+  speed: number;
   onTogglePause: () => void;
   onPrevious: () => void;
   onNext: () => void;
   onStop: () => void;
   onRetry: () => void;
   onUseDeviceVoice: () => void;
+  onFollow: () => void;
+  /** Steps to the next speed preset. */
+  onSpeed: () => void;
 }) {
   const open = needsKey || index !== null;
   // The pill sinks away still showing what it last said, not an empty shell
@@ -61,6 +82,8 @@ export function ListenBar({
       total,
       error,
       deviceSupported,
+      following,
+      speed,
     };
   }
   const view = lastView.current;
@@ -94,6 +117,20 @@ export function ListenBar({
                 : "Listening"
           }
         >
+          {view.kind === "listening" && !view.following && (
+            <>
+              <button
+                type="button"
+                className="listen-follow"
+                onClick={onFollow}
+                title="Scroll to the voice and follow it again"
+              >
+                <ArrowDownToLine size={14} aria-hidden="true" />
+                <span className="listen-follow-text">Follow</span>
+              </button>
+              <i className="listen-sep" aria-hidden="true" />
+            </>
+          )}
           <span
             className="listen-dot"
             data-mode={dotMode(view)}
@@ -137,6 +174,14 @@ export function ListenBar({
                     aria-label="Next paragraph"
                   >
                     <SkipForward size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="listen-speed"
+                    onClick={onSpeed}
+                    aria-label={`Speed ${formatSpeed(view.speed)}. Change speed`}
+                  >
+                    {formatSpeed(view.speed)}
                   </button>
                   <i className="listen-sep" />
                   <button

@@ -1434,6 +1434,42 @@ html.dark .reader-menu {
 .listen-btn[data-primary] svg { fill: currentColor; }
 .listen-btn[data-quiet] { opacity: 0.62; }
 .listen-btn:disabled { opacity: 0.3; cursor: default; pointer-events: none; }
+/* The speed is a number, not an icon, so the button grows to fit "1.75×" */
+.listen-speed {
+  flex: none;
+  min-width: 40px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: 16px;
+  font: 500 11.5px/1 var(--font-jetbrains-mono), monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.72;
+  transition:
+    opacity var(--motion-press),
+    background-color var(--motion-press),
+    transform var(--motion-press);
+}
+.listen-speed:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+.listen-speed:active { transform: scale(0.94); }
+
+/* Follow shows only when the page has stopped following; it arrives at the pill's left end */
+.listen-follow {
+  flex: none;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -6px;
+  padding: 0 10px 0 8px;
+  border-radius: 16px;
+  white-space: nowrap;
+  font-weight: 500;
+  animation: listen-follow-in var(--motion-quick) both;
+  transition: background-color var(--motion-press);
+}
+.listen-follow:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+@keyframes listen-follow-in { from { opacity: 0; } to { opacity: 1; } }
 .listen-sep {
   flex: none;
   width: 1px;
@@ -1480,8 +1516,35 @@ html.dark .reader-menu {
 @media (pointer: coarse) {
   .listen-pill { padding: 4px 4px 4px 16px; }
   .listen-btn { width: 44px; height: 44px; }
+  .listen-speed { height: 44px; min-width: 48px; }
+  .listen-follow { min-height: 44px; margin-left: -8px; }
   .listen-link { min-height: 44px; padding: 0 12px; }
   .listen-pill[data-kind="failed"] .listen-link { padding: 0 10px; }
+}
+
+/* On a phone the words give way so every control fits a 360px screen at 44px targets:
+   "Listening"/"Paused" and "Follow" stay for screen readers, and the dot, the play icon
+   and the arrow say the same. */
+@media (max-width: 639px) {
+  .listen-label,
+  .listen-follow-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .listen-pill { padding-left: 12px; }
+  .listen-dot { margin-right: 6px; }
+  .listen-count { min-width: 0; margin-right: 4px; }
+  .listen-speed { min-width: 44px; padding: 0 4px; }
+  .listen-follow { padding: 0 8px; margin-left: -8px; }
+  .listen-pill[data-kind="listening"] .listen-sep { display: none; }
+  /* Stop stays last and quieter: set apart by space, since the divider is gone */
+  .listen-pill[data-kind="listening"] .listen-btn[data-quiet] { margin-left: 4px; }
 }
 
 /* On a phone the no-key choices stack in two 46px rows, with Dismiss beside them */
@@ -1575,7 +1638,9 @@ html.dark .reader-menu {
   .listen-body { animation-duration: 120ms; }
   .listen-pencil { transition: opacity 120ms; }
   .listen-pencil path { animation: none; stroke-dashoffset: 0; }
-  .listen-btn:active { transform: none; }
+  .listen-btn:active,
+  .listen-speed:active { transform: none; }
+  .listen-follow { animation-duration: 120ms; }
 }
 
 @media (prefers-reduced-motion: reduce) {

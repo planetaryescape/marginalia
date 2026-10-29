@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createFollower } from "./listen-follow";
 import { getArticleBody, getParagraphs, paragraphText } from "./paragraphs";
 
 function pickVoice(): SpeechSynthesisVoice | null {
@@ -25,14 +26,23 @@ export function useDeviceVoice(
   unitKey?: string | null,
   content?: string,
   contentHtml?: string,
+  speed = 1,
 ) {
-  const [state, setState] = useState<{ index: number | null; paused: boolean }>(
-    {
-      index: null,
-      paused: false,
-    },
-  );
+  const [state, setState] = useState<{
+    index: number | null;
+    paused: boolean;
+    following: boolean;
+  }>({ index: null, paused: false, following: true });
   const session = useRef(0);
+  // An utterance's rate can't change once it is speaking, so a new speed
+  // reaches the voice from the next paragraph
+  const rate = useRef(speed);
+  rate.current = speed;
+  const shown = useRef<HTMLElement | undefined>(undefined);
+  const follower = useRef<ReturnType<typeof createFollower>>(null);
+  follower.current ??= createFollower(() =>
+    setState((s) => ({ ...s, following: follower.current?.following ?? true })),
+  );
   const supported =
     typeof window !== "undefined" && "speechSynthesis" in window;
 
@@ -45,7 +55,9 @@ export function useDeviceVoice(
     session.current += 1;
     if (supported) window.speechSynthesis.cancel();
     clearMark();
-    setState({ index: null, paused: false });
+    follower.current?.stop();
+    shown.current = undefined;
+    setState({ index: null, paused: false, following: true });
   }, [supported, clearMark]);
 
   const speakFrom = useCallback(
@@ -55,6 +67,8 @@ export function useDeviceVoice(
       const token = ++session.current;
       window.speechSynthesis.cancel();
       const voice = pickVoice();
+      // A skip within a listen keeps the reader's choice to follow or not
+      if (!follower.current?.active) follower.current?.start();
 
       const speak = (i: number) => {
         if (token !== session.current) return;
@@ -65,13 +79,16 @@ export function useDeviceVoice(
         }
         clearMark();
         el.setAttribute("data-speaking", "");
-        const rect = el.getBoundingClientRect();
-        if (rect.top < 80 || rect.bottom > window.innerHeight - 80) {
-          el.scrollIntoView({ block: "center", behavior: "smooth" });
-        }
-        setState({ index: i, paused: false });
+        shown.current = el;
+        follower.current?.reveal(el);
+        setState({
+          index: i,
+          paused: false,
+          following: follower.current?.following ?? true,
+        });
         const utterance = new SpeechSynthesisUtterance(paragraphText(el));
         if (voice) utterance.voice = voice;
+        utterance.rate = rate.current;
         utterance.onend = () => speak(i + 1);
         utterance.onerror = (e) => {
           if (e.error !== "interrupted" && e.error !== "canceled") speak(i + 1);
@@ -92,6 +109,8 @@ export function useDeviceVoice(
     });
   }, [supported]);
 
+  const follow = useCallback(() => follower.current?.follow(shown.current), []);
+
   // Prose identity, not paragraph geometry or arriving annotations, ends speech.
   // biome-ignore lint/correctness/useExhaustiveDependencies: identity changes invalidate the captured paragraph array
   useEffect(() => {
@@ -104,6 +123,8 @@ export function useDeviceVoice(
     index: state.index,
     paused: state.paused,
     active: state.index !== null,
+    following: state.following,
+    follow,
     speakFrom,
     togglePause,
     stop,
