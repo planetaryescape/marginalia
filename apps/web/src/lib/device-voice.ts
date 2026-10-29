@@ -109,6 +109,7 @@ export function useDeviceVoice(
     });
   }, [supported]);
 
+  const unfollow = useCallback(() => follower.current?.unfollow(), []);
   const follow = useCallback(() => follower.current?.follow(shown.current), []);
 
   // Prose identity, not paragraph geometry or arriving annotations, ends speech.
@@ -125,6 +126,7 @@ export function useDeviceVoice(
     active: state.index !== null,
     following: state.following,
     follow,
+    unfollow,
     speakFrom,
     togglePause,
     stop,

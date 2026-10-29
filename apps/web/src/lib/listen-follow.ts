@@ -1,3 +1,5 @@
+import { isTypingTarget } from "./shortcuts";
+
 /** How long our own scroll may take before we stop expecting its `scrollend`. */
 const OWN_SCROLL_MS = 1000;
 
@@ -12,6 +14,8 @@ export interface Follower {
   stop(): void;
   /** Brings `el` into view if the page is following and it sits outside the band, at most once per element. */
   reveal(el: HTMLElement): void;
+  /** The reader moved the page by their own hand: stop following. For navigation the page runs itself (j/k, Back). */
+  unfollow(): void;
   /** Scrolls `el` to the reading line and follows again. */
   follow(el: HTMLElement | undefined): void;
   readonly following: boolean;
@@ -52,11 +56,11 @@ export function createFollower(onChange: () => void): Follower {
   const onScroll = () => {
     if (!own) release();
   };
-  // The keys the reader page scrolls or navigates with. Space is left out: while
-  // Listen is on it pauses (D-TTS-027), and the follower only watches while on.
+  // Keys the browser itself scrolls with. j/k are the page's own navigation and
+  // call `unfollow` where they run, so a key the shortcut dispatcher skipped
+  // never counts. Space is left out: while Listen is on it pauses (D-TTS-027),
+  // and the follower only watches while Listen is on.
   const SCROLL_KEYS = new Set([
-    "j",
-    "k",
     "ArrowUp",
     "ArrowDown",
     "PageUp",
@@ -65,14 +69,20 @@ export function createFollower(onChange: () => void): Follower {
     "End",
   ]);
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (!SCROLL_KEYS.has(event.key)) return;
-    const target = event.target;
-    // Typing in a field isn't scrolling
+    // The same guards as the shortcut dispatcher: a key that doesn't scroll the page never unfollows
     if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable ||
-        /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.isComposing ||
+      isTypingTarget(event.target) ||
+      document.querySelector(
+        "dialog[open], [aria-modal='true'], [data-radix-popper-content-wrapper]",
+      ) ||
+      (event.target instanceof HTMLElement &&
+        event.target.closest("[role='dialog'], [role='menu']"))
     )
       return;
     release();
@@ -114,6 +124,9 @@ export function createFollower(onChange: () => void): Follower {
     },
     get active() {
       return watching;
+    },
+    unfollow() {
+      if (watching) release();
     },
     start() {
       this.stop();

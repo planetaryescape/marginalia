@@ -37,7 +37,13 @@ function paragraphAtTop(body: HTMLElement | null): number {
  * `back` returns to the newest remembered place with the same scroll the jump used.
  * Scrolling back to within a viewport of that place yourself also counts as returning.
  */
-export function useParagraphReturn(articleRef: RefObject<HTMLElement | null>) {
+export function useParagraphReturn(
+  articleRef: RefObject<HTMLElement | null>,
+  /** Called when a jump or Back is about to scroll the page, so Listen's follow can yield. */
+  onMove?: () => void,
+) {
+  const moved = useRef(onMove);
+  moved.current = onMove;
   const [stack, setStackState] = useState<ReturnEntry[]>([]);
   // A ref mirrors the stack so scroll and key handlers never act on a stale copy.
   const stackRef = useRef<ReturnEntry[]>([]);
@@ -70,6 +76,7 @@ export function useParagraphReturn(articleRef: RefObject<HTMLElement | null>) {
       const body = getArticleBody(articleRef.current);
       const el = getParagraphs(body)[index];
       if (!el) return;
+      moved.current?.();
       setStack(
         pushReturn(
           stackRef.current,
@@ -90,6 +97,7 @@ export function useParagraphReturn(articleRef: RefObject<HTMLElement | null>) {
     const current = stackRef.current;
     const last = current[current.length - 1];
     if (!last) return;
+    moved.current?.();
     setStack(current.slice(0, -1));
     settle();
     window.scrollTo({

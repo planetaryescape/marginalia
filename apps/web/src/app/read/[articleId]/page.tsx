@@ -851,7 +851,7 @@ export default function ReadPage() {
     top: returnTo,
     jump: jumpToParagraph,
     back: backToParagraph,
-  } = useParagraphReturn(articleRef);
+  } = useParagraphReturn(articleRef, listen.unfollow);
 
   // A plain click on a link to another page opens the link menu rather than navigating
   const articleUrl = article?.url;
@@ -1054,6 +1054,8 @@ export default function ReadPage() {
     );
   };
   const moveParagraph = (direction: 1 | -1) => {
+    // j/k scroll the page themselves, which Listen's follow must not fight
+    listen.unfollow();
     const list = getParagraphs(getArticleBody(articleRef.current));
     // Verse markup is often divs, which are not numbered paragraphs, so this comes first.
     const from =
@@ -1146,6 +1148,7 @@ export default function ReadPage() {
             ? (passageCycle.current.index + 1) % openers.length
             : 0;
         passageCycle.current = { scope, index: next };
+        listen.unfollow();
         openers[next]();
       },
     },

@@ -325,12 +325,19 @@ describe("following", () => {
     expect(listen.following).toBe(false);
   });
 
-  it("treats j, k, the arrow and paging keys and a scrollbar press as the reader's inside the player's own scroll window", async () => {
+  it("treats the arrow, paging, Home and End keys and a scrollbar press as the reader's inside the player's own scroll window", async () => {
     mountArticle();
     place(0, 2000);
     place(1, 2000);
     await render();
-    for (const key of ["j", "k", "ArrowDown", "PageUp", "Home"]) {
+    for (const key of [
+      "ArrowUp",
+      "ArrowDown",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+    ]) {
       await start(0);
       await settle(0);
       expect(listen.following).toBe(true);
@@ -348,7 +355,7 @@ describe("following", () => {
     expect(listen.following).toBe(false);
   });
 
-  it("doesn't take Space, typing in a field, or a shortcut chord for scrolling", async () => {
+  it("doesn't take Space, typing in a field, a chord, a prevented key or j/k for scrolling", async () => {
     mountArticle();
     place(0, 2000);
     await render();
@@ -358,16 +365,94 @@ describe("following", () => {
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
       field.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "j", bubbles: true }),
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
       );
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+        new KeyboardEvent("keydown", { key: "PageDown", metaKey: true }),
+      );
+      // The shortcut dispatcher or a control already took this key
+      document.addEventListener("keydown", (e) => e.preventDefault(), {
+        once: true,
+        capture: true,
+      });
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          cancelable: true,
+          bubbles: true,
+        }),
+      );
+      // j and k are the page's own navigation: it calls unfollow where it moves
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "J" }));
+    });
+    expect(listen.following).toBe(true);
+  });
+
+  it("ignores scroll keys while a dialog, menu or the settings popover has the keyboard", async () => {
+    mountArticle();
+    place(0, 2000);
+    await render();
+    await start(0);
+    const popover = document.createElement("div");
+    popover.setAttribute("data-radix-popper-content-wrapper", "");
+    const tab = document.createElement("button");
+    popover.append(tab);
+    document.body.append(popover);
+    await act(async () => {
+      tab.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(listen.following).toBe(true);
+    popover.remove();
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const item = document.createElement("button");
+    menu.append(item);
+    document.body.append(menu);
+    await act(async () => {
+      item.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "PageDown", bubbles: true }),
       );
     });
     expect(listen.following).toBe(true);
   });
 
-  it("after j inside the window, Next doesn't pull the reader back", async () => {
+  it("unfollow() from the page's own navigation, including Shift+J, wins inside the player's scroll window", async () => {
+    mountArticle();
+    place(0, 2000);
+    place(1, 2000);
+    await render();
+    await start(0);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    await act(async () => listen.unfollow());
+    expect(listen.following).toBe(false);
+    await act(async () => listen.next());
+    expect(listen.index).toBe(1);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when no listen is running", async () => {
+    mountArticle();
+    await render();
+    await act(async () => listen.unfollow());
+    await start(0);
+    expect(listen.following).toBe(true);
+  });
+
+  it("a scroll the voice makes itself still doesn't unfollow", async () => {
+    mountArticle();
+    place(0, 2000);
+    place(1, 2000);
+    await render();
+    await start(0);
+    await act(async () => listen.next());
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(listen.following).toBe(true);
+  });
+
+  it("after an arrow key inside the window, Next doesn't pull the reader back", async () => {
     mountArticle();
     place(0, 2000);
     place(1, 2000);
@@ -375,7 +460,7 @@ describe("following", () => {
     await start(0);
     expect(scrollTo).toHaveBeenCalledTimes(1);
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
     });
     await act(async () => listen.next());
     expect(listen.index).toBe(1);
