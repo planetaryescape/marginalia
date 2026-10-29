@@ -3,13 +3,15 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useRef, useState } from "react";
-import { problemWithFile, uploadWithProgress } from "./pdf-import";
+import { problemWithFile, sha256Hex, uploadWithProgress } from "./pdf-import";
 import { invalidateTopicSearchCache } from "./topic-search-cache";
 
 export interface UploadState {
   fileName: string;
   /** 0 to 100 while the file goes up; the server then takes over */
   percent: number;
+  /** "checking" while the file is hashed for the server, before it goes up */
+  stage: "checking" | "uploading";
 }
 
 /**
@@ -32,11 +34,14 @@ export function usePdfImport() {
       if (found) return setProblem(found);
       busy.current = true;
       setProblem(null);
-      setUpload({ fileName: file.name, percent: 0 });
+      setUpload({ fileName: file.name, percent: 0, stage: "checking" });
       try {
-        const url = await generateUploadUrl({});
+        // The server binds the upload grant to these bytes
+        const sha256 = await sha256Hex(file);
+        const url = await generateUploadUrl({ sha256, size: file.size });
+        setUpload({ fileName: file.name, percent: 0, stage: "uploading" });
         const storageId = await uploadWithProgress(url, file, (percent) =>
-          setUpload({ fileName: file.name, percent }),
+          setUpload({ fileName: file.name, percent, stage: "uploading" }),
         );
         const result = await startImport({
           // SAFETY: the storage upload response returns the ID of the file just stored.

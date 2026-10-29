@@ -284,7 +284,9 @@ export function ImportView({
           {withoutExtension(upload.fileName)}
         </h2>
         <p className="mt-1.5 text-[13.5px] text-[var(--ink-muted)]">
-          Uploading {upload.percent}%
+          {upload.stage === "checking"
+            ? "Checking the file…"
+            : `Uploading ${upload.percent}%`}
         </p>
         <Bar percent={Math.round(upload.percent * 0.2)} />
       </div>
