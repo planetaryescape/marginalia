@@ -285,6 +285,13 @@ describe("text match for the picker", () => {
     expect(split).toEqual(composed);
   });
 
+  it("finds an article stored with decomposed accents, whichever form is typed", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await article(t, OWNER, "CV", { content: "A good re\u0301sume\u0301." });
+    expect(await find(owner, "re\u0301sume\u0301")).toHaveLength(1);
+    expect(await find(owner, "r\u00e9sum\u00e9")).toHaveLength(1);
+  });
+
   it("reads at most a handful of candidates", async () => {
     const { t, owner } = await secondReaderTest(modules);
     for (let i = 0; i < MAX_TEXT_MATCHES + 3; i++)

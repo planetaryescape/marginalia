@@ -88,46 +88,64 @@ export const matchText = query({
     // Strength is judged on the whole query; only the text sent to the index is capped.
     const required = requiredWords(args.query.trim());
     if (!required) return [];
-    const indexText = args.query.normalize("NFC").trim().slice(0, MAX_QUERY);
+    // The index applies no Unicode normalization, so an accented word stored
+    // composed and one stored decomposed are different terms. Each distinct
+    // form of the query is searched; plain text has one form and one search.
+    const trimmed = args.query.trim();
+    const forms = [
+      ...new Set(
+        [trimmed, trimmed.normalize("NFC"), trimmed.normalize("NFD")].map(
+          (form) => form.slice(0, MAX_QUERY),
+        ),
+      ),
+    ];
     const userId = ctx.readerId;
-    // Only `articles` holds the text; the card table keeps headers alone.
-    const source = ctx.db
-      .query("articles")
-      .withSearchIndex("search_content", (q) =>
-        q
-          .search("content", indexText)
-          .eq("userId", userId)
-          .eq("extractionStatus", "extracted"),
-      );
-    const iterator = source[Symbol.asyncIterator]();
     const seenUrls = new Set<string>();
+    const seenIds = new Set<string>();
     const matches = [];
-    try {
-      for (let rank = 0; rank < MAX_TEXT_MATCHES; rank++) {
-        const row = await readLegacyDocument(ctx, async () => {
-          const next = await iterator.next();
-          return next.done ? null : next.value;
-        });
-        if (!row) break;
-        if (!isStrongTextMatch(required, row)) continue;
-        const card = await resolveArticleCard(ctx, row);
-        if (!card) continue;
-        // The same page saved twice is one choice.
-        if (seenUrls.has(card.url)) continue;
-        seenUrls.add(card.url);
-        matches.push({
-          rank,
-          articleId: card._id,
-          title: card.title,
-          author: card.author ?? null,
-          source: host(card.url) ?? null,
-          url: card.url,
-          minutes: card.estimatedReadMinutes ?? null,
-          status: await readStatus(ctx, userId, card._id),
-        });
+    // At most MAX_TEXT_MATCHES article bodies are read, across every form
+    let rank = 0;
+    for (const indexText of forms) {
+      if (rank >= MAX_TEXT_MATCHES) break;
+      // Only `articles` holds the text; the card table keeps headers alone.
+      const source = ctx.db
+        .query("articles")
+        .withSearchIndex("search_content", (q) =>
+          q
+            .search("content", indexText)
+            .eq("userId", userId)
+            .eq("extractionStatus", "extracted"),
+        );
+      const iterator = source[Symbol.asyncIterator]();
+      try {
+        for (; rank < MAX_TEXT_MATCHES; rank++) {
+          const row = await readLegacyDocument(ctx, async () => {
+            const next = await iterator.next();
+            return next.done ? null : next.value;
+          });
+          if (!row) break;
+          if (seenIds.has(row._id)) continue;
+          seenIds.add(row._id);
+          if (!isStrongTextMatch(required, row)) continue;
+          const card = await resolveArticleCard(ctx, row);
+          if (!card) continue;
+          // The same page saved twice is one choice.
+          if (seenUrls.has(card.url)) continue;
+          seenUrls.add(card.url);
+          matches.push({
+            rank,
+            articleId: card._id,
+            title: card.title,
+            author: card.author ?? null,
+            source: host(card.url) ?? null,
+            url: card.url,
+            minutes: card.estimatedReadMinutes ?? null,
+            status: await readStatus(ctx, userId, card._id),
+          });
+        }
+      } finally {
+        await iterator.return?.();
       }
-    } finally {
-      await iterator.return?.();
     }
     return matches
       .sort(
