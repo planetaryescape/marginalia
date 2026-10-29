@@ -383,6 +383,42 @@ it("preserves legacy copy confirmation as hashes and reads old oversized bodies 
   expect(threads.page[0].legacyCopies).toContain(
     notes.page.find((row) => row._id === ids.note)?.legacyCopy,
   );
+  // An answer with code-like text matches the escaped copy the old button made
+  const code = await t.run(async (ctx) => ({
+    note: await ctx.db.insert("userNotes", {
+      articleId,
+      userId: "default_user",
+      selectedText: "generics",
+      content: "<h3>Explain</h3><p>Use Array&lt;T&gt; for a list.</p>",
+      contentPlain: "Explain\n\nUse Array<T> for a list.",
+      createdAt: 3,
+      updatedAt: 3,
+    }),
+    thread: await ctx.db.insert("companionThreads", {
+      articleId,
+      userId: "default_user",
+      mode: "explain",
+      selection: "generics",
+      turns: [{ role: "assistant", content: "Use Array<T> for a list." }],
+      createdAt: 3,
+      updatedAt: 3,
+    }),
+  }));
+  const codeNotes = await owner.query(api.userNotes.listPreviewsByArticle, {
+    articleId,
+    paginationOpts: { numItems: 25, cursor: null },
+  });
+  const codeThreads = await owner.query(
+    api.companionThreads.listPreviewsByArticle,
+    { articleId, paginationOpts: { numItems: 25, cursor: null } },
+  );
+  const codeCopy = codeNotes.page.find(
+    (row) => row._id === code.note,
+  )?.legacyCopy;
+  expect(codeCopy).toBeDefined();
+  expect(
+    codeThreads.page.find((row) => row._id === code.thread)?.legacyCopies,
+  ).toContain(codeCopy);
   const old = await owner.query(api.userNotes.getBody, {
     noteId: ids.oversized,
   });

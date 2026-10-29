@@ -92,6 +92,9 @@ const plainText = (html: string) =>
   unescapeHtml(html.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
+// An answer is plain text the old button escaped into the copy, so text such
+// as `Array<T>` is words to keep, not a tag to strip
+const plainAnswer = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /**
  * Whether the copy's body is a thread's assistant answers. The old button
@@ -104,7 +107,7 @@ function bodyMatches(bodyHtml: string, thread: Doc<"companionThreads">) {
     .filter((t) => t.role === "assistant")
     .map((t) => t.content.trim());
   return answers.some(
-    (_, k) => plainText(answers.slice(0, k + 1).join("\n\n")) === body,
+    (_, k) => plainAnswer(answers.slice(0, k + 1).join("\n\n")) === body,
   );
 }
 

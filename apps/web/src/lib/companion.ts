@@ -16,7 +16,7 @@ import {
   writeAnswers,
 } from "./companion-session";
 import { failureSentence } from "./failure-copy";
-import { occurrencesBefore, senseOf, sentenceAround } from "./lookups";
+import { occurrencesBefore, senseOf, sentenceAround, termOf } from "./lookups";
 import { paragraphIndexOf } from "./paragraphs";
 import { preparedAsk } from "./prepared-ask";
 import { type ReaderSettings, webSearchEnabled } from "./reader-settings";
@@ -58,6 +58,12 @@ export interface CompanionThread {
   syncError?: string;
   /** Which match of the selected words in its paragraph was selected. */
   occurrence?: number;
+  /**
+   * The same, counting the term without its surrounding punctuation, as the
+   * lookup log's key does: "bass," and "bass." in one sentence are the first
+   * and second "bass", not two first matches that the log would merge.
+   */
+  wordOccurrence?: number;
   /** The last paragraph the selection crosses, when it crosses more than one. */
   paragraphEnd?: number;
   /** The last completed transcript: what a refresh restores, however a follow-up ends. */
@@ -136,7 +142,7 @@ export async function streamFromConvex(
 }
 
 /** Which match of the selected words in its paragraph the range is. */
-function occurrenceOf(range: Range): number {
+function occurrenceOf(range: Range, term = rangeText(range)): number {
   const paragraph = (
     range.startContainer instanceof Element
       ? range.startContainer
@@ -146,7 +152,7 @@ function occurrenceOf(range: Range): number {
   const before = document.createRange();
   before.selectNodeContents(paragraph);
   before.setEnd(range.startContainer, range.startOffset);
-  return occurrencesBefore(rangeText(before), rangeText(range));
+  return occurrencesBefore(rangeText(before), term);
 }
 
 /** The last paragraph a selection crosses, when it crosses more than one. */
@@ -175,6 +181,7 @@ const toStored = (a: CompanionThread): StoredAnswer => ({
   turns: a.doneTurns ?? a.turns,
   model: a.model ?? null,
   occurrence: a.occurrence,
+  wordOccurrence: a.wordOccurrence,
   paragraphEnd: a.paragraphEnd,
   legacyId: a.legacyId,
 });
@@ -596,7 +603,7 @@ export function useCompanion({
           word: base.selection,
           sentence: sentence ?? "",
           paragraphIndex: base.paragraphIndex ?? undefined,
-          occurrence: base.occurrence ?? 0,
+          occurrence: base.wordOccurrence ?? base.occurrence ?? 0,
           sense: senseOf(answer),
         }).catch((error) => console.error("Couldn't log the lookup", error));
     },
@@ -659,6 +666,10 @@ export function useCompanion({
             ? null
             : paragraphIndexOf(args.range.startContainer),
           occurrence: occurrenceOf(args.range),
+          wordOccurrence: occurrenceOf(
+            args.range,
+            termOf(rangeText(args.range)) || rangeText(args.range),
+          ),
           paragraphEnd: paragraphEndOf(args.range),
           turns: [],
           status: "streaming",

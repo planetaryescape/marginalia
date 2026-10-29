@@ -44,6 +44,9 @@ const plainHtml = (html: string) =>
   unescapeHtml(html.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
+// An answer is plain text the old button escaped into the copy, so text such
+// as `Array<T>` is words to keep, not a tag to strip
+const plainAnswer = (text: string) => text.replace(/\s+/g, " ").trim();
 
 export async function notePreview(row: Doc<"userNotes">) {
   // Preserve the old copy detector without sending HTML or transcript history.
@@ -92,7 +95,7 @@ export async function threadPreview(row: Doc<"companionThreads">) {
         sha256Hex(
           JSON.stringify([
             heading,
-            plainHtml(answers.slice(0, index + 1).join("\n\n")),
+            plainAnswer(answers.slice(0, index + 1).join("\n\n")),
           ]),
         ),
       ),
