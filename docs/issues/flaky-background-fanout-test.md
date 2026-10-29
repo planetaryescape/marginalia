@@ -14,6 +14,10 @@ Checked against `origin/main` 8d7408a (branch `fix/flaky-fanout`). No failure re
 
 The test calls `t.finishAllScheduledFunctions(vi.runAllTimers)` with fake timers. convex-test's `finishAllScheduledFunctions` (`node_modules/convex-test/dist/index.js`, around line 1828) pumps timers through at most 10000 `MessageChannel` yields and throws if a scheduled action has not settled by then. That budget is real time, so a slow first import of `pollFeeds` on a loaded machine could in principle exhaust it. This is a theory. No run has shown that error, and no run has captured one.
 
+## Not seen again, 2026-10-28
+
+Three full backend runs on 2026-10-28, under load, failed only in large-data tests that time out at 5 s (`tagVocabulary`, `currentReportingMetadata`, `reportingTags` and others). `background.test.ts` passed in all of them.
+
 ## Next step
 
 If it fails again, keep the full output. The file is `packages/backend/convex/background.test.ts` at lines 104-126. Record the exact assertion or thrown error, the commit, and the machine load. Check whether the error mentions the 10000 pump limit before changing anything.

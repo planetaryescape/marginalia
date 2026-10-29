@@ -315,3 +315,67 @@ it("lists the signed-in reader's kept answers newest first, without embeddings o
   const others = await f.reader.query(api.companionThreads.listKept, {});
   expect(others.map((r) => r.userId)).toEqual([f.readerLibraryId]);
 });
+
+it("refuses a stale tab's transcript, and takes a follow-up or a regenerated answer", async () => {
+  const t = await ownerTest(modules);
+  const articleId = await t.run((ctx) =>
+    ctx.db.insert("articles", {
+      userId: "default_user",
+      guid: "two-tabs",
+      url: "https://example.com/two-tabs",
+      title: "Two tabs",
+      extractionStatus: "extracted",
+      annotationStatus: "annotated",
+      createdAt: 1,
+    }),
+  );
+  const a0 = { role: "assistant" as const, content: "First answer." };
+  const u1 = { role: "user" as const, content: "And then?" };
+  const a1 = { role: "assistant" as const, content: "Then this." };
+  const threadId = await t.mutation(api.companionThreads.create, {
+    articleId,
+    mode: "explain",
+    selection: "tabs",
+    turns: [a0],
+  });
+  // Tab A asks a follow-up
+  await t.mutation(api.companionThreads.updateTurns, {
+    threadId,
+    turns: [a0, u1, a1],
+  });
+  // Tab B never saw it and asks its own: same length, different turns
+  await expect(
+    t.mutation(api.companionThreads.updateTurns, {
+      threadId,
+      turns: [
+        a0,
+        { role: "user", content: "Something else?" },
+        { role: "assistant", content: "Other." },
+      ],
+    }),
+  ).rejects.toThrow("This answer changed in another tab. Reload to see it.");
+  // Or sends what it had, which is shorter
+  await expect(
+    t.mutation(api.companionThreads.updateTurns, { threadId, turns: [a0] }),
+  ).rejects.toThrow("changed in another tab");
+  // Tab A regenerates the last answer, then asks again
+  const regenerated = { role: "assistant" as const, content: "Then that." };
+  await t.mutation(api.companionThreads.updateTurns, {
+    threadId,
+    turns: [a0, u1, regenerated],
+  });
+  await t.mutation(api.companionThreads.updateTurns, {
+    threadId,
+    turns: [a0, u1, regenerated, u1, a1],
+  });
+  const [saved] = await t.query(api.companionThreads.listByArticle, {
+    articleId,
+  });
+  expect(saved.turns.map((turn) => turn.content)).toEqual([
+    "First answer.",
+    "And then?",
+    "Then that.",
+    "And then?",
+    "Then this.",
+  ]);
+});

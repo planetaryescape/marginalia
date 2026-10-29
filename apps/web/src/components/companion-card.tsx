@@ -175,7 +175,7 @@ export function CompanionCard({
       {thread.syncFailed && (
         <div className="mt-3 text-[13px]">
           <InlineError
-            message="Couldn't update the kept answer."
+            message={thread.syncError ?? "Couldn't update the kept answer."}
             onRetry={onResync}
           />
         </div>

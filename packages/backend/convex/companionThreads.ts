@@ -1,5 +1,5 @@
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { ownedArticleCard as ownedArticle, requireArticle } from "./access";
 import { internalMutation, internalQuery, mutation, query } from "./functions";
@@ -244,6 +244,21 @@ export const updateTurns = mutation({
     if (thread?.userId !== ctx.readerId) throw new Error("Thread not found");
     validateTranscript(args.turns);
     if (args.model) assertBytes(args.model, 512, "Model");
+    // A follow-up extends the record and Regenerate replaces only its last
+    // turn. Anything else is a stale copy from another tab, whose write would
+    // drop what that tab never saw.
+    const settled = thread.turns.slice(0, -1);
+    const extendsRecord =
+      args.turns.length >= thread.turns.length &&
+      settled.every(
+        (turn, index) =>
+          args.turns[index].role === turn.role &&
+          args.turns[index].content === turn.content,
+      );
+    if (!extendsRecord)
+      throw new ConvexError(
+        "This answer changed in another tab. Reload to see it.",
+      );
     await ctx.db.patch("companionThreads", args.threadId, {
       turns: args.turns,
       model: args.model,
