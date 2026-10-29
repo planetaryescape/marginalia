@@ -278,7 +278,8 @@ describe("following", () => {
     // The block's middle lands 40% down the viewport
     expect(call.top).toBe(1500 + 40 - window.innerHeight * 0.4);
     expect(listen.following).toBe(true);
-    // Once landed, the next document scroll is the reader's
+    // Once landed (the page has been still for a moment), the next scroll is the reader's
+    await elapse(200);
     await scrollByUser(0);
     expect(listen.following).toBe(false);
   });
@@ -325,6 +326,123 @@ describe("following", () => {
     // It has landed: anything after is the reader's
     await scrollTo_(target + 300);
     expect(listen.following).toBe(false);
+  });
+
+  it("keeps ownership through the final frames of a smooth scroll that has no scrollend", async () => {
+    mountArticle();
+    place(0, 2000);
+    smooth();
+    await render();
+    await start(0);
+    const target = 2000 + 40 - window.innerHeight * 0.4;
+    for (const y of [target - 40, target - 2, target - 1, target]) {
+      await scrollTo_(y);
+      await elapse(16);
+      expect(listen.following).toBe(true);
+    }
+    // Still for a moment: it has finished, and the next scroll is the reader's
+    await elapse(200);
+    await scrollTo_(target + 20);
+    expect(listen.following).toBe(false);
+  });
+
+  it("clamps the target to what the document can scroll, so a reader's scroll after arriving unfollows", async () => {
+    const root = document.documentElement;
+    Object.defineProperty(root, "scrollHeight", {
+      configurable: true,
+      value: 2000,
+    });
+    Object.defineProperty(root, "clientHeight", {
+      configurable: true,
+      value: 800,
+    });
+    try {
+      mountArticle();
+      // Asks for 1570, but the document ends at 1200
+      place(0, 1570 - 800 + 267.2);
+      smooth();
+      scrollY = 800;
+      await render();
+      await start(0);
+      expect((scrollTo.mock.calls[0][0] as ScrollToOptions).top).toBe(1200);
+      await scrollTo_(1000);
+      await scrollTo_(1200);
+      expect(listen.following).toBe(true);
+      await elapse(100);
+      await scrollTo_(1100);
+      expect(listen.following).toBe(false);
+    } finally {
+      Reflect.deleteProperty(root, "scrollHeight");
+      Reflect.deleteProperty(root, "clientHeight");
+    }
+  });
+
+  it("doesn't arm a scroll that can't move, so the reader's next scroll isn't swallowed", async () => {
+    const root = document.documentElement;
+    Object.defineProperty(root, "scrollHeight", {
+      configurable: true,
+      value: 2000,
+    });
+    Object.defineProperty(root, "clientHeight", {
+      configurable: true,
+      value: 800,
+    });
+    try {
+      mountArticle();
+      place(0, 2000);
+      smooth();
+      scrollY = 1200;
+      await render();
+      await start(0);
+      expect(scrollTo).not.toHaveBeenCalled();
+      await scrollTo_(1100);
+      expect(listen.following).toBe(false);
+    } finally {
+      Reflect.deleteProperty(root, "scrollHeight");
+      Reflect.deleteProperty(root, "clientHeight");
+    }
+  });
+
+  it("lands a tall paragraph below the phone toolbar, safe-area inset included", async () => {
+    const height = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 852,
+    });
+    try {
+      mountArticle();
+      // The toolbar takes 119px: 59 of inset and 60 of bar
+      const toolbar = document.createElement("div");
+      toolbar.className = "reader-toolbar";
+      toolbar.getBoundingClientRect = () =>
+        ({ top: 0, bottom: 119 }) as DOMRect;
+      document.body.append(toolbar);
+      place(0, 2000, 500);
+      await render();
+      await start(0);
+      const top = (scrollTo.mock.calls[0][0] as ScrollToOptions).top ?? 0;
+      // Where the block's top lands on screen
+      expect(2000 - top).toBeGreaterThanOrEqual(119);
+    } finally {
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: height,
+      });
+    }
+  });
+
+  it("keeps a block that fits clear of the phone's bottom bar", async () => {
+    mountArticle();
+    const bar = document.createElement("nav");
+    bar.className = "mobile-reader-bar";
+    bar.getBoundingClientRect = () =>
+      ({ top: 700, bottom: 768, height: 68 }) as DOMRect;
+    document.body.append(bar);
+    // Its bottom edge at 720 sits behind the bar, so the voice scrolls to it
+    place(0, 640, 80);
+    await render();
+    await start(0);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
   });
 
   it("a reader's scroll in the opposite direction, or past the target, during the voice's scroll unfollows", async () => {
