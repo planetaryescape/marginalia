@@ -8,11 +8,40 @@ export interface CommentaryCandidate {
 }
 
 function bounds(referenceKey: string, reference: BibleReference) {
+  if (
+    reference.endChapter !== reference.chapter ||
+    reference.verse === undefined
+  )
+    return null;
   const match = new RegExp(
-    `^${reference.bookId}\\.${reference.chapter}\\.(\\d+)(?:-${reference.bookId}\\.${reference.chapter}\\.(\\d+))?$`,
+    `^${reference.bookId}\\.(\\d+)\\.(\\d+)(?:-${reference.bookId}\\.(\\d+)\\.(\\d+))?$`,
   ).exec(referenceKey);
   if (!match) return null;
-  return { start: Number(match[1]), end: Number(match[2] ?? match[1]) };
+  const startChapter = Number(match[1]);
+  const startVerse = Number(match[2]);
+  const endChapter = Number(match[3] ?? startChapter);
+  const endVerse = Number(match[4] ?? startVerse);
+  if (
+    startChapter > reference.chapter ||
+    endChapter < reference.chapter ||
+    startChapter > endChapter ||
+    (startChapter === endChapter && startVerse > endVerse)
+  )
+    return null;
+
+  if (startChapter === endChapter) return { start: startVerse, end: endVerse };
+
+  // Score only this selected chapter range while retaining the source's full identity.
+  const selectedEnd = reference.endVerse ?? reference.verse;
+  const start =
+    startChapter < reference.chapter
+      ? reference.verse
+      : Math.max(reference.verse, startVerse);
+  const end =
+    endChapter > reference.chapter
+      ? selectedEnd
+      : Math.min(selectedEnd, endVerse);
+  return start <= end ? { start, end } : null;
 }
 
 function sameChapterRange(referenceKey: string) {
@@ -263,7 +292,10 @@ export function selectRelatedReferences(
 ) {
   const unsupplied: string[] = [];
   const alreadyCovered: string[] = [];
-  for (const referenceKey of rankRelatedReferences(records, options.reference)) {
+  for (const referenceKey of rankRelatedReferences(
+    records,
+    options.reference,
+  )) {
     const isAlreadyCovered = (() => {
       const candidate = sameChapterRange(referenceKey);
       if (!candidate) return false;
