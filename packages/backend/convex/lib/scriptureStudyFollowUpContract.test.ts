@@ -80,4 +80,12 @@ it.each([
   expect(studyFollowUpSchema(["web-1"]).safeParse(response).success).toBe(
     false,
   );
+  expect(
+    studyFollowUpSchema(["web-1"]).safeParse({
+      answer: "The text supports this explanation.",
+      evidenceCoverage: "in_saved_sources",
+      evidenceIds: ["web-1"],
+      requestedReferences: ["Galatians 5:13"],
+    }).success,
+  ).toBe(false);
 });

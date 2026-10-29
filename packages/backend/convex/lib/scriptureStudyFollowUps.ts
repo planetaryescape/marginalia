@@ -45,6 +45,7 @@ export function studyFollowUpSchema(evidenceIds: string[]) {
     throw new Error("No saved study evidence is available.");
   return studyAnswerSchema
     .extend({ evidenceIds: z.array(z.enum(evidenceIds)).max(8) })
+    .strict()
     .refine(
       (answer) =>
         answer.evidenceCoverage === "outside_saved_sources" ||
@@ -68,7 +69,11 @@ export function studyFollowUpResponseSchema(evidenceIds: string[]) {
           ? value.answer === null &&
             value.evidenceCoverage === null &&
             value.evidenceIds.length === 0
-          : answer.safeParse(value).success,
+          : answer.safeParse({
+              answer: value.answer,
+              evidenceCoverage: value.evidenceCoverage,
+              evidenceIds: value.evidenceIds,
+            }).success,
       { message: "Return either a cited answer or only evidence requests." },
     );
 }

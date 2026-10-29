@@ -95,7 +95,11 @@ export const generate = internalAction({
           token,
           answer: studyFollowUpSchema(
             claim.evidence.map((item) => item.evidenceId),
-          ).parse(response),
+          ).parse({
+            answer: response.answer,
+            evidenceCoverage: response.evidenceCoverage,
+            evidenceIds: response.evidenceIds,
+          }),
         });
         return;
       }
