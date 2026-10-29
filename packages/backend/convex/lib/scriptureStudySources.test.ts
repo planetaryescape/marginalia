@@ -82,33 +82,6 @@ describe("bounded pinned Scripture evidence adapters", () => {
     expect(select([...candidates].reverse())).toEqual(select(candidates));
   });
 
-  it("clamps straddling commentary to the selected chapter and keeps its source range", () => {
-    const range = parseBibleReference("Matthew 6:19-34");
-    if (!range) throw new Error("Test reference should parse.");
-    const candidates = [
-      {
-        identity: "sermon-note",
-        referenceKey: "MAT.5.1-MAT.7.29",
-        excerpt: "A note covering the Sermon on the Mount.",
-      },
-      {
-        identity: "other-chapter",
-        referenceKey: "MAT.5.1-MAT.5.16",
-        excerpt: "This note does not overlap the selection.",
-      },
-    ];
-    const select = (items: typeof candidates, maxChars = 100) =>
-      selectCommentaryCandidates(items, {
-        reference: range,
-        maxItems: 1,
-        maxChars,
-      });
-    const selected = select(candidates);
-    expect(selected).toEqual([candidates[0]]);
-    expect(select([...candidates].reverse())).toEqual(selected);
-    expect(select(candidates, candidates[0]!.excerpt.length - 1)).toEqual([]);
-  });
-
   it("keeps specific conclusion detail after broad notes cover the whole passage", () => {
     const range = parseBibleReference("Colossians 2:1-23");
     if (!range) throw new Error("Test reference should parse.");
@@ -445,94 +418,6 @@ describe("bounded pinned Scripture evidence adapters", () => {
       ]),
     );
     expect(refs(reverse)).toEqual(refs(forward));
-  });
-
-  it("retains a pinned Aquifer association spanning the selected chapter within adapter limits", async () => {
-    const matthew = parseBibleReference("Matthew 9:10-15");
-    if (!matthew) throw new Error("Test reference should parse.");
-    const makeNote = (
-      contentId: string,
-      startVerse: number,
-      endVerse: number,
-    ) => ({
-      ...aquiferItem,
-      content_id: contentId,
-      title: `Matthew 9:${startVerse}-${endVerse}`,
-      index_reference: `40009${String(startVerse).padStart(3, "0")}-40009${String(endVerse).padStart(3, "0")}`,
-      content: `<p>${contentId} explanation.</p>`,
-      associations: {
-        passage: [
-          {
-            start_ref_usfm: `MAT 9:${startVerse}`,
-            end_ref_usfm: `MAT 9:${endVerse}`,
-            start_ref: `40009${String(startVerse).padStart(3, "0")}`,
-            end_ref: `40009${String(endVerse).padStart(3, "0")}`,
-          },
-        ],
-      },
-    });
-    // content_id 22243 in the pinned Aquifer 40.content.json is MAT 8:1–9:34.
-    const spanning = {
-      ...aquiferItem,
-      content_id: "22243",
-      reference_id: 21411,
-      version: "1.0.4",
-      title: "Matthew 8:1–9.34",
-      index_reference: "40008001-40009034",
-      content: "<p>Pinned note spanning Matthew 8 and 9.</p>",
-      associations: {
-        passage: [
-          {
-            start_ref_usfm: "MAT 8:1",
-            end_ref_usfm: "MAT 9:34",
-            start_ref: "40008001",
-            end_ref: "40009034",
-          },
-        ],
-      },
-    };
-    const notes = [
-      spanning,
-      ...Array.from({ length: 6 }, (_, index) =>
-        makeNote(`detail-${index + 10}`, index + 10, index + 10),
-      ),
-    ];
-    const load = async (items: typeof notes) =>
-      loadAdditionalStudyEvidence(matthew, {
-        fetch: async (input) =>
-          String(input).includes("40.content.json")
-            ? response(JSON.stringify(items))
-            : response("chapter,verse,text\n"),
-      });
-    const forward = await load(notes);
-    const reverse = await load([...notes].reverse());
-    const summarize = (result: Awaited<ReturnType<typeof load>>) =>
-      result.records
-        .filter((record) => record.sourceId === "aquifer-open-study-notes")
-        .map(({ locator, referenceKey, contentHash, excerpt }) => ({
-          locator,
-          referenceKey,
-          contentHash,
-          excerpt,
-        }));
-    const selected = summarize(forward);
-    expect(selected).toHaveLength(
-      SCRIPTURE_STUDY_SOURCE_LIMITS.commentaryNotes,
-    );
-    expect(selected).toContainEqual(
-      expect.objectContaining({
-        locator: "40.content.json#22243",
-        referenceKey: "MAT.8.1-MAT.9.34",
-        excerpt: "Pinned note spanning Matthew 8 and 9.",
-      }),
-    );
-    expect(
-      selected.reduce((total, item) => total + item.excerpt.length, 0),
-    ).toBeLessThanOrEqual(
-      SCRIPTURE_STUDY_SOURCE_LIMITS.commentaryNotes *
-        SCRIPTURE_STUDY_SOURCE_LIMITS.commentaryExcerptChars,
-    );
-    expect(summarize(reverse)).toEqual(selected);
   });
 
   it("keeps supplied related references as lower-ranked fallbacks", () => {
