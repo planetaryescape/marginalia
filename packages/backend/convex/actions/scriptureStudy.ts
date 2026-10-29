@@ -440,7 +440,7 @@ export const generate = internalAction({
       });
       if (sourceRecords.length < sourceLoad.records.length)
         coverageWarnings.push(
-          "Some verified commentary or edition comparisons were omitted by the shared evidence record and character budgets.",
+          "Some verified commentary or edition comparisons were omitted by source selection and shared evidence limits.",
         );
       for (const record of sourceRecords) {
         const registered = sourceRecordIdentity(record);
@@ -490,7 +490,7 @@ export const generate = internalAction({
       if (!verifiedRelatedCandidates.length)
         coverageWarnings.push(
           sourceRecords.some((record) => record.relatedReferences?.length)
-            ? "No related WEB reference remained after source-reference validation and supplied-context deduplication."
+            ? "No related WEB reference remained after source-reference validation."
             : "No related WEB reference was verified from supplied study notes; connections are limited to the supplied chapter context.",
         );
       for (const [index, candidate] of verifiedRelatedCandidates.entries()) {

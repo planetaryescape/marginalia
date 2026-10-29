@@ -174,6 +174,45 @@ describe("bounded pinned Scripture evidence adapters", () => {
         maxChars: 5,
       }),
     ).toEqual([]);
+    const comparison = {
+      ...note,
+      sourceId: "byztxt-printed-edition-variants",
+      locator: "ACT.csv:21:6:NA",
+      excerpt: "A comparison.",
+    };
+    for (const records of [
+      [note, comparison],
+      [comparison, note],
+    ]) {
+      expect(
+        selectStudySourceRecords(records, {
+          reference: range,
+          maxRecords: 1,
+          maxChars: 100,
+        }),
+      ).toEqual([note]);
+      expect(
+        selectStudySourceRecords(records, {
+          reference: range,
+          maxRecords: 2,
+          maxChars: note.excerpt.length,
+        }),
+      ).toEqual([note]);
+      expect(
+        selectStudySourceRecords(records, {
+          reference: range,
+          maxRecords: 2,
+          maxChars: 100,
+        }),
+      ).toEqual([note, comparison]);
+    }
+    expect(
+      selectStudySourceRecords([comparison], {
+        reference: range,
+        maxRecords: 1,
+        maxChars: 100,
+      }),
+    ).toEqual([comparison]);
   });
 
   it("allocates the same source identities when action evidence order changes", () => {

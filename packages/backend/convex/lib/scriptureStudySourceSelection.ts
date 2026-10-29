@@ -174,11 +174,6 @@ export function selectStudySourceRecords(
   const comparison = records
     .filter((record) => record.sourceId === "byztxt-printed-edition-variants")
     .sort((a, b) => compareText(a.referenceKey, b.referenceKey))[0];
-  const includeComparison = Boolean(
-    comparison &&
-      options.maxRecords > 0 &&
-      comparison.excerpt.length <= options.maxChars,
-  );
   const commentCandidates = records
     .filter((record) => record.sourceId === "aquifer-open-study-notes")
     .map((record) => ({
@@ -192,6 +187,18 @@ export function selectStudySourceRecords(
       referenceKey: record.referenceKey,
       excerpt: record.excerpt,
     }));
+  // Scarcity must not let a comparison displace the passage's only explanation.
+  const firstComment = selectCommentaryCandidates(commentCandidates, {
+    reference: options.reference,
+    maxItems: 1,
+    maxChars: options.maxChars,
+  })[0];
+  const includeComparison = Boolean(
+    comparison &&
+      options.maxRecords > Number(Boolean(firstComment)) &&
+      comparison.excerpt.length + (firstComment?.excerpt.length ?? 0) <=
+        options.maxChars,
+  );
   const comments = selectCommentaryCandidates(commentCandidates, {
     reference: options.reference,
     maxItems: options.maxRecords - Number(includeComparison),
