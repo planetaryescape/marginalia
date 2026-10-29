@@ -29,7 +29,11 @@ const record = vi.hoisted(() => vi.fn());
 const noteHits = vi.hoisted(() => ({ current: [] as unknown[] }));
 const titleQuery = vi.hoisted(() => vi.fn());
 // One object for every render, as the real client is, or the hook's effect reruns forever.
-const convexClient = vi.hoisted(() => ({ query: titleQuery }));
+const textQuery = vi.hoisted(() => vi.fn());
+const convexClient = vi.hoisted(() => ({
+  query: (ref: unknown, args: unknown) =>
+    ref === "text" ? textQuery(args) : titleQuery(args),
+}));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("next/link", () => ({
@@ -63,7 +67,7 @@ vi.mock("@marginalia/backend/convex/_generated/api", () => ({
     savedArticles: { save: "save" },
     sessions: { recordInteraction: "record" },
     notesSearch: { find: "notes" },
-    titleSearch: { matchTitles: "titles" },
+    titleSearch: { matchTitles: "titles", matchText: "text" },
     home: { counts: "counts" },
   },
 }));
@@ -108,6 +112,8 @@ beforeEach(() => {
   noteHits.current = [];
   titleQuery.mockReset();
   titleQuery.mockResolvedValue([]);
+  textQuery.mockReset();
+  textQuery.mockResolvedValue([]);
   addByUrl.mockReset();
   suggestBible.mockReset().mockResolvedValue({ passages: [], notice: null });
   openBible.mockReset().mockResolvedValue("passageid");
@@ -527,6 +533,88 @@ describe("topic picker", () => {
     });
     expect(title()).toBe("Aged rinds");
     await act(async () => late([find("t1", "Cheese notes", 4)]));
+    expect(title()).toBe("Aged rinds");
+  });
+
+  it("shows a text match first when no title matches, and find follows without it", async () => {
+    textQuery.mockResolvedValue([find("x1", "On patience", 6)]);
+    await show();
+    await type("sourdough starters");
+    await settle();
+    expect(title()).toBe("On patience");
+    expect(host.textContent).toContain("1 of 1");
+    await answer("find", {
+      more: false,
+      matches: [
+        find("a1", "Aged rinds", 5),
+        find("x1", "On patience", 6),
+        find("b2", "Milk", 6),
+      ],
+    });
+    expect(title()).toBe("On patience");
+    expect(host.textContent).toContain("1 of 3");
+    await click("Another");
+    expect(title()).toBe("Aged rinds");
+    await click("Another");
+    expect(title()).toBe("Milk");
+  });
+
+  it("prefers a title match to a text match", async () => {
+    titleQuery.mockResolvedValue([find("t1", "Slow cheese making", 9)]);
+    textQuery.mockResolvedValue([find("x1", "On patience", 6)]);
+    await show();
+    await type("slow chee");
+    await settle();
+    expect(title()).toBe("Slow cheese making");
+  });
+
+  it("prefers a title match even when the text result arrives first", async () => {
+    let lateTitle: (hits: unknown[]) => void = () => {};
+    titleQuery.mockReturnValue(new Promise((resolve) => (lateTitle = resolve)));
+    textQuery.mockResolvedValue([find("x1", "On patience", 6)]);
+    await show();
+    await type("slow chee");
+    await settle();
+    expect(title()).toBeUndefined();
+    await act(async () => lateTitle([find("t1", "Slow cheese making", 9)]));
+    expect(title()).toBe("Slow cheese making");
+  });
+
+  it("shows the text match once the title query settles without a strong match", async () => {
+    let lateTitle: (hits: unknown[]) => void = () => {};
+    titleQuery.mockReturnValue(new Promise((resolve) => (lateTitle = resolve)));
+    textQuery.mockResolvedValue([find("x1", "On patience", 6)]);
+    await show();
+    await type("sourdough");
+    await settle();
+    expect(title()).toBeUndefined();
+    await act(async () => lateTitle([]));
+    expect(title()).toBe("On patience");
+  });
+
+  it("keeps the first card when the other match lands later", async () => {
+    let lateText: (hits: unknown[]) => void = () => {};
+    titleQuery.mockResolvedValue([find("t1", "Slow cheese making", 9)]);
+    textQuery.mockReturnValue(new Promise((resolve) => (lateText = resolve)));
+    await show();
+    await type("slow chee");
+    await settle();
+    await act(async () => lateText([find("x1", "On patience", 6)]));
+    expect(title()).toBe("Slow cheese making");
+  });
+
+  it("drops a text match that arrives after the search has answered", async () => {
+    let late: (hits: unknown[]) => void = () => {};
+    textQuery.mockReturnValue(new Promise((resolve) => (late = resolve)));
+    await show();
+    await type("sourdough");
+    await settle();
+    await answer("find", {
+      more: false,
+      matches: [find("a1", "Aged rinds", 5)],
+    });
+    expect(title()).toBe("Aged rinds");
+    await act(async () => late([find("x1", "On patience", 6)]));
     expect(title()).toBe("Aged rinds");
   });
 

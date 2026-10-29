@@ -65,7 +65,7 @@ function settleInvalidated(current: TopicSearch): TopicSearch {
 }
 
 /**
- * A title query runs beside the first request and may show one card at once.
+ * A title query and a text query run beside the first request and may show one card at once.
  * Two requests per query. `library/find` (embedding and vector search, no
  * model) gives the cards; `library/search` (the model's ranking) then gives
  * the reason lines. A backend without `find` answers 404, and the explained
@@ -160,44 +160,63 @@ export function useTopicSearch(
         ),
       ).matches;
 
-    // A strong title match is the first card without waiting for the query to
-    // be embedded. Once `find` has answered the first card is already on
-    // screen, so a late title result is dropped rather than put in front.
-    let titleCard: TopicMatch | null = null;
+    // A strong title match, else a strong text match, is the first card
+    // without waiting for the query to be embedded. The first card
+    // to show stays: a card already on screen is never swapped for a better one, and
+    // once `find` has answered a late result is dropped rather than put in
+    // front. All of it is decided synchronously here, so nothing interleaves.
+    let firstCard: TopicMatch | null = null;
     let findLanded = false;
     const land = (ranked: TopicMatch[]) => {
       findLanded = true;
-      return titleFirst(titleCard, ranked);
+      return titleFirst(firstCard, ranked);
+    };
+    const showFirst = (strong: TopicMatch | null | undefined) => {
+      if (!strong || !current() || findLanded || firstCard) return;
+      firstCard = strong;
+      setState((current) =>
+        current.query === text && current.status === "loading"
+          ? {
+              query: text,
+              status: "ready",
+              matches: [strong],
+              more: false,
+              reasons: {},
+              explained: false,
+            }
+          : current,
+      );
     };
     const showTitle = async () => {
       try {
         const hits = await convex.query(api.titleSearch.matchTitles, {
           query: text,
         });
-        const strong = strongTitleMatch(text, hits);
-        if (!strong || !current() || findLanded) return;
-        titleCard = strong;
-        setState((current) =>
-          current.query === text && current.status === "loading"
-            ? {
-                query: text,
-                status: "ready",
-                matches: [strong],
-                more: false,
-                reasons: {},
-                explained: false,
-              }
-            : current,
-        );
+        showFirst(strongTitleMatch(text, hits));
       } catch {
         // The title match is a shortcut; the library search still answers.
+      }
+    };
+    // The server returns only strong text hits, so any hit may be shown. It
+    // waits for the title query to settle, so a title match always wins.
+    const showText = async (titleSettled: Promise<void>) => {
+      try {
+        const hits = await convex.query(api.titleSearch.matchText, {
+          query: text,
+        });
+        await titleSettled;
+        showFirst(hits[0]);
+      } catch {
+        // The text match is a shortcut; the library search still answers.
       }
     };
 
     const timer = window.setTimeout(
       async () => {
         if (!current()) return;
-        if (!cached) void showTitle();
+        if (!cached) {
+          void showText(showTitle());
+        }
         try {
           let find: CacheEntry["find"];
           try {
