@@ -26,7 +26,7 @@
     "The fixed-evidence harness isolates synthesis and cannot measure changes to live source allocation.",
     "A qualified human review remains necessary for disputed passage judgments."
   ],
-  "implementationSha": "b634713cd1a663aa0aab9ba492722f6b3f43bfa0",
+  "implementationSha": "6b8c56574953679933b01d2d802744dcd5d01141",
   "verification": {
     "baselineRegression": {
       "sourceSha": "8d02cce24056bdb557ca28e3dda52c3e53bf812a",
@@ -37,25 +37,25 @@
     },
     "candidateOfflineChecks": {
       "command": "bun test scripts/deep-study",
-      "passed": 23,
+      "passed": 27,
       "failed": 0,
-      "durationSeconds": 0.449,
+      "durationSeconds": 0.462,
       "queued": false
     },
     "backendTypecheck": {
-      "task": 669,
+      "task": 687,
       "status": "passed",
       "exitCode": 0
     },
     "evaluatorStrictTypecheck": {
-      "task": 670,
+      "task": 688,
       "status": "passed",
       "exitCode": 0
     },
     "scopedBiome": {
       "exitCode": 0
     },
-    "checkedAt": "2026-10-29T18:28:13.711504+00:00",
+    "checkedAt": "2026-10-29T18:38:33.099374+00:00",
     "diffCheck": {
       "exitCode": 0
     }
@@ -66,14 +66,17 @@
   },
   "checkedSourceHashes": {
     "package.json": "26ab74d28081cb5d5d7a082886ab90fa5547eab2aae35554bb9153ca8bbbe568",
-    "packages/backend/convex/lib/scriptureStudyEvaluationSchema.ts": "35b71e7871138faf892021d9ca0ca204b0a55b61fbe73a8b37f2091c22a36a07",
+    "packages/backend/convex/lib/scriptureStudyEvaluationSchema.ts": "052f4fe008f9325e45edad8c49b56ad9a2fa22e2df1a1991de473a5c1da611c3",
     "scripts/deep-study/scorecard.ts": "428e79ced3023692a12af0661e40e8f9540304d73e261f1c3b61ad8c33e71ef1",
-    "scripts/deep-study/scorecard.test.ts": "7bbff2c1fdaee10894bb44c5d5e30afbd5bf70a417be77e6e962ec240971882f"
+    "scripts/deep-study/scorecard.test.ts": "7bbff2c1fdaee10894bb44c5d5e30afbd5bf70a417be77e6e962ec240971882f",
+    "scripts/deep-study/generation.ts": "2ef1a320aba9ff81854266b3338b9200bdc24d9d4a9f300535a5832a19c660ec",
+    "scripts/deep-study/runner.test.ts": "17217dc032d69d78cc4388d52435dc66eb12f2f93e05ef00515015dfea51fa6e"
   },
   "rebase": {
     "previousImplementationSha": "ec624d5545a6d147fff437c79ca6cb061a78c542",
     "upstreamChange": "Documentation only (#85)",
-    "allImplementationFilesByteIdentical": true
+    "allImplementationFilesByteIdentical": true,
+    "comparisonImplementationAfterRebase": "b634713cd1a663aa0aab9ba492722f6b3f43bfa0"
   },
   "generationArgs": [
     "bun",
@@ -96,5 +99,47 @@
     "6000",
     "--out",
     "/tmp/marginalia-deep-study-quality-pilot-2"
-  ]
+  ],
+  "pricingPreflight": {
+    "checkedAt": "2026-10-29T18:35:59.266Z",
+    "endpoint": "https://openrouter.ai/api/v1/models",
+    "model": "google/gemini-3.8-flash",
+    "price": {
+      "prompt": 8.25e-7,
+      "completion": 4.125e-6,
+      "request": 0,
+      "listed": {
+        "prompt": 8.25e-7,
+        "completion": 4.125e-6,
+        "internal_reasoning": 4.125e-6,
+        "input_cache_read": 8.25e-8,
+        "input_cache_write": 4.16666666666667e-8,
+        "image": 8.25e-7,
+        "audio": 8.25e-7,
+        "input_audio_cache": 8.25e-8,
+        "web_search": 0.014
+      }
+    },
+    "reservationUsd": 0.5867169,
+    "maxEstimatedUsd": 1,
+    "validatedCatalogModels": [
+      "openrouter:anthropic/claude-haiku-5.5",
+      "openrouter:deepseek/deepseek-v4.1-flash",
+      "openrouter:openai/gpt-6-luna",
+      "openrouter:google/gemini-3.8-flash",
+      "openrouter:anthropic/claude-sonnet-5.5",
+      "openrouter:~openai/gpt-terra-latest"
+    ],
+    "modelCalls": 0
+  },
+  "pricingRepair": {
+    "observedBeforeFixSha": "7cd495ad09fc2d500f7daaff9d93f00965ce4f54",
+    "failure": "The selected Gemini record was rejected for its additional modality and reasoning pricing fields.",
+    "changes": [
+      "Validate current Gemini modality prices and cache TTL prices.",
+      "Take maximum text/cache and output/reasoning rates, including partial overrides.",
+      "Reserve and estimate flat per-request fees for all allowed dispatches."
+    ],
+    "primaryReference": "https://openrouter.ai/docs/guides/overview/models#pricing-object"
+  }
 }
