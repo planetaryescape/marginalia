@@ -1,0 +1,7 @@
+Deep Study regression check
+Commit checked: 7a8e4c006a5fa511b6fd29ef9cb1948fc88ef875
+Command: bun run --cwd packages/backend test -- convex/lib/scriptureStudySources.test.ts convex/scriptureStudy.test.ts --maxWorkers=2
+Output:
+  Test Files  2 passed (2)
+  Tests       46 passed (46)
+  Duration    10.97s

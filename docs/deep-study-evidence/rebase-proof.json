@@ -1,0 +1,13 @@
+{
+  "before": "d269ddce8c0d30b5252a7f74a6e6c418021a1dda",
+  "beforeBase": "dbb89cfbd1f0f501ad20d0056dd35d0ec5edf02c",
+  "after": "9b73b31fca589553630f49ec7662fab5686c7f30",
+  "afterBase": "e70e7b07ef1a9c65a37414d59976046e0e98243a",
+  "afterTree": "2110587c1830783a2465dab06e2263a10926a837",
+  "stablePatchId": "4a148298d7973d2e8f5313a5d1d27322c616dcd0",
+  "taskPatchUnchanged": true,
+  "taskFilesChangedByUpstream": [
+    "packages/backend/convex/schema.ts"
+  ],
+  "schemaChange": "Upstream feed-count fields; Deep-study additive field patch is unchanged."
+}

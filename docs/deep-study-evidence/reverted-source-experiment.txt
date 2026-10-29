@@ -1,0 +1,7 @@
+Deep Study regression check (failed test retained for diagnosis)
+Commit checked: 44cdcb7ec57d7b9adda00cb2b637ca632eadbed7
+Command: bun run --cwd packages/backend test -- convex/lib/scriptureStudySources.test.ts convex/scriptureStudy.test.ts --maxWorkers=2
+Result: exit 1; 2 test files (1 failed, 1 passed); 48 tests (47 passed, 1 failed); duration 7.95s.
+Failure: convex/lib/scriptureStudySources.test.ts > bounded pinned Scripture evidence adapters > retains a pinned Aquifer association spanning the selected chapter within adapter limits
+Assertion: expected selected records to contain locator 40.content.json#22243, referenceKey MAT.8.1-MAT.9.34, excerpt "Pinned note spanning Matthew 8 and 9.".
+Actual selected refs were MAT.9.10, MAT.9.13, MAT.9.15, MAT.9.11, MAT.9.12, MAT.9.14. The separate packages/backend/convex/scriptureStudy.test.ts file passed.

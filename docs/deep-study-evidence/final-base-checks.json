@@ -1,0 +1,48 @@
+{
+  "revision": "9b73b31fca589553630f49ec7662fab5686c7f30",
+  "tree": "2110587c1830783a2465dab06e2263a10926a837",
+  "base": "e70e7b07ef1a9c65a37414d59976046e0e98243a",
+  "backendStudyTests": {
+    "job": 1098,
+    "files": 15,
+    "passed": 161,
+    "durationSeconds": 23.61,
+    "exitCode": 0
+  },
+  "webStudyTests": {
+    "job": 1099,
+    "files": 3,
+    "passed": 20,
+    "durationSeconds": 6.58,
+    "exitCode": 0
+  },
+  "workspaceTypecheck": {
+    "job": 1097,
+    "successful": 3,
+    "total": 3,
+    "durationSeconds": 96.049,
+    "exitCode": 0
+  },
+  "productionBuild": {
+    "job": 1100,
+    "exitCode": 0,
+    "workers": 5,
+    "warnings": 15,
+    "warningSummary": "Turbopack warnings for ::highlight pseudo-elements in globals.css; this task does not change that source."
+  },
+  "evaluatorStrictTypecheck": {
+    "job": 1102,
+    "exitCode": 0
+  },
+  "evaluatorSafetyTests": {
+    "job": 1103,
+    "passed": 6,
+    "failed": 0,
+    "durationSeconds": 1.321,
+    "exitCode": 0
+  },
+  "environment": {
+    "bun": "1.3.14",
+    "node": "v26.9.0"
+  }
+}

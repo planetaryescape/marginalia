@@ -1,0 +1,24 @@
+{
+  "enqueued_at": "2026-10-29T12:41:52.955142Z",
+  "wait_s": 220.205,
+  "run_s": 17.138,
+  "result": "Success",
+  "lane": "heavy",
+  "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+  "label": "01a1878e-5577-7b80-9975-0f3428dafa24",
+  "command": [
+    "bun",
+    "run",
+    "--cwd",
+    "packages/backend",
+    "test",
+    "--",
+    "scriptureStudyFollowUp",
+    "--maxWorkers=2"
+  ],
+  "sourceRevision": "15ba1a6621ddc6bfe18906333da74833c63f5c8e",
+  "equivalentFollowUpRevision": "7a8e4c006a5fa511b6fd29ef9cb1948fc88ef875",
+  "equivalence": "All follow-up implementation and five matching test files have an empty diff between these revisions.",
+  "testCount": null,
+  "testCountNote": "Vitest stdout was removed; retained agent-work record establishes exit success only."
+}

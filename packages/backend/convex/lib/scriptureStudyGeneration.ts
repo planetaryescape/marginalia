@@ -201,6 +201,11 @@ export async function generateStudyWithRepair(options: {
   onFailure: NonNullable<
     Parameters<typeof generateObjectWithFallback>[0]["onFailure"]
   >;
+  onGeneration?: Parameters<
+    typeof generateObjectWithFallback
+  >[0]["onGeneration"];
+  /** Controlled evaluation can replay a frozen policy on the production repair path. */
+  system?: string;
 }): Promise<{
   object: StudyResult;
   modelId: string;
@@ -232,7 +237,9 @@ export async function generateStudyWithRepair(options: {
         deadlineMs: Math.max(1, options.leaseUntil - Date.now()),
         signal: options.signal,
         onFailure: options.onFailure,
-        system: `${STUDY_SYSTEM_PROMPT}\n${STUDY_TEACHING_PROMPT}`,
+        onGeneration: options.onGeneration,
+        system:
+          options.system ?? `${STUDY_SYSTEM_PROMPT}\n${STUDY_TEACHING_PROMPT}`,
         prompt: JSON.stringify(prompt),
       });
       draft = resultSchema.parse(result.object);

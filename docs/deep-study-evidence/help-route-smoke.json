@@ -1,0 +1,8 @@
+{
+  "url": "http://localhost:3317/help/deep-study",
+  "status": 200,
+  "routeContentPresent": true,
+  "builtSourceRevision": "7a8e4c006a5fa511b6fd29ef9cb1948fc88ef875",
+  "scope": "HTTP help-route smoke only; authenticated flow and newly changed backend not deployed.",
+  "previewStoppedForHandover": true
+}

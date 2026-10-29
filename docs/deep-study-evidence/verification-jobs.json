@@ -1,0 +1,466 @@
+[
+  {
+    "enqueued_at": "2026-10-29T12:58:21.332683Z",
+    "wait_s": 360.326,
+    "run_s": 11.057,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/apps/web",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "npx",
+      "-y",
+      "react-doctor@latest",
+      ".",
+      "--scope",
+      "lines",
+      "--base",
+      "dbb89cfbd1f0f501ad20d0056dd35d0ec5edf02c",
+      "--verbose",
+      "--no-parallel",
+      "--no-score",
+      "--no-supply-chain",
+      "--json",
+      "--json-out",
+      "../../docs/deep-study-evidence/react-doctor.json"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:08:17.517736Z",
+    "wait_s": 294.369,
+    "run_s": 16.175,
+    "result": {
+      "Failed": 1
+    },
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-2/packages/backend",
+    "label": "01a187b4-ef30-78a1-a834-40f37871ce5a",
+    "command": [
+      "bun",
+      "run",
+      "test",
+      "convex/feedRemovalCleanup.budget.test.ts",
+      "--maxWorkers=1"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T12:54:43.409048Z",
+    "wait_s": 468.66,
+    "run_s": 763.392,
+    "result": {
+      "Failed": 1
+    },
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/packages/backend",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "test",
+      "--maxWorkers=1",
+      "--testTimeout=30000",
+      "--hookTimeout=30000"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:09:24.973661Z",
+    "wait_s": 291.322,
+    "run_s": 68.754,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/apps/web",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "--env-file=/tmp/marginalia-deep-study-build.env",
+      "build"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:08:35.450246Z",
+    "wait_s": 292.627,
+    "run_s": 238.637,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/apps/web",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "test",
+      "--maxWorkers=1",
+      "--testTimeout=30000",
+      "--hookTimeout=30000"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:13:35.452182Z",
+    "wait_s": 250.962,
+    "run_s": 34.996,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/packages/backend",
+    "label": "01a187b4-ef30-78a1-a834-40f37871ce5a",
+    "command": [
+      "bun",
+      "run",
+      "test",
+      "convex/dictionary-index.test.ts",
+      "--maxWorkers=1"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:16:44.216226Z",
+    "wait_s": 109.431,
+    "run_s": 10.539,
+    "result": {
+      "Failed": 1
+    },
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a1878e-5577-7b80-9975-0f3428dafa24",
+    "command": [
+      "bun",
+      "run",
+      "--cwd",
+      "packages/backend",
+      "test",
+      "--",
+      "scriptureStudyFollowUpEvidence.test.ts",
+      "-t",
+      "preserves multiline WEB",
+      "--maxWorkers=2"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:17:10.586961Z",
+    "wait_s": 93.621,
+    "run_s": 3.618,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "test",
+      "scripts/deep-study/runner.test.ts"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:19:33.097471Z",
+    "wait_s": 141.236,
+    "run_s": 16.592,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a1878e-5577-7b80-9975-0f3428dafa24",
+    "command": [
+      "bun",
+      "run",
+      "--cwd",
+      "packages/backend",
+      "test",
+      "--",
+      "scriptureStudyFollowUp",
+      "--maxWorkers=2"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:19:33.602406Z",
+    "wait_s": 157.385,
+    "run_s": 9.554,
+    "result": {
+      "Failed": 1
+    },
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a1878d-eafa-75c2-8926-54080ac1b125",
+    "command": [
+      "bun",
+      "run",
+      "--cwd",
+      "packages/backend",
+      "test",
+      "--",
+      "convex/lib/scriptureStudySources.test.ts",
+      "convex/scriptureStudy.test.ts",
+      "--maxWorkers=2"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:22:27.413970Z",
+    "wait_s": 33.506,
+    "run_s": 2.487,
+    "result": {
+      "Failed": 2
+    },
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "x",
+      "tsc",
+      "--noEmit",
+      "--strict",
+      "--target",
+      "ES2022",
+      "--module",
+      "ESNext",
+      "--moduleResolution",
+      "bundler",
+      "--skipLibCheck",
+      "--types",
+      "node",
+      "scripts/deep-study/runner.ts",
+      "scripts/deep-study/runner.test.ts"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:20:05.721288Z",
+    "wait_s": 147.097,
+    "run_s": 49.783,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a1878e-5577-7b80-9975-0f3428dafa24",
+    "command": [
+      "bun",
+      "run",
+      "--cwd",
+      "packages/backend",
+      "typecheck"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:24:26.108117Z",
+    "wait_s": 130.72,
+    "run_s": 18.02,
+    "result": {
+      "Failed": 2
+    },
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "x",
+      "tsc",
+      "--noEmit",
+      "--strict",
+      "--target",
+      "ES2022",
+      "--module",
+      "ESNext",
+      "--moduleResolution",
+      "bundler",
+      "--skipLibCheck",
+      "--typeRoots",
+      "packages/backend/node_modules/@types",
+      "--types",
+      "node",
+      "scripts/deep-study/runner.ts",
+      "scripts/deep-study/runner.test.ts"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:27:15.437028Z",
+    "wait_s": 0.263,
+    "run_s": 17.682,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "x",
+      "tsc",
+      "--noEmit",
+      "--strict",
+      "--target",
+      "ESNext",
+      "--lib",
+      "ES2024,DOM",
+      "--module",
+      "ESNext",
+      "--moduleResolution",
+      "bundler",
+      "--skipLibCheck",
+      "--typeRoots",
+      "packages/backend/node_modules/@types",
+      "--types",
+      "node",
+      "scripts/deep-study/runner.ts",
+      "scripts/deep-study/runner.test.ts"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:33:07.904246Z",
+    "wait_s": 0.16,
+    "run_s": 0.613,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/marginalia",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "/Users/bhekanik/.dotfiles/bin/agent-work",
+      "_sweep"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:44:50.385126Z",
+    "wait_s": 0.162,
+    "run_s": 25.548,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/packages/backend",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "test",
+      "scriptureStudy",
+      "--maxWorkers=2",
+      "--testTimeout=30000",
+      "--hookTimeout=30000"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:44:51.570610Z",
+    "wait_s": 24.776,
+    "run_s": 9.911,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/apps/web",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "test",
+      "src/components/scripture-study",
+      "--maxWorkers=2",
+      "--testTimeout=30000"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:44:52.735362Z",
+    "wait_s": 33.654,
+    "run_s": 51.127,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/apps/web",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "--env-file=/tmp/marginalia-deep-study-build.env",
+      "build"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:44:49.226202Z",
+    "wait_s": 0.095,
+    "run_s": 96.784,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "typecheck"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:46:18.323426Z",
+    "wait_s": 7.813,
+    "run_s": 1.551,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "test",
+      "scripts/deep-study/runner.test.ts"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:46:17.131382Z",
+    "wait_s": 0.4,
+    "run_s": 19.434,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "x",
+      "tsc",
+      "--noEmit",
+      "--strict",
+      "--target",
+      "ESNext",
+      "--lib",
+      "ES2024,DOM",
+      "--module",
+      "ESNext",
+      "--moduleResolution",
+      "bundler",
+      "--skipLibCheck",
+      "--typeRoots",
+      "packages/backend/node_modules/@types",
+      "--types",
+      "node",
+      "scripts/deep-study/runner.ts",
+      "scripts/deep-study/runner.test.ts"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:58:45.024463Z",
+    "wait_s": 0.084,
+    "run_s": 3.439,
+    "result": "Success",
+    "lane": "light",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "test",
+      "scripts/deep-study/runner.test.ts"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:58:42.712651Z",
+    "wait_s": 0.205,
+    "run_s": 44.172,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/packages/backend",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "test",
+      "scriptureStudy",
+      "--maxWorkers=2",
+      "--testTimeout=30000",
+      "--hookTimeout=30000"
+    ]
+  },
+  {
+    "enqueued_at": "2026-10-29T13:58:43.877677Z",
+    "wait_s": 43.34,
+    "run_s": 69.716,
+    "result": "Success",
+    "lane": "heavy",
+    "cwd": "/Users/bhekanik/code/planetaryescape/.worktrees/marginalia-pool-1/packages/backend",
+    "label": "01a186cb-cc82-76e1-9b3a-aa4974a385d8",
+    "command": [
+      "bun",
+      "run",
+      "typecheck"
+    ]
+  }
+]

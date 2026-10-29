@@ -340,8 +340,21 @@ export const evidence = query({
   args: { runId: v.id("scriptureStudyRuns"), evidenceId: v.string() },
   handler: async (ctx, args) => {
     const run = await published(ctx, ctx.readerId, args.runId);
+    const base = run.evidence?.find(
+      (item) => item.evidenceId === args.evidenceId,
+    );
+    if (base) return base;
+    const rows = await ctx.db
+      .query("scriptureStudyFollowUps")
+      .withIndex("by_runId", (q) => q.eq("runId", args.runId))
+      .take(24);
     return (
-      run.evidence?.find((item) => item.evidenceId === args.evidenceId) ?? null
+      rows
+        .filter(
+          (row) => row.userId === ctx.readerId && row.status === "complete",
+        )
+        .flatMap((row) => row.additionalEvidence ?? [])
+        .find((item) => item.evidenceId === args.evidenceId) ?? null
     );
   },
 });

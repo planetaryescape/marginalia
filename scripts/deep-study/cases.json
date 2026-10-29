@@ -1,0 +1,177 @@
+{
+  "version": "public-study-pilot-v1",
+  "cases": [
+    {
+      "id": "colossians-2-whole",
+      "reference": "Colossians 2:1-23",
+      "split": "calibration",
+      "question": "Explain the passage's central reasoning and its practical force.",
+      "contraryClaims": [
+        "Paul rejects every form of religious discipline.",
+        "Paul requires these calendar practices of every reader."
+      ],
+      "supportBoundaries": [
+        "Distinguish the practices named from the claims made about them.",
+        "Do not infer opponents' identities or motives beyond supplied evidence.",
+        "Consider how the chapter's positive account of life in Christ bears on the warning."
+      ],
+      "criteria": [
+        "Explain why the warning follows the preceding argument.",
+        "Address the scope and force of the judgment language.",
+        "State a bounded application without flattening canonical tensions."
+      ]
+    },
+    {
+      "id": "colossians-2-16-23",
+      "reference": "Colossians 2:16-23",
+      "split": "calibration",
+      "question": "Explain how the warning in this selected passage works in its immediate context.",
+      "contraryClaims": [
+        "Paul condemns all Sabbath observance.",
+        "Paul commands the listed calendar observances."
+      ],
+      "supportBoundaries": [
+        "Keep the interpretation of the listed practices distinct from claims about every later observance.",
+        "Treat the criticism of self-made religion and bodily severity with its stated qualification."
+      ],
+      "criteria": [
+        "Connect the warning to the supplied chapter context.",
+        "Explain distinctions that change the reading.",
+        "Allow supported disagreement about the practices' exact historical scope."
+      ]
+    },
+    {
+      "id": "colossians-2-20-23",
+      "reference": "Colossians 2:20-23",
+      "split": "heldout",
+      "question": "What is the force of this argument, and what conclusion does it warrant?",
+      "contraryClaims": [
+        "Any spiritual discipline is condemned.",
+        "Severe discipline reliably produces holiness."
+      ],
+      "supportBoundaries": [
+        "Do not turn a local argument into a universal rejection of bodily practice.",
+        "Do not collapse appearance of wisdom into the text's final assessment."
+      ],
+      "criteria": [
+        "Follow the question and answer structure.",
+        "Explain the stated limitation of regulations.",
+        "Bound application to the argument and context."
+      ]
+    },
+    {
+      "id": "colossians-2-6-15",
+      "reference": "Colossians 2:6-15",
+      "split": "calibration",
+      "question": "Explain the passage's argument and the role of its main images.",
+      "contraryClaims": [
+        "The passage describes a literal circumcision procedure.",
+        "The passage's claims make all later ethical instruction irrelevant."
+      ],
+      "supportBoundaries": [
+        "Distinguish metaphorical language from a physical event where context warrants it.",
+        "Avoid treating the supplied selection as the entirety of the letter's ethics."
+      ],
+      "criteria": [
+        "Connect the passage's claims rather than listing them.",
+        "Explain at least one consequential contrast or image.",
+        "Avoid adding historical claims not established by the bundle."
+      ]
+    },
+    {
+      "id": "psalm-13",
+      "reference": "Psalm 13",
+      "split": "heldout",
+      "question": "Explain the movement of the poem and what its ending changes.",
+      "contraryClaims": [
+        "The poem predicts that the speaker will never suffer again.",
+        "The lament means the speaker has abandoned trust."
+      ],
+      "supportBoundaries": [
+        "Read the closing confidence within the poem's movement.",
+        "Do not turn poetic speech into an unconditional prediction."
+      ],
+      "criteria": [
+        "Trace the movement across the poem.",
+        "Distinguish lament from a universal promise.",
+        "Support literary observations from the poem itself."
+      ]
+    },
+    {
+      "id": "proverbs-26-4-5",
+      "reference": "Proverbs 26:4-5",
+      "split": "calibration",
+      "question": "How should these adjacent sayings be read together?",
+      "contraryClaims": [
+        "One of the two sayings must be ignored as false.",
+        "Both sayings prescribe the same response in every situation."
+      ],
+      "supportBoundaries": [
+        "Do not universalize either maxim without attending to the neighboring saying.",
+        "Do not invent a single scenario as the only intended setting."
+      ],
+      "criteria": [
+        "Explain the tension and situational wisdom.",
+        "Show why context changes which response fits.",
+        "Avoid forcing a resolution unsupported by the text."
+      ]
+    },
+    {
+      "id": "jonah-4",
+      "reference": "Jonah 4",
+      "split": "heldout",
+      "question": "Explain how the narrative ending shapes the reader's judgment.",
+      "contraryClaims": [
+        "The narrator explicitly states every motive Jonah has.",
+        "The plant episode is only a lesson about gardening."
+      ],
+      "supportBoundaries": [
+        "Distinguish narrated action and dialogue from inferred motive.",
+        "Do not claim certainty where the ending leaves the reader to answer."
+      ],
+      "criteria": [
+        "Use the narrative perspective and final question.",
+        "Identify the contrast that gives the ending force.",
+        "Do not close an ambiguity the text leaves open."
+      ]
+    },
+    {
+      "id": "matthew-13-1-23",
+      "reference": "Matthew 13:1-23",
+      "split": "heldout",
+      "question": "Explain how the parable and its supplied interpretation work together.",
+      "contraryClaims": [
+        "Every small detail must correspond to a separate hidden referent.",
+        "The different soils predict fixed outcomes for named groups."
+      ],
+      "supportBoundaries": [
+        "Use the interpretation actually supplied in the passage.",
+        "Do not invent symbolism or identity mappings beyond it."
+      ],
+      "criteria": [
+        "Connect the story with its interpretation.",
+        "Explain the differing responses without extra symbolic assignments.",
+        "Distinguish the narrative's claims from modern application."
+      ]
+    },
+    {
+      "id": "acts-21-6",
+      "reference": "Acts 21:6",
+      "split": "heldout",
+      "question": "Explain what this scene contributes to the surrounding narrative.",
+      "contraryClaims": [
+        "The verse encodes a hidden spiritual meaning in the farewell gesture.",
+        "The ordinary departure detail has no narrative function."
+      ],
+      "supportBoundaries": [
+        "A concise answer is acceptable if the scene is simple.",
+        "Do not assert hidden significance without supplied textual support."
+      ],
+      "criteria": [
+        "Explain the scene's explicit action and local narrative role.",
+        "Avoid compulsory cross-references or symbolic claims.",
+        "Prefer a brief grounded answer when that is enough."
+      ]
+    }
+  ]
+}

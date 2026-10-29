@@ -1,0 +1,152 @@
+diff --git a/docs/bible-reading.md b/docs/bible-reading.md
+index 0f9f8fd..e8e1307 100644
+--- a/docs/bible-reading.md
++++ b/docs/bible-reading.md
+@@ -67,7 +67,7 @@ New runs can also use saved note prose from this reading as personal context. No
+ 
+ Before publication, the app checks every finding and can send specific correction feedback to the model. Schema retries and finding corrections share the same two-dispatch limit and 90-second deadline. A missing WEB citation is completed without another call only when its exact selected-source match is unique. Final publication repeats the evidence checks. If correction leaves some findings unverified, only the verified subset is published, with an omission notice; if none can be verified, the run fails without replacing a previous result. An empty, valid response remains an allowed outcome.
+ 
+-Deep Study uses the public-domain World English Bible and pinned source datasets. It includes adapted Aquifer Open Study Notes, derived from Tyndale Open Study Notes under CC BY-SA 4.0, with attribution, license and change notices in the source manifest and interface. This is one adapted corpus, not a survey or consensus source. The Byzantine text comparison covers printed editions (NA/Byz, NA27–28, ECM, NA27 and NA28); it does not identify manuscript witnesses or establish an original reading. Existing OSHB and Strong’s evidence is sampled: up to three verses, at most 25 tokens per verse, and up to three dictionary entries with 900-character excerpts. It does not infer English alignment or broad modern-scholar consensus. The app can retrieve up to two related WEB passages found in supplied source records, after excluding ranges already supplied as chapter context. The model does not choose URLs or start a research chain. The result shows the saved source, excerpt, locator, revision, hash and license for its evidence. Those source records do not certify every free-form claim in a finding.
++Deep Study uses the public-domain World English Bible and pinned source datasets. It includes adapted Aquifer Open Study Notes, derived from Tyndale Open Study Notes under CC BY-SA 4.0, with attribution, license and change notices in the source manifest and interface. This is one adapted corpus, not a survey or consensus source. The Byzantine text comparison covers printed editions (NA/Byz, NA27–28, ECM, NA27 and NA28); it does not identify manuscript witnesses or establish an original reading. Existing OSHB and Strong’s evidence is sampled: up to three verses, at most 25 tokens per verse, and up to three dictionary entries with 900-character excerpts. It does not infer English alignment or broad modern-scholar consensus. The app can retrieve up to two related WEB passages found in supplied source records, preferring ranges outside supplied chapter context and reusing supplied ranges as fallbacks. The bounded packet includes at most one printed-text comparison. The model does not choose URLs or start a research chain. The result shows the saved source, excerpt, locator, revision, hash and license for its evidence. Those source records do not certify every free-form claim in a finding.
+ 
+ ### Ask a follow-up
+ 
+diff --git a/package.json b/package.json
+index 4442d67..bf4b2ba 100644
+--- a/package.json
++++ b/package.json
+@@ -14,7 +14,7 @@
+     "lint:fix": "biome check --write .",
+     "format": "biome format --write .",
+     "typecheck": "turbo run typecheck",
+-    "test": "turbo run test",
++    "test": "bun test scripts/deep-study/runner.test.ts && turbo run test",
+     "deep-study:eval": "bun scripts/deep-study/runner.ts",
+     "check": "bun run lint && bun run typecheck && bun run test"
+   },
+diff --git a/packages/backend/convex/actions/scriptureStudy.ts b/packages/backend/convex/actions/scriptureStudy.ts
+index 3605e91..7dfaaba 100644
+--- a/packages/backend/convex/actions/scriptureStudy.ts
++++ b/packages/backend/convex/actions/scriptureStudy.ts
+@@ -440,7 +440,7 @@ export const generate = internalAction({
+       });
+       if (sourceRecords.length < sourceLoad.records.length)
+         coverageWarnings.push(
+-          "Some verified commentary or edition comparisons were omitted by the shared evidence record and character budgets.",
++          "Some verified commentary or edition comparisons were omitted by source selection and shared evidence limits.",
+         );
+       for (const record of sourceRecords) {
+         const registered = sourceRecordIdentity(record);
+@@ -490,7 +490,7 @@ export const generate = internalAction({
+       if (!verifiedRelatedCandidates.length)
+         coverageWarnings.push(
+           sourceRecords.some((record) => record.relatedReferences?.length)
+-            ? "No related WEB reference remained after source-reference validation and supplied-context deduplication."
++            ? "No related WEB reference remained after source-reference validation."
+             : "No related WEB reference was verified from supplied study notes; connections are limited to the supplied chapter context.",
+         );
+       for (const [index, candidate] of verifiedRelatedCandidates.entries()) {
+diff --git a/packages/backend/convex/lib/scriptureStudySourceSelection.ts b/packages/backend/convex/lib/scriptureStudySourceSelection.ts
+index ca4829d..392e26c 100644
+--- a/packages/backend/convex/lib/scriptureStudySourceSelection.ts
++++ b/packages/backend/convex/lib/scriptureStudySourceSelection.ts
+@@ -174,24 +174,31 @@ export function selectStudySourceRecords(
+   const comparison = records
+     .filter((record) => record.sourceId === "byztxt-printed-edition-variants")
+     .sort((a, b) => compareText(a.referenceKey, b.referenceKey))[0];
+-  const includeComparison = Boolean(
+-    comparison &&
+-      options.maxRecords > 0 &&
+-      comparison.excerpt.length <= options.maxChars,
+-  );
+   const commentCandidates = records
+     .filter((record) => record.sourceId === "aquifer-open-study-notes")
+     .map((record) => ({
+       identity: JSON.stringify([
+         record.sourceId,
+         record.revision,
+         record.locator,
+         record.contentHash,
+       ]),
+       record,
+       referenceKey: record.referenceKey,
+       excerpt: record.excerpt,
+     }));
++  // Scarcity must not let a comparison displace the passage's only explanation.
++  const firstComment = selectCommentaryCandidates(commentCandidates, {
++    reference: options.reference,
++    maxItems: 1,
++    maxChars: options.maxChars,
++  })[0];
++  const includeComparison = Boolean(
++    comparison &&
++      options.maxRecords > Number(Boolean(firstComment)) &&
++      comparison.excerpt.length + (firstComment?.excerpt.length ?? 0) <=
++        options.maxChars,
++  );
+   const comments = selectCommentaryCandidates(commentCandidates, {
+     reference: options.reference,
+     maxItems: options.maxRecords - Number(includeComparison),
+diff --git a/packages/backend/convex/lib/scriptureStudySources.test.ts b/packages/backend/convex/lib/scriptureStudySources.test.ts
+index 765c299..eb958b5 100644
+--- a/packages/backend/convex/lib/scriptureStudySources.test.ts
++++ b/packages/backend/convex/lib/scriptureStudySources.test.ts
+@@ -174,6 +174,45 @@ describe("bounded pinned Scripture evidence adapters", () => {
+         maxChars: 5,
+       }),
+     ).toEqual([]);
++    const comparison = {
++      ...note,
++      sourceId: "byztxt-printed-edition-variants",
++      locator: "ACT.csv:21:6:NA",
++      excerpt: "A comparison.",
++    };
++    for (const records of [
++      [note, comparison],
++      [comparison, note],
++    ]) {
++      expect(
++        selectStudySourceRecords(records, {
++          reference: range,
++          maxRecords: 1,
++          maxChars: 100,
++        }),
++      ).toEqual([note]);
++      expect(
++        selectStudySourceRecords(records, {
++          reference: range,
++          maxRecords: 2,
++          maxChars: note.excerpt.length,
++        }),
++      ).toEqual([note]);
++      expect(
++        selectStudySourceRecords(records, {
++          reference: range,
++          maxRecords: 2,
++          maxChars: 100,
++        }),
++      ).toEqual([note, comparison]);
++    }
++    expect(
++      selectStudySourceRecords([comparison], {
++        reference: range,
++        maxRecords: 1,
++        maxChars: 100,
++      }),
++    ).toEqual([comparison]);
+   });
+ 
+   it("allocates the same source identities when action evidence order changes", () => {
+diff --git a/scripts/deep-study/README.md b/scripts/deep-study/README.md
+index ae318a6..d5f5a64 100644
+--- a/scripts/deep-study/README.md
++++ b/scripts/deep-study/README.md
+@@ -50,6 +50,8 @@ The output directory contains `blind-pairs.md`, `score-template.md` and `blind-k
+ 
+ Record the fixture IDs and splits, evaluation commit, snapshot hashes, model, run limits and any dispatch failures with the completed scorecards. Do not treat calibration cases as held-out results. A prompt comparison over frozen evidence says nothing about the live retrieval path or a reader’s configured model.
+ 
++The root `bun run test` command runs the six offline evaluator safety tests before the workspace suites. These tests make no paid model calls.
++
+ ## First pilot status
+ 
+ The first paired attempt on 2026-10-29 did not produce answers: both arms for `colossians-2-whole` ended in `dispatch_failed` before response or token-usage telemetry was recorded. The saved credential checks returned HTTP 401; an alternate credential lookup is pending. No reasoning or source-support comparison can be made from this run.

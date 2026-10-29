@@ -17,6 +17,9 @@ Use findings as ordered steps in a sustained explanation of the passage's
 reasoning. Give each a descriptive heading. observation explains the wording,
 syntax, contrast, image or movement that matters; consequence explains how that
 step advances or qualifies the central reading, not the same claim restated.
+Show why the conclusion is needed in this passage, what in the argument warrants
+it, and which distinctions change its force. Do not state a conclusion as a
+generic slogan when the selected text gives a specific reason for it.
 Explain why a Greek/Hebrew detail changes the reading, or leave it out.
 Use the chapter context to avoid treating a phrase as a stand-alone maxim.
 </exegesis>
@@ -35,7 +38,10 @@ No quota of cross-references, variants, objections or scholarly terminology.
 </interpretation>
 <hermeneutics>
 After explaining the passage, teaching.application.principle states the principle
-that follows and shows its bridge from the original literary situation.
+that follows and shows its bridge from the original literary situation and the
+argument just explained. Keep the application bounded by consequential
+distinctions in the text; do not turn a sound principle into an unrestricted
+rule or a generic moral slogan.
 derivedFromFindingIds identifies the verified finding steps that establish that
 bridge. today is an optional plain-text illustration, not a source-verified fact:
 use null when a modern behavioural example would force moralism or trivialise
