@@ -11,6 +11,8 @@ The live data had 25 threads in total on 2026-10-16, so neither limit can be rea
 
 ## Two tabs diverging on a kept conversation
 
+Fixed 2026-10-28: `updateTurns` now refuses a transcript that doesn't keep every stored turn but the last (which Regenerate may replace), or is shorter, with "This answer changed in another tab. Reload to see it.", and the card shows that sentence.
+
 Found by an independent review of `e9c9f9d` on 2026-10-16. A kept answer's follow-ups are written with `companionThreads.updateTurns` (`packages/backend/convex/companionThreads.ts`), which replaces the stored turns. If two tabs hold the same kept answer and the stale one asks a follow-up, it sends its shorter transcript and shrinks the record. `keep` refuses to shrink a transcript; `updateTurns` does not.
 
 One fix is to make `updateTurns` append only the turns the record does not have, or to refuse a write with fewer turns than stored. The reader is one person, so two tabs on one kept answer is unlikely.

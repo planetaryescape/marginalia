@@ -73,7 +73,11 @@ async function isNewOutcome(
         .eq("articleId", interaction.articleId)
         .eq("action", interaction.action),
     )
-    .take(GROUP_LIMIT);
+    // Newest first, so the interaction just inserted and its session are
+    // always in the window, however often the article was opened before
+    .order("desc")
+    .take(GROUP_LIMIT)
+    .then((rows) => rows.reverse());
   const at = same.findIndex((row) => row._id === interaction._id);
   // Beyond the window nothing is paired; counting it is the safer error
   if (at === -1) return true;

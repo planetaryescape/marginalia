@@ -15,6 +15,7 @@ import {
   stayOnArticle,
   writeAnswers,
 } from "./companion-session";
+import { failureSentence } from "./failure-copy";
 import { occurrencesBefore, senseOf, sentenceAround } from "./lookups";
 import { paragraphIndexOf } from "./paragraphs";
 import { preparedAsk } from "./prepared-ask";
@@ -53,6 +54,8 @@ export interface CompanionThread {
   keeping?: boolean;
   /** A follow-up finished but the kept record didn't take it; the card offers Retry. */
   syncFailed?: boolean;
+  /** The server's sentence for that failure, when it gave one. */
+  syncError?: string;
   /** Which match of the selected words in its paragraph was selected. */
   occurrence?: number;
   /** The last paragraph the selection crosses, when it crosses more than one. */
@@ -304,12 +307,18 @@ export function useCompanion({
     (id: string, savedId: Id<"companionThreads">) => {
       const current = answersRef.current.find((a) => a.id === id);
       if (!current) return;
-      patch(id, (t) => ({ ...t, syncFailed: false }));
+      patch(id, (t) => ({ ...t, syncFailed: false, syncError: undefined }));
       updateTurns({
         threadId: savedId,
         turns: current.turns,
         model: current.model ?? undefined,
-      }).catch(() => patch(id, (t) => ({ ...t, syncFailed: true })));
+      }).catch((error: unknown) =>
+        patch(id, (t) => ({
+          ...t,
+          syncFailed: true,
+          syncError: failureSentence(error, "Couldn't update the kept answer."),
+        })),
+      );
     },
     [patch, updateTurns],
   );

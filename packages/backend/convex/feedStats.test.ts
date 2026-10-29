@@ -158,6 +158,33 @@ describe("per-feed outcome counts", () => {
       expect((await stats(t))[0].opened).toBe(1);
     });
 
+    it("still pairs the desk and the reader page after an article was opened hundreds of times", async () => {
+      const { t, owner, articleId, sessionId, checkpoint } = await setup();
+      // 250 earlier opens, already counted, fill the old 200-row window
+      const old = await owner.mutation(api.sessions.create, {
+        requestedMinutes: 5,
+      });
+      await t.run(async (ctx) => {
+        for (let i = 0; i < 250; i++)
+          await ctx.db.insert("articleInteractions", {
+            userId: OWNER,
+            articleId,
+            sessionId: old,
+            action: "opened",
+            feedCounted: true,
+            createdAt: i,
+          });
+      });
+      const before = (await stats(t))[0]?.opened ?? 0;
+      await owner.mutation(api.sessions.recordInteraction, {
+        articleId,
+        sessionId,
+        action: "opened",
+      });
+      await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
+      expect((await stats(t))[0].opened - before).toBe(1);
+    });
+
     it("counts the same pair once when the checkpoint beats the desk's record", async () => {
       const { t, owner, articleId, sessionId, checkpoint } = await setup();
       await owner.mutation(api.readingActivity.checkpoint, checkpoint(VISIT));
