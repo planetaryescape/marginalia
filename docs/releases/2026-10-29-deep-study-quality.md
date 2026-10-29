@@ -16,9 +16,13 @@ The authenticated Convex public contracts were exercised through the deployment 
 
 [Deployment and smoke evidence](../deep-study-evidence/release-2026-10-29.json) records the exact identifiers and policy revisions. [Open the Colossians 2 source](https://reader.bhekani.com/read/jd7363wg9cg2tc9gybfyvd67ss8h65t3); its completed 2:20–23 study is in Saved deep studies.
 
-## Browser interaction and comparative quality remain unverified
+## Saved studies and citations passed the signed-in browser check
 
-Computer Use was unavailable. Approval to use agent-browser is pending, so no browser tool was substituted. The live site was opened in Dia. Selecting text, clicking citations, reloading the UI and stop/refresh interactions remain unchecked on the deployed frontend; focused DOM/lifecycle tests passed before release.
+Computer Use worked on retry through its Node runtime (`@oai/sky`). In the existing signed-in Dia session, Bible tools → Saved deep studies opened the completed Colossians 2:20–23 study and its follow-up. Both supplemental citations opened with their full text and provenance. After a browser reload and reopening the saved study, the same answer and citations remained available; Psalm 13:1 retained three lines and Galatians 5:13–16 retained all four verses.
+
+Refresh study queued a replacement while retaining the previous result. Stop study displayed “Study stopped.” The subsequent server readback confirmed the active run was cancelled, the original completed run remained published and both supplements remained saved. An unsent synthetic follow-up draft enabled Ask about this study; clearing it disabled the button. No browser question was submitted. Initial generation and the submitted follow-up were exercised through the public backend contracts described above. Text-selection admission and physical mobile interaction were outside this browser check.
+
+## Comparative answer quality remains unmeasured
 
 The live provider accepted the revised request schemas and produced a study and follow-up using the owner’s saved key. The separate operator-run baseline comparison remains unrun because its general 1Password credential returned HTTP 401. One successful live example does not establish a comparative quality gain or settle disputed interpretation.
 
