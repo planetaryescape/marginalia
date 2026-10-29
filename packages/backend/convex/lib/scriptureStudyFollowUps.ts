@@ -106,16 +106,16 @@ at most two exact canonical references (for example
 Galatians 5:13-26 or Colossians 3:1-17), each within one chapter and at most 40 verses total.
 This is one optional evidence request round, not an instruction to search the web. A requested
 reference is a proposal, never evidence until verified. Prefer the smallest relevant ranges.
-If expansion is closed, return an answer using the supplied evidence and sourceOutcomes;
-do not request again. An unavailable source is not proof of a claim. Explain any material gap.
+If expansion is closed, return only answer, evidenceCoverage and evidenceIds using the
+supplied evidence and sourceOutcomes; omit requestedReferences entirely and do not request again. An unavailable source is not proof of a claim. Explain any material gap.
 Do not invent scholars, consensus, original-language/English alignment, references,
 quotations, retrieval claims or URLs. Respect each source's capabilities: WEB establishes
 wording, not historical scholarship or a lexical claim; attributed notes establish that
 source's interpretation, not consensus. Cite only supplied evidenceIds supporting the answer.
 Do not include raw IDs, citation markers or URLs in prose. Use plain text.
 Set evidenceCoverage to in_saved_sources, partial or outside_saved_sources, relative to all
-supplied verified evidence including supplements. For an answer set requestedReferences to an
-empty array. Positive explanation requires citations
+supplied verified evidence including supplements. When expansion is open, an answer sets
+requestedReferences to an empty array. Positive explanation requires citations
 including WEB passage_text evidence. An outside_saved_sources answer explains the specific
 missing coverage without inventing an answer and may have no citations.
 Be direct and useful, normally 150–350 words. Never present an AI interpretation as Scripture.`;
