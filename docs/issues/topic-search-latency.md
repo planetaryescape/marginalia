@@ -54,3 +54,13 @@ Asked for by the owner on 2026-10-17 (D-DES-069). Typing words that match an art
 - If `find` fails after the title card showed, the picker shows its usual error with Retry.
 - Not yet measured live: the expected cost is one Convex query round trip (about the 106–148 ms of a cached `find`, without the embedding).
 
+## Text match as the first card (feat/topic-text-first-card)
+
+Asked for by BK on 2026-10-29 (D-DES-072). For a topic that matches no title, the best full-text match on the article's text is the first card while the query is embedded.
+
+- Index: `articles.search_content`, full text on `content`, filtered by `userId` and `extractionStatus`. It is the second search index on `articles`. Convex backfills it on deploy.
+- Query: `titleSearch.matchText` runs for `ctx.readerId` only. It reads at most 5 hits in full, returns a hit only when every typed word of three or more letters (stop words aside, the last as a prefix) is a whole word in its title, excerpt or text, drops a second copy of the same URL, and returns `find`'s card fields, unread first. The rule is `convex/lib/textMatchStrength.ts`.
+- Client: `use-topic-search.ts` starts it with the title query and `find`. The first strong result to arrive is the first card, so a title match wins in practice because it returns sooner; a late result, or any result after `find`, is dropped, so the card never swaps. `find`'s list follows without that article.
+- Still waits: a query whose words are not all in one article, and a topic phrased differently from the text. Those take the embedding, about 0.8–1.4 s.
+- Not yet measured live: expected to cost one Convex query round trip like the title match, plus reading up to 5 article bodies, so likely slower than the title query. Unmeasured.
+

@@ -478,6 +478,11 @@ export default defineSchema({
       searchField: "title",
       filterFields: ["userId", "extractionStatus"],
     })
+    // The picker's text match: the first card for a topic that names no title
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["userId", "extractionStatus"],
+    })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
