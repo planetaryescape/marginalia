@@ -4,6 +4,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import {
   APICallError,
   generateObject,
+  type LanguageModelUsage,
   NoObjectGeneratedError,
   RetryError,
   type Schema,
@@ -21,6 +22,46 @@ import { interruptible, requestAttempt } from "./requestControl";
 import type { ProviderTarget } from "./router";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+export interface GenerationTelemetry {
+  modelId: string;
+  responseModel: string | null;
+  durationMs: number;
+  finishReason: string;
+  parsed: boolean;
+  tokens: {
+    input: number | null;
+    cachedInput: number | null;
+    output: number | null;
+    visibleOutput: number | null;
+    reasoning: number | null;
+    total: number | null;
+  };
+}
+
+function reportGeneration(
+  observer: ((event: GenerationTelemetry) => void) | undefined,
+  event: Omit<GenerationTelemetry, "tokens">,
+  usage?: LanguageModelUsage,
+) {
+  if (!observer) return;
+  try {
+    observer({
+      ...event,
+      tokens: {
+        input: usage?.inputTokens ?? null,
+        cachedInput: usage?.inputTokenDetails?.cacheReadTokens ?? null,
+        output: usage?.outputTokens ?? null,
+        visibleOutput: usage?.outputTokenDetails?.textTokens ?? null,
+        reasoning: usage?.outputTokenDetails?.reasoningTokens ?? null,
+        total: usage?.totalTokens ?? null,
+      },
+    });
+  } catch {
+    // Observability must not turn a completed, billed request into another attempt.
+    console.warn("Generation telemetry observer failed");
+  }
+}
 
 /** AI SDK RetryError exposes the actual final provider error as lastError. */
 export function underlyingAIError(error: unknown): unknown {
@@ -110,6 +151,8 @@ export async function generateObjectWithFallback<T>(options: {
   deadlineMs?: number;
   /** Let a task own one shared budget across parsing and domain repairs. */
   maxParseAttempts?: 1 | 2;
+  /** Safe numeric metadata only; prompts, credentials and response bodies are excluded. */
+  onGeneration?: (event: GenerationTelemetry) => void;
 }): Promise<{ object: T; modelId: string }> {
   if (!options.targets.length)
     throw new Error("No AI model is available for this library");
@@ -214,11 +257,14 @@ async function generateParsedObject<T>(
     system?: string;
     maxOutputTokens?: number;
     maxParseAttempts?: 1 | 2;
+    onGeneration?: (event: GenerationTelemetry) => void;
     signal: AbortSignal;
   },
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     options.signal.throwIfAborted();
+    const startedAt = Date.now();
+    let observed = false;
     try {
       const result = await generateObject<ZodType<T> | Schema<T>, "object">({
         model,
@@ -231,10 +277,40 @@ async function generateParsedObject<T>(
         // The application owns fallback and parse retry; avoid hidden SDK spend.
         maxRetries: 0,
       });
-      return options.schema.parse(result.object);
+      const parsed = options.schema.safeParse(result.object);
+      observed = true;
+      reportGeneration(
+        options.onGeneration,
+        {
+          modelId,
+          responseModel: result.response?.modelId ?? null,
+          durationMs: Date.now() - startedAt,
+          finishReason: result.finishReason ?? "unknown",
+          parsed: parsed.success,
+        },
+        result.usage,
+      );
+      if (!parsed.success) throw parsed.error;
+      return parsed.data;
     } catch (caught) {
-      options.signal.throwIfAborted();
       const error = underlyingAIError(caught);
+      if (!observed) {
+        const unparsed = NoObjectGeneratedError.isInstance(error)
+          ? error
+          : null;
+        reportGeneration(
+          options.onGeneration,
+          {
+            modelId,
+            responseModel: unparsed?.response?.modelId ?? null,
+            durationMs: Date.now() - startedAt,
+            finishReason: unparsed?.finishReason ?? "error",
+            parsed: false,
+          },
+          unparsed?.usage,
+        );
+      }
+      options.signal.throwIfAborted();
       if (
         attempt >= (options.maxParseAttempts ?? PARSE_ATTEMPTS) ||
         !isUnparseableAnswer(error)

@@ -201,6 +201,9 @@ export async function generateStudyWithRepair(options: {
   onFailure: NonNullable<
     Parameters<typeof generateObjectWithFallback>[0]["onFailure"]
   >;
+  onGeneration?: Parameters<
+    typeof generateObjectWithFallback
+  >[0]["onGeneration"];
 }): Promise<{
   object: StudyResult;
   modelId: string;
@@ -232,6 +235,7 @@ export async function generateStudyWithRepair(options: {
         deadlineMs: Math.max(1, options.leaseUntil - Date.now()),
         signal: options.signal,
         onFailure: options.onFailure,
+        onGeneration: options.onGeneration,
         system: `${STUDY_SYSTEM_PROMPT}\n${STUDY_TEACHING_PROMPT}`,
         prompt: JSON.stringify(prompt),
       });
