@@ -39,6 +39,8 @@ Include owner/auth component records in backups. Rolling back only the frontend 
 
 ## Current deployment
 
+**2026-10-29 topic text-match first card:** the backend and the Vercel frontend `dpl_AfKTmZHwj33QF2ygw8t8q3LHdau7` both run `8d02cce`, the Deep Study release below plus #82. The snapshot before that backend update is `marginalia-before-main-781ff29.zip`. See [the release](releases/2026-10-29-topic-text-first-card.md), which also records a wrong website served from 17:53 to 17:57.
+
 **2026-10-29 Deep study quality:** backend `stoic-hare-718` and frontend `dpl_CKLTAKHC65y9HrKHYyyNbrx9KEAM` run merged source `cec94f5` (#81). The live owner-contract study/follow-up and supplemental-source readback passed on Gemini 3.8 Flash. Signed-in Dia checks passed saved-study reopening, supplemental citations after reload and Stop during refresh. A blinded quality comparison remains unverified. See [the release](releases/2026-10-29-deep-study-quality.md).
 
 The established reader is **https://reader.bhekani.com**, hosted in Vercel's `planetaryescape` scope. At the time of this documentation pass, its frontend points at the Convex **development** deployment `stoic-hare-718` in `eu-west-1`. Local development has used that same backend.

@@ -1,6 +1,6 @@
 # Topic search first card is about 1 s, just over the target
 
-Status: mostly fixed. A repeated query takes about 106–148 ms live over the direct path (`1e481d1`). A query never seen before still pays for its embedding, 0.8–1.4 s, and the title-first card that should cover it hasn't been measured live.
+Status: mostly fixed; the text-match first card (D-DES-072) shipped 2026-10-29. A repeated query takes about 106–148 ms live over the direct path (`1e481d1`). A query never seen before still pays for its embedding, 0.8–1.4 s, and the title-first card that should cover it hasn't been measured live.
 
 Measured live 2026-10-16 after rung 3c (`9a90018`): `POST /api/reader/library/find` takes about 1.05 s end to end warm. `Server-Timing` shows about 550 ms on the server, of which embedding the query is about 500 ms (search 4 ms, load 44 ms). The rest (about 500 ms) is the hop from the browser through the Vercel proxy to Convex. Before 3c the first result took 6.7–8.8 s.
 
