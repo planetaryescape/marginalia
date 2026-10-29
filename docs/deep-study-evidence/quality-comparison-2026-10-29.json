@@ -20,13 +20,13 @@
     "endpoint": "https://openrouter.ai/api/v1/key",
     "httpStatus": 401
   },
-  "nextAction": "Re-query the current Deep model through userSettings:getModels, validate the active OpenRouter 1Password item named by BK, then run the capped colossians-2-whole calibration pair. Do not use another project key without authorization or export the app credential.",
+  "nextAction": "Re-query the Deep selection via userSettings:getModels and copy the fresh supported OpenRouter ID into --model; stop if unsupported. Validate the active OpenRouter 1Password item named by BK, then run the capped colossians-2-whole calibration pair. Do not use another project key without authorization or export the app credential.",
   "limitations": [
     "No paired answers or quality scores are available.",
     "The fixed-evidence harness isolates synthesis and cannot measure changes to live source allocation.",
     "A qualified human review remains necessary for disputed passage judgments."
   ],
-  "implementationSha": "6b8c56574953679933b01d2d802744dcd5d01141",
+  "implementationSha": "81ad9adea9875c30dbaa2165b394ff703c7a6ef8",
   "verification": {
     "baselineRegression": {
       "sourceSha": "8d02cce24056bdb557ca28e3dda52c3e53bf812a",
@@ -37,25 +37,25 @@
     },
     "candidateOfflineChecks": {
       "command": "bun test scripts/deep-study",
-      "passed": 27,
+      "passed": 28,
       "failed": 0,
-      "durationSeconds": 0.462,
+      "durationSeconds": 0.426,
       "queued": false
     },
     "backendTypecheck": {
-      "task": 687,
+      "task": 685,
       "status": "passed",
       "exitCode": 0
     },
     "evaluatorStrictTypecheck": {
-      "task": 688,
+      "task": 686,
       "status": "passed",
       "exitCode": 0
     },
     "scopedBiome": {
       "exitCode": 0
     },
-    "checkedAt": "2026-10-29T18:38:33.099374+00:00",
+    "checkedAt": "2026-10-29T18:43:18.420176+00:00",
     "diffCheck": {
       "exitCode": 0
     }
@@ -66,9 +66,9 @@
   },
   "checkedSourceHashes": {
     "package.json": "26ab74d28081cb5d5d7a082886ab90fa5547eab2aae35554bb9153ca8bbbe568",
-    "packages/backend/convex/lib/scriptureStudyEvaluationSchema.ts": "052f4fe008f9325e45edad8c49b56ad9a2fa22e2df1a1991de473a5c1da611c3",
+    "packages/backend/convex/lib/scriptureStudyEvaluationSchema.ts": "1e847dce521c555adcf5d2a000877ca145b128221f9cf91a4a56805c8290d763",
     "scripts/deep-study/scorecard.ts": "428e79ced3023692a12af0661e40e8f9540304d73e261f1c3b61ad8c33e71ef1",
-    "scripts/deep-study/scorecard.test.ts": "7bbff2c1fdaee10894bb44c5d5e30afbd5bf70a417be77e6e962ec240971882f",
+    "scripts/deep-study/scorecard.test.ts": "4baebb3384ec370218c0f0c8033f11cf130ceef6d4a4353bb957d46ff18d244a",
     "scripts/deep-study/generation.ts": "2ef1a320aba9ff81854266b3338b9200bdc24d9d4a9f300535a5832a19c660ec",
     "scripts/deep-study/runner.test.ts": "17217dc032d69d78cc4388d52435dc66eb12f2f93e05ef00515015dfea51fa6e"
   },
@@ -141,5 +141,27 @@
       "Reserve and estimate flat per-request fees for all allowed dispatches."
     ],
     "primaryReference": "https://openrouter.ai/docs/guides/overview/models#pricing-object"
+  },
+  "generationArgsPolicy": "The recorded --model value reflects the 18:19 UTC selection. Before generation, replace it with the fresh supported OpenRouter Deep selection and recompute pricing. If that selection is unsupported, or the reservation exceeds the recorded cap, stop instead of substituting a model or increasing the cap.",
+  "review": {
+    "url": "https://github.com/planetaryescape/marginalia/pull/86",
+    "reviewedSha": "7cd495ad09fc2d500f7daaff9d93f00965ce4f54",
+    "findings": [
+      {
+        "path": "docs/deep-study-evidence/verification.md",
+        "disposition": "adopted",
+        "change": "Explicitly refresh --model from the current Deep selection and stop if unsupported."
+      },
+      {
+        "path": "packages/backend/convex/lib/scriptureStudyEvaluationSchema.ts",
+        "disposition": "adopted",
+        "change": "Require non-null error evidence for failed records."
+      }
+    ],
+    "newRegressionBeforeFix": {
+      "passed": 17,
+      "failed": 1,
+      "durationSeconds": 0.078
+    }
   }
 }
