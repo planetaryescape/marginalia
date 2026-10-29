@@ -17,7 +17,7 @@ import {
   studyAnswerValidator,
 } from "./lib/scriptureStudyFollowUps";
 import { validateFollowUpAnswer } from "./lib/scriptureStudyFollowUpValidation";
-import { ownedStudy, studyPolicy } from "./lib/scriptureStudyState";
+import { currentRun, ownedStudy, studyPolicy } from "./lib/scriptureStudyState";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
 
 async function completed(
@@ -33,6 +33,21 @@ async function completed(
     throw new Error("A newer study is available. Reopen it before asking.");
   return run;
 }
+async function refreshing(
+  ctx: Pick<QueryCtx, "db">,
+  run: Doc<"scriptureStudyRuns">,
+) {
+  const study = await ctx.db.get(run.studyId);
+  if (!study?.activeRunId) return false;
+  const replacement = await ctx.db.get(study.activeRunId);
+  return (
+    !!replacement &&
+    replacement.studyId === run.studyId &&
+    replacement.userId === run.userId &&
+    !!(await currentRun(ctx, replacement))
+  );
+}
+
 async function active(
   ctx: Pick<QueryCtx, "db">,
   row: Doc<"scriptureStudyFollowUps">,
@@ -44,8 +59,7 @@ async function active(
     return false;
   try {
     const run = await completed(ctx, row.userId, row.runId);
-    const study = await ctx.db.get(run.studyId);
-    if (study?.activeRunId) return false;
+    if (await refreshing(ctx, run)) return false;
     const policy = await studyPolicy(ctx, row.userId);
     return (
       row.followUpPolicyHash === (await followUpPolicyHash()) &&
@@ -87,7 +101,7 @@ export const ask = mutation({
   },
   handler: async (ctx, args) => {
     const run = await completed(ctx, ctx.readerId, args.runId);
-    if ((await ctx.db.get(run.studyId))?.activeRunId)
+    if (await refreshing(ctx, run))
       throw new Error("Wait for the refreshed study before asking a question.");
     if (!run.evidence?.length)
       throw new Error(

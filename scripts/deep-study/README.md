@@ -52,4 +52,4 @@ Record the fixture IDs and splits, evaluation commit, snapshot hashes, model, ru
 
 ## First pilot status
 
-The first paired attempt on 2026-10-29 did not produce answers: both arms for `colossians-2-whole` ended in `dispatch_failed` before response or token-usage telemetry was recorded. A credential-related HTTP 401 was reported during that attempt; credential resolution is being checked. No reasoning or source-support comparison can be made from this run.
+The first paired attempt on 2026-10-29 did not produce answers: both arms for `colossians-2-whole` ended in `dispatch_failed` before response or token-usage telemetry was recorded. The saved credential checks returned HTTP 401; an alternate credential lookup is pending. No reasoning or source-support comparison can be made from this run.
