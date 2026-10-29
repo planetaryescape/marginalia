@@ -335,14 +335,17 @@ describe("following", () => {
     await render();
     await start(0);
     const target = 2000 + 40 - window.innerHeight * 0.4;
+    // The block moves with the page, so a premature end of ownership would
+    // show as a second scroll from the recheck, not hide behind a stale rect
     for (const y of [target - 40, target - 2, target - 1, target]) {
       await scrollTo_(y);
+      place(0, 2000 - y);
       await elapse(16);
       expect(listen.following).toBe(true);
     }
-    // The block has arrived in view; still for a moment: it has finished, and the next scroll is the reader's
-    place(0, 300);
+    // Still for a moment: it has finished, and the next scroll is the reader's
     await elapse(200);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
     await scrollTo_(target + 20);
     expect(listen.following).toBe(false);
   });
