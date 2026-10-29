@@ -257,6 +257,34 @@ describe("text match for the picker", () => {
     ]);
   });
 
+  it("judges the whole query, not its first 200 characters", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await article(t, OWNER, "Words", { content: "internationalization" });
+    const long = `${"internationalization ".repeat(10)}rockets`;
+    expect(long.length).toBeGreaterThan(200);
+    expect(await find(owner, long)).toEqual([]);
+  });
+
+  it("returns nothing for a query of more than 16 qualifying words", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await article(t, OWNER, "Words", { content: "sourdough" });
+    expect(await find(owner, "sourdough ".repeat(17))).toEqual([]);
+    expect(await find(owner, "sourdough ".repeat(16))).toHaveLength(1);
+  });
+
+  it("keeps combining marks inside words", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await article(t, OWNER, "Sumer", { content: "Sumerian history" });
+    const decomposed = "re\u0301sume\u0301";
+    expect(await find(owner, decomposed)).toEqual([]);
+    expect(await find(owner, "Sumerian history")).toHaveLength(1);
+    await article(t, OWNER, "CV", { slug: "cv", content: "A good résumé." });
+    const composed = await find(owner, "r\u00e9sum\u00e9");
+    const split = await find(owner, decomposed);
+    expect(composed).toHaveLength(1);
+    expect(split).toEqual(composed);
+  });
+
   it("reads at most a handful of candidates", async () => {
     const { t, owner } = await secondReaderTest(modules);
     for (let i = 0; i < MAX_TEXT_MATCHES + 3; i++)

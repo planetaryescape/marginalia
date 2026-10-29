@@ -85,16 +85,17 @@ export const matchTitles = query({
 export const matchText = query({
   args: { query: v.string() },
   handler: async (ctx, args) => {
-    const text = args.query.trim().slice(0, MAX_QUERY);
-    const required = requiredWords(text);
+    // Strength is judged on the whole query; only the text sent to the index is capped.
+    const required = requiredWords(args.query.trim());
     if (!required) return [];
+    const indexText = args.query.normalize("NFC").trim().slice(0, MAX_QUERY);
     const userId = ctx.readerId;
     // Only `articles` holds the text; the card table keeps headers alone.
     const source = ctx.db
       .query("articles")
       .withSearchIndex("search_content", (q) =>
         q
-          .search("content", text)
+          .search("content", indexText)
           .eq("userId", userId)
           .eq("extractionStatus", "extracted"),
       );
