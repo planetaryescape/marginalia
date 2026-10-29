@@ -50,6 +50,8 @@ The output directory contains `blind-pairs.md`, `score-template.md` and `blind-k
 
 Record the fixture IDs and splits, evaluation commit, snapshot hashes, model, run limits and any dispatch failures with the completed scorecards. Do not treat calibration cases as held-out results. A prompt comparison over frozen evidence says nothing about the live retrieval path or a reader’s configured model.
 
+The root `bun run test` command runs the six offline evaluator safety tests before the workspace suites. These tests make no paid model calls.
+
 ## First pilot status
 
 The first paired attempt on 2026-10-29 did not produce answers: both arms for `colossians-2-whole` ended in `dispatch_failed` before response or token-usage telemetry was recorded. The saved credential checks returned HTTP 401; an alternate credential lookup is pending. No reasoning or source-support comparison can be made from this run.
