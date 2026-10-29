@@ -134,22 +134,29 @@ const openRouterPricingCatalogSchema = z
     data: z.array(z.object({ id: z.string() }).passthrough()),
   })
   .passthrough();
+const textTokenPrices = {
+  prompt: modelPrice,
+  completion: modelPrice,
+  internal_reasoning: modelPrice.optional(),
+  input_cache_read: modelPrice.optional(),
+  input_cache_write: modelPrice.optional(),
+  input_cache_write_1h: modelPrice.optional(),
+};
 const modelPricingSchema = z
   .object({
-    prompt: modelPrice,
-    completion: modelPrice,
+    ...textTokenPrices,
+    request: modelPrice.optional(),
+    image: modelPrice.optional(),
+    audio: modelPrice.optional(),
+    input_audio_cache: modelPrice.optional(),
     web_search: modelPrice.optional(),
-    input_cache_read: modelPrice.optional(),
-    input_cache_write: modelPrice.optional(),
     overrides: z
       .array(
         z
-          .object({
-            prompt: modelPrice,
-            completion: modelPrice,
+          .object(textTokenPrices)
+          .partial()
+          .extend({
             min_prompt_tokens: z.number().int().nonnegative().optional(),
-            input_cache_read: modelPrice.optional(),
-            input_cache_write: modelPrice.optional(),
           })
           .strict(),
       )
@@ -169,13 +176,25 @@ export function parseOpenRouterPricingPayload(value: unknown, modelId: string) {
     throw new Error(
       "Selected OpenRouter model pricing had an invalid structure",
     );
-  const { prompt, completion, overrides = [] } = pricing.data;
+  const rates = [pricing.data, ...(pricing.data.overrides ?? [])];
   return {
-    prompt: Math.max(prompt, ...overrides.map((item) => item.prompt)),
-    completion: Math.max(
-      completion,
-      ...overrides.map((item) => item.completion),
+    // Caching and reasoning may have distinct rates; reserve their maximum
+    // even when only part of an override applies to this text-only request.
+    prompt: Math.max(
+      ...rates.flatMap((item) => [
+        item.prompt ?? 0,
+        item.input_cache_read ?? 0,
+        item.input_cache_write ?? 0,
+        item.input_cache_write_1h ?? 0,
+      ]),
     ),
+    completion: Math.max(
+      ...rates.flatMap((item) => [
+        item.completion ?? 0,
+        item.internal_reasoning ?? 0,
+      ]),
+    ),
+    request: pricing.data.request ?? 0,
     listed: pricing.data,
   };
 }

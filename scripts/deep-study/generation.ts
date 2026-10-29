@@ -24,7 +24,13 @@ import {
 } from "../../packages/backend/convex/lib/scriptureStudyGeneration";
 import { STUDY_TEACHING_PROMPT } from "../../packages/backend/convex/lib/scriptureStudyPrompt";
 import { positiveNumber, type RunnerValues, required } from "./cliArgs";
-import { catalog, definedCase, hash, loadSnapshot } from "./fixtures";
+import {
+  catalog,
+  definedCase,
+  hash,
+  loadSnapshot,
+  type Snapshot,
+} from "./fixtures";
 
 type StudyEvaluationOutcome =
   | {
@@ -87,6 +93,42 @@ export async function openRouterPrice(model: string) {
     );
   }
 }
+
+export function evaluationReservation(
+  snapshots: Snapshot[],
+  price: Pick<
+    ReturnType<typeof parseOpenRouterPricingPayload>,
+    "prompt" | "completion" | "request"
+  >,
+  maxOutputTokens: number,
+) {
+  const schemaBytes = Buffer.byteLength(scriptureStudyEvaluationSchemaJson());
+  return snapshots.reduce((sum, snapshot) => {
+    const promptBytes =
+      Buffer.byteLength(JSON.stringify(snapshot.input)) +
+      Math.max(
+        Buffer.byteLength(snapshot.baselineSystemPrompt),
+        Buffer.byteLength(systemPrompt()),
+      ) +
+      schemaBytes;
+    // UTF-8 bytes bound tokens; repair also receives the maximum draft and bounded feedback.
+    const firstInputTokens = promptBytes + 16_000;
+    const repairInputTokens =
+      firstInputTokens + 4 * STUDY_LIMITS.outputBytes + 16_000;
+    return (
+      sum +
+      2 *
+        (firstInputTokens * price.prompt +
+          maxOutputTokens * price.completion +
+          price.request) +
+      2 *
+        (repairInputTokens * price.prompt +
+          maxOutputTokens * price.completion +
+          price.request)
+    );
+  }, 0);
+}
+
 export async function run(values: RunnerValues) {
   if (values.generate !== true)
     throw new Error("Paid generation requires the explicit --generate flag");
@@ -138,27 +180,7 @@ export async function run(values: RunnerValues) {
       "The active result schema differs from the frozen fixture schema; this runner isolates prompt changes only",
     );
   const price = await openRouterPrice(catalogModel.model);
-  const schemaBytes = Buffer.byteLength(schemaJson);
-  const reservation = snapshots.reduce((sum, snapshot) => {
-    const promptBytes =
-      Buffer.byteLength(JSON.stringify(snapshot.input)) +
-      Math.max(
-        Buffer.byteLength(snapshot.baselineSystemPrompt),
-        Buffer.byteLength(systemPrompt()),
-      ) +
-      schemaBytes;
-    // UTF-8 bytes are a conservative token upper bound. The second attempt also receives the maximum draft and bounded feedback.
-    const firstInputTokens = promptBytes + 16_000;
-    const repairInputTokens =
-      firstInputTokens + 4 * STUDY_LIMITS.outputBytes + 16_000;
-    return (
-      sum +
-      2 *
-        (firstInputTokens * price.prompt + maxOutputTokens * price.completion) +
-      2 *
-        (repairInputTokens * price.prompt + maxOutputTokens * price.completion)
-    );
-  }, 0);
+  const reservation = evaluationReservation(snapshots, price, maxOutputTokens);
   if (reservation > maxCost)
     throw new Error(
       `Estimated reservation $${reservation.toFixed(6)} exceeds --max-estimated-usd $${maxCost}; no generation was sent`,
@@ -220,6 +242,7 @@ export async function run(values: RunnerValues) {
           inputTokenReservation:
             "UTF-8 byte bound plus 16k provider-envelope allowance; second dispatch also reserves a 4x max draft and 16k feedback",
           pricingUsdPerToken: { input: price.prompt, output: price.completion },
+          pricingUsdPerRequest: price.request,
           pricingFromOpenRouter: price.listed,
           maxOutputTokens,
           deadlineMs,
@@ -271,7 +294,8 @@ export async function run(values: RunnerValues) {
                 (total, event) =>
                   total +
                   event.tokens.input! * price.prompt +
-                  event.tokens.output! * price.completion,
+                  event.tokens.output! * price.completion +
+                  price.request,
                 0,
               )
             : null;

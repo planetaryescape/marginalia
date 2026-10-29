@@ -34,6 +34,8 @@ bun scripts/deep-study/runner.ts run --generate \
 
 The runner checks listed OpenRouter pricing before generation and stops if its conservative reservation exceeds `--max-estimated-usd`. A paired fixture reserves up to four model calls: two per arm, including a possible repair attempt. The output cap must match production’s 6,000-token limit. The runner alternates which arm goes first across fixtures and writes a JSONL record for every answer or failure. Records include the evaluation and snapshot identities, prompt and schema hashes, requested and resolved model IDs when available, call limits, pricing estimate, token telemetry and structural anchor/citation validation. Structural validation does not establish reasoning quality. `actualBilledUsd` is always null; these records do not query provider billing.
 
+The reservation uses the highest listed text/cache and output/reasoning rates, including partial overrides, plus any per-request fee. The parser accepts and validates Gemini's image and audio pricing fields for this text-only run. [OpenRouter's pricing schema](https://openrouter.ai/docs/guides/overview/models#pricing-object) describes the billing fields.
+
 The command prints the JSONL path when the run completes. It writes one record for each attempted arm. Transport failures use `dispatch_failed`; exhausted model repairs use `unverifiable_output`; run and per-arm timeouts use `deadline_exceeded`. Unverifiable output is a model-output failure to include in the comparison, not infrastructure noise. Transport and deadline failures provide no answer to score. The `--per-call-deadline-ms` flag sets one lease for an arm, shared by its initial and repair dispatches.
 
 ## Blind and score the answers
