@@ -24,6 +24,10 @@ import {
   generateStudyWithRepair,
   StudyRepairExhaustedError,
 } from "../lib/scriptureStudyGeneration";
+import {
+  selectRelatedReferences,
+  selectStudySourceRecords,
+} from "../lib/scriptureStudySourceSelection";
 import { SCRIPTURE_STUDY_SOURCE_NOTICES } from "../lib/scriptureStudySourceShared";
 import {
   loadAdditionalStudyEvidence,
@@ -44,6 +48,26 @@ function canonicalReference(key: string) {
     `${match[1]} ${match[2]}:${match[3]}${match[6] ? `-${match[6]}` : ""}`,
   );
   return book?.passageId === key ? book : null;
+}
+
+function referenceCoveredByRanges(
+  reference: ReturnType<typeof canonicalReference>,
+  ranges: string[],
+) {
+  if (!reference || reference.verse === undefined) return false;
+  return ranges.some((rangeKey) => {
+    const range = canonicalReference(rangeKey);
+    return Boolean(
+      range &&
+        range.bookId === reference.bookId &&
+        range.chapter === reference.chapter &&
+        range.endChapter === reference.endChapter &&
+        range.verse !== undefined &&
+        reference.verse >= range.verse &&
+        (reference.endVerse ?? reference.verse) <=
+          (range.endVerse ?? range.verse),
+    );
+  });
 }
 
 function sourceRecordIdentity(record: ScriptureStudySourceRecord) {
@@ -392,23 +416,29 @@ export const generate = internalAction({
         );
       coverageWarnings.push(...sourceLoad.coverageWarnings);
       const availableForSources = Math.max(0, 10 - evidence.length);
-      const note = sourceLoad.records.find(
-        (record) => record.sourceId === "aquifer-open-study-notes",
+      const sourceCharsUsed = evidence.reduce(
+        (total, item) => total + item.excerpt.length,
+        0,
       );
-      const comparison = sourceLoad.records.find(
-        (record) => record.sourceId === "byztxt-printed-edition-variants",
+      const hasUnsuppliedRelatedReference = sourceLoad.records.some((record) =>
+        (record.relatedReferences ?? []).some((referenceKey) => {
+          const related = canonicalReference(referenceKey);
+          return (
+            related && !referenceCoveredByRanges(related, chapterContext.ranges)
+          );
+        }),
       );
-      const prioritizedSources = [
-        ...new Set([
-          ...(note ? [note] : []),
-          ...(comparison ? [comparison] : []),
-          ...sourceLoad.records,
-        ]),
-      ];
-      const sourceRecords = prioritizedSources.slice(0, availableForSources);
+      const sourceRecords = selectStudySourceRecords(sourceLoad.records, {
+        reference: ref,
+        maxRecords: Math.max(
+          0,
+          availableForSources - (hasUnsuppliedRelatedReference ? 2 : 0),
+        ),
+        maxChars: Math.max(0, evidenceCharLimit - sourceCharsUsed - 4_000),
+      });
       if (sourceRecords.length < sourceLoad.records.length)
         coverageWarnings.push(
-          "Some verified commentary or edition comparisons were omitted to reserve evidence capacity for related passages.",
+          "Some verified commentary or edition comparisons were omitted by the shared evidence record and character budgets.",
         );
       for (const record of sourceRecords) {
         const registered = sourceRecordIdentity(record);
@@ -437,11 +467,11 @@ export const generate = internalAction({
         });
       }
 
-      const relatedCandidates = [
-        ...new Set(
-          sourceRecords.flatMap((record) => record.relatedReferences ?? []),
-        ),
-      ]
+      const verifiedRelatedCandidates = selectRelatedReferences(sourceRecords, {
+        reference: ref,
+        suppliedRanges: chapterContext.ranges,
+        limit: 2,
+      })
         .map((referenceKey) => ({
           referenceKey,
           ref: canonicalReference(referenceKey),
@@ -454,13 +484,14 @@ export const generate = internalAction({
             return false;
           }
           return true;
-        })
-        .slice(0, 2);
-      if (!relatedCandidates.length)
+        });
+      if (!verifiedRelatedCandidates.length)
         coverageWarnings.push(
-          "No related WEB reference was verified from supplied study notes; connections are limited to the supplied chapter context.",
+          sourceRecords.some((record) => record.relatedReferences?.length)
+            ? "No related WEB reference remained after source-reference validation and supplied-context deduplication."
+            : "No related WEB reference was verified from supplied study notes; connections are limited to the supplied chapter context.",
         );
-      for (const [index, candidate] of relatedCandidates.entries()) {
+      for (const [index, candidate] of verifiedRelatedCandidates.entries()) {
         if (!candidate.ref) continue;
         try {
           const related = await interruptible(
