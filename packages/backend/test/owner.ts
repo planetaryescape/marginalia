@@ -8,8 +8,11 @@ import schema from "../convex/schema";
 
 type ReaderTest = ReturnType<typeof readerTest>;
 
-export function readerTest(modules: Record<string, () => Promise<unknown>>) {
-  const t = convexTest(schema, modules);
+export function readerTest(
+  modules: Record<string, () => Promise<unknown>>,
+  options?: { transactionLimits?: boolean },
+) {
+  const t = convexTest({ schema, modules, ...options });
   t.registerComponent(
     "betterAuth",
     authSchema,
@@ -114,8 +117,9 @@ export async function addReader(
 /** The owner plus a second, active reader sharing one deployment. */
 export async function secondReaderTest(
   modules: Record<string, () => Promise<unknown>>,
+  options?: { transactionLimits?: boolean },
 ) {
-  const t = readerTest(modules);
+  const t = readerTest(modules, options);
   const owner = t.withIdentity(await addOwner(t));
   const second = await addReader(t, { email: "reader@example.com" });
   return {

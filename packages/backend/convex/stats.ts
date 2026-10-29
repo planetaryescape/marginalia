@@ -2,6 +2,7 @@ import { getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { ownedArticleCard } from "./access";
+import { readableFeedStats } from "./feedStats";
 import { query } from "./functions";
 import { limitLegacyReadBytes } from "./lib/articleMetadata";
 import {
@@ -644,10 +645,7 @@ export const readingRoom = query({
       timeZone,
     );
 
-    const counted = await ctx.db
-      .query("feedStats")
-      .withIndex("by_user_feed", (q) => q.eq("userId", ctx.readerId))
-      .take(ROOM_FEEDS);
+    const counted = await readableFeedStats(ctx, ctx.readerId, ROOM_FEEDS);
     const titleOf = await reportingFeedTitles(ctx, ctx.readerId);
     const feeds = [];
     for (const f of counted

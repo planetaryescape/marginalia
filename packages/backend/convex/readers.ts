@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { revokeSessions } from "./access";
+import { resumeRebuild } from "./feedStats";
 import { ownerMutation, ownerQuery } from "./functions";
 
 const status = v.union(v.literal("active"), v.literal("disabled"));
@@ -41,6 +42,8 @@ export const setStatus = ownerMutation({
       throw new ConvexError("This reader is deleting their account.");
     await ctx.db.patch("readers", reader._id, { status: args.status });
     if (args.status === "disabled") await revokeSessions(ctx, reader.authId);
+    // A rebuild that stopped while the reader was disabled has no step queued
+    else if (reader.libraryId) await resumeRebuild(ctx, reader.libraryId);
     return null;
   },
 });

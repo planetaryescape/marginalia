@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { libraryIsActive } from "./access";
+import { readableFeedStats } from "./feedStats";
 import { mutation, query } from "./functions";
 import { skipsMostOf } from "./lib/readingRoom";
 
@@ -17,10 +18,7 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const stats = await ctx.db
-      .query("feedStats")
-      .withIndex("by_user_feed", (q) => q.eq("userId", ctx.readerId))
-      .take(FEEDS);
+    const stats = await readableFeedStats(ctx, ctx.readerId, FEEDS);
     const skipped = stats
       .filter((s) => skipsMostOf(s.offered, s.opened))
       .sort(

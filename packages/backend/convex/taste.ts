@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { libraryIsActive } from "./access";
+import { readableFeedStats } from "./feedStats";
 import { internalMutation, type MutationCtx, type QueryCtx } from "./functions";
 import {
   type ArticleSignals,
@@ -238,10 +239,7 @@ export const accumulate = internalMutation({
       return null;
     }
 
-    const stats = await ctx.db
-      .query("feedStats")
-      .withIndex("by_user_feed", (q) => q.eq("userId", userId))
-      .take(FEEDS);
+    const stats = await readableFeedStats(ctx, userId, FEEDS);
     // Candidate tags and deleted ones are not topics (D-DES-059)
     const activeTags = [];
     for (const entry of tallyEntries(tags, TAG_CANDIDATES)) {
