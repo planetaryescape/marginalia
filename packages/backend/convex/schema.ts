@@ -1091,6 +1091,14 @@ export default defineSchema({
     .index("by_article", ["articleId"])
     .index("by_user_article", ["userId", "articleId"])
     .index("by_user_article_action", ["userId", "articleId", "action"])
+    // Whether another row of a visit's finish has already been decided
+    .index("by_user_article_action_visit_counted", [
+      "userId",
+      "articleId",
+      "action",
+      "visitId",
+      "feedCounted",
+    ])
     .index("by_user_action_created", ["userId", "action", "createdAt"]),
 
   // Cumulative checkpoints per page visit and local day make retries idempotent.
@@ -1174,10 +1182,40 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_user_feed", ["userId", "feedId"]),
 
-  // Progress of the one-time count of interactions that predate the counters.
+  // Opens counted so far per reader, article and session (none is its own
+  // key): desk opens (no visitId) and reader-page visit opens. The feed gets
+  // max(desk, visit), because a desk open and its visit are one open.
+  feedOpenCounts: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    sessionId: v.optional(v.id("sessions")),
+    desk: v.number(),
+    visit: v.number(),
+  }).index("by_key", ["userId", "articleId", "sessionId"]),
+
+  // Progress of rebuilding a reader's feedStats under the current counting
+  // rules. A row without the current version is rebuilt from the start.
   feedStatsBackfill: defineTable({
     userId: v.string(),
+    version: v.optional(v.number()),
+    phase: v.optional(
+      v.union(
+        v.literal("stats"),
+        v.literal("counts"),
+        v.literal("markers"),
+        v.literal("count"),
+      ),
+    ),
     cursor: v.optional(v.string()),
+    // Creation time of the last interaction the counting pass has reached
+    seen: v.optional(v.number()),
+    // A live interaction arrived behind the counting pass
+    dirty: v.optional(v.boolean()),
+    // When the next step was last scheduled, to notice one that was lost
+    scheduledAt: v.optional(v.number()),
+    // Only the step holding this token may run, so a chain cannot fork
+    stepToken: v.optional(v.string()),
+    stepJobId: v.optional(v.id("_scheduled_functions")),
     ready: v.boolean(),
   }).index("by_user", ["userId"]),
 

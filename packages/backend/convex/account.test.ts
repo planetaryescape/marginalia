@@ -178,6 +178,12 @@ async function seedLibrary(ctx: MutationCtx, userId: string, copies = 1) {
       skipped: 0,
       updatedAt: now,
     });
+    await ctx.db.insert("feedOpenCounts", {
+      userId,
+      articleId,
+      desk: 1,
+      visit: 0,
+    });
     await ctx.db.insert("feedStatsBackfill", {
       userId: `${userId}`,
       ready: i === 0,

@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { countFeedOutcome } from "./feedStats";
+import { metadataTriggers } from "./lib/metadataTriggers";
 
 const modules = import.meta.glob("./**/*.ts");
 const OWNER = "default_user";
@@ -50,7 +51,15 @@ const totals = (rows: Awaited<ReturnType<typeof stats>>) =>
   }));
 
 const finish = async (t: Fixture["t"]) => {
-  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  // Rebuilds run in pages of a few rows, so the chain is long
+  await (
+    t as unknown as {
+      finishAllScheduledFunctions: (
+        advance: () => void,
+        maxIterations: number,
+      ) => Promise<void>;
+    }
+  ).finishAllScheduledFunctions(vi.runAllTimers, 2000);
 };
 
 describe("per-feed outcome counts", () => {
@@ -557,6 +566,522 @@ describe("a library being deleted", () => {
       state: await ctx.db.query("feedStatsBackfill").collect(),
     }));
     expect(rows).toEqual({ dwell: [], activity: [], stats: [], state: [] });
+    vi.useRealTimers();
+  });
+});
+
+describe("opens and finishes past any scan window", () => {
+  const VISIT = (n: number) => `visit-${n}`;
+
+  async function setup() {
+    const f = await secondReaderTest(modules);
+    const article = await f.t.run((ctx) => feedWithArticle(ctx, OWNER, "busy"));
+    const sessionId = await f.owner.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    const sessionB = await f.owner.mutation(api.sessions.create, {
+      requestedMinutes: 10,
+    });
+    /** Inserts and counts in its own transaction, as the live path does. */
+    const live = (
+      action: "opened" | "finished",
+      extra: { sessionId?: Id<"sessions">; visitId?: string },
+    ) =>
+      f.t.run(async (ctx) => {
+        const id = await ctx.db.insert("articleInteractions", {
+          userId: OWNER,
+          articleId: article.articleId,
+          action,
+          createdAt: Date.now(),
+          ...extra,
+        });
+        const row = await ctx.db.get(article.articleId);
+        if (row) await countFeedOutcome(ctx, row, id);
+      });
+    const seed = (
+      rows: {
+        action?: "opened" | "finished";
+        sessionId?: Id<"sessions">;
+        visitId?: string;
+        feedCounted?: boolean;
+      }[],
+    ) =>
+      f.t.run(async (ctx) => {
+        for (const row of rows)
+          await ctx.db.insert("articleInteractions", {
+            userId: OWNER,
+            articleId: article.articleId,
+            action: row.action ?? "opened",
+            sessionId: row.sessionId,
+            visitId: row.visitId,
+            feedCounted: row.feedCounted,
+            createdAt: Date.now(),
+          });
+      });
+    const opened = async () => (await stats(f.t))[0]?.opened;
+    return { ...f, ...article, sessionId, sessionB, live, seed, opened };
+  }
+
+  it("counts 101 alternating desk and visit pairs in one session as 101", async () => {
+    const { live, opened, sessionId } = await setup();
+    for (let i = 0; i < 101; i++) {
+      await live("opened", { sessionId });
+      await live("opened", { sessionId, visitId: VISIT(i) });
+    }
+    expect(await opened()).toBe(101);
+  });
+
+  it("counts 101 pairs with no session as 101, and visit-first pairs the same", async () => {
+    const { live, opened } = await setup();
+    for (let i = 0; i < 101; i++) {
+      if (i % 2) {
+        await live("opened", { visitId: VISIT(i) });
+        await live("opened", {});
+      } else {
+        await live("opened", {});
+        await live("opened", { visitId: VISIT(i) });
+      }
+    }
+    expect(await opened()).toBe(101);
+  });
+
+  it("counts a new desk open in a session whose earlier pair is over 200 rows back", async () => {
+    const { live, opened, sessionId, sessionB } = await setup();
+    await live("opened", { sessionId });
+    await live("opened", { sessionId, visitId: VISIT(0) });
+    for (let i = 0; i < 200; i++) await live("opened", { sessionId: sessionB });
+    expect(await opened()).toBe(201);
+    await live("opened", { sessionId });
+    expect(await opened()).toBe(202);
+  });
+
+  it("counts a backfill over 202 rows, a pair before 200 desk-only opens elsewhere, as 201", async () => {
+    vi.useFakeTimers();
+    const { t, seed, opened, sessionId, sessionB } = await setup();
+    await seed([
+      { sessionId },
+      { sessionId, visitId: VISIT(0) },
+      ...Array.from({ length: 200 }, () => ({ sessionId: sessionB })),
+    ]);
+    vi.advanceTimersByTime(10);
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    await finish(t);
+    expect(await opened()).toBe(201);
+    const counters = await t.run((ctx) =>
+      ctx.db.query("feedOpenCounts").collect(),
+    );
+    expect(
+      counters.map(({ sessionId: s, desk, visit }) => [s, desk, visit]),
+    ).toEqual(
+      expect.arrayContaining([
+        [sessionId, 1, 1],
+        [sessionB, 200, 0],
+      ]),
+    );
+    vi.useRealTimers();
+  });
+
+  it("counts a visit's finish once however many finished rows it has", async () => {
+    const { live, t, feedId, seed } = await setup();
+    for (let i = 0; i < 250; i++) await live("finished", { visitId: VISIT(1) });
+    await live("finished", { visitId: VISIT(2) });
+    expect((await stats(t))[0]).toMatchObject({ feedId, finished: 2 });
+    // The backfill agrees on the same rows stored as history
+    vi.useFakeTimers();
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("articleInteractions").collect())
+        await ctx.db.delete(row._id);
+      for (const row of await ctx.db.query("feedStats").collect())
+        await ctx.db.delete(row._id);
+      for (const row of await ctx.db.query("feedStatsBackfill").collect())
+        await ctx.db.delete(row._id);
+    });
+    await seed(
+      Array.from({ length: 250 }, () => ({
+        action: "finished" as const,
+        visitId: VISIT(1),
+      })),
+    );
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    await finish(t);
+    expect((await stats(t))[0]).toMatchObject({ finished: 1 });
+    vi.useRealTimers();
+  });
+
+  it("counts opens that arrive while a rebuild is half done exactly once", async () => {
+    vi.useFakeTimers();
+    const { t, seed, live, opened, sessionId } = await setup();
+    await seed(Array.from({ length: 20 }, () => ({ sessionId })));
+    vi.advanceTimersByTime(10);
+    const state = () =>
+      t.run((ctx) => ctx.db.query("feedStatsBackfill").unique());
+    // Step the rebuild by hand until the counting pass is under way
+    for (let i = 0; i < 100 && (await state())?.phase !== "count"; i++)
+      await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    expect((await state())?.seen).toBeDefined();
+    // Ahead of the cursor: left for the rebuild, which pairs it with a desk open
+    await live("opened", { sessionId, visitId: VISIT(1) });
+    expect((await state())?.dirty).toBeUndefined();
+    // Behind the cursor (the cursor is moved past it, as a row that committed
+    // late with an early creation time would be): the rebuild must pass again
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("feedStatsBackfill").unique();
+      if (row) await ctx.db.patch(row._id, { seen: Date.now() + 1e9 });
+    });
+    await live("opened", { sessionId });
+    expect((await state())?.dirty).toBe(true);
+    let steps = 0;
+    while (!(await state())?.ready && steps++ < 200)
+      await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+    expect((await state())?.ready).toBe(true);
+    expect((await state())?.dirty).toBeUndefined();
+    // 21 desk opens and one visit: 21
+    expect(await opened()).toBe(21);
+    // Once ready the live path counts at once
+    await live("opened", { sessionId });
+    expect(await opened()).toBe(22);
+    const rows = await t.run((ctx) =>
+      ctx.db.query("articleInteractions").collect(),
+    );
+    expect(rows.every((row) => row.feedCounted === true)).toBe(true);
+    expect(
+      await t.run((ctx) => ctx.db.query("feedOpenCounts").unique()),
+    ).toMatchObject({ desk: 22, visit: 1 });
+    await finish(t);
+    expect(await opened()).toBe(22);
+    vi.useRealTimers();
+  });
+
+  describe("a reader whose counts predate the rebuild", () => {
+    const legacy = (t: Fixture["t"], ready: boolean) =>
+      t.run((ctx) =>
+        ctx.db.insert("feedStatsBackfill", { userId: OWNER, ready }),
+      );
+    const setStats = (
+      t: Fixture["t"],
+      feedId: Id<"feeds">,
+      counts: { opened?: number; finished?: number },
+    ) =>
+      t.run((ctx) =>
+        ctx.db.insert("feedStats", {
+          userId: OWNER,
+          feedId,
+          offered: 0,
+          opened: counts.opened ?? 0,
+          finished: counts.finished ?? 0,
+          skipped: 0,
+          updatedAt: Date.now(),
+        }),
+      );
+
+    it("does not add an unmarked earlier desk open on top of a credited visit", async () => {
+      vi.useFakeTimers();
+      const { t, feedId, seed, live, opened, sessionId } = await setup();
+      // The desk row committed after its visit had already been credited
+      await seed([
+        { sessionId },
+        { sessionId, visitId: VISIT(1), feedCounted: true },
+      ]);
+      await setStats(t, feedId as Id<"feeds">, { opened: 1 });
+      await legacy(t, true);
+      await live("opened", { sessionId, visitId: VISIT(2) });
+      await finish(t);
+      // One desk open and two visits are two opens
+      expect(await opened()).toBe(2);
+      vi.useRealTimers();
+    });
+
+    it("credits a visit's finish even when a later duplicate was marked first", async () => {
+      vi.useFakeTimers();
+      const { t, feedId, seed } = await setup();
+      await seed([
+        { action: "finished", visitId: VISIT(1) },
+        { action: "finished", visitId: VISIT(1), feedCounted: true },
+      ]);
+      await setStats(t, feedId as Id<"feeds">, { finished: 0 });
+      await legacy(t, false);
+      await t.mutation(internal.feedStats.backfill, { userId: OWNER });
+      await finish(t);
+      expect((await stats(t))[0].finished).toBe(1);
+      vi.useRealTimers();
+    });
+
+    it("rebuilds a reader with large annotationsOpened payloads within the read limit", async () => {
+      vi.useFakeTimers();
+      // The platform's 16 MiB read limit, which 400 rows of the largest valid
+      // annotationsOpened (128 strings of 100 bytes) exceed in one transaction
+      const { t } = await secondReaderTest(modules, {
+        transactionLimits: true,
+      });
+      const annotationsOpened = Array.from({ length: 128 }, (_, i) =>
+        `${i}`.padEnd(100, "x"),
+      );
+      const { feedId, articleId } = await t.run(async (ctx) => {
+        const made = await feedWithArticle(ctx, OWNER, "heavy");
+        for (let i = 0; i < 400; i += 100)
+          for (let j = i; j < i + 100; j++)
+            await ctx.db.insert("articleInteractions", {
+              userId: OWNER,
+              articleId: made.articleId,
+              action: "opened",
+              annotationsOpened,
+              createdAt: j,
+            });
+        await ctx.db.insert("feedStatsBackfill", {
+          userId: OWNER,
+          ready: true,
+        });
+        return made;
+      });
+      // A live open, with the table triggers the real mutations run
+      await t.run(async (raw) => {
+        const ctx = metadataTriggers.wrapDB(raw);
+        const article = await ctx.db.get(articleId);
+        const id = await ctx.db.insert("articleInteractions", {
+          userId: OWNER,
+          articleId,
+          action: "opened",
+          createdAt: 401,
+        });
+        if (article) await countFeedOutcome(ctx, article, id);
+      });
+      await finish(t);
+      expect(
+        (await t.run((ctx) => ctx.db.query("feedStatsBackfill").unique()))
+          ?.ready,
+      ).toBe(true);
+      expect(
+        (await t.run((ctx) => ctx.db.query("feedStats").unique()))?.opened,
+      ).toBe(401);
+      expect(feedId).toBeDefined();
+      vi.useRealTimers();
+    });
+  });
+
+  describe("a rebuild that must not stall", () => {
+    const pending = (t: Fixture["t"]) =>
+      t.run(async (ctx) =>
+        (await ctx.db.system.query("_scheduled_functions").take(500)).filter(
+          (job) =>
+            job.name.includes("feedStats") && job.state.kind === "pending",
+        ),
+      );
+    async function readerWithHistory(opens: number) {
+      const f = await secondReaderTest(modules);
+      const made = await f.t.run(async (ctx) => {
+        const m = await feedWithArticle(ctx, f.readerLibraryId, "theirs");
+        for (let i = 0; i < opens; i++)
+          await ctx.db.insert("articleInteractions", {
+            userId: f.readerLibraryId,
+            articleId: m.articleId,
+            action: "opened",
+            createdAt: i,
+          });
+        return m;
+      });
+      const live = () =>
+        f.t.run(async (ctx) => {
+          const id = await ctx.db.insert("articleInteractions", {
+            userId: f.readerLibraryId,
+            articleId: made.articleId,
+            action: "opened",
+            createdAt: Date.now(),
+          });
+          const article = await ctx.db.get(made.articleId);
+          if (article) await countFeedOutcome(ctx, article, id);
+        });
+      return { ...f, ...made, live };
+    }
+
+    it("finishes after the reader is disabled between pages and enabled again", async () => {
+      vi.useFakeTimers();
+      const { t, owner, readerLibraryId, live } = await readerWithHistory(12);
+      const row = await t.run((ctx) =>
+        ctx.db
+          .query("readers")
+          .withIndex("by_libraryId", (q) => q.eq("libraryId", readerLibraryId))
+          .unique(),
+      );
+      const readerId = row?._id as Id<"readers">;
+      await t.mutation(internal.feedStats.backfill, {
+        userId: readerLibraryId,
+      });
+      await owner.mutation(api.readers.setStatus, {
+        readerId,
+        status: "disabled",
+      });
+      // The queued step runs while disabled and goes no further
+      await finish(t);
+      expect(await pending(t)).toHaveLength(0);
+      await owner.mutation(api.readers.setStatus, {
+        readerId,
+        status: "active",
+      });
+      for (let i = 0; i < 3; i++) await live();
+      await finish(t);
+      const state = await t.run((ctx) =>
+        ctx.db.query("feedStatsBackfill").unique(),
+      );
+      expect(state?.ready).toBe(true);
+      expect(
+        (await t.run((ctx) => ctx.db.query("feedStats").unique()))?.opened,
+      ).toBe(15);
+      vi.useRealTimers();
+    });
+
+    it("reschedules from a live write once a scheduled step looks lost", async () => {
+      vi.useFakeTimers();
+      const { t, readerLibraryId, live } = await readerWithHistory(12);
+      await t.mutation(internal.feedStats.backfill, {
+        userId: readerLibraryId,
+      });
+      // The step is lost without anything re-enabling the reader
+      await t.run(async (ctx) => {
+        for (const job of await ctx.db.system
+          .query("_scheduled_functions")
+          .take(50))
+          if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+      });
+      await live();
+      expect(await pending(t)).toHaveLength(0);
+      vi.advanceTimersByTime(61_000);
+      await live();
+      expect(await pending(t)).toHaveLength(1);
+      await finish(t);
+      expect(
+        (await t.run((ctx) => ctx.db.query("feedStatsBackfill").unique()))
+          ?.ready,
+      ).toBe(true);
+      vi.useRealTimers();
+    });
+
+    const setStatus = async (
+      f: Awaited<ReturnType<typeof readerWithHistory>>,
+      status: "active" | "disabled",
+    ) => {
+      const row = await f.t.run((ctx) =>
+        ctx.db
+          .query("readers")
+          .withIndex("by_libraryId", (q) =>
+            q.eq("libraryId", f.readerLibraryId),
+          )
+          .unique(),
+      );
+      await f.owner.mutation(api.readers.setStatus, {
+        readerId: row?._id as Id<"readers">,
+        status,
+      });
+    };
+    const rebuildState = (t: Fixture["t"]) =>
+      t.run((ctx) => ctx.db.query("feedStatsBackfill").unique());
+
+    it("keeps one chain through repeated disable and enable while a step is pending", async () => {
+      vi.useFakeTimers();
+      const f = await readerWithHistory(12);
+      const { t, readerLibraryId } = f;
+      await t.mutation(internal.feedStats.backfill, {
+        userId: readerLibraryId,
+      });
+      expect(await pending(t)).toHaveLength(1);
+      for (let i = 0; i < 4; i++) {
+        await setStatus(f, "disabled");
+        await setStatus(f, "active");
+        expect(await pending(t)).toHaveLength(1);
+      }
+      await finish(t);
+      expect(await pending(t)).toHaveLength(0);
+      expect((await rebuildState(t))?.ready).toBe(true);
+      expect(
+        (await t.run((ctx) => ctx.db.query("feedStats").unique()))?.opened,
+      ).toBe(12);
+      vi.useRealTimers();
+    });
+
+    it("keeps one chain when a slow step is rescheduled by live writes", async () => {
+      vi.useFakeTimers();
+      const { t, readerLibraryId, live } = await readerWithHistory(12);
+      await t.mutation(internal.feedStats.backfill, {
+        userId: readerLibraryId,
+      });
+      for (let i = 0; i < 3; i++) {
+        // The step is alive but slow: more than a minute has passed
+        vi.advanceTimersByTime(61_000);
+        await live();
+        await live();
+        expect(await pending(t)).toHaveLength(1);
+      }
+      await finish(t);
+      expect(await pending(t)).toHaveLength(0);
+      expect((await rebuildState(t))?.ready).toBe(true);
+      expect(
+        (await t.run((ctx) => ctx.db.query("feedStats").unique()))?.opened,
+      ).toBe(18);
+      vi.useRealTimers();
+    });
+
+    it("does nothing when a superseded step arrives", async () => {
+      vi.useFakeTimers();
+      const f = await readerWithHistory(12);
+      const { t, readerLibraryId } = f;
+      await t.mutation(internal.feedStats.backfill, {
+        userId: readerLibraryId,
+      });
+      const old = (await rebuildState(t))?.stepToken;
+      expect(old).toBeDefined();
+      await setStatus(f, "disabled");
+      await setStatus(f, "active");
+      const before = await rebuildState(t);
+      expect(before?.stepToken).not.toBe(old);
+      await t.mutation(internal.feedStats.backfill, {
+        userId: readerLibraryId,
+        token: old,
+      });
+      expect(await rebuildState(t)).toEqual(before);
+      expect(await pending(t)).toHaveLength(1);
+      vi.useRealTimers();
+    });
+
+    it("schedules nothing extra for live writes during a healthy rebuild", async () => {
+      vi.useFakeTimers();
+      const { t, readerLibraryId, live } = await readerWithHistory(12);
+      await t.mutation(internal.feedStats.backfill, {
+        userId: readerLibraryId,
+      });
+      expect(await pending(t)).toHaveLength(1);
+      for (let i = 0; i < 10; i++) await live();
+      expect(await pending(t)).toHaveLength(1);
+      await finish(t);
+      expect(
+        (await t.run((ctx) => ctx.db.query("feedStats").unique()))?.opened,
+      ).toBe(22);
+      vi.useRealTimers();
+    });
+  });
+
+  it("does not count again what an earlier version already counted", async () => {
+    vi.useFakeTimers();
+    const { t, feedId, seed, live, opened, sessionId } = await setup();
+    // History decided before the counters existed, and its feedStats row
+    await seed([{ sessionId, feedCounted: true }]);
+    await t.run((ctx) =>
+      ctx.db.insert("feedStats", {
+        userId: OWNER,
+        feedId: feedId as Id<"feeds">,
+        offered: 0,
+        opened: 1,
+        finished: 0,
+        skipped: 0,
+        updatedAt: Date.now(),
+      }),
+    );
+    await live("opened", { sessionId, visitId: VISIT(1) });
+    // The stale count stays until the rebuild replaces it; nothing is added
+    expect(await opened()).toBe(1);
+    await finish(t);
+    expect(await opened()).toBe(1);
+    await live("opened", { sessionId });
+    expect(await opened()).toBe(2);
     vi.useRealTimers();
   });
 });

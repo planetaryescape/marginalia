@@ -1,8 +1,10 @@
 /// <reference types="vite/client" />
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { secondReaderTest } from "../test/owner";
 import { api } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
+import { REBUILD_VERSION } from "./feedStats";
 import { KEEP_MS } from "./feedSuggestions";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -57,6 +59,24 @@ describe("feed suggestions", () => {
     const list = await owner.query(api.feedSuggestions.list, {});
     expect(list.map((s) => s.feedId)).toEqual([ids.worse, ids.skipped]);
     expect(list[1]).toMatchObject({ offered: 40, opened: 1 });
+  });
+
+  it("says nothing while the reader's counts are being rebuilt", async () => {
+    const { t, owner } = await secondReaderTest(modules);
+    await t.run((ctx) => counted(ctx, OWNER, "noisy", 40, 1));
+    const state = (fields: { ready: boolean; version?: number }) =>
+      t.run(async (ctx) => {
+        for (const row of await ctx.db.query("feedStatsBackfill").collect())
+          await ctx.db.delete(row._id);
+        await ctx.db.insert("feedStatsBackfill", { userId: OWNER, ...fields });
+      });
+    // Counts from before the current rules, and a rebuild under way
+    await state({ ready: true });
+    expect(await owner.query(api.feedSuggestions.list, {})).toEqual([]);
+    await state({ ready: false, version: REBUILD_VERSION });
+    expect(await owner.query(api.feedSuggestions.list, {})).toEqual([]);
+    await state({ ready: true, version: REBUILD_VERSION });
+    expect(await owner.query(api.feedSuggestions.list, {})).toHaveLength(1);
   });
 
   it("never suggests another reader's feeds", async () => {
