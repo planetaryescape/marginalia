@@ -131,6 +131,19 @@ describe("blinded study comparison integrity", () => {
     );
   });
 
+  it("requires error evidence for a failed arm", async () => {
+    for (const error of [undefined, null]) {
+      const rows = await records();
+      await assert.rejects(
+        pair(
+          await input([rows[0], { ...rows[1], error }]),
+          join(directory, "blind"),
+        ),
+        /failed.*error evidence/i,
+      );
+    }
+  });
+
   async function completedRecords() {
     return (await records()).map((row) => ({
       ...row,

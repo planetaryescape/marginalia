@@ -239,12 +239,19 @@ export const studyEvaluationResultRowSchema = z
           code: "custom",
           message: "A complete record requires model and validation metadata",
         });
-    } else if (row.object) {
-      ctx.addIssue({
-        code: "custom",
-        message: "A failed record cannot contain a completed answer",
-        path: ["object"],
-      });
+    } else {
+      if (row.object)
+        ctx.addIssue({
+          code: "custom",
+          message: "A failed record cannot contain a completed answer",
+          path: ["object"],
+        });
+      if (row.error == null)
+        ctx.addIssue({
+          code: "custom",
+          message: "A failed record requires error evidence",
+          path: ["error"],
+        });
     }
   });
 export type StudyEvaluationResultRow = z.infer<

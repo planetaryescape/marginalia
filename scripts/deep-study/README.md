@@ -18,6 +18,8 @@ The output prints each fixture’s split, reference, hashes, prompt and source-p
 
 Generation requires the explicit `--generate` flag and an `OPENROUTER_API_KEY` environment variable. Use an OpenRouter model already present in the app routing catalog. Set an approved estimated-cost ceiling, call limit and deadlines for the run. Never put the key in a command argument or fixture.
 
+For a comparison on the reader's Deep model, re-query `userSettings:getModels` and replace `--model` with that fresh selection. If it is not a supported OpenRouter catalog entry, stop instead of comparing a different model. The runner does not query the reader's selection itself.
+
 For example, after exporting the credential in your shell, this runs both arms on one calibration fixture with explicit caps:
 
 ```sh
