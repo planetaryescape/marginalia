@@ -1,0 +1,100 @@
+{
+  "baseSha": "5e9cf59fd3b65d839855f50e75e75bb9901c708a",
+  "status": "generation_blocked",
+  "paidComparisonCalls": 0,
+  "modelSelection": {
+    "checkedAt": "2026-10-29T18:19:20.035047+00:00",
+    "deployment": "stoic-hare-718",
+    "contract": "userSettings:getModels",
+    "selectedDeepModel": "openrouter:google/gemini-3.8-flash",
+    "credentialExported": false,
+    "settingsChanged": false,
+    "lookupMode": "Owner existing live session via deployment CLI; no sessions created or revoked"
+  },
+  "operatorCredential": {
+    "checkedAt": "2026-10-29T18:10:17.871933+00:00",
+    "provider": "openrouter",
+    "item": "OpenRouter API",
+    "itemUpdatedAt": "2026-07-15T14:12:18Z",
+    "credentialPresent": true,
+    "endpoint": "https://openrouter.ai/api/v1/key",
+    "httpStatus": 401
+  },
+  "nextAction": "Re-query the current Deep model through userSettings:getModels, validate the active OpenRouter 1Password item named by BK, then run the capped colossians-2-whole calibration pair. Do not use another project key without authorization or export the app credential.",
+  "limitations": [
+    "No paired answers or quality scores are available.",
+    "The fixed-evidence harness isolates synthesis and cannot measure changes to live source allocation.",
+    "A qualified human review remains necessary for disputed passage judgments."
+  ],
+  "implementationSha": "b634713cd1a663aa0aab9ba492722f6b3f43bfa0",
+  "verification": {
+    "baselineRegression": {
+      "sourceSha": "8d02cce24056bdb557ca28e3dda52c3e53bf812a",
+      "passed": 0,
+      "failed": 17,
+      "durationSeconds": 0.085,
+      "scope": "New regression tests against the original scorecard module and result-row schema, copied temporarily with their import paths adjusted. No provider calls."
+    },
+    "candidateOfflineChecks": {
+      "command": "bun test scripts/deep-study",
+      "passed": 23,
+      "failed": 0,
+      "durationSeconds": 0.449,
+      "queued": false
+    },
+    "backendTypecheck": {
+      "task": 669,
+      "status": "passed",
+      "exitCode": 0
+    },
+    "evaluatorStrictTypecheck": {
+      "task": 670,
+      "status": "passed",
+      "exitCode": 0
+    },
+    "scopedBiome": {
+      "exitCode": 0
+    },
+    "checkedAt": "2026-10-29T18:28:13.711504+00:00",
+    "diffCheck": {
+      "exitCode": 0
+    }
+  },
+  "environmentCredential": {
+    "name": "OPENROUTER_API_KEY",
+    "present": false
+  },
+  "checkedSourceHashes": {
+    "package.json": "26ab74d28081cb5d5d7a082886ab90fa5547eab2aae35554bb9153ca8bbbe568",
+    "packages/backend/convex/lib/scriptureStudyEvaluationSchema.ts": "35b71e7871138faf892021d9ca0ca204b0a55b61fbe73a8b37f2091c22a36a07",
+    "scripts/deep-study/scorecard.ts": "428e79ced3023692a12af0661e40e8f9540304d73e261f1c3b61ad8c33e71ef1",
+    "scripts/deep-study/scorecard.test.ts": "7bbff2c1fdaee10894bb44c5d5e30afbd5bf70a417be77e6e962ec240971882f"
+  },
+  "rebase": {
+    "previousImplementationSha": "ec624d5545a6d147fff437c79ca6cb061a78c542",
+    "upstreamChange": "Documentation only (#85)",
+    "allImplementationFilesByteIdentical": true
+  },
+  "generationArgs": [
+    "bun",
+    "scripts/deep-study/runner.ts",
+    "run",
+    "--generate",
+    "--fixtures",
+    "colossians-2-whole",
+    "--model",
+    "openrouter:google/gemini-3.8-flash",
+    "--max-calls",
+    "4",
+    "--max-estimated-usd",
+    "1",
+    "--deadline-ms",
+    "300000",
+    "--per-call-deadline-ms",
+    "90000",
+    "--max-output-tokens",
+    "6000",
+    "--out",
+    "/tmp/marginalia-deep-study-quality-pilot-2"
+  ]
+}
