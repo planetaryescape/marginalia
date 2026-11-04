@@ -7,6 +7,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { purgeImages } from "./bookImages";
+import { EPUB_LIMITS } from "./lib/epub/archive";
 import { deleteArticle } from "./lib/feedRemoval";
 import { storedSha256AsHex } from "./lib/uploadFingerprint";
 
@@ -110,6 +111,7 @@ it("publishes an owned book with spans, registered raster images and no fabricat
   ]);
   const row = await f.t.run((ctx) => ctx.db.get(input.importId));
   expect(row).toMatchObject({ status: "ready", format: "epub", units: 1 });
+  expect(row?.author).toBe("Fixture author");
   expect(row?.pages).toBeUndefined();
   if (!row?.articleId) throw new Error("Missing article");
   const articleId = row.articleId;
@@ -165,6 +167,71 @@ it("publishes an owned book with spans, registered raster images and no fabricat
   });
   await runScheduled(f.t);
   expect(await f.t.run((ctx) => ctx.storage.get(image.storageId))).toBeNull();
+});
+
+it("retains verified metadata and a precise safe diagnostic when a single block is too large", async () => {
+  const f = await secondReaderTest(modules);
+  const input = await start(
+    f,
+    makeEpub({
+      body: `<p>${"private_fixture_word ".repeat(EPUB_LIMITS.unitWords + 1)}</p>`,
+    }),
+  );
+  await f.t.action(internal.actions.importEpub.run, {
+    importId: input.importId,
+  });
+  const latest = await f.owner.query(api.documentImports.latest, {});
+  expect(latest).toMatchObject({
+    _id: input.importId,
+    status: "failed",
+    failure: "too_long",
+    title: "Generated field guide",
+    author: "Fixture author",
+    diagnostic: {
+      stage: "units",
+      code: "block_words",
+      observed: 4001,
+      limit: 4000,
+      spineIndex: 0,
+      blockIndex: 0,
+    },
+  });
+  expect(JSON.stringify(latest?.diagnostic)).not.toContain(
+    "private_fixture_word",
+  );
+  expect(await f.reader.query(api.documentImports.latest, {})).toBeNull();
+  expect(await f.t.run((ctx) => ctx.storage.get(input.storageId))).toBeNull();
+  expect(await f.t.run((ctx) => ctx.db.query("books").take(1))).toEqual([]);
+  await f.t.mutation(internal.documentImports.fail, {
+    importId: input.importId,
+    failure: "unreadable",
+    diagnostic: {
+      stage: "publish",
+      code: "unexpected_failure",
+      errorType: "error",
+    },
+  });
+  expect(
+    (await f.owner.query(api.documentImports.latest, {}))?.diagnostic?.code,
+  ).toBe("block_words");
+});
+
+it("publishes long lists as bounded reading parts instead of rejecting the whole book", async () => {
+  const f = await secondReaderTest(modules);
+  const input = await start(
+    f,
+    makeEpub({
+      body: `<ol>${Array.from({ length: 120 }, (_, i) => `<li>Item ${i}: ${"generated text ".repeat(70)}</li>`).join("")}</ol>`,
+    }),
+  );
+  await f.t.action(internal.actions.importEpub.run, {
+    importId: input.importId,
+  });
+  const row = await f.t.run((ctx) => ctx.db.get(input.importId));
+  expect(row?.status).toBe("ready");
+  expect(row?.units).toBeGreaterThan(1);
+  expect(row?.failure).toBeUndefined();
+  expect(row?.diagnostic).toBeUndefined();
 });
 
 it.each([
@@ -458,11 +525,12 @@ it.each([
   expect(unit?.contentHtml).not.toMatch(/<img|data-epub-image/);
 });
 
-const publicationWrites: ("register" | "addUnits" | "finishBook")[] = [
-  "register",
-  "addUnits",
-  "finishBook",
-];
+const publicationWrites: (
+  | "metadata"
+  | "register"
+  | "addUnits"
+  | "finishBook"
+)[] = ["metadata", "register", "addUnits", "finishBook"];
 
 it.each(
   publicationWrites,
@@ -518,6 +586,15 @@ it.each(
     ),
   );
   const attempts = {
+    metadata: async () =>
+      expect(
+        await f.t.mutation(internal.documentImports.setProgress, {
+          importId: input.importId,
+          step: "text",
+          title: "Late title",
+          author: "Late author",
+        }),
+      ).toBe(false),
     register: async () =>
       expect(
         await f.t.mutation(internal.bookImages.register, {
@@ -567,6 +644,26 @@ it.each(
     [],
   );
   expect(await f.t.run((ctx) => ctx.db.system.get(storageId))).toBeNull();
+});
+
+it("does not write late metadata after an import has expired", async () => {
+  const f = await secondReaderTest(modules);
+  const input = await start(f);
+  await f.t.mutation(internal.documentImports.expire, {
+    importId: input.importId,
+  });
+  expect(
+    await f.t.mutation(internal.documentImports.setProgress, {
+      importId: input.importId,
+      step: "text",
+      title: "Late title",
+      author: "Late author",
+    }),
+  ).toBe(false);
+  const row = await f.t.run((ctx) => ctx.db.get(input.importId));
+  expect(row?.status).toBe("failed");
+  expect(row?.title).toBeUndefined();
+  expect(row?.author).toBeUndefined();
 });
 
 it.each([

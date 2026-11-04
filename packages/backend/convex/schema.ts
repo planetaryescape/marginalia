@@ -10,6 +10,7 @@ import { feedStatusTables } from "./lib/feedStatus";
 import { fingerprintTables } from "./lib/fingerprintSchema";
 import { fullSummaryState } from "./lib/fullSummaries";
 import { highlightIdentityTables } from "./lib/highlightIdentitySchema";
+import { importDiagnostic } from "./lib/importDiagnostics";
 import { legacyReportingTables } from "./lib/legacyReportingSchema";
 import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
@@ -689,6 +690,8 @@ export default defineSchema({
     // timeout removes it, since the action that made it can no longer
     partialArticleId: v.optional(v.id("articles")),
     title: v.optional(v.string()),
+    author: v.optional(v.string()),
+    diagnostic: v.optional(importDiagnostic),
     firstUnitTitle: v.optional(v.string()),
     firstUnitMinutes: v.optional(v.number()),
     failure: v.optional(

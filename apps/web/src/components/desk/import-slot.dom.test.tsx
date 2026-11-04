@@ -107,6 +107,8 @@ beforeEach(async () => {
     step: "point",
     articleId: ids.articleId,
     title: "On Cows",
+    author: undefined,
+    diagnostic: undefined,
     pages: 12,
     minutes: 9,
     units: undefined,

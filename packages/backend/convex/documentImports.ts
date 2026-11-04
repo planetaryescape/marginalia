@@ -9,6 +9,7 @@ import {
   query,
 } from "./functions";
 import { EPUB_LIMITS } from "./lib/epub/archive";
+import { epubFailureEvent, importDiagnostic } from "./lib/importDiagnostics";
 import { importLibraryActive } from "./lib/importJobs";
 import { isHexSha256, storedSha256AsHex } from "./lib/uploadFingerprint";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
@@ -254,6 +255,8 @@ export const latest = query({
       units: row.units,
       articleId: row.articleId,
       title: row.title,
+      author: row.author,
+      diagnostic: row.diagnostic,
       firstUnitTitle: row.firstUnitTitle,
       firstUnitMinutes: row.firstUnitMinutes,
       // The whole document's length: one article, or every part of a book
@@ -324,6 +327,8 @@ export const setProgress = internalMutation({
     step: v.union(v.literal("text"), v.literal("sections"), v.literal("point")),
     pages: v.optional(v.number()),
     units: v.optional(v.number()),
+    title: v.optional(v.string()),
+    author: v.optional(v.string()),
   },
   handler: async (ctx, { importId, ...progress }) => {
     if (!(await liveImport(ctx, importId))) return false;
@@ -366,7 +371,11 @@ export async function markImportReady(
 
 /** Records why a PDF was refused and removes its file. Nothing else is left behind. */
 export const fail = internalMutation({
-  args: { importId: v.id("documentImports"), failure },
+  args: {
+    importId: v.id("documentImports"),
+    failure,
+    diagnostic: v.optional(importDiagnostic),
+  },
   handler: async (ctx, args) => {
     const row = await ctx.db.get("documentImports", args.importId);
     if (row?.status !== "reading") return;
@@ -379,9 +388,17 @@ export const fail = internalMutation({
     await ctx.db.patch("documentImports", args.importId, {
       status: "failed",
       failure: args.failure,
+      diagnostic: args.diagnostic,
       updatedAt: Date.now(),
     });
     await deleteFile(ctx, row.storageId);
+    if (row.format === "epub" && args.diagnostic) {
+      const event = JSON.stringify(
+        epubFailureEvent(row._id, args.failure, args.diagnostic),
+      );
+      if (args.diagnostic.code === "unexpected_failure") console.error(event);
+      else console.warn(event);
+    }
   },
 });
 
