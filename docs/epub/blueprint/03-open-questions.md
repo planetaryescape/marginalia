@@ -2,13 +2,13 @@
 
 ## For Guide
 
-- **Q1, partly answered.** D-EPUB-017 approves purple to `cobalt`, compatible with Apple underlines only. `colorFitsKind` forbids `cobalt` for highlights. Confirm the purple-highlight mapping and other underline colours before Phase 4; preserve source kinds rather than inventing conversions.
+- **Q1, partly answered.** D-EPUB-017 approves purple to `cobalt`, compatible with Apple underlines only. `colorFitsKind` forbids `cobalt` for highlights. Confirm the purple-highlight mapping and other underline colours before Phase 4; preserve source kinds rather than inventing conversions (D-EPUB-023).
 - **Q2, answered.** Stack on `fix/local-auth-onboarding` at `bed850d`, not `origin/main`; D-EPUB-016 supersedes D-EPUB-014. Include the blueprint in the parser PR (D-EPUB-015).
 - **Q3.** Footnotes as margin notes (Phase 3): keep in the first layout PR, or ship structure and images first and footnotes in a follow-up?
 
 ## For BK (through Guide)
 
-- **Q4, partly answered.** Guide approved local implementation of the Phase 2 import schema in D-EPUB-018, not backend deployment or running migrations. Later isolated development approval is recorded separately in [#103](https://github.com/planetaryescape/marginalia/pull/103); it does not authorize production deployment or migrations. Phase 4 annotation schema remains unapproved.
+- **Q4, partly answered.** Guide approved local implementation of the Phase 2 import schema in D-EPUB-018, not backend deployment or running migrations. Later approval covers only the named isolated development update (D-EPUB-020); production deployment and any migration still need explicit approval. Phase 4 annotation schema remains unapproved.
 - **Q5.** EPUB size cap and image storage per account, since images count against the deployment.
 
 ## Verify in code before Phase 1

@@ -84,7 +84,7 @@ Verify across every reader theme and at desktop and mobile widths with a few ill
 - `highlights.source` gains `"apple-books"`.
 - `highlights.externalAnnotationId` and `userNotes.externalAnnotationId`: optional, indexed by user and ID.
 - `highlights.unplaced`: optional boolean, so book highlight queries can skip marks without a position.
-- Proposed `importedAnnotationTombstones` table: `userId`, `articleId`, `externalAnnotationId`. Deleting an imported highlight or note writes one, preventing reimport while that article exists. Article deletion, `books.discardBook` and account deletion must purge the associated rows alongside owned images and units. A newly imported article has a new identity; this article-scoped proposal does not preserve deletions across deleting and reimporting a whole book. The table and purge paths are not implemented or approved for implementation.
+- Proposed `importedAnnotationTombstones` table: `userId`, `articleId`, `externalAnnotationId`. Deleting an imported highlight or note writes one, preventing reimport while that article exists. Article deletion, `books.discardBook` and account deletion must purge the associated rows alongside owned images and units. A newly imported article has a new identity; this article-scoped proposal does not preserve deletions across deleting and reimporting a whole book. The table and purge paths are not implemented or approved by the Phase 2 schema approval.
 
 ## Phase 5: Apple Books CLI
 

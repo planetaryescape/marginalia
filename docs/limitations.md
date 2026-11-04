@@ -41,7 +41,7 @@ Verify changes with [development](development.md#make-a-safe-change); do not use
 
 ## Tooling and verification
 
-- There is no CI: checks run locally before a push.
+- Isolated PR CI runs the ordinary check and build with placeholder public Convex URLs and no deployment secrets. It does not prove deployed backend behavior or signed-in end-to-end reading; see [development](development.md#commands).
 - React Doctor reports legacy patterns elsewhere in the reader, plus non-blocking warnings in changed files. The pass removes reported changed-file errors and adds regression coverage rather than rewriting every hook; see [verification](verification.md).
 - Next/Turbopack may emit parser warnings for valid `::highlight(...)` CSS. Keep browser verification of saved marks; do not replace the selectors with invalid pseudo-classes to silence a warning.
 - There is no browser end-to-end suite in CI. Component/static markup tests and pure/mutation tests do not prove focus/layout across every device.
