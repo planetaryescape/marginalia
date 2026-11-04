@@ -40,6 +40,8 @@ const view = (
   upload: UploadState | null = null,
   targetImportId: Latest["_id"] | null = latest._id,
   preview?: ComponentProps<typeof ImportView>["preview"],
+  problem: string | null = null,
+  problemOrigin?: ComponentProps<typeof ImportView>["problemOrigin"],
 ) =>
   act(() =>
     root.render(
@@ -51,7 +53,9 @@ const view = (
             targetImportId={targetImportId}
             upload={upload}
             preview={preview}
-            problem={null}
+            problem={problem}
+            problemOrigin={problemOrigin}
+            problemIdentity={preview}
             onFile={() => {}}
             onClearProblem={() => {}}
             onDismiss={(id) => dismissals.push(id)}
@@ -130,6 +134,32 @@ afterEach(async () => {
 });
 
 describe("an imported PDF that becomes readable", () => {
+  it.each([
+    ["dismiss", "Couldn't dismiss this import"],
+    ["busy", "Another upload is in progress"],
+  ] as const)("does not blame the previous book for a %s problem", (origin, heading) => {
+    const preview = {
+      title: "Previous Book",
+      author: "Previous Author",
+      fileName: "previous.epub",
+      format: "epub" as const,
+    };
+    view(ready, false, null, ready._id, preview, "Try again.", origin);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      heading,
+    );
+    expect(document.body.textContent).not.toContain("Previous Book");
+    expect(document.body.textContent).not.toContain("Previous Author");
+    expect(document.body.textContent).not.toContain("Couldn't read this");
+    view(
+      { ...ready, status: "reading", format: "epub", title: undefined },
+      false,
+      null,
+      ready._id,
+      preview,
+    );
+    expect(document.querySelector("h2")?.textContent).toBe("Previous Book");
+  });
   it("does not blame the book for an unexpected internal failure", () => {
     view(
       {
@@ -410,7 +440,7 @@ describe("an imported PDF that becomes readable", () => {
       false,
     );
     expect(navigations).toEqual([]);
-    expect(document.body.textContent).toContain("45 parts");
+    expect(document.body.textContent).toContain("45 reading sections");
     expect(document.body.textContent).toContain(
       "Starts with “Introduction”, 2 min.",
     );

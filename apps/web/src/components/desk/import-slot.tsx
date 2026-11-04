@@ -57,6 +57,8 @@ type ImportViewProps = {
   targetImportId: Id<"documentImports"> | null;
   upload: UploadState | null;
   problem: string | null;
+  problemOrigin?: "file" | "busy" | "dismiss";
+  problemIdentity?: ImportIdentityProps;
   problemFormat?: DocumentFormat;
   preview?: ImportIdentityProps;
   onFile: (file: File) => void;
@@ -72,6 +74,8 @@ export function ImportView({
   targetImportId,
   upload,
   problem,
+  problemOrigin = "file",
+  problemIdentity,
   problemFormat,
   preview,
   onFile,
@@ -102,8 +106,15 @@ export function ImportView({
     return (
       <ImportRefusal
         sentence={problem}
+        heading={
+          problemOrigin === "dismiss"
+            ? "Couldn't dismiss this import"
+            : problemOrigin === "busy"
+              ? "Another upload is in progress"
+              : undefined
+        }
         format={problemFormat}
-        identity={preview}
+        identity={problemOrigin === "file" ? problemIdentity : undefined}
         onFile={onFile}
         onDismiss={onClearProblem}
       />

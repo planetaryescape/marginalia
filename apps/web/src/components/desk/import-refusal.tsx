@@ -8,6 +8,7 @@ import { ImportIdentity, type ImportIdentityProps } from "./import-identity";
 
 export function ImportRefusal({
   sentence,
+  heading,
   detail,
   identity,
   format,
@@ -17,6 +18,7 @@ export function ImportRefusal({
   onDismiss,
 }: {
   sentence: string;
+  heading?: string;
   detail?: string;
   identity?: ImportIdentityProps;
   format?: DocumentFormat;
@@ -32,8 +34,8 @@ export function ImportRefusal({
   return (
     <div className="max-w-[620px] min-w-0" role="alert">
       <p className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--ink-muted)]">
-        Couldn't read this{" "}
-        {(identity?.format ?? format)?.toUpperCase() ?? "file"}
+        {heading ??
+          `Couldn't read this ${(identity?.format ?? format)?.toUpperCase() ?? "file"}`}
       </p>
       {identity && <ImportIdentity {...identity} />}
       <p className="mt-3 text-[15px] text-[var(--ink-soft)]">

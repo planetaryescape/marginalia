@@ -7,32 +7,50 @@ export function importDiagnosticCopy(
     return "Marginalia hit an internal error while importing this book. Try again, or expand Diagnostic details to share the import reference.";
   const observed = diagnostic.observed?.toLocaleString();
   const limit = diagnostic.limit?.toLocaleString();
-  if (observed === undefined || limit === undefined) return null;
-  switch (diagnostic.code) {
+  if (observed === undefined && limit === undefined) return null;
+  const measurement = diagnosticMeasurement(diagnostic.code);
+  if (!measurement) return null;
+  const [subject, verb, unit, bounded, limitKind] = measurement;
+  const found =
+    observed === undefined
+      ? null
+      : `${subject} ${verb} ${bounded ? "at least " : ""}${observed} ${unit}`;
+  const supported =
+    limit === undefined
+      ? null
+      : `the ${limitKind} limit is ${limit}${observed === undefined ? ` ${unit}` : ""}`;
+  if (!found) return `${subject} exceeds its limit; ${supported}.`;
+  return `${found}${supported ? `; ${supported}` : ""}.`;
+}
+
+function diagnosticMeasurement(
+  code: EpubDiagnostic["code"],
+): readonly [string, string, string, boolean, string] | null {
+  switch (code) {
     case "block_words":
-      return `A single text block has ${observed} words; the supported limit is ${limit}.`;
+      return ["A single text block", "has", "words", false, "supported"];
     case "block_bytes":
-      return `A single text block uses ${observed} bytes; the supported limit is ${limit}.`;
+      return ["A single text block", "uses", "bytes", false, "supported"];
     case "archive_bytes":
-      return `The file is ${observed} bytes; the upload limit is ${limit}.`;
+      return ["The file", "is", "bytes", false, "upload"];
     case "expanded_bytes":
-      return `The unpacked book uses ${observed} bytes; the supported limit is ${limit}.`;
+      return ["The unpacked book", "uses", "bytes", true, "supported"];
     case "entry_bytes":
-      return `A file inside this EPUB uses ${observed} bytes; the supported limit is ${limit}.`;
+      return ["A file inside this EPUB", "uses", "bytes", false, "supported"];
     case "archive_entries":
-      return `The EPUB contains ${observed} files; the supported limit is ${limit}.`;
+      return ["The EPUB", "contains", "files", true, "supported"];
     case "spine_items":
-      return `The EPUB contains ${observed} chapter documents; the supported limit is ${limit}.`;
+      return ["The EPUB", "contains", "chapter documents", true, "supported"];
     case "unit_count":
-      return `The book needs ${observed} reading parts; the supported limit is ${limit}.`;
+      return ["The book", "needs", "reading parts", true, "supported"];
     case "unit_bytes":
-      return `A reading part uses ${observed} bytes; the supported limit is ${limit}.`;
+      return ["A reading part", "uses", "bytes", false, "supported"];
     case "storage_payload":
-      return `The prepared content uses ${observed} bytes; the storage limit is ${limit}.`;
+      return ["The prepared content", "uses", "bytes", false, "storage"];
     case "xml_depth":
-      return `Document nesting reaches ${observed} levels; the supported limit is ${limit}.`;
+      return ["Document nesting", "reaches", "levels", true, "supported"];
     case "xml_nodes":
-      return `A chapter contains ${observed} document nodes; the supported limit is ${limit}.`;
+      return ["A chapter", "contains", "document nodes", true, "supported"];
     default:
       return null;
   }
