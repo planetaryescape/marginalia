@@ -287,7 +287,7 @@ export default function ReadPage() {
   const setMarkDefault = useSetMarkDefault();
   const { colors: legacyMarkDefaults } = useLegacyMarkDefaults();
   const paragraphs = useParagraphs(articleRef, Boolean(article));
-  const hasEpubFragment = useEpubFragment(
+  const epubFragment = useEpubFragment(
     articleRef,
     `${articleId}:${unitIndex ?? ""}`,
     isBook && bookFormat === "epub",
@@ -324,7 +324,8 @@ export default function ReadPage() {
         hasTarget:
           searchParams.get("quote") !== null ||
           searchParams.get("p") !== null ||
-          hasEpubFragment,
+          epubFragment === "pending" ||
+          epubFragment === "resolved",
       })
       ? (savedPercent ?? null)
       : null,

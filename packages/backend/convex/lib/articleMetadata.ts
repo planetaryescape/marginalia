@@ -16,6 +16,12 @@ import {
 } from "./readingEligibility";
 import { metadataLibraryActive, metadataLibraryRetained } from "./shelfCounts";
 
+export function unitFormat(
+  unit: Pick<Doc<"bookUnits">, "sourceSpans">,
+): "pdf" | "epub" {
+  return unit.sourceSpans === undefined ? "pdf" : "epub";
+}
+
 function displayText(text: string, limit: number) {
   const prefix = text.slice(0, limit);
   const last = prefix.charCodeAt(prefix.length - 1);
@@ -140,6 +146,7 @@ function bookPartProjection(unit: Doc<"bookUnits">) {
     index: unit.index,
     title: displayText(unit.title, 2048),
     minutes: unit.estimatedReadMinutes,
+    format: unitFormat(unit),
   };
 }
 
@@ -407,7 +414,11 @@ export async function bookPartCard(
       .unique(),
   );
   return unit
-    ? { title: unit.title, minutes: unit.estimatedReadMinutes }
+    ? {
+        title: unit.title,
+        minutes: unit.estimatedReadMinutes,
+        format: unitFormat(unit),
+      }
     : null;
 }
 

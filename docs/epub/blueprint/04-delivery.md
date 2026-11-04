@@ -17,9 +17,7 @@ Guide now has upstream admin access. Native stacks require non-fork heads, so th
 
 The earlier upstream attempt lacked admin access, usable upstream parent branches and non-fork PR heads. The successful #101 registration was verified through the upstream stacks API, not inferred from branch links or the old fork stack.
 
-## Historical stack proposal
-
-This table records the original #95-based proposal, not the current review chain. Follow upstream auth #100 and native stack #101 in [later follow-up #106](https://github.com/planetaryescape/marginalia/pull/106).
+## The stack
 
 | # | Branch | Contents | Schema |
 |---|---|---|---|
@@ -110,3 +108,5 @@ Entries below record evidence and approvals at each slice, not blanket current s
 
 - The latest approved isolated development update succeeded at `d69a0e5`, with check/build evidence recorded on [#108](https://github.com/planetaryescape/marginalia/pull/108). Its component/fixture evidence is not signed-in browser E2E evidence. Source-format display changes are read-only and add no schema migration. Production remains untouched; a successful private-book retry, reader navigation and runtime log delivery remain unverified.
 - Guide subsequently authorized fixing every review comment, exact-lease restacking of affected branches, and merging the entire native upstream #101 stack once bots are satisfied, without waiting for every PR CI run (D-EPUB-025). This is current workflow permission, not a claim of completed merges, resolved threads or passing current-head CI. Do not deploy production or run new schema/data migrations under this approval.
+- Auth #100 has since merged at `66a99f8`. This records only that auth merge, not completion of the EPUB stack. Round-two parser and frontend-hook fixes have focused local and generated-browser evidence; aggregate verification and fresh review precede the remaining merges. No successful signed-in reading or new backend deployment is claimed.
+- Guide separately approved optional `bookPartCards.format` and associated schema/code changes for local implementation and tests (D-EPUB-026). No live writes, deployment or backfill are authorized. Earlier development-update evidence does not cover this new field.

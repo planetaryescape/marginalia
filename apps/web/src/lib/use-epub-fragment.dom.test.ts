@@ -16,7 +16,7 @@ it("decodes a fragment once to match an encoded EPUB DOM id", () => {
   expect(epubFragmentTarget(body, "#epub-1-note%20one")).toBe(note);
 });
 
-it("retries a target that arrives with a later reading unit render", () => {
+it("finds a target added after an earlier helper lookup", () => {
   const body = document.createElement("article");
   document.body.appendChild(body);
   expect(epubFragmentTarget(body, "#epub-1-note")).toBeNull();

@@ -22,12 +22,24 @@ export function useEpubFragment(
   unitKey: string,
   enabled: boolean,
 ) {
-  const [hash, setHash] = useState(() =>
-    typeof window === "undefined" ? "" : window.location.hash,
-  );
-  const landed = useRef<string | null>(null);
+  const [location, setLocation] = useState(() => ({
+    unitKey,
+    hash: typeof window === "undefined" ? "" : window.location.hash,
+  }));
+  const [resolution, setResolution] = useState<{
+    location: typeof location;
+    status: "resolved" | "missing";
+  } | null>(null);
+  const landed = useRef<typeof location | null>(null);
   useEffect(() => {
-    const sync = () => setHash(window.location.hash);
+    const sync = () => {
+      const hash = window.location.hash;
+      setLocation((current) =>
+        current.unitKey === unitKey && current.hash === hash
+          ? current
+          : { unitKey, hash },
+      );
+    };
     sync();
     window.addEventListener("hashchange", sync);
     window.addEventListener("popstate", sync);
@@ -35,21 +47,27 @@ export function useEpubFragment(
       window.removeEventListener("hashchange", sync);
       window.removeEventListener("popstate", sync);
     };
-  }, []);
+  }, [unitKey]);
   useEffect(() => {
-    if (!enabled || !hash) {
+    if (!enabled || !location.hash) {
       landed.current = null;
       return;
     }
-    const key = `${unitKey}:${hash}`;
-    if (landed.current === key) return;
-    const target = epubFragmentTarget(
-      getArticleBody(containerRef.current),
-      hash,
-    );
-    if (!target) return;
-    target.scrollIntoView({ block: "start", behavior: "instant" });
-    landed.current = key;
+    if (location.unitKey !== unitKey) return;
+    if (landed.current === location) return;
+    const body = getArticleBody(containerRef.current);
+    if (!body?.hasChildNodes()) return;
+    const target = epubFragmentTarget(body, location.hash);
+    if (target) {
+      target.scrollIntoView({ block: "start", behavior: "instant" });
+      landed.current = location;
+    } else landed.current = null;
+    const status = target ? "resolved" : "missing";
+    if (resolution?.location !== location || resolution.status !== status)
+      setResolution({ location, status });
   });
-  return enabled && hash.length > 1;
+  if (!enabled) return "none";
+  if (location.unitKey !== unitKey) return "pending";
+  if (location.hash.length <= 1) return "none";
+  return resolution?.location === location ? resolution.status : "pending";
 }

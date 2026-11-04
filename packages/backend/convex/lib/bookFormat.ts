@@ -1,12 +1,8 @@
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { readLegacyDocument } from "./articleMetadata";
+import { readLegacyDocument, unitFormat } from "./articleMetadata";
 
-export function unitFormat(
-  unit: Pick<Doc<"bookUnits">, "sourceSpans">,
-): "pdf" | "epub" {
-  return unit.sourceSpans === undefined ? "pdf" : "epub";
-}
+export { unitFormat } from "./articleMetadata";
 
 export async function bookFormat(
   ctx: Pick<QueryCtx, "db">,
@@ -14,7 +10,9 @@ export async function bookFormat(
   articleId: Id<"articles">,
   source: { url: string; uploadedFileName?: string; uploaded?: boolean },
   index: number,
+  compactFormat?: "pdf" | "epub",
 ): Promise<"pdf" | "epub"> {
+  if (compactFormat !== undefined) return compactFormat;
   const importId = source.url.startsWith("upload:")
     ? ctx.db.normalizeId("documentImports", source.url.slice(7))
     : null;

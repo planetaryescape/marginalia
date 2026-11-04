@@ -79,4 +79,15 @@ describe("readerMeta", () => {
       }),
     ).toBe("Learning to Notice · EPUB · 2 min read");
   });
+
+  it("keeps non-book PDF uploads labeled when their filename is truncated", () => {
+    expect(
+      readerMeta({
+        url: "upload:file-id",
+        uploaded: true,
+        uploadedFileName: "x".repeat(200),
+        minutes: 2,
+      }),
+    ).toBe("PDF · 2 min read");
+  });
 });

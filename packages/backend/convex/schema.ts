@@ -580,6 +580,7 @@ export default defineSchema({
     index: v.number(),
     title: v.string(),
     minutes: v.number(),
+    format: v.optional(v.union(v.literal("pdf"), v.literal("epub"))),
   })
     .index("by_unitId", ["unitId"])
     .index("by_userId_and_articleId_and_index", [

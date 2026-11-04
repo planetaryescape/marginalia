@@ -23,13 +23,13 @@ export function readerMeta(input: {
   }
   const format =
     input.format ??
-    documentFormat({ name: input.uploadedFileName ?? "", type: "" });
-  const upload =
-    format?.toUpperCase() ?? (input.uploadedFileName ? "Upload" : "PDF");
+    documentFormat({ name: input.uploadedFileName ?? "", type: "" }) ??
+    (input.part ? null : "pdf");
+  const upload = format?.toUpperCase() ?? "Upload";
   const source = host || (input.uploaded ? upload : (input.author ?? ""));
   return [
     input.part
-      ? upload === "EPUB" && input.uploaded
+      ? format === "epub" && input.uploaded
         ? input.part.title?.trim() || "Chapter"
         : `Part ${input.part.index + 1} of ${input.part.of}`
       : "",

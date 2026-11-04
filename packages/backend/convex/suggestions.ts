@@ -90,9 +90,10 @@ async function bookPicks(ctx: Reader, minutes: number) {
     if (!article || article.finishedAt !== undefined) continue;
     const unitIndex = nextUnitIndex(book);
     const oldUnit = legacy?.bookOutline?.[unitIndex];
-    const unit = ready
+    const part = ready
       ? await bookPartCard(ctx, ctx.readerId, book.articleId, unitIndex)
-      : oldUnit;
+      : null;
+    const unit = ready ? part : oldUnit;
     const candidate =
       unit && unit.minutes <= minutes && unitIndex < book.unitCount
         ? {
@@ -112,6 +113,7 @@ async function bookPicks(ctx: Reader, minutes: number) {
           book.articleId,
           article,
           unitIndex,
+          part?.format,
         ),
         reason: bookReason(book, candidate.unitIndex),
         started: book.furthestUnit >= 0 || book.finishedThrough >= 0,
