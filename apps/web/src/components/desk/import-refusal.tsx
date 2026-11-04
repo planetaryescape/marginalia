@@ -1,5 +1,6 @@
 "use client";
 import type { EpubDiagnostic } from "@marginalia/backend/epub-diagnostics";
+import type { DocumentFormat } from "@/lib/document-import";
 import { importDiagnosticCopy } from "@/lib/import-diagnostic";
 import { useShortcuts } from "@/lib/shortcuts";
 import { DocumentPickerButton } from "./document-picker";
@@ -9,6 +10,7 @@ export function ImportRefusal({
   sentence,
   detail,
   identity,
+  format,
   diagnostic,
   reference,
   onFile,
@@ -17,6 +19,7 @@ export function ImportRefusal({
   sentence: string;
   detail?: string;
   identity?: ImportIdentityProps;
+  format?: DocumentFormat;
   diagnostic?: EpubDiagnostic;
   reference?: string;
   onFile: (file: File) => void;
@@ -29,13 +32,14 @@ export function ImportRefusal({
   return (
     <div className="max-w-[620px] min-w-0" role="alert">
       <p className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--ink-muted)]">
-        Couldn't read this {identity?.format.toUpperCase() ?? "file"}
+        Couldn't read this{" "}
+        {(identity?.format ?? format)?.toUpperCase() ?? "file"}
       </p>
       {identity && <ImportIdentity {...identity} />}
       <p className="mt-3 text-[15px] text-[var(--ink-soft)]">
         {specifics ?? sentence}
       </p>
-      {detail && (
+      {detail && diagnostic?.code !== "unexpected_failure" && (
         <p className="mt-2 text-[15px] text-[var(--danger)]">{detail}</p>
       )}
       {reference && (

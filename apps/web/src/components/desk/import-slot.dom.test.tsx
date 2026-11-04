@@ -130,6 +130,43 @@ afterEach(async () => {
 });
 
 describe("an imported PDF that becomes readable", () => {
+  it("does not blame the book for an unexpected internal failure", () => {
+    view(
+      {
+        ...failed,
+        format: "epub",
+        failure: "unreadable",
+        diagnostic: {
+          code: "unexpected_failure",
+          stage: "publish",
+          errorType: "type_error",
+        },
+      },
+      false,
+    );
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "Marginalia hit an internal error while importing this book.",
+    );
+    expect(document.body.textContent).toContain("expand Diagnostic details");
+    expect(document.body.textContent).not.toContain("damaged");
+    expect(document.body.textContent).not.toContain(
+      "Nothing was added to your library.",
+    );
+    expect(document.querySelector("details")?.hasAttribute("open")).toBe(false);
+    expect(document.querySelector("details")?.textContent).toContain(
+      `Import reference: ${failed._id}`,
+    );
+  });
+
+  it("keeps long author metadata within the ready card's word-breaking rule", () => {
+    const author = "Author".repeat(100);
+    view({ ...ready, format: "epub", author }, false);
+    const paragraph = [...document.querySelectorAll("p")].find(
+      (node) => node.textContent === author,
+    );
+    expect(paragraph?.classList.contains("break-words")).toBe(true);
+  });
+
   it("keeps this import's preview while the server is still parsing its metadata", () => {
     const row = {
       ...ready,

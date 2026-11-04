@@ -17,7 +17,9 @@ it("distinguishes a block limit from the compressed file size", () => {
       observed: 67108865,
       limit: 67108864,
     }),
-  ).toContain("unpacked book");
+  ).toBe(
+    "The unpacked book uses 67,108,865 bytes; the supported limit is 67,108,864.",
+  );
 });
 
 it("does not invent measurements when diagnostics lack them", () => {
@@ -37,6 +39,6 @@ it("does not blame a damaged book for an internal import failure", () => {
       errorType: "type_error",
     }),
   ).toBe(
-    "Marginalia hit an internal error while importing this book. Try again, or share the import reference below.",
+    "Marginalia hit an internal error while importing this book. Try again, or expand Diagnostic details to share the import reference.",
   );
 });

@@ -116,7 +116,7 @@ export function ImportReady({
         </h2>
       </ViewTransition>
       {row.author && (
-        <p className="mt-1.5 text-[15px] text-[var(--ink-soft)]">
+        <p className="mt-1.5 break-words text-[15px] text-[var(--ink-soft)]">
           {row.author}
         </p>
       )}

@@ -4,7 +4,7 @@ export function importDiagnosticCopy(
   diagnostic: EpubDiagnostic,
 ): string | null {
   if (diagnostic.code === "unexpected_failure")
-    return "Marginalia hit an internal error while importing this book. Try again, or share the import reference below.";
+    return "Marginalia hit an internal error while importing this book. Try again, or expand Diagnostic details to share the import reference.";
   const observed = diagnostic.observed?.toLocaleString();
   const limit = diagnostic.limit?.toLocaleString();
   if (observed === undefined || limit === undefined) return null;
