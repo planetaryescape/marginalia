@@ -11,7 +11,7 @@ Planned on 2026-11-04 in one session with Guide, who contributes to `planetaryes
 | 01 | [Plan](01-plan.md) | Five phases: parser, in-app import, layout fidelity, annotation API and placement, Apple Books CLI; schema changes and risks |
 | 02 | [Decisions](02-decisions.md) | Every decision with its attribution and the options rejected |
 | 03 | [Open questions](03-open-questions.md) | What to verify in code before building, and what to ask |
-| 04 | [Delivery](04-delivery.md) | The stacked pull requests from the fork, and how to keep them rebased |
+| 04 | [Delivery](04-delivery.md) | Incremental fork reviews, native stack registration and upstream integration |
 | K | [Kickoff](KICKOFF.md) | The prompt for the first build session |
 
 Related: the design blueprint ([../../design/blueprint/README.md](../../design/blueprint/README.md)), whose concept and design gate this feature works inside; `apps/web/DESIGN.md` for shipped patterns; and Leaf's `README.md`, `PROVENANCE.md` and `scripts/import-annotations.py` in the sibling `../epub` checkout, which hold the Apple Books knowledge being ported.
@@ -30,6 +30,8 @@ Related: the design blueprint ([../../design/blueprint/README.md](../../design/b
 Parser PR #98 includes this blueprint and the pure parser, stacked on upstream auth PR #100 (D-EPUB-015, D-EPUB-016). Upstream [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced historical [#95](https://github.com/planetaryescape/marginalia/pull/95) at the identical original `bed850d` commit; dated #95 records are history, not a second current dependency. There is no separate docs PR. Guide approved purple to `cobalt` (D-EPUB-017), but the existing validator accepts it only for underlines. D-EPUB-023 supersedes the unqualified mapping in D-EPUB-011/017. Purple highlights and other underline colour mappings remain a future Phase 4 decision, not an implemented conversion. Footnote PR scope remains open.
 
 `feat/epub-import-backend` implements the approved backend schema, format selection, publication and image ownership/cleanup (D-EPUB-018). It is not deployed to production. The separately approved isolated development update is recorded in [later desk follow-up #103](https://github.com/planetaryescape/marginalia/pull/103). Native production scheduling/storage races and successful signed-in EPUB reading are not established by local tests in this slice. At this slice the desk remains PDF-only apart from compatibility guards; EPUB picker, layout, token endpoints and Apple Books CLI are later work.
+
+Feature reviews now live in the fork: [parser #1](https://github.com/guidefari/marginalia/pull/1) targets the auth branch and [backend #2](https://github.com/guidefari/marginalia/pull/2) targets the parser. D-EPUB-019 replaces the cumulative upstream #96/#97 arrangement. Auth remains upstream #95; check cleanup is a separate slice above backend import.
 
 ## Rules for coding agents
 

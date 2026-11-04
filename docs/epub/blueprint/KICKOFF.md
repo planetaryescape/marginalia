@@ -1,7 +1,5 @@
 # Kickoff prompt for the first build session
 
-Review identity clarification: upstream auth [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced historical [#95](https://github.com/planetaryescape/marginalia/pull/95) at the identical original `bed850d` commit in native [stack #101](https://github.com/planetaryescape/marginalia/stack/101). Original #95 references describe ancestry, not a current base; consult [Delivery](04-delivery.md).
-
 Paste this to the coding agent in `~/source/oss/marginalia` (remotes: `origin` is `planetaryescape/marginalia`, read-only; `fork` is `guidefari/marginalia`):
 
 ---
@@ -11,7 +9,7 @@ You're adding EPUB books to Marginalia: EPUBs read in the existing reader with t
 1. Read `docs/epub/blueprint/README.md` and every document it lists, in order. Read `02-decisions.md` before proposing any change of direction; the obvious alternatives (embedding foliate-js, text-only import, in-browser Apple Books import) were already rejected there. Read `docs/design/blueprint/02-design-concept.md` and `apps/web/DESIGN.md` too.
 2. Skim Leaf in `../epub`: `README.md`, `PROVENANCE.md`, `scripts/import-annotations.py`, `scripts/import-book.py` and the CFI expansion in `src/reader/`. That is the Apple Books knowledge being ported. Don't copy its renderer.
 3. Ask Guide Q1 to Q3 in `03-open-questions.md` if they're still open. Then answer V1 to V6 against the current `origin/main` and record the findings in `03-open-questions.md`.
-4. Include this blueprint in `feat/epub-parser`; upstream auth [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced #95 at the identical original `bed850d` commit in native [stack #101](https://github.com/planetaryescape/marginalia/stack/101). The original parent was `fix/local-auth-onboarding` reviewed as #95 (D-EPUB-015, D-EPUB-016); retain that historical ancestry, but use [Delivery](04-delivery.md) for current review bases and permissions. The original fork-only review instructions are historical, not current authority. Preserve auth code and review history; this clarification does not authorize merging or deployment.
+4. Include this blueprint in `feat/epub-parser`, branched from `fix/local-auth-onboarding` at `bed850d` (upstream PR #95). Guide superseded the original separate-docs PR and independent-stack plan in D-EPUB-015 and D-EPUB-016. D-EPUB-019 now places feature review PRs in `guidefari/marginalia`, each targeting its parent branch, rather than upstream `main`. Keep auth PR #95 upstream and unchanged; follow `04-delivery.md` for the current fork chain and later integration PR.
 5. Then climb the stack in `04-delivery.md` one PR at a time, each branch cut from the previous one. Before writing any schema change, show Guide the diff and wait for approval. Never deploy the backend.
 6. Commit using `type(scope): description`, Guide as the only author, no co-author lines. Run `bun run check` before each commit.
 
