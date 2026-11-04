@@ -18,7 +18,7 @@ const modules = import.meta.glob("./**/*.ts");
 it.each([
   "epub",
   "pdf",
-])("suggests a compact %s part after its import expires without reading prose", async (format) => {
+])("suggests and continues a compact %s part after its import expires without reading prose", async (format) => {
   const t = convexTest({
     schema,
     modules,
@@ -103,6 +103,21 @@ it.each([
     await ctx.db.patch(fixture.articleId, { content: "x".repeat(200_000) });
     await ctx.db.patch(fixture.unitId, { content: "x".repeat(200_000) });
     await ctx.db.delete(fixture.importId);
+    await ctx.db.insert("readingResumeState", {
+      userId: libraryId,
+      phase: "done",
+      cursor: null,
+    });
+    await ctx.db.insert("readingResumes", {
+      userId: libraryId,
+      articleId: fixture.articleId,
+      eligible: true,
+      lastActivityAt: 1,
+      maxScrollPercent: 0,
+      hasCheckpoint: true,
+      placeUpdatedAt: 1,
+      placeKey: "fixture",
+    });
   });
   await expect(t.run((ctx) => ctx.db.get(fixture.articleId))).rejects.toThrow(
     "Read too much data",
@@ -135,6 +150,15 @@ it.each([
   expect(compact.part).toMatchObject({ format });
   expect(compact.format).toBe(format);
   expect(compact.metrics.bytesRead.used).toBeLessThan(10_000);
+  expect(await client.query(api.sessions.getContinue, {})).toMatchObject({
+    ready: true,
+    item: {
+      article: { _id: fixture.articleId },
+      unitIndex: 0,
+      remainingMinutes: 10,
+      part: { title: "Learning to Notice", format },
+    },
+  });
   const expectedTitle =
     format === "epub"
       ? "Synthetic book · Learning to Notice"

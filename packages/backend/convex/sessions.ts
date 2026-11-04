@@ -246,6 +246,7 @@ export const getContinue = query({
                 row.articleId,
                 article,
                 index,
+                unit.format,
               ),
             },
           },
