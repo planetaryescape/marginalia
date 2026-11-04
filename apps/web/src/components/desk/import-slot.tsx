@@ -10,21 +10,15 @@ import {
   importSteps,
 } from "@/lib/document-import";
 import type { UploadState } from "@/lib/document-upload";
-import { useShortcuts } from "@/lib/shortcuts";
-import { DocumentPickerButton } from "./document-picker";
+import { ImportIdentity, type ImportIdentityProps } from "./import-identity";
 import { ImportReady } from "./import-ready";
+import { ImportRefusal } from "./import-refusal";
 
 const LABEL =
   "text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--ink-muted)]";
-const SECONDARY =
-  "rounded-md bg-[var(--reader-chip)] px-[18px] py-[9px] text-[14.5px] text-[var(--ink-soft)] hover:text-[var(--ink)]";
-const QUIET =
-  "text-[14.5px] text-[var(--ink-soft)] underline decoration-[color-mix(in_srgb,var(--ink)_20%,transparent)] underline-offset-[3px] hover:text-[var(--ink)]";
 
 // How far along the bar sits at each server step; the work has no finer measure
 const STEP_PERCENT = { text: 25, sections: 60, point: 90 } as const;
-
-const withoutExtension = (name: string) => name.replace(/\.(pdf|epub)$/i, "");
 
 function Bar({ percent, format }: { percent: number; format: DocumentFormat }) {
   return (
@@ -40,49 +34,6 @@ function Bar({ percent, format }: { percent: number; format: DocumentFormat }) {
         className="block h-full rounded-full bg-[var(--ink)] transition-[width] duration-300"
         style={{ width: `${percent}%` }}
       />
-    </div>
-  );
-}
-
-function Refusal({
-  sentence,
-  detail,
-  onFile,
-  onDismiss,
-  format,
-}: {
-  sentence: string;
-  detail?: string;
-  onFile: (file: File) => void;
-  onDismiss: () => void;
-  format?: DocumentFormat;
-}) {
-  useShortcuts({ Escape: onDismiss }, true, {
-    help: { group: "Import", keys: [["Esc", "Dismiss"]] },
-  });
-  return (
-    <div className="max-w-[620px]" role="alert">
-      <p className={LABEL}>
-        Couldn't read this {format?.toUpperCase() ?? "file"}
-      </p>
-      <p className="mt-2 font-serif text-[24px] leading-tight">{sentence}</p>
-      {detail && (
-        <p className="mt-3 text-[15px] text-[var(--danger)]">{detail}</p>
-      )}
-      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <DocumentPickerButton
-          className={SECONDARY}
-          onFile={(file) => {
-            onDismiss();
-            onFile(file);
-          }}
-        >
-          Choose another file
-        </DocumentPickerButton>
-        <button type="button" className={QUIET} onClick={onDismiss}>
-          Dismiss
-        </button>
-      </div>
     </div>
   );
 }
@@ -107,6 +58,7 @@ type ImportViewProps = {
   upload: UploadState | null;
   problem: string | null;
   problemFormat?: DocumentFormat;
+  preview?: ImportIdentityProps;
   onFile: (file: File) => void;
   onClearProblem: () => void;
   onDismiss: (importId: Id<"documentImports">) => void;
@@ -121,6 +73,7 @@ export function ImportView({
   upload,
   problem,
   problemFormat,
+  preview,
   onFile,
   onClearProblem,
   onDismiss,
@@ -130,13 +83,13 @@ export function ImportView({
     return (
       <div className="max-w-[620px]" role="status" aria-live="polite">
         <p className={LABEL}>Reading in your {upload.format.toUpperCase()}</p>
-        <h2 className="mt-2 font-serif text-[24px] leading-tight lg:text-[30px]">
-          {withoutExtension(upload.fileName)}
-        </h2>
+        <ImportIdentity {...upload} />
         <p className="mt-1.5 text-[13.5px] text-[var(--ink-muted)]">
-          {upload.stage === "checking"
-            ? "Checking the file…"
-            : `Uploading ${upload.percent}%`}
+          {upload.stage === "metadata"
+            ? "Reading book details…"
+            : upload.stage === "checking"
+              ? "Checking the file…"
+              : `Uploading ${upload.percent}%`}
         </p>
         <Bar
           percent={Math.round(upload.percent * 0.2)}
@@ -147,9 +100,10 @@ export function ImportView({
 
   if (problem)
     return (
-      <Refusal
+      <ImportRefusal
         sentence={problem}
         format={problemFormat}
+        identity={preview}
         onFile={onFile}
         onDismiss={onClearProblem}
       />
@@ -157,15 +111,24 @@ export function ImportView({
 
   if (!latest) return <>{children}</>;
   const format = latest.format ?? "pdf";
+  const currentPreview = latest._id === targetImportId ? preview : undefined;
+  const identity = {
+    title: latest.title ?? currentPreview?.title,
+    author: latest.author ?? currentPreview?.author,
+    fileName: latest.fileName,
+    format,
+  };
   const dismiss = () => onDismiss(latest._id);
 
   if (latest.status === "failed") {
     const copy = importFailureCopy(latest.failure ?? "unreadable", format);
     return (
-      <Refusal
+      <ImportRefusal
         sentence={copy.sentence}
         detail={copy.detail}
-        format={format}
+        identity={identity}
+        diagnostic={latest.diagnostic}
+        reference={latest._id}
         onFile={onFile}
         onDismiss={dismiss}
       />
@@ -185,9 +148,7 @@ export function ImportView({
   return (
     <div className="max-w-[620px]" role="status" aria-live="polite">
       <p className={LABEL}>Reading in your {format.toUpperCase()}</p>
-      <h2 className="mt-2 font-serif text-[24px] leading-tight lg:text-[30px]">
-        {withoutExtension(latest.fileName)}
-      </h2>
+      <ImportIdentity {...identity} />
       {format === "pdf" && latest.pages ? (
         <p className="mt-1.5 text-[13.5px] text-[var(--ink-muted)]">
           {latest.pages.toLocaleString()} pages

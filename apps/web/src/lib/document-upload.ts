@@ -7,13 +7,16 @@ import {
   sha256Hex,
   type uploadWithProgress,
 } from "./document-import";
+import { readEpubMetadata } from "./epub-metadata";
 import { failureSentence } from "./failure-copy";
 
 export type UploadState = {
   fileName: string;
   format: DocumentFormat;
   percent: number;
-  stage: "checking" | "uploading";
+  title?: string;
+  author?: string;
+  stage: "metadata" | "checking" | "uploading";
 };
 
 export type DocumentUploadOperations = {
@@ -39,20 +42,28 @@ export async function uploadDocument(
     } as const;
   const problem = problemWithFile(file);
   if (problem) return { ok: false, error: problem } as const;
-  onUpload({ fileName: file.name, format, percent: 0, stage: "checking" });
   try {
+    onUpload({
+      fileName: file.name,
+      format,
+      percent: 0,
+      stage: format === "epub" ? "metadata" : "checking",
+    });
+    const metadata = format === "epub" ? await readEpubMetadata(file) : null;
+    const identity = { fileName: file.name, format, ...metadata };
+    if (format === "epub")
+      onUpload({ ...identity, percent: 0, stage: "checking" });
     const sha256 = await sha256Hex(file);
     const url = await operations.generateUploadUrl({
       sha256,
       size: file.size,
       format,
     });
-    onUpload({ fileName: file.name, format, percent: 0, stage: "uploading" });
+    onUpload({ ...identity, percent: 0, stage: "uploading" });
     const storageId = await operations.upload(
       url,
       file,
-      (percent) =>
-        onUpload({ fileName: file.name, format, percent, stage: "uploading" }),
+      (percent) => onUpload({ ...identity, percent, stage: "uploading" }),
       format,
     );
     return await operations.startImport({

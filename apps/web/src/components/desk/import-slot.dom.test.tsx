@@ -39,6 +39,7 @@ const view = (
   armed: boolean,
   upload: UploadState | null = null,
   targetImportId: Latest["_id"] | null = latest._id,
+  preview?: ComponentProps<typeof ImportView>["preview"],
 ) =>
   act(() =>
     root.render(
@@ -49,6 +50,7 @@ const view = (
             armed={armed}
             targetImportId={targetImportId}
             upload={upload}
+            preview={preview}
             problem={null}
             onFile={() => {}}
             onClearProblem={() => {}}
@@ -128,6 +130,93 @@ afterEach(async () => {
 });
 
 describe("an imported PDF that becomes readable", () => {
+  it("keeps this import's preview while the server is still parsing its metadata", () => {
+    const row = {
+      ...ready,
+      format: "epub" as const,
+      status: "reading" as const,
+      title: undefined,
+      author: undefined,
+    };
+    const preview = {
+      title: "The Real Book Title",
+      author: "The Author",
+      fileName: "noisy.epub",
+      format: "epub" as const,
+    };
+    view(row, true, null, row._id, preview);
+    expect(document.querySelector("h2")?.textContent).toBe(
+      "The Real Book Title",
+    );
+    expect(document.body.textContent).toContain("The Author");
+    view({ ...row, _id: otherImportId }, true, null, row._id, preview);
+    expect(document.querySelector("h2")?.textContent).toBe("Your EPUB");
+    expect(document.body.textContent).not.toContain("The Author");
+  });
+  it("uses the book metadata rather than a noisy filename during upload", () => {
+    view(ready, false, {
+      fileName: "_Long filename -- identifiers -- archive.epub",
+      format: "epub",
+      stage: "uploading",
+      percent: 25,
+      title: "The Real Book Title",
+      author: "The Author",
+    });
+    expect(document.querySelector("h2")?.textContent).toBe(
+      "The Real Book Title",
+    );
+    expect(document.body.textContent).toContain("The Author");
+    expect(
+      document.querySelector(
+        '[title="_Long filename -- identifiers -- archive.epub"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("does not promote the raw EPUB filename while metadata is being read", () => {
+    view(ready, false, {
+      fileName: "_Long filename -- archive.epub",
+      format: "epub",
+      stage: "metadata",
+      percent: 0,
+    });
+    expect(document.querySelector("h2")?.textContent).toBe("Your EPUB");
+    expect(document.body.textContent).toContain("Reading book details…");
+  });
+
+  it("retains the verified title and author in a refusal and explains its actual limit", () => {
+    view(
+      {
+        ...failed,
+        format: "epub",
+        title: "The Real Book Title",
+        author: "The Author",
+        failure: "too_long",
+        diagnostic: {
+          code: "block_words",
+          stage: "units",
+          observed: 14208,
+          limit: 4000,
+          spineIndex: 76,
+          blockIndex: 1,
+        },
+      },
+      false,
+    );
+    expect(document.querySelector("h2")?.textContent).toBe(
+      "The Real Book Title",
+    );
+    expect(document.body.textContent).toContain("The Author");
+    expect(document.body.textContent).toContain("14,208 words");
+    expect(document.body.textContent).toContain("4,000");
+    expect(document.body.textContent).toContain(
+      `Import reference: ${failed._id}`,
+    );
+    expect(document.body.textContent).toContain(
+      "Stage: units · Code: block_words",
+    );
+    expect(document.body.textContent).not.toContain("larger or more complex");
+  });
   it("does not open an unrelated import that completes while this upload is armed", () => {
     view(ready, true, null, otherImportId);
     expect(navigations).toEqual([]);

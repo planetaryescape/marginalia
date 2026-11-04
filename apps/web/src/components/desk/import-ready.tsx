@@ -15,6 +15,7 @@ import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 type ReadyRow = {
   articleId?: Id<"articles">;
   title?: string;
+  author?: string;
   format?: DocumentFormat;
   pages?: number;
   units?: number;
@@ -114,6 +115,11 @@ export function ImportReady({
           {row.title}
         </h2>
       </ViewTransition>
+      {row.author && (
+        <p className="mt-1.5 text-[15px] text-[var(--ink-soft)]">
+          {row.author}
+        </p>
+      )}
       <p className="mt-1.5 text-[13.5px] text-[var(--ink-muted)]">{meta}</p>
       <p className="mt-3 text-[15px] text-[var(--pencil)]">
         {isBook && row.firstUnitTitle && row.firstUnitMinutes !== undefined

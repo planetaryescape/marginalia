@@ -77,6 +77,9 @@ describe("document upload", () => {
       { storageId: expect.any(String), fileName: file.name, format },
     ]);
     expect(states).toEqual([
+      ...(format === "epub"
+        ? [{ fileName: file.name, format, percent: 0, stage: "metadata" }]
+        : []),
       { fileName: file.name, format, percent: 0, stage: "checking" },
       { fileName: file.name, format, percent: 0, stage: "uploading" },
       { fileName: file.name, format, percent: 75, stage: "uploading" },

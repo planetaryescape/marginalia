@@ -33,6 +33,8 @@ Parser PR #98 includes this blueprint and the pure parser, stacked on upstream a
 
 Feature reviews now use native upstream [stack #101](https://github.com/planetaryescape/marginalia/stack/101): auth #100 → parser #98 → backend #99 → cleanup #102 → desk #103, followed by the current atomic fixes. D-EPUB-021 supersedes temporary fork reviews and the single-integration-PR proposal. `origin` is writable with approved upstream admin access; #95 and the fork reviews retain their historical discussion and pending findings, not active merge instructions.
 
+The diagnostic follow-up (D-EPUB-020) splits oversized lists at item boundaries without raising limits, retains specific refusal details and verified title/author, and previews metadata before upload. Guide separately approved the isolated development update after full validation; production remains outside that approval. Current verification/deployment evidence is recorded in [Delivery](04-delivery.md).
+
 ## Rules for coding agents
 
 1. **Behaviour stays.** Existing PDFs, articles, highlights and notes must behave exactly as before. A widened shared component (the PDF picker, `ImportSlot`, `documentImports`) keeps its PDF tests passing unchanged.
@@ -41,4 +43,4 @@ Feature reviews now use native upstream [stack #101](https://github.com/planetar
 4. **Keep personal content out.** The repo is public. No real books, Apple Books databases, highlights, notes or screenshots of a library in commits or PR bodies. Fixtures are built in tests.
 5. **Read Apple Books read-only.** Never open its databases for writing and never write back to Books.
 6. **Update the decision log.** Change a decision only by adding a new entry to [02](02-decisions.md) that replaces it.
-7. **House rules.** Bun only. `bun run check` before every commit. Commits use `type(scope): description` with Guide as the only author and no co-author lines. No explanatory comments in code unless something is truly non-obvious.
+7. **House rules.** Bun only. Normally run `bun run check` before every commit. During the overloaded-host exception approved in D-EPUB-022, publish only with explicit validation status, use isolated CI plus the quiet-window watcher, and hold the approved dev update until full validation succeeds. Commits use `type(scope): description` with Guide as the only author and no co-author lines. No explanatory comments in code unless something is truly non-obvious.
