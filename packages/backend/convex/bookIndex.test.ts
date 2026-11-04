@@ -1000,6 +1000,9 @@ describe("indexing a whole book", () => {
       ctx.db.query("bookPassages").take(500),
     );
     expect(passages.length).toBeGreaterThanOrEqual(7);
+    expect(new Set(passages.map((passage) => passage.unitIndex))).toEqual(
+      new Set([0, 1, 2, 3, 4, 5, 6]),
+    );
     expect(new Set(passages.map((p) => p.articleId))).toEqual(
       new Set([articleId]),
     );

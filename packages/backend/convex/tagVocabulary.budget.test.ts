@@ -239,6 +239,81 @@ async function activateBudgetVectors(
   );
 }
 
+it.each([
+  false,
+  true,
+])("seeds only active AVL nodes while retaining canonical candidate and overflow rows (overflow: %s)", async (overflow) => {
+  const t = convexTest({ schema, modules, transactionLimits: true });
+  const tagIds = await t.run(async (ctx) => {
+    const ids: Id<"tags">[] = [];
+    for (const [key, status, count] of [
+      ["alpha", "active", 2],
+      ["candidate", "candidate", 10],
+      ["beta", "active", 1],
+    ] as const)
+      ids.push(
+        await ctx.db.insert("tags", {
+          userId,
+          key,
+          name: key,
+          aliases: [],
+          status,
+          count,
+          createdAt: 0,
+        }),
+      );
+    if (overflow)
+      ids.push(
+        await ctx.db.insert("tags", {
+          userId,
+          key: "oversized",
+          name: "oversized",
+          aliases: [],
+          description: "x".repeat(17_000),
+          status: "active",
+          count: 20,
+          createdAt: 0,
+        }),
+      );
+    return ids;
+  });
+  const canonical = await t.run((ctx) => ctx.db.query("tags").collect());
+  await seedBudgetVocabulary(t, userId, tagIds, false);
+  expect(await t.run((ctx) => ctx.db.query("tags").collect())).toEqual(
+    canonical,
+  );
+  const nodes = await t.run((ctx) => ctx.db.query("tagVocabulary").collect());
+  expect(new Set(nodes.map((node) => node.tagId))).toEqual(new Set(tagIds));
+  expect(
+    await t.run((ctx) => ctx.db.query("tagVocabularyPayloads").collect()),
+  ).toHaveLength(tagIds.length);
+  for (const node of nodes.filter((node) => !node.active))
+    expect(node).toMatchObject({ left: null, right: null, height: 1 });
+  expect(
+    await t.run((ctx) => ctx.db.query("tagVocabularyState").unique()),
+  ).toMatchObject({ ready: true, overflow: Number(overflow) });
+  const expected = canonical
+    .filter((tag) => tag.status === "active")
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+    .map(({ name, key, aliases }) => ({ name, key, aliases }));
+  expect(await t.query(internal.tags.vocabulary, { userId })).toEqual(expected);
+  if (overflow) {
+    const oversized = canonical.find((tag) => tag.key === "oversized");
+    if (!oversized) throw new Error("Missing overflow fixture tag");
+    await t.run((ctx) =>
+      metadataTriggers
+        .wrapDB(ctx)
+        .db.patch(oversized._id, { description: "bounded" }),
+    );
+    expect(
+      await t.run((ctx) => ctx.db.query("tagVocabularyState").unique()),
+    ).toMatchObject({ ready: true, overflow: 0 });
+    expect(await t.query(internal.tags.vocabulary, { userId })).toEqual(
+      expected,
+    );
+  }
+});
+
 it("migrates vocabulary for all 540 unchanged full payloads through production functions", async () => {
   const current = await fixture(true, undefined, true, "vocabulary");
   expect(

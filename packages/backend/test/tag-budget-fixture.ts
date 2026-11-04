@@ -56,7 +56,7 @@ export async function seedBudgetVocabulary(
           right: null,
           height: 1,
         });
-        result.push({ _id, ...identity, count });
+        if (active) result.push({ _id, ...identity, count });
         if (withAliases) {
           const projected = aliasProjection(tag);
           aliasOverflow += Number(projected.overflow);
