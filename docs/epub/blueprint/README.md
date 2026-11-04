@@ -31,7 +31,7 @@ Parser PR #98 includes this blueprint and the pure parser, stacked on upstream a
 
 `feat/epub-import-backend` implements the approved backend schema, format selection, publication and image ownership/cleanup (D-EPUB-018). It is not deployed to production. The separately approved isolated development update is recorded in [later desk follow-up #103](https://github.com/planetaryescape/marginalia/pull/103). Native production scheduling/storage races and successful signed-in EPUB reading are not established by local tests in this slice. At this slice the desk remains PDF-only apart from compatibility guards; EPUB picker, layout, token endpoints and Apple Books CLI are later work.
 
-Feature reviews now live in the fork: [parser #1](https://github.com/guidefari/marginalia/pull/1) targets the auth branch and [backend #2](https://github.com/guidefari/marginalia/pull/2) targets the parser. D-EPUB-019 replaces the cumulative upstream #96/#97 arrangement. Auth remains upstream #95; check cleanup is a separate slice above backend import.
+Feature reviews now follow the native upstream stack [#101](https://github.com/planetaryescape/marginalia/stack/101), recorded in [follow-up #106](https://github.com/planetaryescape/marginalia/pull/106). Auth is upstream [#100](https://github.com/planetaryescape/marginalia/pull/100). The fork review chain in [04](04-delivery.md) is historical.
 
 ## Rules for coding agents
 
