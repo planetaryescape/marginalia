@@ -93,7 +93,7 @@ export function parseEpub(
       spine,
       outline: outline.value.length
         ? outline.value
-        : spine.map((item) => ({
+        : spine.slice(0, book.spine.length).map((item) => ({
             title: item.title,
             href: item.href,
             depth: 0,

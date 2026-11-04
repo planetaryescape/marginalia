@@ -114,12 +114,17 @@ export function checkEpubEncryption(
     "http://ns.adobe.com/pdf/enc#RC",
   ]);
   for (const entry of encrypted) {
-    const method =
-      elements(entry, "EncryptionMethod")[0]?.getAttribute("Algorithm") ?? "";
-    if (!fontAlgorithms.has(method)) return { ok: false, reason: "protected" };
+    const methods = elements(entry, "EncryptionMethod");
+    const references = elements(entry, "CipherReference");
+    const method = methods[0]?.getAttribute("Algorithm") ?? "";
+    if (
+      methods.length !== 1 ||
+      references.length !== 1 ||
+      !fontAlgorithms.has(method)
+    ) return { ok: false, reason: "protected" };
     const target = resolveEpubHref(
       "",
-      elements(entry, "CipherReference")[0]?.getAttribute("URI") ?? "",
+      references[0]?.getAttribute("URI") ?? "",
     );
     const item = target ? itemsByHref.get(target) : undefined;
     if (

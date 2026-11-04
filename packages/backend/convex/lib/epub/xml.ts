@@ -41,7 +41,10 @@ export function parseEpubXml(
           reason: "too_long",
         };
       for (let child = entry.node.firstChild; child; child = child.nextSibling)
-        pending.push({ node: child, depth: entry.depth + 1 });
+        pending.push({
+          node: child,
+          depth: entry.depth + (child.nodeType === 1 ? 1 : 0),
+        });
     }
     return { ok: true, value: doc };
   } catch {

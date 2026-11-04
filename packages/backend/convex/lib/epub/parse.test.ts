@@ -1,4 +1,4 @@
-import { strToU8, zipSync, type Zippable } from "fflate";
+import { strToU8, type Zippable, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { EPUB_LIMITS } from "./archive";
 import { parseEpub } from "./parse";
@@ -199,7 +199,6 @@ describe("parser review regressions", () => {
       }
     }
   });
-
 
   it("requires the exact EPUB marker for both input forms and rejects prototype entries", () => {
     for (const marker of [
