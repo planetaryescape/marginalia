@@ -50,6 +50,20 @@ describe("readerMeta", () => {
         minutes: 2,
         part: { index: 0, of: 81 },
       }),
-    ).toBe(`Part 1 of 81 · ${label} · 2 min read`);
+    ).toBe(
+      `${label === "EPUB" ? "Chapter" : "Part 1 of 81"} · ${label} · 2 min read`,
+    );
+  });
+
+  it("uses the EPUB chapter title rather than numbering reading chunks as chapters", () => {
+    expect(
+      readerMeta({
+        url: "upload:import-id",
+        uploaded: true,
+        uploadedFileName: "book.epub",
+        minutes: 2,
+        part: { index: 5, of: 81, title: "Learning to Notice" },
+      }),
+    ).toBe("Learning to Notice · EPUB · 2 min read");
   });
 });

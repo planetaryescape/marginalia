@@ -11,7 +11,7 @@ export function readerMeta(input: {
   uploadedFileName?: string;
   author?: string;
   minutes?: number;
-  part?: { index: number; of: number };
+  part?: { index: number; of: number; title?: string };
 }): string {
   let host = "";
   try {
@@ -26,7 +26,11 @@ export function readerMeta(input: {
       : "Upload";
   const source = host || (input.uploaded ? upload : (input.author ?? ""));
   return [
-    input.part ? `Part ${input.part.index + 1} of ${input.part.of}` : "",
+    input.part
+      ? upload === "EPUB" && input.uploaded
+        ? input.part.title?.trim() || "Chapter"
+        : `Part ${input.part.index + 1} of ${input.part.of}`
+      : "",
     source,
     input.minutes ? formatReadTime(input.minutes) : "",
   ]

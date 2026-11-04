@@ -160,6 +160,7 @@ export default function ReadPage() {
     bibleDisplay,
     isBook,
     unitIndex,
+    unitTitle,
     unitKey,
     outline,
     summaries,
@@ -1786,7 +1787,11 @@ export default function ReadPage() {
                   minutes: article.estimatedReadMinutes,
                   part:
                     isBook && outline && unitIndex !== null
-                      ? { index: unitIndex, of: outline.length }
+                      ? {
+                          index: unitIndex,
+                          of: outline.length,
+                          title: unitTitle,
+                        }
                       : undefined,
                 })}
                 {!isBook && estimatedPageWords != null
@@ -1885,6 +1890,7 @@ export default function ReadPage() {
                   unitIndex={unitIndex}
                   outline={outline}
                   summaries={summaries}
+                  epub={/\.epub$/i.test(article.uploadedFileName ?? "")}
                 />
               )}
               {!isBook && (
