@@ -69,6 +69,7 @@ export function useReadable(
     bibleDisplay,
     scopeReady: Boolean(result?.article),
     isBook,
+    bookFormat: result?.bookFormat,
     unitIndex: result?.unitIndex ?? null,
     unitTitle: result?.unitTitle ?? undefined,
     /** Identity of the part whose text is on screen */

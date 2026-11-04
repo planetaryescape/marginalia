@@ -8,6 +8,8 @@ import {
   mutation,
   query,
 } from "./functions";
+import { EPUB_LIMITS } from "./lib/epub/archive";
+import { epubFailureEvent, importDiagnostic } from "./lib/importDiagnostics";
 import { importLibraryActive } from "./lib/importJobs";
 import { isHexSha256, storedSha256AsHex } from "./lib/uploadFingerprint";
 import { READER_LIMITS, spendReaderLimit } from "./limits";
@@ -29,6 +31,8 @@ const SWEEP_PAGE = 100;
 const MAX_FILE_NAME_CHARS = 200;
 
 const failure = v.union(
+  v.literal("protected"),
+  v.literal("not_epub"),
   v.literal("scanned"),
   v.literal("too_long"),
   v.literal("unreadable"),
@@ -37,7 +41,7 @@ const failure = v.union(
 );
 
 /** Storage throws for a file that is already gone, which is the state wanted. */
-async function deleteFile(
+export async function deleteFile(
   ctx: { storage: { delete: (id: Id<"_storage">) => Promise<void> } },
   storageId: Id<"_storage">,
 ) {
@@ -62,7 +66,11 @@ function isStale(row: Doc<"documentImports">, now: number) {
  * telling it to reload instead of a validation error.
  */
 export const generateUploadUrl = mutation({
-  args: { sha256: v.optional(v.string()), size: v.optional(v.number()) },
+  args: {
+    sha256: v.optional(v.string()),
+    size: v.optional(v.number()),
+    format: v.optional(v.union(v.literal("pdf"), v.literal("epub"))),
+  },
   handler: async (ctx, args) => {
     const { sha256, size } = args;
     if (sha256 === undefined || size === undefined)
@@ -71,9 +79,11 @@ export const generateUploadUrl = mutation({
       );
     if (!isHexSha256(sha256) || !Number.isSafeInteger(size) || size < 0)
       throw new ConvexError("That file couldn't be checked. Try again.");
-    if (size > MAX_PDF_BYTES)
+    const maxBytes =
+      args.format === "epub" ? EPUB_LIMITS.archiveBytes : MAX_PDF_BYTES;
+    if (size > maxBytes)
       throw new ConvexError(
-        `That file is over ${MAX_PDF_BYTES / 1024 / 1024} MB, which is more than Marginalia can read.`,
+        `That file is over ${maxBytes / 1024 / 1024} MB, which is more than Marginalia can read.`,
       );
     if (!(await spendReaderLimit(ctx, ctx.readerId, "pdfImport")))
       throw new ConvexError(READER_LIMITS.pdfImport.message);
@@ -93,8 +103,16 @@ export const generateUploadUrl = mutation({
  * the same file, and a refused file never stays in storage.
  */
 export const start = mutation({
-  args: { storageId: v.id("_storage"), fileName: v.string() },
+  args: {
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    format: v.optional(v.union(v.literal("pdf"), v.literal("epub"))),
+  },
   handler: async (ctx, args) => {
+    const refuse = (error: string): { ok: false; error: string } => ({
+      ok: false,
+      error,
+    });
     const file = await ctx.db.system.get("_storage", args.storageId);
     if (!file)
       return {
@@ -111,6 +129,11 @@ export const start = mutation({
         ok: false as const,
         error: "That upload is already being read.",
       };
+    const imageOwner = await ctx.db
+      .query("bookImages")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .first();
+    if (imageOwner) return refuse("That upload is already being read.");
     // Only a reader who was given an upload URL for this very content can
     // import a file: the grant carries the SHA-256 and size the browser
     // computed, and they must match what storage recorded. A refusal here
@@ -142,16 +165,22 @@ export const start = mutation({
     // be someone else's in-flight upload (a matching grant only proves the
     // reader has the same bytes; docs/issues/pdf-upload-ownership.md), so
     // refused files are left for sweepUploads, which removes anything unclaimed.
-    const refuse = (error: string) => ({ ok: false as const, error });
     // The header is the browser's word; the action checks the file's own bytes
     if (
       file.contentType !== undefined &&
-      file.contentType !== "application/pdf"
+      file.contentType !==
+        (args.format === "epub" ? "application/epub+zip" : "application/pdf")
     )
-      return refuse("Marginalia reads PDF files.");
-    if (file.size > MAX_PDF_BYTES)
       return refuse(
-        `That file is over ${MAX_PDF_BYTES / 1024 / 1024} MB, which is more than Marginalia can read.`,
+        args.format === "epub"
+          ? "Choose an EPUB file."
+          : "Marginalia reads PDF files.",
+      );
+    const maxBytes =
+      args.format === "epub" ? EPUB_LIMITS.archiveBytes : MAX_PDF_BYTES;
+    if (file.size > maxBytes)
+      return refuse(
+        `That file is over ${maxBytes / 1024 / 1024} MB, which is more than Marginalia can read.`,
       );
 
     const reading = await ctx.db
@@ -161,7 +190,9 @@ export const start = mutation({
       )
       .take(MAX_ACTIVE_IMPORTS + 1);
     if (reading.filter((r) => !isStale(r, now)).length >= MAX_ACTIVE_IMPORTS)
-      return refuse("Two PDFs are already being read. Wait for one to finish.");
+      return refuse(
+        "Two files are already being read. Wait for one to finish.",
+      );
 
     const fileName =
       args.fileName
@@ -169,20 +200,28 @@ export const start = mutation({
         .split(/[\\/]/)
         .pop()
         ?.trim()
-        .slice(0, MAX_FILE_NAME_CHARS) || "Untitled.pdf";
+        .slice(0, MAX_FILE_NAME_CHARS) ||
+      (args.format === "epub" ? "Untitled.epub" : "Untitled.pdf");
     await ctx.db.patch("uploadGrants", grant._id, { usedAt: now });
     const importId = await ctx.db.insert("documentImports", {
       userId: ctx.readerId,
       storageId: args.storageId,
       fileName,
+      format: args.format,
       status: "reading",
       step: "text",
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.scheduler.runAfter(0, internal.actions.importPdf.run, {
-      importId,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      args.format === "epub"
+        ? internal.actions.importEpub.run
+        : internal.actions.importPdf.run,
+      {
+        importId,
+      },
+    );
     await ctx.scheduler.runAfter(
       EXPIRE_AFTER_MS,
       internal.documentImports.expire,
@@ -209,12 +248,15 @@ export const latest = query({
     return {
       _id: row._id,
       fileName: row.fileName,
+      format: row.format,
       status: stale ? ("failed" as const) : row.status,
       step: row.step,
       pages: row.pages,
       units: row.units,
       articleId: row.articleId,
       title: row.title,
+      author: row.author,
+      diagnostic: row.diagnostic,
       firstUnitTitle: row.firstUnitTitle,
       firstUnitMinutes: row.firstUnitMinutes,
       // The whole document's length: one article, or every part of a book
@@ -285,6 +327,8 @@ export const setProgress = internalMutation({
     step: v.union(v.literal("text"), v.literal("sections"), v.literal("point")),
     pages: v.optional(v.number()),
     units: v.optional(v.number()),
+    title: v.optional(v.string()),
+    author: v.optional(v.string()),
   },
   handler: async (ctx, { importId, ...progress }) => {
     if (!(await liveImport(ctx, importId))) return false;
@@ -307,7 +351,7 @@ export async function markImportReady(
   ready: {
     articleId: Id<"articles">;
     title: string;
-    pages: number;
+    pages?: number;
     units?: number;
     firstUnitTitle?: string;
     firstUnitMinutes?: number;
@@ -327,16 +371,34 @@ export async function markImportReady(
 
 /** Records why a PDF was refused and removes its file. Nothing else is left behind. */
 export const fail = internalMutation({
-  args: { importId: v.id("documentImports"), failure },
+  args: {
+    importId: v.id("documentImports"),
+    failure,
+    diagnostic: v.optional(importDiagnostic),
+  },
   handler: async (ctx, args) => {
     const row = await ctx.db.get("documentImports", args.importId);
     if (row?.status !== "reading") return;
+    if (row.partialArticleId)
+      await ctx.scheduler.runAfter(0, internal.books.discardBook, {
+        userId: row.userId,
+        articleId: row.partialArticleId,
+        importId: row._id,
+      });
     await ctx.db.patch("documentImports", args.importId, {
       status: "failed",
       failure: args.failure,
+      diagnostic: args.diagnostic,
       updatedAt: Date.now(),
     });
     await deleteFile(ctx, row.storageId);
+    if (row.format === "epub" && args.diagnostic) {
+      const event = JSON.stringify(
+        epubFailureEvent(row._id, args.failure, args.diagnostic),
+      );
+      if (args.diagnostic.code === "unexpected_failure") console.error(event);
+      else console.warn(event);
+    }
   },
 });
 
@@ -363,6 +425,14 @@ export const expire = internalMutation({
       updatedAt: Date.now(),
     });
     await deleteFile(ctx, row.storageId);
+    if (row.format === "epub")
+      console.warn(
+        JSON.stringify({
+          event: "epub_import_failed",
+          importId: row._id,
+          failure: "too_slow",
+        }),
+      );
   },
 });
 
@@ -386,7 +456,12 @@ export const sweepUploads = internalMutation({
         .query("documentImports")
         .withIndex("by_storageId", (q) => q.eq("storageId", file._id))
         .first();
-      if (!claimed) await deleteFile(ctx, file._id);
+      if (claimed) continue;
+      const image = await ctx.db
+        .query("bookImages")
+        .withIndex("by_storageId", (q) => q.eq("storageId", file._id))
+        .first();
+      if (!image) await deleteFile(ctx, file._id);
     }
     if (!page.isDone)
       await ctx.scheduler.runAfter(0, internal.documentImports.sweepUploads, {

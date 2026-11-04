@@ -5,6 +5,7 @@ import { libraryIsActive, ownedArticle, requireArticle } from "./access";
 import { countFeedOutcome } from "./feedStats";
 import { mutation, query } from "./functions";
 import { bookPartCard } from "./lib/articleMetadata";
+import { bookFormat, unitFormat } from "./lib/bookFormat";
 import {
   initializeEmptyResume,
   mergeResume,
@@ -239,6 +240,14 @@ export const getContinue = query({
               number: index + 1,
               count: book.unitCount,
               title: unit.title,
+              format: await bookFormat(
+                ctx,
+                ctx.readerId,
+                row.articleId,
+                article,
+                index,
+                unit.format,
+              ),
             },
           },
         };
@@ -350,7 +359,12 @@ export const getInProgress = query({
               )
             : null,
           part: unit
-            ? { number: index + 1, count: book.unitCount, title: unit.title }
+            ? {
+                number: index + 1,
+                count: book.unitCount,
+                title: unit.title,
+                format: unitFormat(unit),
+              }
             : undefined,
         };
       }

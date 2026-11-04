@@ -2,7 +2,12 @@
 import { appendFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { expect, it, onTestFailed } from "vitest";
+import {
+  seedBudgetVectors,
+  seedBudgetVocabulary,
+} from "../test/tag-budget-fixture";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { metadataTriggers } from "./lib/metadataTriggers";
 import {
   aliasState,
@@ -30,6 +35,7 @@ async function fixture(
   ready: boolean,
   maxReadBytes?: number,
   shortAliases = false,
+  construction: "seed" | "vocabulary" | "aliases" = "seed",
 ) {
   const t = convexTest({
     schema,
@@ -47,26 +53,36 @@ async function fixture(
       createdAt: 0,
     }),
   );
+  const tagIds: Id<"tags">[] = [];
   for (let start = 0; start < 540; start += 20)
     await t.run(async (ctx) => {
       for (let i = start; i < start + 20; i++) {
         const name = names[i] ?? `topic ${i}`;
-        await ctx.db.insert("tags", {
-          userId,
-          name,
-          key: name,
-          aliases: [
-            `alias-${"x".repeat(15_500)}-${i}`,
-            ...(shortAliases && i < 3 ? [`known${i}`] : []),
-          ],
-          count: 0,
-          status: "active",
-          createdAt: i,
-          embedding: Array.from({ length: 1536 }, () => 0.125),
-        });
+        tagIds.push(
+          await ctx.db.insert("tags", {
+            userId,
+            name,
+            key: name,
+            aliases: [
+              `alias-${"x".repeat(15_500)}-${i}`,
+              ...(shortAliases && i < 3 ? [`known${i}`] : []),
+            ],
+            count: 0,
+            status: "active",
+            createdAt: i,
+            embedding: Array.from({ length: 1536 }, () => 0.125),
+          }),
+        );
       }
     });
-  if (ready) {
+  if (ready && construction !== "vocabulary")
+    await seedBudgetVocabulary(
+      t,
+      userId,
+      tagIds,
+      construction === "seed" && shortAliases,
+    );
+  if (ready && construction === "vocabulary") {
     let done = false;
     let maxReadBytes = 0;
     let maxWriteBytes = 0;
@@ -90,9 +106,13 @@ async function fixture(
     );
     expect(done).toBe(true);
   }
-  if (shortAliases) {
+  if (ready && shortAliases && construction !== "vocabulary") {
     let done = false;
-    for (let page = 0; page < 600 && !done; page++)
+    for (
+      let page = 0;
+      construction === "aliases" && page < 600 && !done;
+      page++
+    )
       done = (
         await t.run(async (ctx) => {
           const result = await migrateTagAliases(ctx, userId);
@@ -101,33 +121,34 @@ async function fixture(
           return result;
         })
       ).done;
-    expect(done).toBe(true);
-    // Physical stress fixture, not the production activation endpoint: validate
-    // all 540 sources one bounded transaction at a time under the same 1MB cap.
-    // No concurrent writers run during fixture construction. Production's two
-    // retained small libraries use verifyAndActivateTagAliases in ONE snapshot.
+    if (construction === "aliases") expect(done).toBe(true);
     const sources = await t.run((ctx) =>
       ctx.db.query("tagAliasSources").collect(),
     );
     expect(sources).toHaveLength(540);
-    for (const source of sources)
+    for (let start = 0; start < sources.length; start += 20)
       await t.run(async (ctx) => {
-        const tag = await ctx.db.get(source.tagId);
-        if (!tag) throw new Error("Missing canonical fixture tag");
-        const rows = await ctx.db
-          .query("tagAliases")
-          .withIndex("by_tagId", (q) => q.eq("tagId", tag._id))
-          .collect();
-        const index = names.indexOf(tag.key);
-        expect(rows.map((r) => r.alias)).toEqual(
-          index < 0 ? [] : [`known${index}`],
-        );
-        for (const row of rows)
-          expect(row).toMatchObject({
-            key: tag.key,
-            userId: tag.userId,
-            sourceCreationTime: tag._creationTime,
-          });
+        for (const source of sources.slice(start, start + 20)) {
+          const tag = await ctx.db.get(source.tagId);
+          if (!tag) throw new Error("Missing canonical fixture tag");
+          const rows = await ctx.db
+            .query("tagAliases")
+            .withIndex("by_tagId", (q) => q.eq("tagId", tag._id))
+            .collect();
+          const index = names.indexOf(tag.key);
+          expect(rows.map((r) => r.alias)).toEqual(
+            index < 0 ? [] : [`known${index}`],
+          );
+          for (const row of rows)
+            expect(row).toMatchObject({
+              key: tag.key,
+              userId: tag.userId,
+              sourceCreationTime: tag._creationTime,
+            });
+        }
+        expect(
+          (await ctx.meta.getTransactionMetrics()).bytesRead.used,
+        ).toBeLessThan(1_000_000);
       });
     if (!maxReadBytes) {
       await t.run(async (ctx) => {
@@ -146,7 +167,7 @@ async function fixture(
         await ctx.db.patch(state._id, { ready: true });
       });
   }
-  return { t, articleId };
+  return { t, articleId, tagIds };
 }
 
 async function measuredAssignment(
@@ -173,30 +194,9 @@ async function measuredAssignment(
   });
 }
 
-it("assigns actual candidate/semantic proposals and relinks with the unchanged 540 full payloads under native limits", async () => {
-  const current = await fixture(true, undefined, true);
-  let done = false;
-  let migrationRead = 0;
-  let migrationWrite = 0;
-  for (let i = 0; i < 600 && !done; i++) {
-    const measured = await current.t.run(async (ctx) => {
-      const result = await migrateTagVectors(ctx, userId);
-      return { result, metrics: await ctx.meta.getTransactionMetrics() };
-    });
-    done = measured.result.done;
-    migrationRead = Math.max(migrationRead, measured.metrics.bytesRead.used);
-    migrationWrite = Math.max(
-      migrationWrite,
-      measured.metrics.bytesWritten.used,
-    );
-  }
-  expect(done).toBe(true);
-  expect(migrationRead).toBeLessThan(1_000_000);
-  expect(migrationWrite).toBeLessThan(1_000_000);
-  evidence(
-    "B12 vector migration maxima",
-    JSON.stringify({ migrationRead, migrationWrite }),
-  );
+async function activateBudgetVectors(
+  current: Awaited<ReturnType<typeof fixture>>,
+) {
   // The legacy one-snapshot boolean still refuses this >8MB baseline.
   expect(
     await current.t.run((ctx) => verifyAndActivateTagVectors(ctx, userId)),
@@ -237,6 +237,133 @@ it("assigns actual candidate/semantic proposals and relinks with the unchanged 5
     "B12 production paged vector activation",
     JSON.stringify(activationMetrics),
   );
+}
+
+it.each([
+  false,
+  true,
+])("seeds only active AVL nodes while retaining canonical candidate and overflow rows (overflow: %s)", async (overflow) => {
+  const t = convexTest({ schema, modules, transactionLimits: true });
+  const tagIds = await t.run(async (ctx) => {
+    const ids: Id<"tags">[] = [];
+    for (const [key, status, count] of [
+      ["alpha", "active", 2],
+      ["candidate", "candidate", 10],
+      ["beta", "active", 1],
+    ] as const)
+      ids.push(
+        await ctx.db.insert("tags", {
+          userId,
+          key,
+          name: key,
+          aliases: [],
+          status,
+          count,
+          createdAt: 0,
+        }),
+      );
+    if (overflow)
+      ids.push(
+        await ctx.db.insert("tags", {
+          userId,
+          key: "oversized",
+          name: "oversized",
+          aliases: [],
+          description: "x".repeat(17_000),
+          status: "active",
+          count: 20,
+          createdAt: 0,
+        }),
+      );
+    return ids;
+  });
+  const canonical = await t.run((ctx) => ctx.db.query("tags").collect());
+  await seedBudgetVocabulary(t, userId, tagIds, false);
+  expect(await t.run((ctx) => ctx.db.query("tags").collect())).toEqual(
+    canonical,
+  );
+  const nodes = await t.run((ctx) => ctx.db.query("tagVocabulary").collect());
+  expect(new Set(nodes.map((node) => node.tagId))).toEqual(new Set(tagIds));
+  expect(
+    await t.run((ctx) => ctx.db.query("tagVocabularyPayloads").collect()),
+  ).toHaveLength(tagIds.length);
+  for (const node of nodes.filter((node) => !node.active))
+    expect(node).toMatchObject({ left: null, right: null, height: 1 });
+  expect(
+    await t.run((ctx) => ctx.db.query("tagVocabularyState").unique()),
+  ).toMatchObject({ ready: true, overflow: Number(overflow) });
+  const expected = canonical
+    .filter((tag) => tag.status === "active")
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+    .map(({ name, key, aliases }) => ({ name, key, aliases }));
+  expect(await t.query(internal.tags.vocabulary, { userId })).toEqual(expected);
+  if (overflow) {
+    const oversized = canonical.find((tag) => tag.key === "oversized");
+    if (!oversized) throw new Error("Missing overflow fixture tag");
+    await t.run((ctx) =>
+      metadataTriggers
+        .wrapDB(ctx)
+        .db.patch(oversized._id, { description: "bounded" }),
+    );
+    expect(
+      await t.run((ctx) => ctx.db.query("tagVocabularyState").unique()),
+    ).toMatchObject({ ready: true, overflow: 0 });
+    expect(await t.query(internal.tags.vocabulary, { userId })).toEqual(
+      expected,
+    );
+  }
+});
+
+it("migrates vocabulary for all 540 unchanged full payloads through production functions", async () => {
+  const current = await fixture(true, undefined, true, "vocabulary");
+  expect(
+    await current.t.run((ctx) => ctx.db.query("tagVocabulary").collect()),
+  ).toHaveLength(540);
+});
+
+it("migrates and activates aliases for all 540 unchanged full payloads through production functions", async () => {
+  await fixture(true, undefined, true, "aliases");
+});
+
+it("migrates all 540 unchanged full vectors within native budgets", async () => {
+  const current = await fixture(false, undefined, true);
+  let done = false;
+  let migrationRead = 0;
+  let migrationWrite = 0;
+  for (let i = 0; i < 600 && !done; i++) {
+    const measured = await current.t.run(async (ctx) => {
+      const result = await migrateTagVectors(ctx, userId);
+      return { result, metrics: await ctx.meta.getTransactionMetrics() };
+    });
+    done = measured.result.done;
+    migrationRead = Math.max(migrationRead, measured.metrics.bytesRead.used);
+    migrationWrite = Math.max(
+      migrationWrite,
+      measured.metrics.bytesWritten.used,
+    );
+  }
+  expect(done).toBe(true);
+  expect(migrationRead).toBeLessThan(1_000_000);
+  expect(migrationWrite).toBeLessThan(1_000_000);
+  evidence(
+    "B12 vector migration maxima",
+    JSON.stringify({ migrationRead, migrationWrite }),
+  );
+  expect(
+    await current.t.run((ctx) => ctx.db.query("tagVectorState").unique()),
+  ).toMatchObject({ backfilled: true, count: 540, ready: false });
+});
+
+it("activates all 540 unchanged full vectors through production paged proof", async () => {
+  const current = await fixture(false, undefined, true);
+  await seedBudgetVectors(current.t, userId, current.tagIds);
+  await activateBudgetVectors(current);
+});
+
+it("assigns actual candidate/semantic proposals and relinks with the unchanged 540 full payloads under native limits", async () => {
+  const current = await fixture(true, undefined, true);
+  await seedBudgetVectors(current.t, userId, current.tagIds);
+  await activateBudgetVectors(current);
   const semantic = {
     name: "semantic synonym",
     embedding: Array(1536).fill(0.125),

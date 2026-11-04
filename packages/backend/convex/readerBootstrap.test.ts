@@ -5,6 +5,48 @@ import { api } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
 
+it.each(["epub", "pdf"])("reads %s identity", async (format) => {
+  const f = await secondReaderTest(modules);
+  const articleId = await f.t.run(async (ctx) => {
+    const articleId = await ctx.db.insert("articles", {
+      userId: "default_user",
+      guid: "upload:generated-fixture",
+      url: "upload:generated-fixture",
+      title: "Generated book",
+      uploadedFileName: "x".repeat(200),
+      bookUnitCount: 1,
+      bookOutline: [{ title: "Learning to Notice", minutes: 2 }],
+      extractionStatus: "extracted",
+      annotationStatus: "skipped",
+      createdAt: 0,
+    });
+    await ctx.db.insert("bookUnits", {
+      userId: "default_user",
+      articleId,
+      index: 0,
+      title: "Learning to Notice",
+      content: "Saved body",
+      contentHtml: "<p>Saved body</p>",
+      wordCount: 2,
+      estimatedReadMinutes: 2,
+      annotationStatus: "pending",
+      ...(format === "epub"
+        ? { sourceSpans: [{ spineIndex: 0, start: 0, end: 10 }] }
+        : {}),
+    });
+    return articleId;
+  });
+  expect(
+    await f.owner.query(api.readerBootstrap.get, { articleId, unitIndex: 0 }),
+  ).toMatchObject({
+    bookFormat: format,
+    unitTitle: "Learning to Notice",
+  });
+  expect(
+    await f.reader.query(api.readerBootstrap.get, { articleId, unitIndex: 0 }),
+  ).toBeNull();
+});
+
 it("includes only the article's owned feed and stops offering unsubscribe once removed", async () => {
   const f = await secondReaderTest(modules);
   const feedId = await f.owner.mutation(api.feeds.add, {

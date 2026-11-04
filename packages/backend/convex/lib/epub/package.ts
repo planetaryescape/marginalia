@@ -1,0 +1,188 @@
+import { EPUB_LIMITS, resolveEpubHref } from "./archive";
+import type { EpubPackage, EpubResult, ManifestItem } from "./types";
+import { elements, parseEpubXml, xmlText } from "./xml";
+
+export function parseEpubPackage(
+  files: ReadonlyMap<string, Uint8Array>,
+): EpubResult<EpubPackage> {
+  const container = parseEpubXml(files.get("META-INF/container.xml"));
+  if (!container.ok) return container;
+  const rootfile = elements(container.value, "rootfile").find(
+    (node) =>
+      node.getAttribute("media-type")?.toLowerCase() ===
+      "application/oebps-package+xml",
+  );
+  const path = resolveEpubHref("", rootfile?.getAttribute("full-path") ?? "");
+  if (!path || path.includes("#"))
+    return {
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    };
+  const parsed = parseEpubXml(files.get(path));
+  if (!parsed.ok) return parsed;
+  const root = parsed.value.documentElement;
+  if (!root || root.localName !== "package")
+    return {
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    };
+  const metadata = elements(root, "metadata")[0];
+  const manifestNode = elements(root, "manifest")[0];
+  const spineNode = elements(root, "spine")[0];
+  if (!metadata || !manifestNode || !spineNode)
+    return {
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    };
+  const manifest: ManifestItem[] = [];
+  const itemsById = new Map<string, ManifestItem>();
+  const manifestHrefs = new Set<string>();
+  for (const node of elements(manifestNode, "item")) {
+    const id = node.getAttribute("id");
+    const href = resolveEpubHref(path, node.getAttribute("href") ?? "");
+    const mediaType = node.getAttribute("media-type")?.toLowerCase();
+    if (
+      !id ||
+      itemsById.has(id) ||
+      !href ||
+      manifestHrefs.has(href) ||
+      href.includes("#") ||
+      !mediaType
+    )
+      return {
+        ok: false,
+        reason: "not_epub",
+        diagnostic: { code: "invalid_package", stage: "package" },
+      };
+    const item: ManifestItem = {
+      id,
+      href,
+      mediaType,
+      properties: (node.getAttribute("properties") ?? "")
+        .split(/\s+/u)
+        .filter((value) => value.length > 0),
+    };
+    manifest.push(item);
+    itemsById.set(id, item);
+    manifestHrefs.add(href);
+  }
+  const spine: ManifestItem[] = [];
+  const itemrefs = elements(spineNode, "itemref");
+  if (itemrefs.length > EPUB_LIMITS.spineItems)
+    return {
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "spine_items",
+        stage: "package",
+        observed: itemrefs.length,
+        limit: EPUB_LIMITS.spineItems,
+      },
+    };
+  for (const [spineIndex, ref] of itemrefs.entries()) {
+    const item = itemsById.get(ref.getAttribute("idref") ?? "");
+    if (!item || !files.has(item.href))
+      return {
+        ok: false,
+        reason: "not_epub",
+        diagnostic: { code: "invalid_spine", stage: "package", spineIndex },
+      };
+    if (item.mediaType !== "application/xhtml+xml")
+      return {
+        ok: false,
+        reason: "unreadable",
+        diagnostic: { code: "invalid_spine", stage: "package", spineIndex },
+      };
+    spine.push(item);
+  }
+  const dcNamespace = "http://purl.org/dc/elements/1.1/";
+  const identifiers = Array.from(
+    metadata.getElementsByTagNameNS(dcNamespace, "identifier"),
+  );
+  const identifier = identifiers.find(
+    (node) =>
+      !!root.getAttribute("unique-identifier") &&
+      node.getAttribute("id") === root.getAttribute("unique-identifier"),
+  );
+  return {
+    ok: true,
+    value: {
+      title:
+        xmlText(
+          metadata.getElementsByTagNameNS(dcNamespace, "title").item(0) ??
+            undefined,
+        ) || "Untitled book",
+      creators: Array.from(
+        metadata.getElementsByTagNameNS(dcNamespace, "creator"),
+      )
+        .map(xmlText)
+        .filter((value) => value.length > 0),
+      identifier: xmlText(identifier) || undefined,
+      language:
+        xmlText(
+          metadata.getElementsByTagNameNS(dcNamespace, "language").item(0) ??
+            undefined,
+        ) || undefined,
+      manifest,
+      spine,
+      ncxId: spineNode.getAttribute("toc") || undefined,
+    },
+  };
+}
+
+export function checkEpubEncryption(
+  files: ReadonlyMap<string, Uint8Array>,
+  manifest: readonly ManifestItem[],
+): EpubResult<null> {
+  const bytes = files.get("META-INF/encryption.xml");
+  if (!bytes) return { ok: true, value: null };
+  const parsed = parseEpubXml(bytes, "encryption");
+  if (!parsed.ok) return parsed;
+  const encrypted = elements(parsed.value, "EncryptedData");
+  const itemsByHref = new Map(manifest.map((item) => [item.href, item]));
+  const fontAlgorithms = new Set([
+    "http://www.idpf.org/2008/embedding",
+    "http://ns.adobe.com/pdf/enc#RC",
+  ]);
+  for (const entry of encrypted) {
+    const methods = elements(entry, "EncryptionMethod");
+    const references = elements(entry, "CipherReference");
+    const method = methods[0]?.getAttribute("Algorithm") ?? "";
+    if (
+      methods.length !== 1 ||
+      references.length !== 1 ||
+      !fontAlgorithms.has(method)
+    )
+      return {
+        ok: false,
+        reason: "protected",
+        diagnostic: { code: "protected_content", stage: "encryption" },
+      };
+    const target = resolveEpubHref(
+      "",
+      references[0]?.getAttribute("URI") ?? "",
+    );
+    const item = target ? itemsByHref.get(target) : undefined;
+    if (
+      !item ||
+      !/^(?:font\/(?:otf|ttf|woff2?)|application\/(?:vnd\.ms-opentype|font-(?:sfnt|woff)|x-font-(?:ttf|opentype)))$/u.test(
+        item.mediaType,
+      )
+    )
+      return {
+        ok: false,
+        reason: "protected",
+        diagnostic: { code: "protected_content", stage: "encryption" },
+      };
+  }
+  if (!encrypted.length && elements(parsed.value, "EncryptionMethod").length)
+    return {
+      ok: false,
+      reason: "protected",
+      diagnostic: { code: "protected_content", stage: "encryption" },
+    };
+  return { ok: true, value: null };
+}

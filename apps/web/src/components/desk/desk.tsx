@@ -8,15 +8,15 @@ import { ArticleFinder } from "@/components/article-finder";
 import { BibleDiscovery, BibleTimePick } from "@/components/bible-discovery";
 import { DeskPick } from "@/components/desk/desk-pick";
 import { ContinueShortcut, DeskRest } from "@/components/desk/desk-rest";
+import { DocumentDrop } from "@/components/desk/document-drop";
 import { ImportSlot } from "@/components/desk/import-slot";
-import { PdfDrop } from "@/components/desk/pdf-drop";
 import { QueryBoundary } from "@/components/desk/query-boundary";
 import { type Fits, TimeChoices } from "@/components/desk/time-choices";
 import { parseDeskLink } from "@/lib/desk-link";
 import { useShortcuts } from "@/lib/shortcuts";
 import { arrivedFromFinish } from "@/lib/title-handoff";
 import { useAltHint } from "@/lib/use-alt-hint";
-import { usePdfImport } from "@/lib/use-pdf-import";
+import { useDocumentImport } from "@/lib/use-document-import";
 
 // A repeat of the same choice this soon is a double click, not a toggle off
 export const DOUBLE_CHOICE_MS = 400;
@@ -40,20 +40,30 @@ function TimesWithFits(props: Omit<Parameters<typeof TimeChoices>[0], "fits">) {
   return <TimeChoices {...props} fits={fits} />;
 }
 
-function Desk({ fromFinish }: { fromFinish?: boolean }) {
+export function Desk({
+  fromFinish,
+  documentImport,
+}: {
+  fromFinish?: boolean;
+  documentImport: ReturnType<typeof useDocumentImport>;
+}) {
   const bible = useQuery(api.bible.preferences, {});
   const convex = useConvex();
   const params = useSearchParams();
   const showKeys = useAltHint();
   const link = parseDeskLink(params);
-  const pdf = usePdfImport();
   // Armed by a file dropped or picked here; anything else the reader starts
   // (a time, a typed ask, a new link) disarms it, so a PDF never snatches them
   // away from what they chose since.
   const [armed, setArmed] = useState(false);
-  const startPdf = (file: File) => {
+  const importsAllowed = bible !== undefined && bible.scope !== "bible";
+  const startDocument = (file: File) => {
+    if (!importsAllowed) return;
+    const admission = documentImport.start(file);
+    if (!admission.accepted) return;
+    setChosen(null);
     setArmed(true);
-    void pdf.start(file);
+    void admission.completion;
   };
   // Done brought us here: the slot slides its next pick in (globals.css)
   const [arrival, setArrival] = useState(() =>
@@ -157,7 +167,7 @@ function Desk({ fromFinish }: { fromFinish?: boolean }) {
 
       <BibleDiscovery preferences={bible} />
       <ArticleFinder
-        onPdf={startPdf}
+        onDocument={importsAllowed ? startDocument : undefined}
         onType={() => setArmed(false)}
         showKey={showKeys}
         windowMinutes={chosen?.minutes ?? null}
@@ -165,6 +175,13 @@ function Desk({ fromFinish }: { fromFinish?: boolean }) {
         scope={bible?.enabled ? bible.scope : "articles"}
         translation={bible?.translation ?? "web"}
       />
+      {importsAllowed &&
+        documentImport.problem &&
+        (documentImport.upload || chosen) && (
+          <p role="alert" className="text-[15px] text-[var(--ink-soft)]">
+            {documentImport.problem}
+          </p>
+        )}
       <section
         aria-label="Your pick"
         className="min-h-[7rem] border-t border-[var(--reader-border)] pt-[22px]"
@@ -189,23 +206,28 @@ function Desk({ fromFinish }: { fromFinish?: boolean }) {
           <p className="text-[14px] text-[var(--ink-muted)]">
             Choose a time above for a Bible passage.
           </p>
-        ) : (
+        ) : importsAllowed ? (
           <QueryBoundary fallback={(retry) => <SlotFailure retry={retry} />}>
             <ImportSlot
               armed={armed}
-              upload={pdf.upload}
-              problem={pdf.problem}
-              onFile={startPdf}
-              onClearProblem={pdf.clearProblem}
-              onDismiss={pdf.dismiss}
+              targetImportId={documentImport.importId}
+              upload={documentImport.upload}
+              problem={documentImport.problem}
+              problemOrigin={documentImport.problemOrigin}
+              problemIdentity={documentImport.problemIdentity}
+              problemFormat={documentImport.problemFormat ?? undefined}
+              preview={documentImport.preview ?? undefined}
+              onFile={startDocument}
+              onClearProblem={documentImport.clearProblem}
+              onDismiss={documentImport.dismiss}
             >
               <DeskRest showKeys={showKeys} />
             </ImportSlot>
           </QueryBoundary>
-        )}
+        ) : null}
       </section>
 
-      {bible?.scope !== "bible" && <PdfDrop onFile={startPdf} />}
+      {importsAllowed && <DocumentDrop onFile={startDocument} />}
     </main>
   );
 }
@@ -226,10 +248,11 @@ function SlotFailure({ retry }: { retry: () => void }) {
 }
 
 export default function DeskRoute({ fromFinish }: { fromFinish?: boolean }) {
+  const documentImport = useDocumentImport();
   // useSearchParams needs a Suspense boundary for static rendering
   return (
     <Suspense fallback={null}>
-      <Desk fromFinish={fromFinish} />
+      <Desk fromFinish={fromFinish} documentImport={documentImport} />
     </Suspense>
   );
 }

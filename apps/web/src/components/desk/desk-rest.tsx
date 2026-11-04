@@ -6,6 +6,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
+import { BookPosition } from "@/components/book-position";
 import { useShortcuts } from "@/lib/shortcuts";
 
 const LABEL =
@@ -105,13 +106,7 @@ export function DeskRest({ showKeys }: { showKeys: boolean }) {
             <span className="block font-serif text-[24px] lg:text-[30px] leading-tight">
               {inProgress.article.title}
             </span>
-            {/* A book continues in a part, so name it */}
-            {inProgress.part && (
-              <span className="mt-1 block text-[13.5px] text-[var(--ink-muted)]">
-                Part {inProgress.part.number} of {inProgress.part.count} ·{" "}
-                {inProgress.part.title}
-              </span>
-            )}
+            {inProgress.part && <BookPosition {...inProgress.part} />}
           </span>
           <span className="shrink-0 text-[13.5px] text-[var(--ink-muted)]">
             {left ? `${left} min left` : `${inProgress.scrollPercent}% read`}

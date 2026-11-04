@@ -1,23 +1,9 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BookPosition } from "./book-position";
 import { BookUnitNav } from "./book-unit-nav";
-
-vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: {
-    href: string;
-    children: React.ReactNode;
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}));
 
 let root: Root;
 beforeEach(() => {
@@ -33,14 +19,20 @@ const outline = [
   { title: "Why systems surprise us", minutes: 9 },
   { title: "Leverage", minutes: 7 },
 ];
-const render = (unitIndex: number, summaries?: (string | null)[]) =>
+const render = (
+  unitIndex: number,
+  summaries?: (string | null)[],
+  epub = false,
+  units = outline,
+) =>
   act(() =>
     root.render(
       <BookUnitNav
         articleId="b1"
         unitIndex={unitIndex}
-        outline={outline}
+        outline={units}
         summaries={summaries}
+        epub={epub}
       />,
     ),
   );
@@ -89,5 +81,66 @@ describe("the list of parts", () => {
     expect(document.querySelector("ol li")?.textContent).toBe(
       "1. The zoo6 min",
     );
+  });
+});
+
+describe("EPUB chapter navigation", () => {
+  it("names the EPUB chapter on the Continue card while keeping PDF part counts", () => {
+    act(() =>
+      root.render(
+        <BookPosition
+          title="Learning to Notice"
+          number={37}
+          count={81}
+          format="epub"
+        />,
+      ),
+    );
+    expect(document.body.textContent).toBe("Learning to Notice");
+    act(() =>
+      root.render(
+        <BookPosition
+          title="Learning to Notice"
+          number={37}
+          count={81}
+          format="pdf"
+        />,
+      ),
+    );
+    expect(document.body.textContent).toBe(
+      "Part 37 of 81 · Learning to Notice",
+    );
+  });
+  it("shows chapter titles and Contents without counting reading chunks as chapters", () => {
+    render(1, undefined, true);
+    expect(document.querySelector("nav")?.getAttribute("aria-label")).toBe(
+      "Contents",
+    );
+    expect(document.body.textContent).not.toContain("Part 2 of 3");
+    expect(document.querySelector("nav > p")?.textContent).toBe(
+      "Why systems surprise us",
+    );
+    expect(link("Next chapter")?.getAttribute("href")).toBe("/read/b1?unit=2");
+    expect(link("Previous chapter")?.getAttribute("href")).toBe(
+      "/read/b1?unit=0",
+    );
+    expect(document.querySelector("summary")?.textContent).toBe("Contents");
+    expect(document.querySelector("ol li")?.textContent).toBe("The zoo6 min");
+  });
+
+  it("keeps split chunks in the same chapter without calling them new chapters", () => {
+    const split = [outline[0], outline[0], outline[1]];
+    render(0, undefined, true, split);
+    expect(link("Continue chapter")?.getAttribute("href")).toBe(
+      "/read/b1?unit=1",
+    );
+    expect(document.querySelectorAll("ol li")[1].textContent).toContain(
+      "The zoo (continued)",
+    );
+    render(1, undefined, true, split);
+    expect(link("Earlier in chapter")?.getAttribute("href")).toBe(
+      "/read/b1?unit=0",
+    );
+    expect(link("Next chapter")?.getAttribute("href")).toBe("/read/b1?unit=2");
   });
 });

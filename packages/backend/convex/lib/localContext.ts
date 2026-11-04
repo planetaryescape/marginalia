@@ -23,12 +23,17 @@ export function crossInto(rest: string, paragraph: string, next: string) {
 /** Raw offsets for matches, using the reader's case/whitespace matching rules. */
 function occurrencePositions(text: string, needle: string): number[] {
   let squashed = "";
+  let previousWasSpace = false;
   const rawOf: number[] = [];
   for (let i = 0; i < text.length; i++) {
     if (/\s/.test(text[i])) {
-      if (!squashed || squashed.endsWith(" ")) continue;
+      if (!squashed || previousWasSpace) continue;
       squashed += " ";
-    } else squashed += text[i];
+      previousWasSpace = true;
+    } else {
+      squashed += text[i];
+      previousWasSpace = false;
+    }
     rawOf.push(i);
   }
   const lowered = squashed.toLowerCase();

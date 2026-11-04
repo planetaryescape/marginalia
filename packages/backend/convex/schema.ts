@@ -10,6 +10,7 @@ import { feedStatusTables } from "./lib/feedStatus";
 import { fingerprintTables } from "./lib/fingerprintSchema";
 import { fullSummaryState } from "./lib/fullSummaries";
 import { highlightIdentityTables } from "./lib/highlightIdentitySchema";
+import { importDiagnostic } from "./lib/importDiagnostics";
 import { legacyReportingTables } from "./lib/legacyReportingSchema";
 import { manualAnnotationState } from "./lib/manualAnnotations";
 import { marginaliaFingerprint } from "./lib/marginaliaFingerprint";
@@ -579,6 +580,7 @@ export default defineSchema({
     index: v.number(),
     title: v.string(),
     minutes: v.number(),
+    format: v.optional(v.union(v.literal("pdf"), v.literal("epub"))),
   })
     .index("by_unitId", ["unitId"])
     .index("by_userId_and_articleId_and_index", [
@@ -668,9 +670,10 @@ export default defineSchema({
     ])
     .index("by_userId", ["userId"]),
 
-  // A PDF on its way in: the desk shows its steps, and a failure keeps its
-  // reason here so nothing else is left half-imported (documentImports.ts).
+  // A PDF or EPUB on its way in; absent format means PDF. The desk shows its
+  // steps, and a failure keeps its reason here (documentImports.ts).
   documentImports: defineTable({
+    format: v.optional(v.union(v.literal("pdf"), v.literal("epub"))),
     processingStartedAt: v.optional(v.number()),
     userId: v.string(),
     storageId: v.id("_storage"),
@@ -688,11 +691,15 @@ export default defineSchema({
     // timeout removes it, since the action that made it can no longer
     partialArticleId: v.optional(v.id("articles")),
     title: v.optional(v.string()),
+    author: v.optional(v.string()),
+    diagnostic: v.optional(importDiagnostic),
     firstUnitTitle: v.optional(v.string()),
     firstUnitMinutes: v.optional(v.number()),
     failure: v.optional(
       v.union(
         v.literal("scanned"),
+        v.literal("protected"),
+        v.literal("not_epub"),
         v.literal("too_long"),
         v.literal("unreadable"),
         v.literal("empty"),
@@ -764,6 +771,15 @@ export default defineSchema({
   ]),
 
   bookUnits: defineTable({
+    sourceSpans: v.optional(
+      v.array(
+        v.object({
+          spineIndex: v.number(),
+          start: v.number(),
+          end: v.number(),
+        }),
+      ),
+    ),
     userId: v.string(),
     articleId: v.id("articles"),
     index: v.number(),
@@ -789,6 +805,15 @@ export default defineSchema({
     "articleId",
     "index",
   ]),
+
+  bookImages: defineTable({
+    userId: v.string(),
+    articleId: v.id("articles"),
+    storageId: v.id("_storage"),
+    href: v.string(),
+  })
+    .index("by_userId_and_articleId", ["userId", "articleId"])
+    .index("by_storageId", ["storageId"]),
 
   // Where a book's indexing has got (bookIndex.ts): summaries and passages
   // share a paced queue; the book's one point waits for settled summaries.

@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { libraryIsActive, ownedArticle } from "./access";
+import { DISCARD_IMAGES_BATCH_SIZE, discardImages } from "./bookImages";
 import { unitSummaries } from "./bookIndex";
 import { liveImport, markImportReady } from "./documentImports";
 import {
@@ -18,6 +19,7 @@ import { readerProviders } from "./lib/readerAI";
 import { queueLibraryIndex } from "./libraryIndex";
 import { spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
+import schema from "./schema";
 
 // Annotation follows the reading: the unit being read, and the next one once
 // the reader is well into this one (D-DES-055)
@@ -30,6 +32,7 @@ const outlineEntry = v.object({
 });
 
 const unitFields = {
+  sourceSpans: schema.tables.bookUnits.validator.fields.sourceSpans,
   index: v.number(),
   title: v.string(),
   chapter: v.optional(v.string()),
@@ -348,7 +351,7 @@ export const createBookArticle = internalMutation({
     author: v.optional(v.string()),
     excerpt: v.string(),
     fileName: v.string(),
-    pageCount: v.number(),
+    pageCount: v.optional(v.number()),
     wordCount: v.number(),
     estimatedReadMinutes: v.number(),
     outline: v.array(outlineEntry),
@@ -413,7 +416,7 @@ export const finishBook = internalMutation({
     embedding: v.optional(v.array(v.float64())),
     // What the import row shows once it is ready
     title: v.string(),
-    pages: v.number(),
+    pages: v.optional(v.number()),
     units: v.number(),
     firstUnitTitle: v.string(),
     firstUnitMinutes: v.number(),
@@ -480,6 +483,11 @@ export const discardBook = internalMutation({
     // A stale import action must never clean up a book already published by
     // another delivery of that import. Optional indexing is not import work.
     if (article?.extractionStatus === "extracted") return;
+    const imageCount = await discardImages(ctx, args.userId, args.articleId);
+    if (imageCount === DISCARD_IMAGES_BATCH_SIZE) {
+      await ctx.scheduler.runAfter(0, internal.books.discardBook, args);
+      return;
+    }
     if (article) {
       const units = await ctx.db
         .query("bookUnits")

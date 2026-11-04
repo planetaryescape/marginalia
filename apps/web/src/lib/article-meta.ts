@@ -1,4 +1,5 @@
 import { formatReadTime } from "@/lib/utils";
+import { documentFormat } from "./document-import";
 
 /**
  * The reader's one meta line under the title: where it came from, then how
@@ -8,9 +9,11 @@ import { formatReadTime } from "@/lib/utils";
 export function readerMeta(input: {
   url: string;
   uploaded: boolean;
+  uploadedFileName?: string;
+  format?: "pdf" | "epub";
   author?: string;
   minutes?: number;
-  part?: { index: number; of: number };
+  part?: { index: number; of: number; title?: string };
 }): string {
   let host = "";
   try {
@@ -18,9 +21,18 @@ export function readerMeta(input: {
   } catch {
     // An uploaded file's address is not a URL
   }
-  const source = host || (input.uploaded ? "PDF" : (input.author ?? ""));
+  const format =
+    input.format ??
+    documentFormat({ name: input.uploadedFileName ?? "", type: "" }) ??
+    (input.part ? null : "pdf");
+  const upload = format?.toUpperCase() ?? "Upload";
+  const source = host || (input.uploaded ? upload : (input.author ?? ""));
   return [
-    input.part ? `Part ${input.part.index + 1} of ${input.part.of}` : "",
+    input.part
+      ? format === "epub" && input.uploaded
+        ? input.part.title?.trim() || "Chapter"
+        : `Part ${input.part.index + 1} of ${input.part.of}`
+      : "",
     source,
     input.minutes ? formatReadTime(input.minutes) : "",
   ]

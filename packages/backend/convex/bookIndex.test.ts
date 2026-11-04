@@ -1000,10 +1000,20 @@ describe("indexing a whole book", () => {
       ctx.db.query("bookPassages").take(500),
     );
     expect(passages.length).toBeGreaterThanOrEqual(7);
+    expect(new Set(passages.map((passage) => passage.unitIndex))).toEqual(
+      new Set([0, 1, 2, 3, 4, 5, 6]),
+    );
     expect(new Set(passages.map((p) => p.articleId))).toEqual(
       new Set([articleId]),
     );
-    expect(passages[0].heading).toBe("Systems Thinking › Unit 1");
+    const ordered = [...passages].sort(
+      (a, b) => a.unitIndex - b.unitIndex || a.passageIndex - b.passageIndex,
+    );
+    expect(ordered[0].heading).toBe("Systems Thinking › Unit 1");
+    for (const passage of passages)
+      expect(passage.heading).toBe(
+        `Systems Thinking › Unit ${passage.unitIndex + 1}`,
+      );
     expect(await state(f, articleId)).toMatchObject({
       phase: "done",
       running: false,

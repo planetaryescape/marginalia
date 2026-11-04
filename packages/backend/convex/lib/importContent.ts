@@ -1,7 +1,7 @@
 import type { Doc } from "../_generated/dataModel";
 import { WORDS_PER_MINUTE } from "./constants";
 
-const MAX_STORED_BYTES = 900_000;
+export const MAX_STORED_BYTES = 900_000;
 
 /** Remove non-reading payloads before either storage or optional provider work. */
 export function slimHtml(html: string): string {
