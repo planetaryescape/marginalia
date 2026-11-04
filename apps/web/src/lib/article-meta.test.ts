@@ -35,4 +35,21 @@ describe("readerMeta", () => {
       }),
     ).toBe("Part 2 of 9 · a.org · 6 min read");
   });
+
+  it.each([
+    ["book.epub", "EPUB"],
+    ["Book.EPUB", "EPUB"],
+    ["book.pdf", "PDF"],
+    ["book.bin", "Upload"],
+  ])("labels the saved upload %s as %s", (uploadedFileName, label) => {
+    expect(
+      readerMeta({
+        url: "upload:import-id",
+        uploaded: true,
+        uploadedFileName,
+        minutes: 2,
+        part: { index: 0, of: 81 },
+      }),
+    ).toBe(`Part 1 of 81 · ${label} · 2 min read`);
+  });
 });

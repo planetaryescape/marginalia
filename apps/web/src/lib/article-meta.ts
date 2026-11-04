@@ -8,6 +8,7 @@ import { formatReadTime } from "@/lib/utils";
 export function readerMeta(input: {
   url: string;
   uploaded: boolean;
+  uploadedFileName?: string;
   author?: string;
   minutes?: number;
   part?: { index: number; of: number };
@@ -18,7 +19,12 @@ export function readerMeta(input: {
   } catch {
     // An uploaded file's address is not a URL
   }
-  const source = host || (input.uploaded ? "PDF" : (input.author ?? ""));
+  const upload = /\.epub$/i.test(input.uploadedFileName ?? "")
+    ? "EPUB"
+    : !input.uploadedFileName || /\.pdf$/i.test(input.uploadedFileName)
+      ? "PDF"
+      : "Upload";
+  const source = host || (input.uploaded ? upload : (input.author ?? ""));
   return [
     input.part ? `Part ${input.part.index + 1} of ${input.part.of}` : "",
     source,

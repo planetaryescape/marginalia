@@ -1381,6 +1381,7 @@ export default function ReadPage() {
             ? readerMeta({
                 url: sourceArticle.url,
                 uploaded: Boolean(sourceArticle.uploadedFileName),
+                uploadedFileName: sourceArticle.uploadedFileName,
                 author: sourceArticle.author,
                 minutes: sourceArticle.estimatedReadMinutes,
               })
@@ -1780,6 +1781,7 @@ export default function ReadPage() {
                 {readerMeta({
                   url: article.url,
                   uploaded: Boolean(article.uploadedFileName),
+                  uploadedFileName: article.uploadedFileName,
                   author: article.author,
                   minutes: article.estimatedReadMinutes,
                   part:
