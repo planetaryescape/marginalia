@@ -161,9 +161,15 @@ describe("an imported PDF that becomes readable", () => {
     expect(document.querySelector("h2")?.textContent).toBe("Previous Book");
   });
   it("does not blame the book for an unexpected internal failure", () => {
+    const identity = {
+      title: `Book ${crypto.randomUUID()}`,
+      author: `Author ${crypto.randomUUID()}`,
+      fileName: `${crypto.randomUUID()}.epub`,
+    };
     view(
       {
         ...failed,
+        ...identity,
         format: "epub",
         failure: "unreadable",
         diagnostic: {
@@ -174,6 +180,15 @@ describe("an imported PDF that becomes readable", () => {
       },
       false,
     );
+    expect(document.querySelector('[role="alert"] > p')?.textContent).toBe(
+      "Couldn't complete this import",
+    );
+    expect(document.querySelector("h2")).toBeNull();
+    for (const value of Object.values(identity)) {
+      expect(document.body.textContent).not.toContain(value);
+    }
+    expect(document.querySelector("[title]")).toBeNull();
+    expect(document.body.textContent).not.toContain("Couldn't read this");
     expect(document.querySelector('[role="alert"]')?.textContent).toContain(
       "Marginalia hit an internal error while importing this book.",
     );
@@ -258,6 +273,7 @@ describe("an imported PDF that becomes readable", () => {
         format: "epub",
         title: "The Real Book Title",
         author: "The Author",
+        fileName: "verified-book.epub",
         failure: "too_long",
         diagnostic: {
           code: "block_words",
@@ -274,6 +290,15 @@ describe("an imported PDF that becomes readable", () => {
       "The Real Book Title",
     );
     expect(document.body.textContent).toContain("The Author");
+    expect(document.querySelector('[role="alert"] > p')?.textContent).toBe(
+      "Couldn't read this EPUB",
+    );
+    expect(
+      document.querySelector('[title="verified-book.epub"]')?.textContent,
+    ).toBe("verified-book.epub");
+    expect(document.body.textContent).toContain(
+      "A single text block has 14,208 words; the supported limit is 4,000.",
+    );
     expect(document.body.textContent).toContain("14,208 words");
     expect(document.body.textContent).toContain("4,000");
     expect(document.body.textContent).toContain(
@@ -455,10 +480,24 @@ describe("an imported PDF that becomes readable", () => {
     "too_long",
     "too_slow",
   ] as const)("shows the EPUB %s refusal without opening the reader", (failure) => {
-    view({ ...failed, format: "epub", fileName: "book.epub", failure }, true);
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+    const identity = {
+      title: `Book ${crypto.randomUUID()}`,
+      author: `Author ${crypto.randomUUID()}`,
+      fileName: `${crypto.randomUUID()}.epub`,
+    };
+    view({ ...failed, ...identity, format: "epub", failure }, true);
+    expect(document.querySelector('[role="alert"] > p')?.textContent).toBe(
       "Couldn't read this EPUB",
     );
+    expect(document.querySelector("h2")?.textContent).toBe(identity.title);
+    expect(document.querySelector("[title]")?.textContent).toBe(
+      identity.fileName,
+    );
+    expect(
+      [...document.querySelectorAll("p")].some(
+        (node) => node.textContent === identity.author,
+      ),
+    ).toBe(true);
     expect(document.body.textContent).toContain(
       "Nothing was added to your library.",
     );

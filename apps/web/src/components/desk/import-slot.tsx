@@ -133,11 +133,13 @@ export function ImportView({
 
   if (latest.status === "failed") {
     const copy = importFailureCopy(latest.failure ?? "unreadable", format);
+    const internalFailure = latest.diagnostic?.code === "unexpected_failure";
     return (
       <ImportRefusal
+        heading={internalFailure ? "Couldn't complete this import" : undefined}
         sentence={copy.sentence}
         detail={copy.detail}
-        identity={identity}
+        identity={internalFailure ? undefined : identity}
         diagnostic={latest.diagnostic}
         reference={latest._id}
         onFile={onFile}
