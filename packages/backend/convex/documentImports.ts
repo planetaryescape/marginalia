@@ -425,6 +425,14 @@ export const expire = internalMutation({
       updatedAt: Date.now(),
     });
     await deleteFile(ctx, row.storageId);
+    if (row.format === "epub")
+      console.warn(
+        JSON.stringify({
+          event: "epub_import_failed",
+          importId: row._id,
+          failure: "too_slow",
+        }),
+      );
   },
 });
 
