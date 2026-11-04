@@ -29,7 +29,7 @@ bun run --cwd apps/web dev
 
 On first run, Portless may ask for administrator approval to trust its local HTTPS certificate and bind port 443. Approve these prompts on your development machine. If certificate trust was skipped, run `bun run --cwd apps/web portless trust`.
 
-Open **https://marginalia.localhost**. Set `SITE_URL=https://marginalia.localhost` on your isolated Convex deployment so sign-in trusts the Portless origin. The existing numbered localhost origins remain supported; the Portless-assigned backend port is not the browser origin. Add an RSS feed in **Sources**, or paste an article URL into the desk's search. For AI annotations and search, set `PROVIDER_KEYS_ENCRYPTION_KEY` on your Convex deployment and add your own provider key in Your account; see [setup](docs/development.md#enable-ai). Ordinary library data lives in Convex, not in the web process.
+Open **https://marginalia.localhost**. Set `SITE_URL=https://marginalia.localhost` on your isolated Convex deployment so sign-in trusts the Portless origin. The existing numbered localhost origins remain supported; the Portless-assigned loopback port of the web dev server is not the browser origin. Add an RSS feed in **Sources**, or paste an article URL into the desk's search. For AI annotations and search, set `PROVIDER_KEYS_ENCRYPTION_KEY` on your Convex deployment and add your own provider key in Your account; see [setup](docs/development.md#enable-ai). Ordinary library data lives in Convex, not in the web process.
 
 ## Check a change
 

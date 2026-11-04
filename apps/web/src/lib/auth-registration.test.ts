@@ -35,6 +35,9 @@ describe("registration feedback", () => {
   });
 
   it("keeps invitation and owner recovery instructions distinct", () => {
+    expect(registrationFailure({ status: 403 }, "invite").message).not.toBe(
+      registrationFailure({ status: 403 }, "owner").message,
+    );
     expect(registrationFailure({ status: 403 }, "invite").message).toContain(
       "invited email",
     );

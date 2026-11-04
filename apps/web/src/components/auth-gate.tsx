@@ -433,7 +433,9 @@ function SignIn({
       }
     } catch {
       setError(
-        "Couldn't reach the sign-in service. Check your connection and try again.",
+        signingUp
+          ? "Couldn't reach the registration service. Check your connection and try again."
+          : "Couldn't reach the sign-in service. Check your connection and try again.",
       );
     } finally {
       setBusy(false);

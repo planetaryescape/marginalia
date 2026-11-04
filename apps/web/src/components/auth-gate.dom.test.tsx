@@ -197,6 +197,34 @@ describe("one-time tokens in the URL", () => {
 });
 
 describe("sign-in focus transitions", () => {
+  it.each([
+    "setup",
+    "invite",
+    null,
+  ])("names the right service after a %s network failure", async (kind) => {
+    if (kind) history.replaceState(null, "", `/#${kind}=fixture-token`);
+    await act(async () => root.render(<AuthGate>desk</AuthGate>));
+    if (!kind) await activate("Use email and password");
+    const password = document.querySelector<HTMLInputElement>(
+      'input[name="password"]',
+    );
+    const form = document.querySelector("form");
+    if (!password || !form) throw new Error("Authentication form missing");
+    password.value = "a longer fixture password";
+    (kind ? signUp : signIn).mockRejectedValueOnce(
+      new Error("private transport detail"),
+    );
+    await act(async () =>
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      `Couldn't reach the ${kind ? "registration" : "sign-in"} service. Check your connection and try again.`,
+    );
+    expect(document.body.textContent).not.toContain("private transport detail");
+  });
+
   it("explains the password minimum and toggles visibility without losing the password", async () => {
     history.replaceState(null, "", "/#setup=fixture-token");
     await act(async () => root.render(<AuthGate>desk</AuthGate>));
@@ -265,7 +293,7 @@ describe("sign-in focus transitions", () => {
         (paragraph) => paragraph.textContent === "Use at least 12 characters.",
       ),
     ).toHaveLength(1);
-    expect(password.getAttribute("aria-describedby")).toContain(error?.id);
+    expect(password.getAttribute("aria-describedby")).toBe(error?.id);
     for (const id of password.getAttribute("aria-describedby")?.split(" ") ??
       [])
       expect(document.getElementById(id)).not.toBeNull();
