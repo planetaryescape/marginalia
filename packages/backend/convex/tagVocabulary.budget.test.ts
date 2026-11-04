@@ -117,32 +117,33 @@ async function fixture(
         })
       ).done;
     if (construction === "migrate") expect(done).toBe(true);
-    // Physical stress fixture, not the production activation endpoint: validate
-    // all 540 sources one bounded transaction at a time under the same 1MB cap.
-    // No concurrent writers run during fixture construction. Production's two
-    // retained small libraries use verifyAndActivateTagAliases in ONE snapshot.
     const sources = await t.run((ctx) =>
       ctx.db.query("tagAliasSources").collect(),
     );
     expect(sources).toHaveLength(540);
-    for (const source of sources)
+    for (let start = 0; start < sources.length; start += 20)
       await t.run(async (ctx) => {
-        const tag = await ctx.db.get(source.tagId);
-        if (!tag) throw new Error("Missing canonical fixture tag");
-        const rows = await ctx.db
-          .query("tagAliases")
-          .withIndex("by_tagId", (q) => q.eq("tagId", tag._id))
-          .collect();
-        const index = names.indexOf(tag.key);
-        expect(rows.map((r) => r.alias)).toEqual(
-          index < 0 ? [] : [`known${index}`],
-        );
-        for (const row of rows)
-          expect(row).toMatchObject({
-            key: tag.key,
-            userId: tag.userId,
-            sourceCreationTime: tag._creationTime,
-          });
+        for (const source of sources.slice(start, start + 20)) {
+          const tag = await ctx.db.get(source.tagId);
+          if (!tag) throw new Error("Missing canonical fixture tag");
+          const rows = await ctx.db
+            .query("tagAliases")
+            .withIndex("by_tagId", (q) => q.eq("tagId", tag._id))
+            .collect();
+          const index = names.indexOf(tag.key);
+          expect(rows.map((r) => r.alias)).toEqual(
+            index < 0 ? [] : [`known${index}`],
+          );
+          for (const row of rows)
+            expect(row).toMatchObject({
+              key: tag.key,
+              userId: tag.userId,
+              sourceCreationTime: tag._creationTime,
+            });
+        }
+        expect(
+          (await ctx.meta.getTransactionMetrics()).bytesRead.used,
+        ).toBeLessThan(1_000_000);
       });
     if (!maxReadBytes) {
       await t.run(async (ctx) => {

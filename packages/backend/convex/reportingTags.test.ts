@@ -2,6 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import { addReader } from "../test/owner";
+import { seedBudgetVocabulary } from "../test/tag-budget-fixture";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import authSchema from "./betterAuth/schema";
@@ -46,12 +47,15 @@ async function fixture(large = false) {
           }),
         );
     });
-  for (let page = 0; page < 310; page++) {
-    if (
-      (await client.mutation(internal.tags.migrateVocabulary, { userId })).done
-    )
-      break;
-  }
+  if (large) await seedBudgetVocabulary(t, userId, tagIds, false);
+  else
+    for (let page = 0; page < 310; page++) {
+      if (
+        (await client.mutation(internal.tags.migrateVocabulary, { userId }))
+          .done
+      )
+        break;
+    }
   const articles: Id<"articles">[] = [];
   await t.run(async (ctx) => {
     for (let i = 0; i < (large ? 100 : 5); i++) {
