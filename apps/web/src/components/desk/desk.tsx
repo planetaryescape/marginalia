@@ -56,7 +56,9 @@ export function Desk({
   // (a time, a typed ask, a new link) disarms it, so a PDF never snatches them
   // away from what they chose since.
   const [armed, setArmed] = useState(false);
+  const importsAllowed = bible !== undefined && bible.scope !== "bible";
   const startDocument = (file: File) => {
+    if (!importsAllowed) return;
     const admission = documentImport.start(file);
     if (!admission.accepted) return;
     setChosen(null);
@@ -165,7 +167,7 @@ export function Desk({
 
       <BibleDiscovery preferences={bible} />
       <ArticleFinder
-        onDocument={bible?.scope !== "bible" ? startDocument : undefined}
+        onDocument={importsAllowed ? startDocument : undefined}
         onType={() => setArmed(false)}
         showKey={showKeys}
         windowMinutes={chosen?.minutes ?? null}
@@ -173,7 +175,7 @@ export function Desk({
         scope={bible?.enabled ? bible.scope : "articles"}
         translation={bible?.translation ?? "web"}
       />
-      {bible?.scope !== "bible" &&
+      {importsAllowed &&
         documentImport.problem &&
         (documentImport.upload || chosen) && (
           <p role="alert" className="text-[15px] text-[var(--ink-soft)]">
@@ -204,14 +206,17 @@ export function Desk({
           <p className="text-[14px] text-[var(--ink-muted)]">
             Choose a time above for a Bible passage.
           </p>
-        ) : (
+        ) : importsAllowed ? (
           <QueryBoundary fallback={(retry) => <SlotFailure retry={retry} />}>
             <ImportSlot
               armed={armed}
               targetImportId={documentImport.importId}
               upload={documentImport.upload}
               problem={documentImport.problem}
+              problemOrigin={documentImport.problemOrigin}
+              problemIdentity={documentImport.problemIdentity}
               problemFormat={documentImport.problemFormat ?? undefined}
+              preview={documentImport.preview ?? undefined}
               onFile={startDocument}
               onClearProblem={documentImport.clearProblem}
               onDismiss={documentImport.dismiss}
@@ -219,10 +224,10 @@ export function Desk({
               <DeskRest showKeys={showKeys} />
             </ImportSlot>
           </QueryBoundary>
-        )}
+        ) : null}
       </section>
 
-      {bible?.scope !== "bible" && <DocumentDrop onFile={startDocument} />}
+      {importsAllowed && <DocumentDrop onFile={startDocument} />}
     </main>
   );
 }

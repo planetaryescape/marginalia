@@ -80,7 +80,10 @@ it("rejects overlapping selections synchronously without replacing the active im
     });
   });
   expect(state().upload?.fileName).toBe("first.pdf");
-  expect(state().problemFormat).toBe("pdf");
+  expect(state().preview?.format).toBe("pdf");
+  expect(state().problemOrigin).toBe("busy");
+  expect(state().problemIdentity).toBeUndefined();
+  expect(state().problemFormat).toBeNull();
   expect(document.body.textContent).toContain(
     "Another file is still uploading.",
   );
@@ -93,6 +96,8 @@ it("rejects overlapping selections synchronously without replacing the active im
   expect(state().upload).toBeNull();
   if (!importId.ok) throw new Error("Expected fixture ID");
   expect(state().importId).toBe(importId.importId);
+  expect(state().preview?.fileName).toBe("first.pdf");
+  expect(state().problem).toBeNull();
   await act(async () => {
     const admission = state().start(new File(["next"], "next.pdf"));
     expect(admission.accepted).toBe(true);
@@ -106,7 +111,7 @@ it("retains the EPUB format for local refusal and admits a later retry", async (
   act(() => root.render(<Probe />));
   await act(async () => {
     const admission = state().start(new File([], "empty.epub"));
-    expect(admission.accepted).toBe(true);
+    expect(admission.accepted).toBe(false);
     if (admission.accepted) await admission.completion;
   });
   expect(state().problem).toBe("That file is empty.");
@@ -118,6 +123,51 @@ it("retains the EPUB format for local refusal and admits a later retry", async (
   });
   expect(files).toEqual(["retry.pdf"]);
   expect(state().problem).toBeNull();
+});
+
+it("keeps the completed upload preview separate from a later dismiss failure", async () => {
+  operations.dismiss = async () => {
+    throw new Error("offline");
+  };
+  act(() => root.render(<Probe />));
+  await act(async () => {
+    const admission = state().start(new File(["fixture"], "previous.pdf"));
+    if (!admission.accepted) throw new Error("Expected admitted fixture");
+    await admission.completion;
+  });
+  if (!importId.ok) throw new Error("Expected fixture ID");
+  const id = importId.importId;
+  await act(async () => {
+    await state().dismiss(id);
+  });
+  expect(state().problemOrigin).toBe("dismiss");
+  expect(state().problemFormat).toBeNull();
+  expect(state().preview?.fileName).toBe("previous.pdf");
+  expect(state().problemIdentity).toBeUndefined();
+  act(() => state().clearProblem());
+  expect(state().preview?.fileName).toBe("previous.pdf");
+  expect(state().importId).toBe(id);
+  act(() => {
+    expect(state().start(new File([], "empty.epub")).accepted).toBe(false);
+  });
+  expect(state().preview?.fileName).toBe("previous.pdf");
+  expect(state().problemIdentity).toBeUndefined();
+  expect(state().problemFormat).toBe("epub");
+});
+
+it("associates an upload failure only with that upload's identity", async () => {
+  operations.upload = async () => {
+    throw new Error("offline");
+  };
+  act(() => root.render(<Probe />));
+  await act(async () => {
+    const admission = state().start(new File(["fixture"], "failed.pdf"));
+    if (!admission.accepted) throw new Error("Expected admitted fixture");
+    await admission.completion;
+  });
+  expect(state().problemOrigin).toBe("file");
+  expect(state().problemIdentity?.fileName).toBe("failed.pdf");
+  expect(state().problemFormat).toBe("pdf");
 });
 
 it.each([
@@ -148,6 +198,8 @@ it.each([
     await state().dismiss(id);
   });
   expect(state().problem).toBe(sentence);
+  expect(state().problemOrigin).toBe("dismiss");
+  expect(state().problemFormat).toBeNull();
   expect(document.querySelector('[role="alert"]')?.textContent).toBe(sentence);
   expect(document.body.textContent).not.toContain("synthetic private");
   act(() => state().clearProblem());

@@ -54,10 +54,10 @@ function TestDesk() {
   return <Desk documentImport={active} fromFinish={false} />;
 }
 
-function drop(name: string) {
+function drop(name: string, contents = "generated fixture") {
   const event = new Event("drop", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "dataTransfer", {
-    value: { files: [new File(["generated fixture"], name)], types: ["Files"] },
+    value: { files: [new File([contents], name)], types: ["Files"] },
   });
   act(() => document.dispatchEvent(event));
 }
@@ -155,6 +155,7 @@ beforeEach(async () => {
       </ConvexProvider>,
     ),
   );
+  preferences("articles");
 });
 
 afterEach(async () => {
@@ -187,6 +188,80 @@ function publishReady() {
   });
 }
 
+function preferences(scope: "articles" | "bible" | undefined) {
+  act(() => {
+    void client.mutation(
+      api.bible.setPreferences,
+      {},
+      {
+        optimisticUpdate: (store) =>
+          store.setQuery(
+            api.bible.preferences,
+            {},
+            scope === undefined
+              ? undefined
+              : { enabled: scope === "bible", scope, translation: "web" },
+          ),
+      },
+    );
+  });
+}
+
+it("preserves the chosen time and does not arm auto-open for a locally invalid file", async () => {
+  act(() => timeButton().click());
+  drop("empty.epub", "");
+  expect(timeButton().getAttribute("aria-pressed")).toBe("true");
+  expect(active?.problem).toBe("That file is empty.");
+  expect(files).toEqual([]);
+  publishReady();
+  act(() =>
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    ),
+  );
+  act(() => active?.clearProblem());
+  expect(document.body.textContent).toContain("Ready to read");
+  expect(navigations).toEqual([]);
+});
+
+it.each([
+  undefined,
+  "bible",
+] as const)("blocks document drop and pickers while preferences are %s", (scope) => {
+  preferences(scope);
+  act(() =>
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "/", bubbles: true }),
+    ),
+  );
+  drop("blocked.pdf");
+  expect(active?.upload).toBeNull();
+  expect(document.querySelector('input[type="file"]')).toBeNull();
+  expect(document.body.textContent).not.toContain("choose a PDF or EPUB");
+  expect(files).toEqual([]);
+});
+
+it("enables the typed-search document picker once article preferences resolve", async () => {
+  preferences(undefined);
+  act(() =>
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "/", bubbles: true }),
+    ),
+  );
+  expect(document.body.textContent).not.toContain("choose a PDF or EPUB");
+  preferences("articles");
+  expect(document.body.textContent).toContain("choose a PDF or EPUB");
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input) throw new Error("Missing document picker");
+  Object.defineProperty(input, "files", {
+    value: [new File(["fixture"], "picked.pdf")],
+  });
+  act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
+  expect(active?.upload?.fileName).toBe("picked.pdf");
+  await finish();
+  expect(files).toEqual(["picked.pdf"]);
+});
+
 it("keeps the chosen time and leaves auto-open disarmed when a busy drop is rejected", async () => {
   act(() => timeButton().click());
   expect(timeButton().getAttribute("aria-pressed")).toBe("true");
@@ -213,8 +288,8 @@ it("keeps the chosen time and leaves auto-open disarmed when a busy drop is reje
   );
   await finish();
   expect(files).toEqual(["first.pdf"]);
+  expect(active?.problem).toBeNull();
   act(() => {
-    active?.clearProblem();
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
     );
@@ -245,5 +320,7 @@ it("shows actionable, privacy-safe feedback when dismissing the ready card fails
   );
   expect(document.body.textContent).not.toContain("synthetic private");
   expect(document.querySelector("details")).toBeNull();
+  expect(document.body.textContent).toContain("Couldn't dismiss this import");
+  expect(document.body.textContent).not.toContain("Couldn't read this");
   expect(navigations).toEqual([]);
 });
