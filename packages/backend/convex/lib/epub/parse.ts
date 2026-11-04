@@ -104,6 +104,7 @@ export function parseEpub(
                 stage: "spine",
                 observed: readingItems.length + 1,
                 limit: EPUB_LIMITS.spineItems,
+                spineIndex: index,
               },
             };
           readingItems.push(target);

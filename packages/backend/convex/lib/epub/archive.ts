@@ -127,9 +127,9 @@ function checkEntries(
     total += bytes.byteLength;
     count++;
     oversized ??= entryLimitDiagnostic(bytes.byteLength, total, count);
+    if (oversized)
+      return { ok: false, reason: "too_long", diagnostic: oversized };
   }
-  if (oversized)
-    return { ok: false, reason: "too_long", diagnostic: oversized };
   if (
     invalid ||
     !entries.has("META-INF/container.xml") ||
