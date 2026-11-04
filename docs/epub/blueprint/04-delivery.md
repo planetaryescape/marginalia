@@ -1,22 +1,21 @@
 # 04: Delivery
 
-Review identity clarification: upstream auth [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced historical [#95](https://github.com/planetaryescape/marginalia/pull/95) at the identical original `bed850d` commit in native [stack #101](https://github.com/planetaryescape/marginalia/stack/101). Original #95 records below retain their historical facts, not current dependency instructions.
+Review happens in native upstream [stack #101](https://github.com/planetaryescape/marginalia/stack/101), with incremental diffs and upstream branch heads (D-EPUB-021). This supersedes the temporary fork-review and single-integration-PR arrangement in D-EPUB-019.
 
-At this slice, feature review moved to `guidefari/marginalia` with incremental parent-branch diffs and a proposed later upstream integration PR (D-EPUB-019). This historical arrangement was superseded by native upstream [stack #101](https://github.com/planetaryescape/marginalia/stack/101), recorded in [later follow-up #106](https://github.com/planetaryescape/marginalia/pull/106); do not use the integration proposal as current instructions.
+## Native upstream review chain
 
-## Historical fork review chain
+Guide now has upstream admin access. Native stacks require non-fork heads, so the relevant branches were published upstream without changing their commit ancestry:
 
-At this slice Guide had read access upstream and owned the fork. The original upstream #96/#97 targeted `main`, exposing cumulative diffs. D-EPUB-019 introduced the fork chain below; later upstream admin access and native registration superseded it.
+- Auth [#100](https://github.com/planetaryescape/marginalia/pull/100) targets `main` at the same `bed850d` commit as replaced #95. Guide explicitly approved the replacement required by GitHub's fork-head restriction; its original discussion and evidence stay available.
+- Parser [#98](https://github.com/planetaryescape/marginalia/pull/98) targets `fix/local-auth-onboarding`, excluding auth from its diff.
+- Backend [#99](https://github.com/planetaryescape/marginalia/pull/99) targets `feat/epub-parser`.
+- Cleanup [#102](https://github.com/planetaryescape/marginalia/pull/102) targets `feat/epub-import-backend`; desk [#103](https://github.com/planetaryescape/marginalia/pull/103) targets `fix/green-checks`.
+- Register and extend the native stack with explicit upstream selection, for example `GH_REPO=planetaryescape/marginalia gh stack link --remote origin 101 <new-PR-URL>`.
+- Later branches continue from the reviewed tip. Test-fixture throughput, list splitting, backend diagnostics and metadata-first UI remain separate atomic slices.
+- Replaced fork #1/#2/#4/#5 and upstream #95/#96/#97 retain their history. Pending parser/backend findings are source-linked on #98/#99; replacing a review never resolves its findings.
+- Native registration alone does not authorize merging or deployment. Preserve pending review findings. If a parent merges, explicitly restack descendants rather than replaying parent commits or force-pushing implicitly; any rewrite needs its own scoped approval.
 
-- Upstream auth [#95](https://github.com/planetaryescape/marginalia/pull/95) remains unchanged.
-- Fork parser [#1](https://github.com/guidefari/marginalia/pull/1) targets `fix/local-auth-onboarding`, excluding auth from its diff.
-- Fork backend [#2](https://github.com/guidefari/marginalia/pull/2) targets `feat/epub-parser`, excluding parser/auth from its diff.
-- `fix/green-checks` targets `feat/epub-import-backend`; later feature branches continue from the reviewed tip.
-- Native fork stack #3 was created with `gh stack link --remote fork --base fix/local-auth-onboarding` using the fork PR URLs. Keep that explicit repository/remote selection when managing fork reviews.
-- Cross-link replacements before closing upstream #96/#97. Preserve their historical comments and carry pending suggestions into the owning fork review; closing a duplicate does not resolve its findings.
-- Under this historical fork integration proposal, auth #95 must merge and every descendant must be explicitly rebased before opening an upstream integration PR, so inherited auth commits are not replayed. #95 has since been replaced by #100 and the proposal superseded by native upstream [stack #101](https://github.com/planetaryescape/marginalia/stack/101), recorded in [later follow-up #106](https://github.com/planetaryescape/marginalia/pull/106). Current work follows that native parent-branch chain, not a cumulative integration PR. Neither review registration nor this historical plan authorizes merging or deployment.
-
-The earlier upstream attempt failed because stacks were disabled and parent branches existed only in the fork. Later upstream registration is evidenced by [#106](https://github.com/planetaryescape/marginalia/pull/106) and the native stacks API, not inferred from fork registration.
+The earlier upstream attempt lacked admin access, usable upstream parent branches and non-fork PR heads. The successful #101 registration was verified through the upstream stacks API, not inferred from branch links or the old fork stack.
 
 ## Historical stack proposal
 
@@ -24,17 +23,17 @@ This table records the original #95-based proposal, not the current review chain
 
 | # | Branch | Contents | Schema |
 |---|---|---|---|
-| Parent | `fix/local-auth-onboarding` | Auth and local setup, upstream PR #95 | none |
+| Parent | `fix/local-auth-onboarding` | Auth and local setup, upstream #100 (replaces #95) | none |
 | 1 | `feat/epub-parser` | This blueprint and Phase 1: `lib/epub/` parser, unit splitting, fixtures, `fflate` and `@xmldom/xmldom` | none |
 | 2 | `feat/epub-import-backend` | Phase 2 backend: `importEpub` action, images to storage, purge paths | `documentImports.format`, new failures, `bookUnits.sourceSpans`, `bookImages` |
-| 3 | `feat/epub-import-desk` | Phase 2 UI: picker and drop accept EPUBs and folders, format-aware copy, Ready card | none |
+| 3 | `feat/epub-desk-import` | Phase 2 UI: picker and drop accept EPUBs and folders, format-aware copy, Ready card | none |
 | 4 | `feat/epub-layout` | Phase 3: `bk-*` classes, verse, covers, footnotes (or footnotes split out, Q3) | none |
 | 5 | `feat/epub-annotations` | Phase 4: CFI expansion and placement, book endpoints, merge and tombstones | `highlights.source`, `externalAnnotationId`, `unplaced`, tombstone table |
 | 6 | `feat/apple-books-cli` | Phase 5: `packages/apple-books` | none |
 
-The first EPUB branch starts from `fix/local-auth-onboarding` (#95) at `bed850d`, as Guide chose in D-EPUB-016. There is no separate blueprint PR (D-EPUB-015). PRs 2 and 5 carry schema changes and need approval before writing them, and BK's approval before any backend deploy.
+The first EPUB branch builds on `fix/local-auth-onboarding` (upstream #100, replacing #95), per D-EPUB-016 and D-EPUB-021. There is no separate blueprint PR (D-EPUB-015). Schema implementation and every backend update need their own explicit approvals; stack registration is not deployment or migration permission.
 
-Guide approved the backend import additions for local implementation in D-EPUB-018. `feat/epub-import-backend` starts from parser PR #96 at `4d3d0f9`. That approval does not authorize deploying the backend, running migrations, or implementing the later annotation schema.
+Guide approved local backend import implementation in D-EPUB-018. `feat/epub-import-backend` builds on parser #98, replacing #96 and fork #1. This does not authorize deployments, migrations or the later annotation schema. Native upstream review replaces the obsolete cumulative integration-PR proposal.
 
 ## Each PR
 
@@ -63,7 +62,7 @@ Guide approved the backend import additions for local implementation in D-EPUB-0
 - Implemented the schema approved in D-EPUB-018, optional upload/start format selection, and `actions/importEpub.ts`. Omitted format stays on the PDF path. Upload admission and start independently apply the existing 32 MiB parser ZIP ceiling to EPUBs, preserving the 60 MiB PDF ceiling. EPUBs publish as books with normalized source spans and no fabricated page count. The original upload is removed after publication.
 - Added guarded image ownership, post-replacement content/argument byte checks, and one-unit write batches. The sweeper preserves registered image storage even after the import row is dismissed. Failure, expiry, article deletion and account deletion drain image records and blobs in bounded batches; account purge step numbers are unchanged.
 - Raster checks reject unsupported, signature-only and clearly truncated resources. Generated valid PNG, JPEG, GIF and WebP fixtures cover the supported paths, including animated WebP. These are structural checks, not a full decoder or a compressed-data/dimension security guarantee. Missing images, unsupported formats and images whose bytes fail raster validation become escaped alt text. A `bookImages.register` refusal instead fails and discards the import.
-- Review correction: the reviewed #99 head `f001359` discarded the book on registration refusal but left the import row `reading`. The current head fails the import as `unreadable` before discarding the book (`actions/importEpub.ts`); the earlier verification did not cover that path. The added action/mutation regression verifies both the terminal failure and owned-resource cleanup.
+- Review correction to that refusal claim: the reviewed #99 head `f001359` only discarded the book on registration refusal, leaving the import row `reading`. The intended contract requires an explicit import failure as well as cleanup. The earlier verification did not establish that path; the review fix must cover both outcomes, not attribute corrected behavior to the old head.
 - The PDF-only desk now excludes EPUB imports from its status and auto-open logic and handles the widened failure union without a narrowing assertion. This is compatibility work, not the EPUB picker/drop UI. Its component tests use real providers and in-memory Convex fixtures, with an exact-pinned test dependency.
 - Terra audited cleanup/test seams; Sol implemented the lifecycle and separately reviewed ownership and cleanup. The review found truncated raster acceptance and a deletion-fence test that started too late. Both were corrected; the follow-up review found no concrete regression. Each late publication write is now tested independently after deletion begins during a pending import.
 - Privately exercised an owned book through upload grants, the import action and publication in in-memory Convex test/storage only. Registered images survived dismissal and a later sweep; source-range and storage-budget invariants held and the original was unchanged. Per-book statistics are omitted. No book bytes, metadata or annotations were uploaded to a cloud service or added to fixtures; the ephemeral smoke harness stays outside the repository.
@@ -83,3 +82,7 @@ Guide approved the backend import additions for local implementation in D-EPUB-0
 - Added PDF/EPUB selection and mixed-file drop handling, with 60 MiB PDF and 32 MiB EPUB limits. Admission, storage content types and import start use the selected format. Upload grants bind the user, creation time, SHA-256 and size, with usage state; they do not persist format. EPUB progress describes chapters, ready cards show parts rather than pages, and failures use EPUB-specific copy. Automatic opening targets the returned import ID, not an unrelated background import.
 - `bun run check` passed with 2,238 backend, 1,718 frontend, 32 indexer and 28 script tests; `bun run build` passed with existing warnings. Generated fixtures and real component/provider seams cover selection, admission, upload failures, visible states and import-ID targeting. Independent source review found no additional code defects within those seams, not a complete signed-in import proof. A subsequent signed-in import exposed a long-list/parser refusal, owned by follow-up [#105](https://github.com/planetaryescape/marginalia/pull/105) and recorded below. Full Desk/hook coordination and overlapping selections remain unverified. No private EPUB was uploaded by the automated checks.
 - Guide explicitly approved updating isolated development deployment `diligent-owl-394`. `convex dev --once` succeeded there, including the approved image indexes. The existing local web server serves `https://marginalia.localhost`; browser loading and its configured auth origin were verified. A successful signed-in browser import, chapter navigation and fragment restoration still need verification after the long-list fix. Production was not targeted.
+
+## Timeout follow-up boundary
+
+The historical reduced-worker passing runs above are not the final timeout resolution. Fixture/projection improvements belong to this slice; bounded alias validation and the quadratic context matcher fix are recorded in [later #108 follow-up evidence](https://github.com/planetaryescape/marginalia/pull/108). No deadlines, row counts, payloads or budget assertions were waived. Do not infer a pass for a later restacked head from an earlier run.
