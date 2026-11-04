@@ -2,6 +2,7 @@ import { strToU8, type Zippable, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { EPUB_LIMITS } from "./archive";
 import { parseEpub } from "./parse";
+import { epubUnits } from "./units";
 
 function fixture({
   bodies = ["<h1>First chapter</h1><p>A quiet beginning.</p>"],
@@ -200,6 +201,78 @@ describe("parser review regressions", () => {
     }
   });
 
+  it("reports an oversized list item's own byte count without its sibling", () => {
+    const text = "é".repeat(100_001);
+    expect(
+      parseEpub(
+        fixture({ bodies: [`<ul><li>short</li><li>${text}</li></ul>`] }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "block_bytes",
+        observed: new TextEncoder().encode(`<ul><li>${text}</li></ul>${text}`)
+          .length,
+        blockIndex: 1,
+      },
+    });
+  });
+  it("splits quoted lists while retaining quote markup, IDs and exact source spans", () => {
+    const book = parsed(
+      fixture({
+        bodies: [
+          `<blockquote id="quote"><p>Before.</p><ol>${Array.from({ length: 5 }, (_, index) => `<li>${index} ${"word ".repeat(1500)}</li>`).join("")}</ol><p>After.</p></blockquote>`,
+        ],
+      }),
+    );
+    expect(book.units.length).toBeGreaterThan(1);
+    const html = book.units.map((unit) => unit.contentHtml).join("");
+    expect(html.match(/id="epub-0-quote"/gu)).toHaveLength(1);
+    expect(html).toContain("<blockquote><ol");
+    for (const unit of book.units) {
+      expect(unit.wordCount).toBeLessThanOrEqual(4000);
+      expect(unit.content).toBe(
+        unit.sourceSpans
+          .map((span) =>
+            book.spine[span.spineIndex]?.text.slice(span.start, span.end),
+          )
+          .join("\n\n"),
+      );
+      expect((unit.contentHtml.match(/<blockquote\b/gu) ?? []).length).toBe(
+        (unit.contentHtml.match(/<\/blockquote>/gu) ?? []).length,
+      );
+    }
+  });
+
+  it("reports the same first-excess archive count for byte and directory input", () => {
+    const files = fixture();
+    for (let index = 0; index < EPUB_LIMITS.files + 10; index++)
+      files.set(`extra-${index}`, new Uint8Array());
+    const expected = {
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "archive_entries",
+        stage: "archive",
+        observed: EPUB_LIMITS.files + 1,
+        limit: EPUB_LIMITS.files,
+      },
+    };
+    expect(parseEpub(files)).toEqual(expected);
+    expect(parseEpub(archive(files))).toEqual(expected);
+  });
+
+  it("classifies malformed encryption XML separately from DRM", () => {
+    expect(
+      parseEpub(fixture({ encryption: "<encryption><broken></encryption>" })),
+    ).toMatchObject({
+      ok: false,
+      reason: "unreadable",
+      diagnostic: { code: "invalid_encryption", stage: "encryption" },
+    });
+  });
+
   it("requires the exact EPUB marker for both input forms and rejects prototype entries", () => {
     for (const marker of [
       undefined,
@@ -302,6 +375,7 @@ describe("parser review regressions", () => {
     ).toMatchObject({
       ok: false,
       reason: "too_long",
+      diagnostic: { code: "xml_nodes" },
     });
     expect(
       parseEpub(
@@ -310,6 +384,7 @@ describe("parser review regressions", () => {
     ).toMatchObject({
       ok: false,
       reason: "too_long",
+      diagnostic: { code: "xml_depth" },
     });
   });
 
@@ -706,18 +781,304 @@ describe("EPUB reading content", () => {
   });
 });
 
+describe("EPUB list splitting and diagnostics", () => {
+  it.each([
+    "ol",
+    "ul",
+  ])("splits a generated 14208-word %s without losing text, items, markup, anchors or spans", (tag) => {
+    const paragraphs = Array.from(
+      { length: 96 },
+      (_, index) => `${`entry${index} `.repeat(146)}emphasized jump`,
+    );
+    const body = `<${tag} id="list"${tag === "ol" ? ' start="7" type="a"' : ""}>${paragraphs.map((_, index) => `<li id="item-${index}">${`entry${index} `.repeat(146)}<em><strong>emphasized</strong></em> <a href="#item-95">jump</a></li>`).join("\n  ")}</${tag}>`;
+    const book = parsed(fixture({ bodies: [body] }));
+    expect(book.units).toHaveLength(4);
+    expect(book.spine[0]?.text).toBe(paragraphs.join("\n"));
+    expect(book.units.reduce((sum, unit) => sum + unit.wordCount, 0)).toBe(
+      14208,
+    );
+    expect(book.units.map((unit) => unit.content).join("\n")).toBe(
+      paragraphs.join("\n"),
+    );
+    const html = book.units.map((unit) => unit.contentHtml).join("");
+    expect(
+      Array.from(html.matchAll(/<li id="epub-0-item-(\d+)"/gu), (match) =>
+        Number(match[1]),
+      ),
+    ).toEqual(Array.from({ length: 96 }, (_, index) => index));
+    expect(html.match(/id="epub-0-list"/gu)).toHaveLength(1);
+    expect(html.match(/<em><strong>emphasized<\/strong><\/em>/gu)).toHaveLength(
+      96,
+    );
+    expect(html.match(/href="\?unit=3#epub-0-item-95"/gu)).toHaveLength(96);
+    if (tag === "ol") {
+      expect(
+        Array.from(html.matchAll(/<ol[^>]* start="(\d+)"/gu), (match) =>
+          Number(match[1]),
+        ),
+      ).toEqual([7, 34, 61, 88]);
+      expect(html.match(/type="a"/gu)).toHaveLength(4);
+    }
+    for (const unit of book.units) {
+      expect(unit.wordCount).toBeLessThanOrEqual(EPUB_LIMITS.unitWords);
+      expect(
+        new TextEncoder().encode(unit.contentHtml + unit.content).length,
+      ).toBeLessThanOrEqual(EPUB_LIMITS.unitBytes);
+      expect(unit.content).toBe(
+        unit.sourceSpans
+          .map((span) =>
+            book.spine[span.spineIndex]?.text.slice(span.start, span.end),
+          )
+          .join("\n\n"),
+      );
+    }
+  });
+
+  it.each([
+    false,
+    true,
+  ])("continues reversed numbering and explicit li resets, explicit start=%s", (explicit) => {
+    const body = `<ol reversed="reversed" type="I"${explicit ? ' start="100"' : ""}>${Array.from({ length: 5 }, (_, index) => `<li${index === 2 ? ' value="50"' : ""}>${`item${index} `.repeat(1500)}</li>`).join("")}</ol>`;
+    const book = parsed(fixture({ bodies: [body] }));
+    const html = book.units.map((unit) => unit.contentHtml).join("");
+    expect(book.units).toHaveLength(3);
+    expect(
+      Array.from(html.matchAll(/<ol[^>]* start="(\d+)"/gu), (match) =>
+        Number(match[1]),
+      ),
+    ).toEqual([explicit ? 100 : 5, 50, 48]);
+    expect(html.match(/reversed="reversed"/gu)).toHaveLength(3);
+    expect(html.match(/type="I"/gu)).toHaveLength(3);
+    expect(html).toContain('<li value="50">');
+  });
+
+  it("splits at byte limits while keeping nested lists and preformatted item markup intact", () => {
+    const item = `${"é".repeat(55_000)}<ul><li><pre>nested  text\nnext</pre></li></ul>`;
+    const book = parsed(
+      fixture({
+        bodies: [
+          `<ul> ${Array.from({ length: 4 }, () => `<li>${item}</li>`).join("\n  ")} </ul>`,
+        ],
+      }),
+    );
+    expect(book.units).toHaveLength(4);
+    for (const unit of book.units) {
+      expect(unit.contentHtml).toContain(
+        "<ul><li><pre>nested  text\nnext</pre></li></ul>",
+      );
+      expect(unit.content).toBe(
+        unit.sourceSpans
+          .map((span) =>
+            book.spine[span.spineIndex]?.text.slice(span.start, span.end),
+          )
+          .join("\n\n"),
+      );
+    }
+  });
+
+  it("does not split malformed lists with text outside list items", () => {
+    expect(
+      parseEpub(
+        fixture({
+          bodies: [
+            `<ul>outside <li>${"word ".repeat(3000)}</li><li>${"word ".repeat(3000)}</li></ul>`,
+          ],
+        }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "block_words",
+        stage: "units",
+        observed: 6001,
+        limit: 4000,
+      },
+    });
+  });
+
+  it("continues numbering using only list items retained by sanitization", () => {
+    const book = parsed(
+      fixture({
+        bodies: [
+          `<ol reversed="reversed"><li hidden="hidden">hidden</li>${Array.from({ length: 5 }, () => `<li>${"word ".repeat(1500)}</li>`).join("")}</ol>`,
+        ],
+      }),
+    );
+    const html = book.units.map((unit) => unit.contentHtml).join("");
+    expect(
+      Array.from(html.matchAll(/<ol[^>]* start="(\d+)"/gu), (match) =>
+        Number(match[1]),
+      ),
+    ).toEqual([5, 3, 1]);
+    expect(html).not.toContain("hidden");
+  });
+
+  it("reports byte, XML-node and unit-count limits precisely", () => {
+    const oversized = `<p>${"é".repeat(100_001)}</p>`;
+    expect(parseEpub(fixture({ bodies: [oversized] }))).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "block_bytes",
+        stage: "units",
+        observed: 400011,
+        limit: EPUB_LIMITS.unitBytes,
+        spineIndex: 0,
+        blockIndex: 0,
+      },
+    });
+    expect(
+      parseEpub(fixture({ bodies: [`<p>${"<br/>".repeat(100_001)}</p>`] })),
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "xml_nodes",
+        stage: "spine",
+        observed: 100001,
+        limit: 100000,
+        spineIndex: 0,
+      },
+    });
+    const text = "word ".repeat(100).trim();
+    const result = epubUnits(
+      Array.from({ length: EPUB_LIMITS.units + 1 }, (_, index) => ({
+        href: `item-${index}`,
+        xhtml: "",
+        title: "Part",
+        text,
+        blocks: [{ html: `<p>${text}</p>`, text, start: 0, end: text.length }],
+      })),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "unit_count",
+        stage: "units",
+        observed: EPUB_LIMITS.units + 1,
+        limit: EPUB_LIMITS.units,
+      },
+    });
+  });
+
+  it("keeps navigation diagnostics at their own stage", () => {
+    const stages: string[] = [];
+    const diagnostics: unknown[] = [];
+    const result = parseEpub(fixture({ nav: "<p>broken</wrong>" }), {
+      onStage: (stage) => stages.push(stage),
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+    expect(result.ok).toBe(true);
+    expect(diagnostics).toEqual([
+      { code: "invalid_navigation", stage: "navigation" },
+    ]);
+    expect(stages).toEqual([
+      "archive",
+      "package",
+      "encryption",
+      "navigation",
+      "spine",
+      "units",
+    ]);
+  });
+
+  it.each([
+    "ol",
+    "ul",
+  ])("still refuses an oversized individual %s item", (tag) => {
+    expect(
+      parseEpub(
+        fixture({
+          bodies: [
+            `<h1>Heading</h1><${tag}><li>${"word ".repeat(4001)}</li><li>short</li></${tag}>`,
+          ],
+        }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "block_words",
+        stage: "units",
+        observed: 4001,
+        limit: 4000,
+        spineIndex: 0,
+        blockIndex: 1,
+      },
+    });
+  });
+
+  it("reports verified metadata before a later failure and stages without exposing content", () => {
+    const stages: string[] = [];
+    const metadata: unknown[] = [];
+    const result = parseEpub(
+      fixture({ bodies: [`<p>${"private ".repeat(4001)}</p>`] }),
+      {
+        onStage: (stage) => stages.push(stage),
+        onMetadata: (value) => {
+          metadata.push(value);
+          expect(stages).toEqual(["archive", "package"]);
+        },
+      },
+    );
+    expect(stages).toEqual([
+      "archive",
+      "package",
+      "encryption",
+      "navigation",
+      "spine",
+      "units",
+    ]);
+    expect(metadata).toEqual([
+      {
+        title: "A & B",
+        creators: ["First Author", "Second Author"],
+        identifier: "urn:fixture:edition",
+        language: "en",
+      },
+    ]);
+    expect(result).toEqual({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "block_words",
+        stage: "units",
+        observed: 4001,
+        limit: 4000,
+        spineIndex: 0,
+        blockIndex: 0,
+      },
+    });
+    const invalidMetadata: unknown[] = [];
+    parseEpub(new Uint8Array([1, 2, 3]), {
+      onMetadata: (value) => invalidMetadata.push(value),
+    });
+    expect(invalidMetadata).toEqual([]);
+  });
+});
+
 describe("EPUB refusals", () => {
   it("refuses a ZIP without the EPUB container or package", () => {
     expect(
       parseEpub(archive(new Map([["readme.txt", strToU8("not a book")]]))),
-    ).toEqual({ ok: false, reason: "not_epub" });
+    ).toMatchObject({
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_archive", stage: "archive" },
+    });
     const files = fixture();
     files.delete("OPS/package.opf");
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "not_epub" });
+    expect(parseEpub(files)).toMatchObject({
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    });
   });
 
   it("refuses malformed bytes and XML without exposing document contents", () => {
-    expect(parseEpub(new Uint8Array([1, 2, 3]))).toEqual({
+    expect(parseEpub(new Uint8Array([1, 2, 3]))).toMatchObject({
       ok: false,
       reason: "unreadable",
     });
@@ -726,7 +1087,11 @@ describe("EPUB refusals", () => {
       "OPS/text/chapter-0.xhtml",
       strToU8("<html><body><p>private text</body></html>"),
     );
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "unreadable" });
+    expect(parseEpub(files)).toMatchObject({
+      ok: false,
+      reason: "unreadable",
+      diagnostic: { code: "invalid_spine", stage: "spine", spineIndex: 0 },
+    });
   });
 
   it("rejects entity declarations and excessive XML depth", () => {
@@ -737,14 +1102,28 @@ describe("EPUB refusals", () => {
         '<!DOCTYPE html [<!ENTITY x SYSTEM "file:///etc/passwd">]><html><body><p>&x;</p></body></html>',
       ),
     );
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "unreadable" });
+    expect(parseEpub(files)).toMatchObject({
+      ok: false,
+      reason: "unreadable",
+      diagnostic: { code: "invalid_spine", stage: "spine", spineIndex: 0 },
+    });
     files.set(
       "OPS/text/chapter-0.xhtml",
       strToU8(
         `<html><body>${"<div>".repeat(130)}deep${"</div>".repeat(130)}</body></html>`,
       ),
     );
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "too_long" });
+    expect(parseEpub(files)).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "xml_depth",
+        stage: "spine",
+        observed: 129,
+        limit: 128,
+        spineIndex: 0,
+      },
+    });
   });
 
   it("refuses encrypted publications but permits declared font obfuscation", () => {
@@ -756,7 +1135,11 @@ describe("EPUB refusals", () => {
           encryption: encryption("http://www.w3.org/2001/04/xmlenc#aes128-cbc"),
         }),
       ),
-    ).toEqual({ ok: false, reason: "protected" });
+    ).toMatchObject({
+      ok: false,
+      reason: "protected",
+      diagnostic: { code: "protected_content", stage: "encryption" },
+    });
     expect(
       parseEpub(
         fixture({
@@ -773,7 +1156,11 @@ describe("EPUB refusals", () => {
       parseEpub(
         fixture({ encryption: "<encryption><EncryptedData/></encryption>" }),
       ),
-    ).toEqual({ ok: false, reason: "protected" });
+    ).toMatchObject({
+      ok: false,
+      reason: "protected",
+      diagnostic: { code: "protected_content", stage: "encryption" },
+    });
     expect(
       parseEpub(
         fixture({
@@ -783,13 +1170,21 @@ describe("EPUB refusals", () => {
           ),
         }),
       ),
-    ).toEqual({ ok: false, reason: "protected" });
+    ).toMatchObject({
+      ok: false,
+      reason: "protected",
+      diagnostic: { code: "protected_content", stage: "encryption" },
+    });
   });
 
   it("refuses a missing spine item, duplicate manifest ID and remote package", () => {
     const files = fixture();
     files.delete("OPS/text/chapter-0.xhtml");
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "not_epub" });
+    expect(parseEpub(files)).toMatchObject({
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_spine", stage: "package" },
+    });
     const duplicate = fixture();
     const bytes = duplicate.get("OPS/package.opf");
     if (!bytes) throw new Error("Missing fixture package");
@@ -799,7 +1194,11 @@ describe("EPUB refusals", () => {
         new TextDecoder().decode(bytes).replace('id="font"', 'id="image"'),
       ),
     );
-    expect(parseEpub(duplicate)).toEqual({ ok: false, reason: "not_epub" });
+    expect(parseEpub(duplicate)).toMatchObject({
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    });
     const remote = fixture();
     remote.set(
       "META-INF/container.xml",
@@ -807,13 +1206,18 @@ describe("EPUB refusals", () => {
         '<container><rootfiles><rootfile full-path="https://example.invalid/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
       ),
     );
-    expect(parseEpub(remote)).toEqual({ ok: false, reason: "not_epub" });
+    expect(parseEpub(remote)).toMatchObject({
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    });
   });
 
   it("refuses an empty spine or content with no readable text", () => {
-    expect(parseEpub(fixture({ bodies: [] }))).toEqual({
+    expect(parseEpub(fixture({ bodies: [] }))).toMatchObject({
       ok: false,
       reason: "empty",
+      diagnostic: { code: "empty_text", stage: "units" },
     });
     expect(
       parseEpub(
@@ -823,27 +1227,54 @@ describe("EPUB refusals", () => {
           ],
         }),
       ),
-    ).toEqual({ ok: false, reason: "empty" });
+    ).toMatchObject({
+      ok: false,
+      reason: "empty",
+      diagnostic: { code: "empty_text", stage: "units" },
+    });
   });
 
   it("bounds the input, expanded entries and entry count before parsing", () => {
-    expect(parseEpub(new Uint8Array(EPUB_LIMITS.archiveBytes + 1))).toEqual({
+    expect(
+      parseEpub(new Uint8Array(EPUB_LIMITS.archiveBytes + 1)),
+    ).toMatchObject({
       ok: false,
       reason: "too_long",
+      diagnostic: {
+        code: "archive_bytes",
+        stage: "archive",
+        observed: EPUB_LIMITS.archiveBytes + 1,
+        limit: EPUB_LIMITS.archiveBytes,
+      },
     });
     const oversized = fixture({
       extra: new Map([
         ["large.bin", new Uint8Array(EPUB_LIMITS.entryBytes + 1)],
       ]),
     });
-    expect(parseEpub(archive(oversized))).toEqual({
+    expect(parseEpub(archive(oversized))).toMatchObject({
       ok: false,
       reason: "too_long",
+      diagnostic: {
+        code: "entry_bytes",
+        stage: "archive",
+        observed: EPUB_LIMITS.entryBytes + 1,
+        limit: EPUB_LIMITS.entryBytes,
+      },
     });
     const crowded = fixture();
     for (let index = 0; index < EPUB_LIMITS.files; index++)
       crowded.set(`extra-${index}`, new Uint8Array());
-    expect(parseEpub(crowded)).toEqual({ ok: false, reason: "too_long" });
+    expect(parseEpub(crowded)).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "archive_entries",
+        stage: "archive",
+        observed: EPUB_LIMITS.files + 1,
+        limit: EPUB_LIMITS.files,
+      },
+    });
   });
 
   it("bounds aggregate ZIP expansion independently of individual entry sizes", () => {
@@ -854,8 +1285,22 @@ describe("EPUB refusals", () => {
     const files = fixture({ extra });
     const bytes = archive(files);
     expect(bytes.byteLength).toBeLessThan(EPUB_LIMITS.archiveBytes);
-    expect(parseEpub(bytes)).toEqual({ ok: false, reason: "too_long" });
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "too_long" });
+    for (const input of [bytes, files]) {
+      const result = parseEpub(input);
+      expect(result).toMatchObject({
+        ok: false,
+        reason: "too_long",
+        diagnostic: {
+          code: "expanded_bytes",
+          stage: "archive",
+          limit: EPUB_LIMITS.expandedBytes,
+        },
+      });
+      if (result.ok) throw new Error("Expected expansion refusal");
+      expect(result.diagnostic?.observed).toBeGreaterThan(
+        EPUB_LIMITS.expandedBytes,
+      );
+    }
   });
 
   it("rejects excessive spine references before trying to resolve them", () => {
@@ -873,7 +1318,16 @@ describe("EPUB refusals", () => {
           ),
       ),
     );
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "too_long" });
+    expect(parseEpub(files)).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "spine_items",
+        stage: "package",
+        observed: EPUB_LIMITS.spineItems + 1,
+        limit: EPUB_LIMITS.spineItems,
+      },
+    });
   });
 
   it("refuses output that exceeds the unit byte budget after link rewriting", () => {
@@ -895,14 +1349,24 @@ describe("EPUB refusals", () => {
       ),
     );
     files.set("a", chapter);
-    expect(parseEpub(files)).toEqual({ ok: false, reason: "too_long" });
+    expect(parseEpub(files)).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "unit_bytes",
+        stage: "units",
+        observed: 404028,
+        limit: EPUB_LIMITS.unitBytes,
+      },
+    });
   });
 
   it("rejects archive traversal paths and paragraphs that cannot fit a unit", () => {
     const files = fixture({ extra: new Map([["../outside", "unsafe"]]) });
-    expect(parseEpub(archive(files))).toEqual({
+    expect(parseEpub(archive(files))).toMatchObject({
       ok: false,
       reason: "not_epub",
+      diagnostic: { code: "invalid_archive", stage: "archive" },
     });
     expect(
       parseEpub(
@@ -910,7 +1374,18 @@ describe("EPUB refusals", () => {
           bodies: [`<p>${"word ".repeat(EPUB_LIMITS.unitWords + 1)}</p>`],
         }),
       ),
-    ).toEqual({ ok: false, reason: "too_long" });
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "block_words",
+        stage: "units",
+        observed: EPUB_LIMITS.unitWords + 1,
+        limit: EPUB_LIMITS.unitWords,
+        spineIndex: 0,
+        blockIndex: 0,
+      },
+    });
   });
 
   it("returns a typed refusal for deterministic damaged ZIP inputs rather than throwing", () => {

@@ -1,3 +1,5 @@
+import type { EpubDiagnostic } from "./diagnostics";
+
 export type EpubFailure =
   | "not_epub"
   | "protected"
@@ -7,7 +9,11 @@ export type EpubFailure =
 
 export type EpubResult<T> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly reason: EpubFailure };
+  | {
+      readonly ok: false;
+      readonly reason: EpubFailure;
+      readonly diagnostic?: EpubDiagnostic;
+    };
 
 export type ManifestItem = {
   readonly id: string;

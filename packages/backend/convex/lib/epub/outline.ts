@@ -1,17 +1,26 @@
 import type { Element } from "@xmldom/xmldom";
 import { resolveEpubHref } from "./archive";
+import type { EpubDiagnostic } from "./diagnostics";
 import type { EpubOutlineEntry, EpubPackage, EpubResult } from "./types";
 import { childElements, elements, parseEpubXml, xmlText } from "./xml";
 
 export function parseEpubOutline(
   files: ReadonlyMap<string, Uint8Array>,
   book: EpubPackage,
+  onDiagnostic?: (diagnostic: EpubDiagnostic) => void,
 ): EpubResult<readonly EpubOutlineEntry[]> {
   const spineHrefs = new Set(book.spine.map((item) => item.href));
   const nav = book.manifest.find((item) => item.properties.includes("nav"));
   if (nav) {
-    const parsed = parseEpubXml(files.get(nav.href));
+    const parsed = parseEpubXml(files.get(nav.href), "navigation");
     if (!parsed.ok && parsed.reason === "too_long") return parsed;
+    if (!parsed.ok)
+      onDiagnostic?.(
+        parsed.diagnostic ?? {
+          code: "invalid_navigation",
+          stage: "navigation",
+        },
+      );
     const toc =
       parsed.ok &&
       elements(parsed.value, "nav").find((node) =>
@@ -42,9 +51,12 @@ export function parseEpubOutline(
     book.manifest.find((item) => item.id === book.ncxId) ??
     book.manifest.find((item) => item.mediaType === "application/x-dtbncx+xml");
   if (!ncx) return { ok: true, value: [] };
-  const parsed = parseEpubXml(files.get(ncx.href));
+  const parsed = parseEpubXml(files.get(ncx.href), "navigation");
   if (!parsed.ok) {
     if (parsed.reason === "too_long") return parsed;
+    onDiagnostic?.(
+      parsed.diagnostic ?? { code: "invalid_navigation", stage: "navigation" },
+    );
     return { ok: true, value: [] };
   }
   const entries: EpubOutlineEntry[] = [];

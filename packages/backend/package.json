@@ -19,6 +19,7 @@
     "./narration": "./convex/lib/narration.ts",
     "./reading-sections": "./convex/lib/readingSections.ts",
     "./mark-colours": "./convex/lib/markColours.ts",
+    "./epub-diagnostics": "./convex/lib/epub/diagnostics.ts",
     "./*": "./convex/*",
     "./_generated/*": "./convex/_generated/*",
     "./convex/_generated/api": "./convex/_generated/api.js",

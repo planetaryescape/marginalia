@@ -13,17 +13,30 @@ export function parseEpubPackage(
       "application/oebps-package+xml",
   );
   const path = resolveEpubHref("", rootfile?.getAttribute("full-path") ?? "");
-  if (!path || path.includes("#")) return { ok: false, reason: "not_epub" };
+  if (!path || path.includes("#"))
+    return {
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    };
   const parsed = parseEpubXml(files.get(path));
   if (!parsed.ok) return parsed;
   const root = parsed.value.documentElement;
   if (!root || root.localName !== "package")
-    return { ok: false, reason: "not_epub" };
+    return {
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    };
   const metadata = elements(root, "metadata")[0];
   const manifestNode = elements(root, "manifest")[0];
   const spineNode = elements(root, "spine")[0];
   if (!metadata || !manifestNode || !spineNode)
-    return { ok: false, reason: "not_epub" };
+    return {
+      ok: false,
+      reason: "not_epub",
+      diagnostic: { code: "invalid_package", stage: "package" },
+    };
   const manifest: ManifestItem[] = [];
   const itemsById = new Map<string, ManifestItem>();
   const manifestHrefs = new Set<string>();
@@ -39,7 +52,7 @@ export function parseEpubPackage(
       href.includes("#") ||
       !mediaType
     )
-      return { ok: false, reason: "not_epub" };
+      return { ok: false, reason: "not_epub", diagnostic: { code: "invalid_package", stage: "package" } };
     const item: ManifestItem = {
       id,
       href,
@@ -55,13 +68,30 @@ export function parseEpubPackage(
   const spine: ManifestItem[] = [];
   const itemrefs = elements(spineNode, "itemref");
   if (itemrefs.length > EPUB_LIMITS.spineItems)
-    return { ok: false, reason: "too_long" };
-  for (const ref of itemrefs) {
+    return {
+      ok: false,
+      reason: "too_long",
+      diagnostic: {
+        code: "spine_items",
+        stage: "package",
+        observed: itemrefs.length,
+        limit: EPUB_LIMITS.spineItems,
+      },
+    };
+  for (const [spineIndex, ref] of itemrefs.entries()) {
     const item = itemsById.get(ref.getAttribute("idref") ?? "");
     if (!item || !files.has(item.href))
-      return { ok: false, reason: "not_epub" };
+      return {
+        ok: false,
+        reason: "not_epub",
+        diagnostic: { code: "invalid_spine", stage: "package", spineIndex },
+      };
     if (item.mediaType !== "application/xhtml+xml")
-      return { ok: false, reason: "unreadable" };
+      return {
+        ok: false,
+        reason: "unreadable",
+        diagnostic: { code: "invalid_spine", stage: "package", spineIndex },
+      };
     spine.push(item);
   }
   const dcNamespace = "http://purl.org/dc/elements/1.1/";
@@ -105,7 +135,7 @@ export function checkEpubEncryption(
 ): EpubResult<null> {
   const bytes = files.get("META-INF/encryption.xml");
   if (!bytes) return { ok: true, value: null };
-  const parsed = parseEpubXml(bytes);
+  const parsed = parseEpubXml(bytes, "encryption");
   if (!parsed.ok) return parsed;
   const encrypted = elements(parsed.value, "EncryptedData");
   const itemsByHref = new Map(manifest.map((item) => [item.href, item]));
@@ -121,7 +151,12 @@ export function checkEpubEncryption(
       methods.length !== 1 ||
       references.length !== 1 ||
       !fontAlgorithms.has(method)
-    ) return { ok: false, reason: "protected" };
+    )
+      return {
+        ok: false,
+        reason: "protected",
+        diagnostic: { code: "protected_content", stage: "encryption" },
+      };
     const target = resolveEpubHref(
       "",
       references[0]?.getAttribute("URI") ?? "",
@@ -133,9 +168,17 @@ export function checkEpubEncryption(
         item.mediaType,
       )
     )
-      return { ok: false, reason: "protected" };
+      return {
+        ok: false,
+        reason: "protected",
+        diagnostic: { code: "protected_content", stage: "encryption" },
+      };
   }
   if (!encrypted.length && elements(parsed.value, "EncryptionMethod").length)
-    return { ok: false, reason: "protected" };
+    return {
+      ok: false,
+      reason: "protected",
+      diagnostic: { code: "protected_content", stage: "encryption" },
+    };
   return { ok: true, value: null };
 }

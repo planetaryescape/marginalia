@@ -4,16 +4,28 @@ import {
   type Element,
   type Node,
 } from "@xmldom/xmldom";
+import type { EpubDiagnostic } from "./diagnostics";
 import type { EpubResult } from "./types";
 
 export function parseEpubXml(
   bytes: Uint8Array | undefined,
+  stage: EpubDiagnostic["stage"] = "package",
 ): EpubResult<Document> {
-  if (!bytes) return { ok: false, reason: "not_epub" };
+  const code =
+    stage === "spine"
+      ? "invalid_spine"
+      : stage === "navigation"
+        ? "invalid_navigation"
+        : stage === "encryption"
+          ? "invalid_encryption"
+          : "invalid_package";
+  if (!bytes)
+    return { ok: false, reason: "not_epub", diagnostic: { code, stage } };
   try {
     const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    if (/<!ENTITY\b/iu.test(source)) return { ok: false, reason: "unreadable" };
-    const bounded = checkXmlBounds(source);
+    if (/<!ENTITY\b/iu.test(source))
+      return { ok: false, reason: "unreadable", diagnostic: { code, stage } };
+    const bounded = checkXmlBounds(source, stage);
     if (!bounded.ok) return bounded;
     let invalid = false;
     const doc = new DOMParser({
@@ -22,7 +34,7 @@ export function parseEpubXml(
       },
     }).parseFromString(source, "application/xml");
     if (invalid || !doc.documentElement)
-      return { ok: false, reason: "unreadable" };
+      return { ok: false, reason: "unreadable", diagnostic: { code, stage } };
     const pending: { node: Node; depth: number }[] = [
       { node: doc.documentElement, depth: 0 },
     ];
@@ -34,11 +46,23 @@ export function parseEpubXml(
         return {
           ok: false,
           reason: "too_long",
+          diagnostic: {
+            code: "xml_depth",
+            stage,
+            observed: entry.depth,
+            limit: 128,
+          },
         };
       if (++count > 100_000)
         return {
           ok: false,
           reason: "too_long",
+          diagnostic: {
+            code: "xml_nodes",
+            stage,
+            observed: count,
+            limit: 100_000,
+          },
         };
       for (let child = entry.node.firstChild; child; child = child.nextSibling)
         pending.push({
@@ -48,11 +72,14 @@ export function parseEpubXml(
     }
     return { ok: true, value: doc };
   } catch {
-    return { ok: false, reason: "unreadable" };
+    return { ok: false, reason: "unreadable", diagnostic: { code, stage } };
   }
 }
 
-function checkXmlBounds(source: string): EpubResult<null> {
+function checkXmlBounds(
+  source: string,
+  stage: EpubDiagnostic["stage"],
+): EpubResult<null> {
   let depth = -1;
   let count = 0;
   let offset = 0;
@@ -106,6 +133,12 @@ function checkXmlBounds(source: string): EpubResult<null> {
           return {
             ok: false,
             reason: "too_long",
+            diagnostic: {
+              code: "xml_depth",
+              stage,
+              observed: depth,
+              limit: 128,
+            },
           };
         if (source[offset - 1] === "/") depth--;
       }
@@ -115,6 +148,12 @@ function checkXmlBounds(source: string): EpubResult<null> {
       return {
         ok: false,
         reason: "too_long",
+        diagnostic: {
+          code: "xml_nodes",
+          stage,
+          observed: count,
+          limit: 100_000,
+        },
       };
   }
   return { ok: true, value: null };

@@ -1,5 +1,6 @@
 import type { Element, Node } from "@xmldom/xmldom";
 import { resolveEpubHref } from "./archive";
+import { epubListAttributes, splitEpubList } from "./lists";
 import type { EpubBlock, EpubResult, EpubSpineItem } from "./types";
 import { elements, escapeHtml, parseEpubXml } from "./xml";
 
@@ -100,16 +101,23 @@ export function parseEpubSpineItem(
   href: string,
   spineIndex: number,
 ): EpubResult<EpubSpineItem> {
-  const parsed = parseEpubXml(bytes);
+  const parsed = parseEpubXml(bytes, "spine");
   if (!parsed.ok)
     return {
       ...parsed,
+      diagnostic: {
+        code: "invalid_spine",
+        stage: "spine",
+        ...parsed.diagnostic,
+        spineIndex,
+      },
     };
   const body = elements(parsed.value, "body")[0];
   if (!body)
     return {
       ok: false,
       reason: "unreadable",
+      diagnostic: { code: "invalid_spine", stage: "spine", spineIndex },
     };
   const blocks: EpubBlock[] = [];
   let text = "";
@@ -225,7 +233,7 @@ export function parseEpubSpineItem(
           ? " "
           : "";
     return {
-      html: `<${tag}${id}${numeric}>${html}</${tag}>`,
+      html: `<${tag}${id}${numeric}${epubListAttributes(element)}>${html}</${tag}>`,
       text: `${plain}${separator}`,
     };
   };
@@ -241,9 +249,15 @@ export function parseEpubSpineItem(
         element.getAttribute("aria-hidden") === "true")
     )
       return;
-    if (element && containers.has(tag)) {
+    if (
+      element &&
+      (containers.has(tag) ||
+        (tag === "blockquote" &&
+          (elements(element, "ol").length || elements(element, "ul").length)))
+    ) {
+      const firstBlock = blocks.length;
       const id = element.getAttribute("id");
-      if (id)
+      if (id && tag !== "blockquote")
         append(
           `<span id="${escapeHtml(epubAnchor(spineIndex, id))}"></span>`,
           "",
@@ -271,6 +285,16 @@ export function parseEpubSpineItem(
         }
       }
       flush();
+      if (tag === "blockquote") {
+        for (let index = firstBlock; index < blocks.length; index++) {
+          const block = blocks[index];
+          if (block)
+            blocks[index] = {
+              ...block,
+              html: `<blockquote${id && index === firstBlock ? ` id="${escapeHtml(epubAnchor(spineIndex, id))}"` : ""}>${block.html}</blockquote>`,
+            };
+        }
+      }
       return;
     }
     const rendered = render(node);
@@ -292,6 +316,16 @@ export function parseEpubSpineItem(
       /^h[1-6]$/u.test(tag),
       !!element && (tag === "pre" || elements(element, "pre").length > 0),
     );
+    const last = blocks.at(-1);
+    if (element && last && (tag === "ol" || tag === "ul")) {
+      const parts = splitEpubList(
+        element,
+        last,
+        render,
+        elements(element, "pre").length > 0,
+      );
+      blocks.splice(blocks.length - 1, 1, ...parts);
+    }
   };
   visit(body);
   return {
