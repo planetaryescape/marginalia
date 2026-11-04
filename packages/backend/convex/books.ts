@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { libraryIsActive, ownedArticle } from "./access";
-import { discardImages } from "./bookImages";
+import { DISCARD_IMAGES_BATCH_SIZE, discardImages } from "./bookImages";
 import { unitSummaries } from "./bookIndex";
 import { liveImport, markImportReady } from "./documentImports";
 import {
@@ -484,7 +484,7 @@ export const discardBook = internalMutation({
     // another delivery of that import. Optional indexing is not import work.
     if (article?.extractionStatus === "extracted") return;
     const imageCount = await discardImages(ctx, args.userId, args.articleId);
-    if (imageCount === 50) {
+    if (imageCount === DISCARD_IMAGES_BATCH_SIZE) {
       await ctx.scheduler.runAfter(0, internal.books.discardBook, args);
       return;
     }

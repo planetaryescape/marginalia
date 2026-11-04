@@ -209,7 +209,7 @@ it("stores only referenced images from a large manifest and reuses repeated refe
   files["OPS/book.opf"] = strToU8(
     strFromU8(packageBytes).replace("</manifest>", `${unused}</manifest>`),
   );
-  const input = await start(f, zipSync(files));
+  const input = await start(f, zipSync(files, { level: 0 }));
   await f.t.action(internal.actions.importEpub.run, {
     importId: input.importId,
   });

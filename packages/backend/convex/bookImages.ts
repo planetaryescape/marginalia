@@ -4,6 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import { liveImport } from "./documentImports";
 import { internalMutation, type MutationCtx } from "./functions";
 
+export const DISCARD_IMAGES_BATCH_SIZE = 50;
+
 export const register = internalMutation({
   args: {
     importId: v.id("documentImports"),
@@ -62,7 +64,7 @@ export async function discardImages(
         ? q.eq("userId", userId)
         : q.eq("userId", userId).eq("articleId", articleId),
     )
-    .take(50);
+    .take(DISCARD_IMAGES_BATCH_SIZE);
   for (const image of images) {
     if (await ctx.db.system.get(image.storageId))
       await ctx.storage.delete(image.storageId);
@@ -80,7 +82,7 @@ export const discard = internalMutation({
   handler: async (ctx, args) => {
     if (await ctx.db.get(args.articleId)) return;
     const count = await discardImages(ctx, args.userId, args.articleId);
-    if (count === 50)
+    if (count === DISCARD_IMAGES_BATCH_SIZE)
       await ctx.scheduler.runAfter(0, internal.bookImages.discard, args);
   },
 });
