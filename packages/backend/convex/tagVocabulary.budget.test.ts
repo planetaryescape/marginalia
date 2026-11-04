@@ -35,7 +35,7 @@ async function fixture(
   ready: boolean,
   maxReadBytes?: number,
   shortAliases = false,
-  construction: "seed" | "migrate" = "seed",
+  construction: "seed" | "vocabulary" | "aliases" = "seed",
 ) {
   const t = convexTest({
     schema,
@@ -75,9 +75,14 @@ async function fixture(
         );
       }
     });
-  if (ready && construction === "seed")
-    await seedBudgetVocabulary(t, userId, tagIds, shortAliases);
-  if (ready && construction === "migrate") {
+  if (ready && construction !== "vocabulary")
+    await seedBudgetVocabulary(
+      t,
+      userId,
+      tagIds,
+      construction === "seed" && shortAliases,
+    );
+  if (ready && construction === "vocabulary") {
     let done = false;
     let maxReadBytes = 0;
     let maxWriteBytes = 0;
@@ -101,11 +106,11 @@ async function fixture(
     );
     expect(done).toBe(true);
   }
-  if (ready && shortAliases) {
+  if (ready && shortAliases && construction !== "vocabulary") {
     let done = false;
     for (
       let page = 0;
-      construction === "migrate" && page < 600 && !done;
+      construction === "aliases" && page < 600 && !done;
       page++
     )
       done = (
@@ -116,7 +121,7 @@ async function fixture(
           return result;
         })
       ).done;
-    if (construction === "migrate") expect(done).toBe(true);
+    if (construction === "aliases") expect(done).toBe(true);
     const sources = await t.run((ctx) =>
       ctx.db.query("tagAliasSources").collect(),
     );
@@ -234,8 +239,15 @@ async function activateBudgetVectors(
   );
 }
 
-it("migrates vocabulary and aliases for all 540 unchanged full payloads through production functions", async () => {
-  await fixture(true, undefined, true, "migrate");
+it("migrates vocabulary for all 540 unchanged full payloads through production functions", async () => {
+  const current = await fixture(true, undefined, true, "vocabulary");
+  expect(
+    await current.t.run((ctx) => ctx.db.query("tagVocabulary").collect()),
+  ).toHaveLength(540);
+});
+
+it("migrates and activates aliases for all 540 unchanged full payloads through production functions", async () => {
+  await fixture(true, undefined, true, "aliases");
 });
 
 it("migrates all 540 unchanged full vectors within native budgets", async () => {
