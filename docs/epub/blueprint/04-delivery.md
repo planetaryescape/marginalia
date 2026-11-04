@@ -4,7 +4,7 @@ Review happens in native upstream [stack #101](https://github.com/planetaryescap
 
 ## Native upstream review chain
 
-Guide now has upstream admin access. Native stacks require non-fork heads, so the relevant branches were published upstream without changing their commit ancestry:
+Guide now has upstream admin access. Native stacks require non-fork heads, so the relevant branches were published upstream without changing their commit ancestry. The targets below describe the initial registration, not live branch state after parent merges:
 
 - Auth [#100](https://github.com/planetaryescape/marginalia/pull/100) targets `main` at the same `bed850d` commit as replaced #95. Guide explicitly approved the replacement required by GitHub's fork-head restriction; its original discussion and evidence stay available.
 - Parser [#98](https://github.com/planetaryescape/marginalia/pull/98) targets `fix/local-auth-onboarding`, excluding auth from its diff.
@@ -17,7 +17,9 @@ Guide now has upstream admin access. Native stacks require non-fork heads, so th
 
 The earlier upstream attempt lacked admin access, usable upstream parent branches and non-fork PR heads. The successful #101 registration was verified through the upstream stacks API, not inferred from branch links or the old fork stack.
 
-## The stack
+## Historical planned stack, not the registered review chain
+
+This six-stage roadmap preserves the original #95-based proposal, including its branch names and folder-import scope. It is not an active branch registry or evidence that future phases shipped. The current review chain is recorded above and in the [current handoff](#current-review-handoff-2026-11-04).
 
 | # | Branch | Contents | Schema |
 |---|---|---|---|
@@ -106,7 +108,7 @@ Entries below record evidence and approvals at each slice, not blanket current s
 
 ## Current review handoff, 2026-11-04
 
-- The latest approved isolated development update succeeded at `d69a0e5`, with check/build evidence recorded on [#108](https://github.com/planetaryescape/marginalia/pull/108). Its component/fixture evidence is not signed-in browser E2E evidence. Source-format display changes are read-only and add no schema migration. Production remains untouched; a successful private-book retry, reader navigation and runtime log delivery remain unverified.
+- The latest approved isolated development update succeeded at `d69a0e5`, with check/build evidence recorded on [#108](https://github.com/planetaryescape/marginalia/pull/108). Its source-format display uses read-only API changes, without a schema migration. The later local optional-field implementation below is separate and includes projection writes. Component/fixture evidence is not signed-in browser E2E evidence. Production remains untouched; a successful private-book retry, reader navigation and runtime log delivery remain unverified.
 - Guide subsequently authorized fixing every review comment, exact-lease restacking of affected branches, and merging the entire native upstream #101 stack once bots are satisfied, without waiting for every PR CI run (D-EPUB-025). This is current workflow permission, not a claim of completed merges, resolved threads or passing current-head CI. Do not deploy production or run new schema/data migrations under this approval.
-- Auth #100 has since merged at `66a99f8`. This records only that auth merge, not completion of the EPUB stack. Round-two parser and frontend-hook fixes have focused local and generated-browser evidence; aggregate verification and fresh review precede the remaining merges. No successful signed-in reading or new backend deployment is claimed.
-- Guide separately approved optional `bookPartCards.format` and associated schema/code changes for local implementation and tests (D-EPUB-026). No live writes, deployment or backfill are authorized. Earlier development-update evidence does not cover this new field.
+- Auth #100 has since merged at `66a99f8`, after which GitHub automatically restacked the descendants and parser #98 targets `main`. All nine descendant trees were checked for byte-equivalence before local refs and expected-head leases were refreshed. This records only that auth merge, not completion of the EPUB stack. Parser and frontend-hook fixes have focused local and generated-browser evidence; aggregate verification and fresh review precede the remaining merges. No successful signed-in reading or new backend deployment is claimed.
+- Guide separately approved optional `bookPartCards.format` and associated schema/code changes for local implementation and tests (D-EPUB-026). This local implementation writes the field during normal metadata projection; it is not read-only code. No live writes, deployment or backfill are authorized. Earlier development-update evidence does not cover this new field.

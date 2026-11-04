@@ -1,4 +1,4 @@
-# Kickoff prompt for the first build session
+# Historical kickoff prompt for the first build session
 
 Review identity clarification: upstream auth [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced historical [#95](https://github.com/planetaryescape/marginalia/pull/95) at the identical original `bed850d` commit in native [stack #101](https://github.com/planetaryescape/marginalia/stack/101). Original #95 references describe ancestry, not a current base; consult [Delivery](04-delivery.md).
 
