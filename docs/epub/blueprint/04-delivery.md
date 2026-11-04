@@ -1,10 +1,10 @@
 # 04: Delivery
 
-Feature review happens in `guidefari/marginalia` with incremental parent-branch diffs. Auth stays upstream; one feature integration PR goes to `planetaryescape/marginalia` once the reviewed stack is ready (D-EPUB-019).
+At this slice, feature review moved to `guidefari/marginalia` with incremental parent-branch diffs and a proposed later upstream integration PR (D-EPUB-019). This historical arrangement was superseded by native upstream [stack #101](https://github.com/planetaryescape/marginalia/stack/101), recorded in [later follow-up #106](https://github.com/planetaryescape/marginalia/pull/106); do not use the integration proposal as current instructions.
 
-## Fork review chain
+## Historical fork review chain
 
-Guide has read access upstream and owns the fork. The original upstream #96/#97 both targeted `main`, exposing cumulative diffs instead of useful review slices. D-EPUB-019 replaces that arrangement:
+At this slice Guide had read access upstream and owned the fork. The original upstream #96/#97 targeted `main`, exposing cumulative diffs. D-EPUB-019 introduced the fork chain below; later upstream admin access and native registration superseded it.
 
 - Upstream auth [#95](https://github.com/planetaryescape/marginalia/pull/95) remains unchanged.
 - Fork parser [#1](https://github.com/guidefari/marginalia/pull/1) targets `fix/local-auth-onboarding`, excluding auth from its diff.
@@ -12,9 +12,9 @@ Guide has read access upstream and owns the fork. The original upstream #96/#97 
 - `fix/green-checks` targets `feat/epub-import-backend`; later feature branches continue from the reviewed tip.
 - Native fork stack #3 was created with `gh stack link --remote fork --base fix/local-auth-onboarding` using the fork PR URLs. Keep that explicit repository/remote selection when managing fork reviews.
 - Cross-link replacements before closing upstream #96/#97. Preserve their historical comments and carry pending suggestions into the owning fork review; closing a duplicate does not resolve its findings.
-- These fork PRs are review slices, not permission to merge the stack. Once ready, prepare one upstream integration PR. If auth has merged meanwhile, plan any necessary rebases explicitly so its commits are not replayed.
+- Under this historical fork integration proposal, auth #95 must merge and every descendant must be explicitly rebased before opening an upstream integration PR, so inherited auth commits are not replayed. #95 has since been replaced by #100 and the proposal superseded by native upstream [stack #101](https://github.com/planetaryescape/marginalia/stack/101), recorded in [later follow-up #106](https://github.com/planetaryescape/marginalia/pull/106). Current work follows that native parent-branch chain, not a cumulative integration PR. Neither review registration nor this historical plan authorizes merging or deployment.
 
-Do not infer native-stack availability upstream from the successful fork registration. The earlier upstream attempt failed because stacked PRs were disabled and the parent branches existed only in the fork.
+The earlier upstream attempt failed because stacks were disabled and parent branches existed only in the fork. Later upstream registration is evidenced by [#106](https://github.com/planetaryescape/marginalia/pull/106) and the native stacks API, not inferred from fork registration.
 
 ## The stack
 

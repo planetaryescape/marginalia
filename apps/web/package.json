@@ -10,8 +10,8 @@
     "start": "next start",
     "lint": "biome check .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 vitest run",
+    "test:watch": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 vitest"
   },
   "dependencies": {
     "@better-auth/passkey": "~1.6.15",
