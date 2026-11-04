@@ -23,15 +23,15 @@ This table records the original #95-based proposal, not the current review chain
 
 | # | Branch | Contents | Schema |
 |---|---|---|---|
-| Parent | `fix/local-auth-onboarding` | Auth and local setup, upstream #100 (replaces #95) | none |
+| Parent | `fix/local-auth-onboarding` | Auth and local setup, upstream PR #95 | none |
 | 1 | `feat/epub-parser` | This blueprint and Phase 1: `lib/epub/` parser, unit splitting, fixtures, `fflate` and `@xmldom/xmldom` | none |
 | 2 | `feat/epub-import-backend` | Phase 2 backend: `importEpub` action, images to storage, purge paths | `documentImports.format`, new failures, `bookUnits.sourceSpans`, `bookImages` |
-| 3 | `feat/epub-desk-import` | Phase 2 UI: picker and drop accept EPUBs and folders, format-aware copy, Ready card | none |
+| 3 | `feat/epub-import-desk` | Phase 2 UI: picker and drop accept EPUBs and folders, format-aware copy, Ready card | none |
 | 4 | `feat/epub-layout` | Phase 3: `bk-*` classes, verse, covers, footnotes (or footnotes split out, Q3) | none |
 | 5 | `feat/epub-annotations` | Phase 4: CFI expansion and placement, book endpoints, merge and tombstones | `highlights.source`, `externalAnnotationId`, `unplaced`, tombstone table |
 | 6 | `feat/apple-books-cli` | Phase 5: `packages/apple-books` | none |
 
-The first EPUB branch builds on `fix/local-auth-onboarding` (upstream #100, replacing #95), per D-EPUB-016 and D-EPUB-021. There is no separate blueprint PR (D-EPUB-015). Schema implementation and every backend update need their own explicit approvals; stack registration is not deployment or migration permission.
+The original proposal started the first EPUB branch from `fix/local-auth-onboarding` (#95) at `bed850d`, as Guide chose in D-EPUB-016. There is no separate blueprint PR (D-EPUB-015). D-EPUB-021 records the later replacement with upstream #100 and native stack #101. The backend and annotation slices carry schema changes requiring approval before implementation; BK approves backend deploys, with Guide's approval recorded per named target. Neither stack registration nor local schema approval authorizes a deployment or migration.
 
 Guide approved local backend import implementation in D-EPUB-018. `feat/epub-import-backend` builds on parser #98, replacing #96 and fork #1. This does not authorize deployments, migrations or the later annotation schema. Native upstream review replaces the obsolete cumulative integration-PR proposal.
 

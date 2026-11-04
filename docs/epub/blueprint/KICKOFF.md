@@ -1,5 +1,7 @@
 # Historical kickoff prompt for the first build session
 
+Historical context, not current authority. Follow [README](README.md#rules-for-coding-agents) and [Delivery](04-delivery.md) for the current workflow and explicit per-target permissions. Writable remotes and the prompt below do not authorize schema changes, deployment, live writes or backfills; review-fix and merge permission has only the scope recorded there.
+
 Paste this to the coding agent in `~/source/oss/marginalia` (remotes: `origin` is `planetaryescape/marginalia`, now writable with approved admin access; `fork` is `guidefari/marginalia`):
 
 ---
