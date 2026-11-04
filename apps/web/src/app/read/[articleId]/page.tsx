@@ -111,6 +111,7 @@ import { markFinished } from "@/lib/title-handoff";
 import { invalidateTopicSearchCache } from "@/lib/topic-search-cache";
 import { useBookProgress, useReadable } from "@/lib/use-book-reading";
 import { useEngagementTracker } from "@/lib/use-engagement-tracker";
+import { useEpubFragment } from "@/lib/use-epub-fragment";
 import { useIsIntersecting } from "@/lib/use-is-intersecting";
 import { useListenMediaSession } from "@/lib/use-listen-media-session";
 import { useMarginMode } from "@/lib/use-margin-mode";
@@ -286,6 +287,11 @@ export default function ReadPage() {
   const setMarkDefault = useSetMarkDefault();
   const { colors: legacyMarkDefaults } = useLegacyMarkDefaults();
   const paragraphs = useParagraphs(articleRef, Boolean(article));
+  const hasEpubFragment = useEpubFragment(
+    articleRef,
+    `${articleId}:${unitIndex ?? ""}`,
+    isBook && bookFormat === "epub",
+  );
   // A link from Notes names the passage to land on, e.g. `?quote=`.
   const landingParagraph = Number.parseInt(searchParams.get("p") ?? "", 10);
   const landed = useQuoteLanding(
@@ -316,7 +322,9 @@ export default function ReadPage() {
         percent: savedPercent,
         finished: article.finishedAt !== undefined,
         hasTarget:
-          searchParams.get("quote") !== null || searchParams.get("p") !== null,
+          searchParams.get("quote") !== null ||
+          searchParams.get("p") !== null ||
+          hasEpubFragment,
       })
       ? (savedPercent ?? null)
       : null,
