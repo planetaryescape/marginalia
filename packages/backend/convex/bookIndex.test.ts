@@ -1003,7 +1003,14 @@ describe("indexing a whole book", () => {
     expect(new Set(passages.map((p) => p.articleId))).toEqual(
       new Set([articleId]),
     );
-    expect(passages[0].heading).toBe("Systems Thinking › Unit 1");
+    const ordered = [...passages].sort(
+      (a, b) => a.unitIndex - b.unitIndex || a.passageIndex - b.passageIndex,
+    );
+    expect(ordered[0].heading).toBe("Systems Thinking › Unit 1");
+    for (const passage of passages)
+      expect(passage.heading).toBe(
+        `Systems Thinking › Unit ${passage.unitIndex + 1}`,
+      );
     expect(await state(f, articleId)).toMatchObject({
       phase: "done",
       running: false,
