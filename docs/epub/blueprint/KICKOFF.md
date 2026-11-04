@@ -1,5 +1,7 @@
 # Historical kickoff prompt for the first build session
 
+Review identity clarification: upstream auth [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced historical [#95](https://github.com/planetaryescape/marginalia/pull/95) at the identical original `bed850d` commit in native [stack #101](https://github.com/planetaryescape/marginalia/stack/101). Original #95 references describe ancestry, not a current base; consult [Delivery](04-delivery.md).
+
 Historical context only, not current execution instructions. Follow native upstream auth #100 and stack #101 in later follow-up #106. The prompt originally went to the coding agent in `~/source/oss/marginalia`. At this historical slice, `origin` (`planetaryescape/marginalia`) was read-only and `fork` was `guidefari/marginalia`; later [#106](https://github.com/planetaryescape/marginalia/pull/106) records approved writable upstream heads and native stack #101. Do not treat the old access restriction as current.
 
 ---
