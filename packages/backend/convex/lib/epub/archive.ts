@@ -24,7 +24,8 @@ export function resolveEpubHref(
   )
     return undefined;
   try {
-    const url = new URL(href, `https://epub.invalid/${base}`);
+    const encodedBase = base.split("/").map(encodeURIComponent).join("/");
+    const url = new URL(href, `https://epub.invalid/${encodedBase}`);
     if (url.origin !== "https://epub.invalid") return undefined;
     const path = decodeURIComponent(url.pathname.slice(1));
     decodeURIComponent(url.hash.slice(1));
