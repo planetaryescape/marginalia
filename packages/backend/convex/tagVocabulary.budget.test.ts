@@ -2,7 +2,12 @@
 import { appendFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { expect, it, onTestFailed } from "vitest";
+import {
+  seedBudgetVectors,
+  seedBudgetVocabulary,
+} from "../test/tag-budget-fixture";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { metadataTriggers } from "./lib/metadataTriggers";
 import {
   aliasState,
@@ -30,6 +35,7 @@ async function fixture(
   ready: boolean,
   maxReadBytes?: number,
   shortAliases = false,
+  construction: "seed" | "migrate" = "seed",
 ) {
   const t = convexTest({
     schema,
@@ -47,26 +53,31 @@ async function fixture(
       createdAt: 0,
     }),
   );
+  const tagIds: Id<"tags">[] = [];
   for (let start = 0; start < 540; start += 20)
     await t.run(async (ctx) => {
       for (let i = start; i < start + 20; i++) {
         const name = names[i] ?? `topic ${i}`;
-        await ctx.db.insert("tags", {
-          userId,
-          name,
-          key: name,
-          aliases: [
-            `alias-${"x".repeat(15_500)}-${i}`,
-            ...(shortAliases && i < 3 ? [`known${i}`] : []),
-          ],
-          count: 0,
-          status: "active",
-          createdAt: i,
-          embedding: Array.from({ length: 1536 }, () => 0.125),
-        });
+        tagIds.push(
+          await ctx.db.insert("tags", {
+            userId,
+            name,
+            key: name,
+            aliases: [
+              `alias-${"x".repeat(15_500)}-${i}`,
+              ...(shortAliases && i < 3 ? [`known${i}`] : []),
+            ],
+            count: 0,
+            status: "active",
+            createdAt: i,
+            embedding: Array.from({ length: 1536 }, () => 0.125),
+          }),
+        );
       }
     });
-  if (ready) {
+  if (ready && construction === "seed")
+    await seedBudgetVocabulary(t, userId, tagIds, shortAliases);
+  if (ready && construction === "migrate") {
     let done = false;
     let maxReadBytes = 0;
     let maxWriteBytes = 0;
@@ -90,9 +101,13 @@ async function fixture(
     );
     expect(done).toBe(true);
   }
-  if (shortAliases) {
+  if (ready && shortAliases) {
     let done = false;
-    for (let page = 0; page < 600 && !done; page++)
+    for (
+      let page = 0;
+      construction === "migrate" && page < 600 && !done;
+      page++
+    )
       done = (
         await t.run(async (ctx) => {
           const result = await migrateTagAliases(ctx, userId);
@@ -101,7 +116,7 @@ async function fixture(
           return result;
         })
       ).done;
-    expect(done).toBe(true);
+    if (construction === "migrate") expect(done).toBe(true);
     // Physical stress fixture, not the production activation endpoint: validate
     // all 540 sources one bounded transaction at a time under the same 1MB cap.
     // No concurrent writers run during fixture construction. Production's two
@@ -146,7 +161,7 @@ async function fixture(
         await ctx.db.patch(state._id, { ready: true });
       });
   }
-  return { t, articleId };
+  return { t, articleId, tagIds };
 }
 
 async function measuredAssignment(
@@ -173,30 +188,9 @@ async function measuredAssignment(
   });
 }
 
-it("assigns actual candidate/semantic proposals and relinks with the unchanged 540 full payloads under native limits", async () => {
-  const current = await fixture(true, undefined, true);
-  let done = false;
-  let migrationRead = 0;
-  let migrationWrite = 0;
-  for (let i = 0; i < 600 && !done; i++) {
-    const measured = await current.t.run(async (ctx) => {
-      const result = await migrateTagVectors(ctx, userId);
-      return { result, metrics: await ctx.meta.getTransactionMetrics() };
-    });
-    done = measured.result.done;
-    migrationRead = Math.max(migrationRead, measured.metrics.bytesRead.used);
-    migrationWrite = Math.max(
-      migrationWrite,
-      measured.metrics.bytesWritten.used,
-    );
-  }
-  expect(done).toBe(true);
-  expect(migrationRead).toBeLessThan(1_000_000);
-  expect(migrationWrite).toBeLessThan(1_000_000);
-  evidence(
-    "B12 vector migration maxima",
-    JSON.stringify({ migrationRead, migrationWrite }),
-  );
+async function activateBudgetVectors(
+  current: Awaited<ReturnType<typeof fixture>>,
+) {
   // The legacy one-snapshot boolean still refuses this >8MB baseline.
   expect(
     await current.t.run((ctx) => verifyAndActivateTagVectors(ctx, userId)),
@@ -237,6 +231,51 @@ it("assigns actual candidate/semantic proposals and relinks with the unchanged 5
     "B12 production paged vector activation",
     JSON.stringify(activationMetrics),
   );
+}
+
+it("migrates vocabulary and aliases for all 540 unchanged full payloads through production functions", async () => {
+  await fixture(true, undefined, true, "migrate");
+});
+
+it("migrates all 540 unchanged full vectors within native budgets", async () => {
+  const current = await fixture(false, undefined, true);
+  let done = false;
+  let migrationRead = 0;
+  let migrationWrite = 0;
+  for (let i = 0; i < 600 && !done; i++) {
+    const measured = await current.t.run(async (ctx) => {
+      const result = await migrateTagVectors(ctx, userId);
+      return { result, metrics: await ctx.meta.getTransactionMetrics() };
+    });
+    done = measured.result.done;
+    migrationRead = Math.max(migrationRead, measured.metrics.bytesRead.used);
+    migrationWrite = Math.max(
+      migrationWrite,
+      measured.metrics.bytesWritten.used,
+    );
+  }
+  expect(done).toBe(true);
+  expect(migrationRead).toBeLessThan(1_000_000);
+  expect(migrationWrite).toBeLessThan(1_000_000);
+  evidence(
+    "B12 vector migration maxima",
+    JSON.stringify({ migrationRead, migrationWrite }),
+  );
+  expect(
+    await current.t.run((ctx) => ctx.db.query("tagVectorState").unique()),
+  ).toMatchObject({ backfilled: true, count: 540, ready: false });
+});
+
+it("activates all 540 unchanged full vectors through production paged proof", async () => {
+  const current = await fixture(false, undefined, true);
+  await seedBudgetVectors(current.t, userId, current.tagIds);
+  await activateBudgetVectors(current);
+});
+
+it("assigns actual candidate/semantic proposals and relinks with the unchanged 540 full payloads under native limits", async () => {
+  const current = await fixture(true, undefined, true);
+  await seedBudgetVectors(current.t, userId, current.tagIds);
+  await activateBudgetVectors(current);
   const semantic = {
     name: "semantic synonym",
     embedding: Array(1536).fill(0.125),

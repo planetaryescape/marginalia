@@ -7,8 +7,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { addReader } from "../test/owner";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
-import { purgeCurrentReporting } from "./lib/currentReporting";
+import {
+  dwellReportingProjection,
+  purgeCurrentReporting,
+  visitReportingProjection,
+} from "./lib/currentReporting";
 import { metadataTriggers } from "./lib/metadataTriggers";
 import schema from "./schema";
 
@@ -22,6 +27,26 @@ function evidence(label: string, value: string) {
       process.env.CURRENT_REPORT_EVIDENCE,
       `{"label":${JSON.stringify(label)},"value":${value}}\n`,
     );
+}
+
+async function seedVisit(
+  ctx: MutationCtx,
+  value: Omit<Doc<"readingActivity">, "_id" | "_creationTime">,
+) {
+  const id = await ctx.db.insert("readingActivity", value);
+  const row = await ctx.db.get(id);
+  if (!row) throw new Error("Missing fixture visit");
+  await ctx.db.insert("visitReportingMetadata", visitReportingProjection(row));
+}
+
+async function seedDwell(
+  ctx: MutationCtx,
+  value: Omit<Doc<"paragraphDwell">, "_id" | "_creationTime">,
+) {
+  const id = await ctx.db.insert("paragraphDwell", value);
+  const row = await ctx.db.get(id);
+  if (!row) throw new Error("Missing fixture dwell");
+  await ctx.db.insert("dwellReportingMetadata", dwellReportingProjection(row));
 }
 
 async function fixture(now = "2026-11-02T12:00:00Z") {
@@ -722,10 +747,9 @@ it.each([
   await f.ready();
   for (let start = 0; start < 4097; start += 100)
     await f.t.run(async (ctx) => {
-      const { db } = metadataTriggers.wrapDB(ctx);
       for (let i = start; i < Math.min(start + 100, 4097); i++) {
-        if (kind === "visits") await db.insert("readingActivity", f.visit());
-        else await db.insert("paragraphDwell", f.dwell());
+        if (kind === "visits") await seedVisit(ctx, f.visit());
+        else await seedDwell(ctx, f.dwell());
       }
     });
   const result = await f.t.run(async (ctx) => ({
@@ -856,7 +880,6 @@ it("preserves Linger per-article sentinels, global cutoff and duplicate links", 
   await f.ready();
   for (let start = 0; start < 100; start += 10)
     await f.t.run(async (ctx) => {
-      const { db } = metadataTriggers.wrapDB(ctx);
       for (let i = start; i < start + 10; i++) {
         const articleId = await ctx.db.insert("articles", {
           userId: f.userId,
@@ -867,7 +890,7 @@ it("preserves Linger per-article sentinels, global cutoff and duplicate links", 
           annotationStatus: "annotated",
           createdAt: 1,
         });
-        await db.insert("readingActivity", f.visit({ articleId }));
+        await seedVisit(ctx, f.visit({ articleId }));
         await ctx.db.insert("articleTags", {
           userId: f.userId,
           articleId,
@@ -882,8 +905,8 @@ it("preserves Linger per-article sentinels, global cutoff and duplicate links", 
             createdAt: 1,
           });
         for (let j = 0; j < 21; j++)
-          await db.insert(
-            "paragraphDwell",
+          await seedDwell(
+            ctx,
             f.dwell({ articleId, updatedAt: j === 20 ? 0 : Date.now() - 100 }),
           );
       }
