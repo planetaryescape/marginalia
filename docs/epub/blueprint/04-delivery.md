@@ -39,7 +39,7 @@ Guide approved local backend import implementation in D-EPUB-018. `feat/epub-imp
 
 ## Each PR
 
-- Runs `bun run check` and `bun run build`, recording exact-head results and any pre-existing failures. The parser baseline failures below remain historical evidence, not an accepted current waiver; later check cleanup is recorded in [follow-up #102](https://github.com/planetaryescape/marginalia/pull/102).
+- Runs `bun run check` and `bun run build`, recording the local commit or CI checkout ref and any pre-existing failures. PR CI checks merge refs; its associated head SHA is not itself checkout proof. The parser baseline failures below remain historical evidence, not an accepted current waiver; later check cleanup is recorded in [follow-up #102](https://github.com/planetaryescape/marginalia/pull/102).
 - Updates the docs its change affects ([01](01-plan.md#documentation-travels-with-the-code)).
 - Describes what was verified in the browser, without personal library content.
 - Ends with no co-author or tool attribution lines.
