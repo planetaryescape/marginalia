@@ -16,7 +16,9 @@ At this slice Guide had read access upstream and owned the fork. The original up
 
 The earlier upstream attempt failed because stacks were disabled and parent branches existed only in the fork. Later upstream registration is evidenced by [#106](https://github.com/planetaryescape/marginalia/pull/106) and the native stacks API, not inferred from fork registration.
 
-## The stack
+## Historical stack proposal
+
+This table records the original #95-based proposal, not the current review chain. Follow upstream auth #100 and native stack #101 in [later follow-up #106](https://github.com/planetaryescape/marginalia/pull/106).
 
 | # | Branch | Contents | Schema |
 |---|---|---|---|
