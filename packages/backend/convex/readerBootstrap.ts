@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { ownedArticle, ownedArticleCard } from "./access";
 import { unitSummaries } from "./bookIndex";
 import { query } from "./functions";
+import { unitFormat } from "./lib/bookFormat";
 import { nextUnitIndex } from "./lib/bookPicks";
 import { readerArticle } from "./lib/readerArticle";
 
@@ -31,6 +32,7 @@ export const get = query({
         feed,
         readingTimeZone,
         isBook: false,
+        bookFormat: undefined,
         unitIndex: null,
         unitKey: null,
         unitTitle: null,
@@ -74,6 +76,7 @@ export const get = query({
           }
         : null,
       isBook: true,
+      bookFormat: unit ? unitFormat(unit) : undefined,
       unitIndex: index,
       unitKey: unit?._id ?? null,
       unitTitle: unit?.title ?? null,

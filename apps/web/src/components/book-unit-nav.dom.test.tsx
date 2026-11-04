@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BookPosition } from "./book-position";
 import { BookUnitNav } from "./book-unit-nav";
 
 let root: Root;
@@ -84,6 +85,32 @@ describe("the list of parts", () => {
 });
 
 describe("EPUB chapter navigation", () => {
+  it("names the EPUB chapter on the Continue card while keeping PDF part counts", () => {
+    act(() =>
+      root.render(
+        <BookPosition
+          title="Learning to Notice"
+          number={37}
+          count={81}
+          format="epub"
+        />,
+      ),
+    );
+    expect(document.body.textContent).toBe("Learning to Notice");
+    act(() =>
+      root.render(
+        <BookPosition
+          title="Learning to Notice"
+          number={37}
+          count={81}
+          format="pdf"
+        />,
+      ),
+    );
+    expect(document.body.textContent).toBe(
+      "Part 37 of 81 · Learning to Notice",
+    );
+  });
   it("shows chapter titles and Contents without counting reading chunks as chapters", () => {
     render(1, undefined, true);
     expect(document.querySelector("nav")?.getAttribute("aria-label")).toBe(

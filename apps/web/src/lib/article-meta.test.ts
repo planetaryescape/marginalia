@@ -66,4 +66,17 @@ describe("readerMeta", () => {
       }),
     ).toBe("Learning to Notice · EPUB · 2 min read");
   });
+
+  it("uses the stored format when a long filename has lost its extension", () => {
+    expect(
+      readerMeta({
+        url: "upload:import-id",
+        uploaded: true,
+        uploadedFileName: "x".repeat(200),
+        format: "epub",
+        minutes: 2,
+        part: { index: 36, of: 81, title: "Learning to Notice" },
+      }),
+    ).toBe("Learning to Notice · EPUB · 2 min read");
+  });
 });

@@ -325,13 +325,14 @@ describe("compact Continue", () => {
     ).toHaveLength(1);
   });
 
-  it("uses small part cards with unit zero and the exact 95% next/last-part handoff, without scheduling work", async () => {
+  it.each(["pdf", "epub"])("resumes a %s book", async (format) => {
     const t = await ownerTest(modules);
     const { id, bookId } = await t.run(async (raw) => {
       const ctx = metadataContext(raw);
       const id = await ctx.db.insert("articles", {
         ...article(),
         bookUnitCount: 2,
+        uploadedFileName: "x".repeat(200),
       });
       const bookId = await ctx.db.insert("books", {
         userId: "default_user",
@@ -350,6 +351,9 @@ describe("compact Continue", () => {
           articleId: id,
           index,
           title: `Chapter ${index + 1}`,
+          ...(format === "epub"
+            ? { sourceSpans: [{ spineIndex: index, start: 0, end: 4 }] }
+            : {}),
           estimatedReadMinutes: 10,
           content: "body",
           contentHtml: "<p>body</p>",
@@ -364,7 +368,7 @@ describe("compact Continue", () => {
       paragraphIndex: 0,
       scrollPercent: 40,
       remainingMinutes: 6,
-      part: { number: 1, count: 2, title: "Chapter 1" },
+      part: { number: 1, count: 2, title: "Chapter 1", format },
     });
     await t.run((ctx) => ctx.db.patch(bookId, { furthestScroll: 94.9 }));
     expect((await t.query(api.sessions.getContinue, {})).item).toMatchObject({

@@ -159,6 +159,7 @@ export default function ReadPage() {
     readingTimeZone,
     bibleDisplay,
     isBook,
+    bookFormat,
     unitIndex,
     unitTitle,
     unitKey,
@@ -1383,6 +1384,7 @@ export default function ReadPage() {
                 url: sourceArticle.url,
                 uploaded: Boolean(sourceArticle.uploadedFileName),
                 uploadedFileName: sourceArticle.uploadedFileName,
+                format: bookFormat,
                 author: sourceArticle.author,
                 minutes: sourceArticle.estimatedReadMinutes,
               })
@@ -1783,6 +1785,7 @@ export default function ReadPage() {
                   url: article.url,
                   uploaded: Boolean(article.uploadedFileName),
                   uploadedFileName: article.uploadedFileName,
+                  format: bookFormat,
                   author: article.author,
                   minutes: article.estimatedReadMinutes,
                   part:
@@ -1890,7 +1893,7 @@ export default function ReadPage() {
                   unitIndex={unitIndex}
                   outline={outline}
                   summaries={summaries}
-                  epub={/\.epub$/i.test(article.uploadedFileName ?? "")}
+                  epub={bookFormat === "epub"}
                 />
               )}
               {!isBook && (

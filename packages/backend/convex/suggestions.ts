@@ -18,6 +18,7 @@ import {
   takeCards,
   windowSource,
 } from "./lib/articleMetadata";
+import { bookFormat } from "./lib/bookFormat";
 import { type BookCandidate, bookReason, nextUnitIndex } from "./lib/bookPicks";
 import { WORDS_PER_MINUTE } from "./lib/constants";
 import { TASTE_MAX, type Taste } from "./lib/taste";
@@ -63,6 +64,7 @@ async function bookPicks(ctx: Reader, minutes: number) {
     candidate: BookCandidate;
     reason: string;
     started: boolean;
+    format: "pdf" | "epub";
   }[] = [];
   const books = await ctx.db
     .query("books")
@@ -104,6 +106,13 @@ async function bookPicks(ctx: Reader, minutes: number) {
       picks.push({
         article,
         candidate,
+        format: await bookFormat(
+          ctx,
+          ctx.readerId,
+          book.articleId,
+          article,
+          unitIndex,
+        ),
         reason: bookReason(book, candidate.unitIndex),
         started: book.furthestUnit >= 0 || book.finishedThrough >= 0,
       });
@@ -112,10 +121,10 @@ async function bookPicks(ctx: Reader, minutes: number) {
 }
 
 function toBookSuggestion(pick: Awaited<ReturnType<typeof bookPicks>>[number]) {
-  const { article, candidate, reason, started } = pick;
+  const { article, candidate, reason, started, format } = pick;
   return {
     _id: article._id,
-    title: `${article.title} · Part ${candidate.unitIndex + 1} of ${candidate.of}`,
+    title: `${article.title} · ${format === "epub" ? candidate.title : `Part ${candidate.unitIndex + 1} of ${candidate.of}`}`,
     author: article.author,
     url: article.url,
     imageUrl: article.imageUrl,

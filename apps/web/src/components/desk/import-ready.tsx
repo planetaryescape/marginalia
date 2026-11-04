@@ -82,7 +82,7 @@ export function ImportReady({
       ? `${row.pages.toLocaleString()} pages`
       : null,
     isBook
-      ? `${row.units?.toLocaleString()} parts${partMinutes ? ` of about ${partMinutes} min` : ""}`
+      ? `${row.units?.toLocaleString()} ${row.format === "epub" ? "reading sections" : "parts"}${partMinutes ? ` of about ${partMinutes} min` : ""}`
       : row.minutes
         ? `${row.minutes} min`
         : null,
