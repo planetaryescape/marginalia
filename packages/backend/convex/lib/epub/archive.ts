@@ -55,7 +55,22 @@ export function openEpubArchive(
     let total = 0;
     let count = 0;
     let oversized = false;
-    let invalid = false;
+    const header = new DataView(
+      input.buffer,
+      input.byteOffset,
+      input.byteLength,
+    );
+    const markerOffset =
+      input.length >= 30 ? 38 + header.getUint16(28, true) : 0;
+    let invalid =
+      input.length < 58 ||
+      header.getUint32(0, true) !== 0x04034b50 ||
+      header.getUint16(8, true) !== 0 ||
+      header.getUint16(26, true) !== 8 ||
+      new TextDecoder().decode(input.subarray(30, 38)) !== "mimetype" ||
+      new TextDecoder().decode(
+        input.subarray(markerOffset, markerOffset + 20),
+      ) !== "application/epub+zip";
     const names = new Set<string>();
     unzipSync(input, {
       filter: (entry) => {
@@ -68,6 +83,7 @@ export function openEpubArchive(
         invalid ||=
           !safeArchivePath(entry.name) ||
           names.has(entry.name) ||
+          (entry.name === "mimetype" && entry.compression !== 0) ||
           (entry.compression === 0 && entry.size !== entry.originalSize);
         names.add(entry.name);
         return false;

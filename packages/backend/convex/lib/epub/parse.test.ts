@@ -1,4 +1,4 @@
-import { strToU8, zipSync } from "fflate";
+import { strToU8, zipSync, type Zippable } from "fflate";
 import { describe, expect, it } from "vitest";
 import { EPUB_LIMITS } from "./archive";
 import { parseEpub } from "./parse";
@@ -52,7 +52,13 @@ function fixture({
 }
 
 function archive(files: ReadonlyMap<string, Uint8Array>) {
-  return zipSync(Object.fromEntries(files), { level: 6 });
+  const entries: Zippable = {};
+  for (const [path, bytes] of files)
+    Object.defineProperty(entries, path, {
+      value: [bytes, { level: path === "mimetype" ? 0 : 6 }],
+      enumerable: true,
+    });
+  return zipSync(entries);
 }
 
 function parsed(files = fixture()) {
@@ -62,6 +68,139 @@ function parsed(files = fixture()) {
 }
 
 describe("parser review regressions", () => {
+  it("requires the ZIP marker to be stored in the physical first entry", () => {
+    const files = fixture();
+    expect(parseEpub(archive(files)).ok).toBe(true);
+    expect(
+      parseEpub(zipSync(Object.fromEntries(files), { level: 6 })),
+    ).toMatchObject({ ok: false, reason: "not_epub" });
+    const marker = files.get("mimetype");
+    if (!marker) throw new Error("Missing marker");
+    files.delete("mimetype");
+    files.set("mimetype", marker);
+    expect(parseEpub(archive(files))).toMatchObject({
+      ok: false,
+      reason: "not_epub",
+    });
+  });
+
+  it("refuses duplicate resolved manifest hrefs before font obfuscation", () => {
+    for (const duplicateFirst of [false, true]) {
+      const files = fixture({
+        encryption:
+          '<encryption><EncryptedData><EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/><CipherData><CipherReference URI="OPS/text/chapter-0.xhtml"/></CipherData></EncryptedData></encryption>',
+      });
+      const duplicate =
+        '<item id="duplicate-font" href="text/./chapter-0.xhtml" media-type="font/otf"/>';
+      const source = new TextDecoder().decode(files.get("OPS/package.opf"));
+      files.set(
+        "OPS/package.opf",
+        strToU8(
+          duplicateFirst
+            ? source.replace("<manifest>", `<manifest>${duplicate}`)
+            : source.replace("</manifest>", `${duplicate}</manifest>`),
+        ),
+      );
+      expect(parseEpub(files)).toMatchObject({ ok: false, reason: "not_epub" });
+    }
+  });
+
+  it("counts attributes against the XML budget without counting quoted equals signs", () => {
+    const attributes = Array.from(
+      { length: 100_001 },
+      (_, index) => ` a${index}="x"`,
+    ).join("");
+    expect(
+      parseEpub(fixture({ bodies: [`<p${attributes}>Readable.</p>`] })),
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+    });
+    expect(
+      parsed(
+        fixture({
+          bodies: [`<p title="${"=".repeat(100_001)}">Readable.</p>`],
+        }),
+      ).units[0]?.content,
+    ).toBe("Readable.");
+  });
+
+  it("propagates depth and node ceilings from optional nav and NCX sources", () => {
+    for (const oversized of [
+      "<span/>".repeat(100_001),
+      `${"<div>".repeat(130)}x${"</div>".repeat(130)}`,
+    ]) {
+      for (const source of ["nav", "ncx"]) {
+        const files = fixture({ nav: "<broken>", ncx: "<ncx/>" });
+        files.set(
+          source === "nav" ? "OPS/nav.xhtml" : "OPS/toc.ncx",
+          strToU8(`<root>${oversized}</root>`),
+        );
+        expect(parseEpub(files)).toMatchObject({
+          ok: false,
+          reason: "too_long",
+        });
+      }
+    }
+  });
+
+  it("skips missing or malformed linked non-spine files while preserving later notes and indices", () => {
+    for (const invalid of [undefined, "<html><broken></html>"]) {
+      const files = fixture({
+        bodies: [
+          '<p>Main <a href="broken.xhtml#note">broken</a><a href="notes.xhtml#note">valid</a></p>',
+        ],
+      });
+      files.set(
+        "OPS/package.opf",
+        strToU8(
+          new TextDecoder()
+            .decode(files.get("OPS/package.opf"))
+            .replace(
+              "</manifest>",
+              '<item id="broken" href="text/broken.xhtml" media-type="application/xhtml+xml"/><item id="notes" href="text/notes.xhtml" media-type="application/xhtml+xml"/></manifest>',
+            ),
+        ),
+      );
+      if (invalid) files.set("OPS/text/broken.xhtml", strToU8(invalid));
+      files.set(
+        "OPS/text/notes.xhtml",
+        strToU8(
+          '<html><body><p id="note">Note <a href="chapter-0.xhtml">back</a></p></body></html>',
+        ),
+      );
+      const book = parsed(files);
+      expect(book.spine).toHaveLength(2);
+      const html = book.units.map((unit) => unit.contentHtml).join("");
+      expect(html).toContain("<a>broken</a>");
+      expect(html).toContain('id="epub-1-note"');
+      expect(html).toContain('#epub-1-note"');
+      for (const unit of book.units)
+        expect(unit.content).toBe(
+          unit.sourceSpans
+            .map((span) =>
+              book.spine[span.spineIndex]?.text.slice(span.start, span.end),
+            )
+            .join("\n\n"),
+        );
+      for (const oversized of [
+        "<span/>".repeat(100_001),
+        `${"<div>".repeat(130)}x${"</div>".repeat(130)}`,
+        "x".repeat(EPUB_LIMITS.entryBytes + 1),
+      ]) {
+        files.set(
+          "OPS/text/broken.xhtml",
+          strToU8(`<html><body>${oversized}</body></html>`),
+        );
+        expect(parseEpub(files)).toMatchObject({
+          ok: false,
+          reason: "too_long",
+        });
+      }
+    }
+  });
+
+
   it("requires the exact EPUB marker for both input forms and rejects prototype entries", () => {
     for (const marker of [
       undefined,
@@ -144,6 +283,18 @@ describe("parser review regressions", () => {
   });
 
   it("bounds crafted DOCTYPE, node and depth input before DOM construction", () => {
+    const internalSubset = fixture();
+    internalSubset.set(
+      "OPS/text/chapter-0.xhtml",
+      strToU8(
+        "<!DOCTYPE html [<!ELEMENT html ANY>]><html><body><p>Readable.</p></body></html>",
+      ),
+    );
+    expect(parseEpub(internalSubset)).toMatchObject({
+      ok: false,
+      reason: "unreadable",
+    });
+
     expect(
       parseEpub(fixture({ bodies: ["<!DOCTYPE".repeat(10_000)] })),
     ).toMatchObject({ ok: false, reason: "unreadable" });

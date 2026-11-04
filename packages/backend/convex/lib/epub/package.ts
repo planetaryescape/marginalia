@@ -26,11 +26,19 @@ export function parseEpubPackage(
     return { ok: false, reason: "not_epub" };
   const manifest: ManifestItem[] = [];
   const itemsById = new Map<string, ManifestItem>();
+  const manifestHrefs = new Set<string>();
   for (const node of elements(manifestNode, "item")) {
     const id = node.getAttribute("id");
     const href = resolveEpubHref(path, node.getAttribute("href") ?? "");
     const mediaType = node.getAttribute("media-type")?.toLowerCase();
-    if (!id || itemsById.has(id) || !href || href.includes("#") || !mediaType)
+    if (
+      !id ||
+      itemsById.has(id) ||
+      !href ||
+      manifestHrefs.has(href) ||
+      href.includes("#") ||
+      !mediaType
+    )
       return { ok: false, reason: "not_epub" };
     const item: ManifestItem = {
       id,
@@ -42,6 +50,7 @@ export function parseEpubPackage(
     };
     manifest.push(item);
     itemsById.set(id, item);
+    manifestHrefs.add(href);
   }
   const spine: ManifestItem[] = [];
   const itemrefs = elements(spineNode, "itemref");

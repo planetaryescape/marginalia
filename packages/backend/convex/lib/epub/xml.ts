@@ -74,13 +74,20 @@ function checkXmlBounds(source: string): EpubResult<null> {
       count++;
     } else {
       const start = offset;
+      const startTag = source[start + 1] !== "/" && source[start + 1] !== "!";
       let quote = "";
       for (offset++; offset < source.length; offset++) {
         const char = source[offset];
         if (quote) {
           if (char === quote) quote = "";
         } else if (char === '"' || char === "'") quote = char;
-        else if (char === ">") break;
+        else if (char === "=" && startTag) {
+          if (++count > 100_000)
+            return {
+              ok: false,
+              reason: "too_long",
+            };
+        } else if (char === ">") break;
         else if (
           char === "[" &&
           /^<!DOCTYPE\b/iu.test(source.slice(start, start + 10))

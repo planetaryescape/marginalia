@@ -29,10 +29,14 @@ export function parseEpub(
   const manifestByHref = new Map(
     book.manifest.map((item) => [item.href, item]),
   );
-  for (const [index, item] of readingItems.entries()) {
+  for (const [readingIndex, item] of readingItems.entries()) {
+    const index = spine.length;
+    const optional = readingIndex >= book.spine.length;
     const bytes = files.get(item.href);
+    if (!bytes && optional) continue;
     if (!bytes) return { ok: false, reason: "not_epub" };
     const parsed = parseEpubSpineItem(bytes, item.href, index);
+    if (!parsed.ok && optional && parsed.reason !== "too_long") continue;
     if (!parsed.ok) return parsed;
     for (const block of parsed.value.blocks) {
       for (const match of block.html.matchAll(/ data-epub-href="([^"]+)"/gu)) {

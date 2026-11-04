@@ -27,7 +27,7 @@ Related: the design blueprint ([../../design/blueprint/README.md](../../design/b
 
 ## Build status
 
-The first EPUB PR includes this blueprint and the pure parser, stacked on auth PR #95 (D-EPUB-015, D-EPUB-016). There is no separate docs PR. Guide approved purple to `cobalt` (D-EPUB-017), but the existing validator accepts it only for underlines. Purple highlights and other underline colour mappings remain a future Phase 4 decision, not an implemented conversion. Footnote PR scope remains open.
+The first EPUB PR includes this blueprint and the pure parser, stacked on auth PR #95 (D-EPUB-015, D-EPUB-016). There is no separate docs PR. Guide approved purple to `cobalt` (D-EPUB-017), but the existing validator accepts it only for underlines. D-EPUB-023 supersedes the unqualified mapping in D-EPUB-011/017. Purple highlights and other underline colour mappings remain a future Phase 4 decision, not an implemented conversion. Footnote PR scope remains open.
 
 ## Rules for coding agents
 

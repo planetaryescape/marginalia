@@ -33,7 +33,7 @@ Every decision from the planning session on 2026-11-04, with the options rejecte
 
 **D-EPUB-010: one-way, idempotent merge.** Keyed by Apple's annotation UUID. New Apple highlights are added, Marginalia edits win, deletions in Marginalia stick through tombstones, Apple deletions don't delete from Marginalia, nothing is written to Books. Ported from Leaf. Claude, accepted by Guide.
 
-**D-EPUB-011: Apple purple maps to `cobalt`.** No new mark colour, so theme contrast tests are untouched. Blueprint assumes: Guide's "yes" answered an either/or question; confirm (Q1 in [03](03-open-questions.md)).
+**D-EPUB-011: Apple purple maps to `cobalt`.** No new mark colour, so theme contrast tests are untouched. Blueprint assumes: Guide's "yes" answered an either/or question; confirm (Q1 in [03](03-open-questions.md)). The unqualified cross-kind mapping is superseded by D-EPUB-023.
 
 **D-EPUB-012: in-app import ships first.** The parser is shared by the desk upload and the CLI, so the drop works before the CLI exists. Guide: yes.
 
@@ -47,8 +47,6 @@ Every decision from the planning session on 2026-11-04, with the options rejecte
 
 **D-EPUB-016: the EPUB stack builds on auth PR #95.** Supersedes D-EPUB-014. Guide: "lets keep all my prs as stack, build on top of that auth thing". `feat/epub-parser` branches from `fix/local-auth-onboarding` at `bed850d`; later branches build on the parser. Upstream PRs still target `main` because their branches live on the fork. Reviewers use the parent commit boundary until parents merge. Do not change or merge #95 as part of parser work.
 
-**D-EPUB-017: confirm purple maps to cobalt.** Confirms D-EPUB-011. Guide: "yeahhappy with that purple", accepting the proposed existing `cobalt` mapping rather than a new mark colour.
+**D-EPUB-017: confirm purple maps to cobalt.** Confirms D-EPUB-011. Guide: "yeahhappy with that purple", accepting the proposed existing `cobalt` mapping rather than a new mark colour. The unqualified cross-kind mapping is superseded by D-EPUB-023.
 
-## Review clarification: colour and source kind
-
-D-EPUB-017 records Guide's approved purple-to-cobalt preference, not approval to change a source highlight into an underline. `lib/markColours.ts` permits yellow/green/blue/pink for `kind: "highlight"` and vermilion/cobalt/forest/graphite for `kind: "underline"`. Preserve the source kind. Purple-to-cobalt fits underlines only; purple highlights and remaining underline mappings need a decision before the future annotation API/CLI is implemented. No palette or schema change is made here.
+**D-EPUB-023: distinguish approved purple intent from kind compatibility.** Supersedes the unqualified cross-kind mapping in D-EPUB-011 and D-EPUB-017, not Guide's colour preference. Code review found that approved `cobalt` belongs only to the underline palette in `lib/markColours.ts`: source highlights remain highlights and source underlines remain underlines. Yellow/green/blue/pink highlights fit the current validator; purple-to-cobalt fits underlines only. Purple highlights and other underline colour mappings need Guide's decision before Phase 4. No palette, schema or annotation-import behavior has changed; the API, tombstones and Apple Books CLI remain future work.

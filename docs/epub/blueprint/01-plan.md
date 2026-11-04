@@ -73,7 +73,7 @@ Verify across every reader theme and at desktop and mobile widths with a few ill
 **Mapping into existing tables (planned, not implemented):**
 
 - Apple highlights become `highlights` rows with `kind: "highlight"`; yellow/green/blue/pink can retain their colours. `colorFitsKind` accepts only those highlighter colours for this kind, so a purple highlight cannot use `cobalt`. Its mapping needs confirmation before Phase 4 implementation.
-- Apple underlines retain `kind: "underline"` and must use pen colours (`vermilion`, `cobalt`, `forest`, `graphite`), never the highlighter palette. Guide approved purple to `cobalt` (D-EPUB-017), which is compatible for underlines only. Other underline colour mappings remain undecided. Do not silently change a source highlight into an underline to make a colour fit.
+- Apple underlines retain `kind: "underline"` and must use pen colours (`vermilion`, `cobalt`, `forest`, `graphite`), never the highlighter palette. Guide approved purple to `cobalt` (D-EPUB-017), restricted to compatible source kinds by D-EPUB-023. Other underline colour mappings remain undecided. Do not silently change a source highlight into an underline to make a colour fit.
 - Note: `userNotes` row on the same passage, so it appears in the margin and Notes.
 - Imported marks show a quiet "from Apple Books" label in Notes.
 

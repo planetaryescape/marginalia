@@ -11,6 +11,7 @@ export function parseEpubOutline(
   const nav = book.manifest.find((item) => item.properties.includes("nav"));
   if (nav) {
     const parsed = parseEpubXml(files.get(nav.href));
+    if (!parsed.ok && parsed.reason === "too_long") return parsed;
     const toc =
       parsed.ok &&
       elements(parsed.value, "nav").find((node) =>
@@ -43,6 +44,7 @@ export function parseEpubOutline(
   if (!ncx) return { ok: true, value: [] };
   const parsed = parseEpubXml(files.get(ncx.href));
   if (!parsed.ok) {
+    if (parsed.reason === "too_long") return parsed;
     return { ok: true, value: [] };
   }
   const entries: EpubOutlineEntry[] = [];
