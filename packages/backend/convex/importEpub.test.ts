@@ -169,89 +169,6 @@ it("publishes an owned book with spans, registered raster images and no fabricat
   expect(await f.t.run((ctx) => ctx.storage.get(image.storageId))).toBeNull();
 });
 
-it("retains verified metadata and a precise safe diagnostic when a single block is too large", async () => {
-  const f = await secondReaderTest(modules);
-  const input = await start(
-    f,
-    makeEpub({
-      body: `<p>${"private_fixture_word ".repeat(EPUB_LIMITS.unitWords + 1)}</p>`,
-    }),
-  );
-  await f.t.action(internal.actions.importEpub.run, {
-    importId: input.importId,
-  });
-  const latest = await f.owner.query(api.documentImports.latest, {});
-  expect(latest).toMatchObject({
-    _id: input.importId,
-    status: "failed",
-    failure: "too_long",
-    title: "Generated field guide",
-    author: "Fixture author",
-    diagnostic: {
-      stage: "units",
-      code: "block_words",
-      observed: 4001,
-      limit: 4000,
-      spineIndex: 0,
-      blockIndex: 0,
-    },
-  });
-  expect(JSON.stringify(latest?.diagnostic)).not.toContain(
-    "private_fixture_word",
-  );
-  expect(await f.reader.query(api.documentImports.latest, {})).toBeNull();
-  expect(await f.t.run((ctx) => ctx.storage.get(input.storageId))).toBeNull();
-  expect(await f.t.run((ctx) => ctx.db.query("books").take(1))).toEqual([]);
-  await f.t.mutation(internal.documentImports.fail, {
-    importId: input.importId,
-    failure: "unreadable",
-    diagnostic: {
-      stage: "publish",
-      code: "unexpected_failure",
-      errorType: "error",
-    },
-  });
-  expect(
-    (await f.owner.query(api.documentImports.latest, {}))?.diagnostic?.code,
-  ).toBe("block_words");
-});
-
-it("publishes long lists as bounded reading parts instead of rejecting the whole book", async () => {
-  const f = await secondReaderTest(modules);
-  const input = await start(
-    f,
-    makeEpub({
-      body: `<ol>${Array.from({ length: 120 }, (_, i) => `<li>Item ${i}: ${"generated text ".repeat(70)}</li>`).join("")}</ol>`,
-    }),
-  );
-  await f.t.action(internal.actions.importEpub.run, {
-    importId: input.importId,
-  });
-  const row = await f.t.run((ctx) => ctx.db.get(input.importId));
-  expect(row?.status).toBe("ready");
-  expect(row?.units).toBeGreaterThan(1);
-  expect(row?.failure).toBeUndefined();
-  expect(row?.diagnostic).toBeUndefined();
-});
-
-it.each([
-  { bytes: zipSync({ mimetype: strToU8("not an epub") }), reason: "not_epub" },
-  { bytes: new Uint8Array([1, 2, 3]), reason: "unreadable" },
-  { bytes: makeEpub({ protected: true }), reason: "protected" },
-])("refuses $reason and removes its upload", async ({ bytes, reason }) => {
-  const f = await secondReaderTest(modules);
-  const input = await start(f, bytes);
-  await f.t.action(internal.actions.importEpub.run, {
-    importId: input.importId,
-  });
-  expect(await f.t.run((ctx) => ctx.db.get(input.importId))).toMatchObject({
-    status: "failed",
-    failure: reason,
-  });
-  expect(await f.t.run((ctx) => ctx.storage.get(input.storageId))).toBeNull();
-  expect(await f.t.run((ctx) => ctx.db.query("articles").take(1))).toEqual([]);
-});
-
 it("terminally fails a refused image registration and compensates only its own partial book", async () => {
   const f = await secondReaderTest(modules);
   const kept = await start(f, makeEpub(), f.reader);
@@ -337,6 +254,89 @@ it("terminally fails a refused image registration and compensates only its own p
     expect(
       await f.t.run((ctx) => ctx.db.system.get(image.storageId)),
     ).not.toBeNull();
+});
+
+it("retains verified metadata and a precise safe diagnostic when a single block is too large", async () => {
+  const f = await secondReaderTest(modules);
+  const input = await start(
+    f,
+    makeEpub({
+      body: `<p>${"private_fixture_word ".repeat(EPUB_LIMITS.unitWords + 1)}</p>`,
+    }),
+  );
+  await f.t.action(internal.actions.importEpub.run, {
+    importId: input.importId,
+  });
+  const latest = await f.owner.query(api.documentImports.latest, {});
+  expect(latest).toMatchObject({
+    _id: input.importId,
+    status: "failed",
+    failure: "too_long",
+    title: "Generated field guide",
+    author: "Fixture author",
+    diagnostic: {
+      stage: "units",
+      code: "block_words",
+      observed: 4001,
+      limit: 4000,
+      spineIndex: 0,
+      blockIndex: 0,
+    },
+  });
+  expect(JSON.stringify(latest?.diagnostic)).not.toContain(
+    "private_fixture_word",
+  );
+  expect(await f.reader.query(api.documentImports.latest, {})).toBeNull();
+  expect(await f.t.run((ctx) => ctx.storage.get(input.storageId))).toBeNull();
+  expect(await f.t.run((ctx) => ctx.db.query("books").take(1))).toEqual([]);
+  await f.t.mutation(internal.documentImports.fail, {
+    importId: input.importId,
+    failure: "unreadable",
+    diagnostic: {
+      stage: "publish",
+      code: "unexpected_failure",
+      errorType: "error",
+    },
+  });
+  expect(
+    (await f.owner.query(api.documentImports.latest, {}))?.diagnostic?.code,
+  ).toBe("block_words");
+});
+
+it("publishes long lists as bounded reading parts instead of rejecting the whole book", async () => {
+  const f = await secondReaderTest(modules);
+  const input = await start(
+    f,
+    makeEpub({
+      body: `<ol>${Array.from({ length: 120 }, (_, i) => `<li>Item ${i}: ${"generated text ".repeat(70)}</li>`).join("")}</ol>`,
+    }),
+  );
+  await f.t.action(internal.actions.importEpub.run, {
+    importId: input.importId,
+  });
+  const row = await f.t.run((ctx) => ctx.db.get(input.importId));
+  expect(row?.status).toBe("ready");
+  expect(row?.units).toBeGreaterThan(1);
+  expect(row?.failure).toBeUndefined();
+  expect(row?.diagnostic).toBeUndefined();
+});
+
+it.each([
+  { bytes: zipSync({ mimetype: strToU8("not an epub") }), reason: "not_epub" },
+  { bytes: new Uint8Array([1, 2, 3]), reason: "unreadable" },
+  { bytes: makeEpub({ protected: true }), reason: "protected" },
+])("refuses $reason and removes its upload", async ({ bytes, reason }) => {
+  const f = await secondReaderTest(modules);
+  const input = await start(f, bytes);
+  await f.t.action(internal.actions.importEpub.run, {
+    importId: input.importId,
+  });
+  expect(await f.t.run((ctx) => ctx.db.get(input.importId))).toMatchObject({
+    status: "failed",
+    failure: reason,
+  });
+  expect(await f.t.run((ctx) => ctx.storage.get(input.storageId))).toBeNull();
+  expect(await f.t.run((ctx) => ctx.db.query("articles").take(1))).toEqual([]);
 });
 
 it("keeps invalid raster bytes as escaped alt text without storing assets", async () => {
