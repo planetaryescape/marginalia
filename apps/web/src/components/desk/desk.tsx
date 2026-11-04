@@ -40,21 +40,28 @@ function TimesWithFits(props: Omit<Parameters<typeof TimeChoices>[0], "fits">) {
   return <TimeChoices {...props} fits={fits} />;
 }
 
-function Desk({ fromFinish }: { fromFinish?: boolean }) {
+export function Desk({
+  fromFinish,
+  documentImport,
+}: {
+  fromFinish?: boolean;
+  documentImport: ReturnType<typeof useDocumentImport>;
+}) {
   const bible = useQuery(api.bible.preferences, {});
   const convex = useConvex();
   const params = useSearchParams();
   const showKeys = useAltHint();
   const link = parseDeskLink(params);
-  const documentImport = useDocumentImport();
   // Armed by a file dropped or picked here; anything else the reader starts
   // (a time, a typed ask, a new link) disarms it, so a PDF never snatches them
   // away from what they chose since.
   const [armed, setArmed] = useState(false);
   const startDocument = (file: File) => {
+    const admission = documentImport.start(file);
+    if (!admission.accepted) return;
     setChosen(null);
     setArmed(true);
-    void documentImport.start(file);
+    void admission.completion;
   };
   // Done brought us here: the slot slides its next pick in (globals.css)
   const [arrival, setArrival] = useState(() =>
@@ -166,6 +173,13 @@ function Desk({ fromFinish }: { fromFinish?: boolean }) {
         scope={bible?.enabled ? bible.scope : "articles"}
         translation={bible?.translation ?? "web"}
       />
+      {bible?.scope !== "bible" &&
+        documentImport.problem &&
+        (documentImport.upload || chosen) && (
+          <p role="alert" className="text-[15px] text-[var(--ink-soft)]">
+            {documentImport.problem}
+          </p>
+        )}
       <section
         aria-label="Your pick"
         className="min-h-[7rem] border-t border-[var(--reader-border)] pt-[22px]"
@@ -229,10 +243,11 @@ function SlotFailure({ retry }: { retry: () => void }) {
 }
 
 export default function DeskRoute({ fromFinish }: { fromFinish?: boolean }) {
+  const documentImport = useDocumentImport();
   // useSearchParams needs a Suspense boundary for static rendering
   return (
     <Suspense fallback={null}>
-      <Desk fromFinish={fromFinish} />
+      <Desk fromFinish={fromFinish} documentImport={documentImport} />
     </Suspense>
   );
 }

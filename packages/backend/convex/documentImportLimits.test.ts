@@ -39,6 +39,24 @@ it.each(
   ).toEqual(expect.any(String));
 });
 
+it("shares the existing upload quota with format-neutral refusal wording", async () => {
+  const f = await secondReaderTest(modules);
+  for (let index = 0; index < 20; index++) {
+    await f.owner.mutation(api.documentImports.generateUploadUrl, {
+      format: index % 2 === 0 ? "epub" : "pdf",
+      sha256: "a".repeat(64),
+      size: 100,
+    });
+  }
+  await expect(
+    f.owner.mutation(api.documentImports.generateUploadUrl, {
+      format: "epub",
+      sha256: "b".repeat(64),
+      size: 100,
+    }),
+  ).rejects.toThrow("Too many documents in the last hour. Try again later.");
+});
+
 it("independently refuses an oversized stored EPUB without spending its matching grant", async () => {
   const f = await secondReaderTest(modules);
   const storageId = await f.t.run((ctx) =>

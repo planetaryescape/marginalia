@@ -54,11 +54,10 @@ export const READER_LIMITS = {
     windowMs: 60 * 60_000,
     message: "Too many API tokens created in the last hour. Try again later.",
   },
-  // PDF uploads and the imports started from them (documentImports.ts)
   pdfImport: {
     max: 20,
     windowMs: 60 * 60_000,
-    message: "Too many PDFs in the last hour. Try again later.",
+    message: "Too many documents in the last hour. Try again later.",
   },
   // Reading-alongside passes (rung 2f): about $0.25 a day on Haiku. Used up, the
   // margin just stops filling ahead; nothing is shown to the reader.
