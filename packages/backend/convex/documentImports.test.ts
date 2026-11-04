@@ -153,6 +153,9 @@ describe("starting an import", () => {
       fileName: "c.pdf",
     });
     expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      error: "Two files are already being read. Wait for one to finish.",
+    });
     // Left for the sweep: it is not this reader's until their claim succeeds
     expect(
       await t.run((ctx) => ctx.db.system.get("_storage", third)),

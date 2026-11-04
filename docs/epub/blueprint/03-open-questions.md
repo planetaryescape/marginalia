@@ -8,7 +8,7 @@
 
 ## For BK (through Guide)
 
-- **Q4, partly answered.** Guide approved local implementation of the Phase 2 import schema in D-EPUB-018. Backend deployment still needs explicit approval. Phase 4 annotation schema remains unapproved.
+- **Q4, partly answered.** Guide approved local implementation of the Phase 2 import schema in D-EPUB-018, not backend deployment or running migrations. Later isolated development approval is recorded separately in [#103](https://github.com/planetaryescape/marginalia/pull/103); it does not authorize production deployment or migrations. Phase 4 annotation schema remains unapproved.
 - **Q5.** EPUB size cap and image storage per account, since images count against the deployment.
 
 ## Verify in code before Phase 1

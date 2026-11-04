@@ -1,10 +1,11 @@
-import { strToU8, zipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { makeEpub, tinyRasters } from "../test/epub";
 import { runScheduled, secondReaderTest } from "../test/owner";
 import { makePdf } from "../test/pdf";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { purgeImages } from "./bookImages";
 import { deleteArticle } from "./lib/feedRemoval";
 import { storedSha256AsHex } from "./lib/uploadFingerprint";
 
@@ -186,6 +187,102 @@ it("keeps invalid raster bytes as escaped alt text without storing assets", asyn
   const unit = await f.t.run((ctx) => ctx.db.query("bookUnits").first());
   expect(unit?.contentHtml).toContain("A &amp; B");
   expect(unit?.contentHtml).not.toContain("<img");
+  expect(await f.t.run((ctx) => ctx.db.query("bookImages").take(1))).toEqual(
+    [],
+  );
+});
+
+it("stores only referenced images from a large manifest and reuses repeated references", async () => {
+  const f = await secondReaderTest(modules);
+  const files = unzipSync(
+    makeEpub({
+      body: '<p>Generated words to read.</p><img src="chart.png" alt="First"/><img src="chart.png" alt="Second"/>',
+    }),
+  );
+  const raster = files["OPS/chart.png"];
+  const packageBytes = files["OPS/book.opf"];
+  if (!raster || !packageBytes) throw new Error("Missing fixture entries");
+  const unused = Array.from({ length: 128 }, (_, index) => {
+    files[`OPS/unused-${index}.png`] = raster;
+    return `<item id="unused-${index}" href="unused-${index}.png" media-type="image/png"/>`;
+  }).join("");
+  files["OPS/book.opf"] = strToU8(
+    strFromU8(packageBytes).replace("</manifest>", `${unused}</manifest>`),
+  );
+  const input = await start(f, zipSync(files));
+  await f.t.action(internal.actions.importEpub.run, {
+    importId: input.importId,
+  });
+  expect((await f.t.run((ctx) => ctx.db.get(input.importId)))?.status).toBe(
+    "ready",
+  );
+  const images = await f.t.run((ctx) => ctx.db.query("bookImages").take(150));
+  expect(images).toHaveLength(1);
+  expect(images[0]?.href).toBe("OPS/chart.png");
+  const unit = await f.t.run((ctx) => ctx.db.query("bookUnits").first());
+  expect(unit?.contentHtml.match(/<img src=/gu)).toHaveLength(2);
+  expect(unit?.contentHtml).not.toContain("data-epub-image");
+});
+
+it("retains owned image rows on storage failure and can retry their deletion", async () => {
+  const f = await secondReaderTest(modules);
+  const input = await start(f);
+  const articleId = await pending(f, input.importId);
+  const storageId = await f.t.run((ctx) =>
+    ctx.storage.store(new Blob(["generated image"], { type: "image/png" })),
+  );
+  await f.t.mutation(internal.bookImages.register, {
+    importId: input.importId,
+    articleId,
+    storageId,
+    href: "generated.png",
+  });
+  await expect(
+    f.t.run((ctx) =>
+      purgeImages(
+        {
+          ...ctx,
+          storage: {
+            ...ctx.storage,
+            delete: async () => {
+              throw new Error("Storage unavailable");
+            },
+          },
+        },
+        "default_user",
+      ),
+    ),
+  ).rejects.toThrow("Storage unavailable");
+  expect(
+    await f.t.run((ctx) => ctx.db.query("bookImages").take(1)),
+  ).toHaveLength(1);
+  expect(await f.t.run((ctx) => ctx.db.system.get(storageId))).not.toBeNull();
+  expect(await f.t.run((ctx) => purgeImages(ctx, "default_user"))).toBe(1);
+  expect(await f.t.run((ctx) => ctx.db.query("bookImages").take(1))).toEqual(
+    [],
+  );
+  expect(await f.t.run((ctx) => ctx.db.system.get(storageId))).toBeNull();
+});
+
+it("discards an owned image row when its storage object is already absent", async () => {
+  const f = await secondReaderTest(modules);
+  const input = await start(f);
+  const articleId = await pending(f, input.importId);
+  const storageId = await f.t.run((ctx) =>
+    ctx.storage.store(new Blob(["generated image"], { type: "image/png" })),
+  );
+  await f.t.mutation(internal.bookImages.register, {
+    importId: input.importId,
+    articleId,
+    storageId,
+    href: "generated.png",
+  });
+  await f.t.run((ctx) => ctx.storage.delete(storageId));
+  await f.t.run((ctx) => ctx.db.delete(articleId));
+  await f.t.mutation(internal.bookImages.discard, {
+    userId: "default_user",
+    articleId,
+  });
   expect(await f.t.run((ctx) => ctx.db.query("bookImages").take(1))).toEqual(
     [],
   );

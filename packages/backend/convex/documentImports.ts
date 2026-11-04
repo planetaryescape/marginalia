@@ -189,7 +189,9 @@ export const start = mutation({
       )
       .take(MAX_ACTIVE_IMPORTS + 1);
     if (reading.filter((r) => !isStale(r, now)).length >= MAX_ACTIVE_IMPORTS)
-      return refuse("Two PDFs are already being read. Wait for one to finish.");
+      return refuse(
+        "Two files are already being read. Wait for one to finish.",
+      );
 
     const fileName =
       args.fileName

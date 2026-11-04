@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { deleteFile, liveImport } from "./documentImports";
+import type { Id } from "./_generated/dataModel";
+import { liveImport } from "./documentImports";
 import { internalMutation, type MutationCtx } from "./functions";
 
 export const register = internalMutation({
@@ -49,33 +50,37 @@ export const register = internalMutation({
   },
 });
 
-export async function purgeImages(ctx: MutationCtx, userId: string) {
+export async function discardImages(
+  ctx: MutationCtx,
+  userId: string,
+  articleId?: Id<"articles">,
+) {
   const images = await ctx.db
     .query("bookImages")
-    .withIndex("by_userId_and_articleId", (q) => q.eq("userId", userId))
+    .withIndex("by_userId_and_articleId", (q) =>
+      articleId === undefined
+        ? q.eq("userId", userId)
+        : q.eq("userId", userId).eq("articleId", articleId),
+    )
     .take(50);
   for (const image of images) {
-    await deleteFile(ctx, image.storageId);
+    if (await ctx.db.system.get(image.storageId))
+      await ctx.storage.delete(image.storageId);
     await ctx.db.delete(image._id);
   }
   return images.length;
+}
+
+export async function purgeImages(ctx: MutationCtx, userId: string) {
+  return discardImages(ctx, userId);
 }
 
 export const discard = internalMutation({
   args: { userId: v.string(), articleId: v.id("articles") },
   handler: async (ctx, args) => {
     if (await ctx.db.get(args.articleId)) return;
-    const images = await ctx.db
-      .query("bookImages")
-      .withIndex("by_userId_and_articleId", (q) =>
-        q.eq("userId", args.userId).eq("articleId", args.articleId),
-      )
-      .take(50);
-    for (const image of images) {
-      await deleteFile(ctx, image.storageId);
-      await ctx.db.delete(image._id);
-    }
-    if (images.length === 50)
+    const count = await discardImages(ctx, args.userId, args.articleId);
+    if (count === 50)
       await ctx.scheduler.runAfter(0, internal.bookImages.discard, args);
   },
 });

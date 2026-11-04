@@ -105,5 +105,8 @@ export function makeEpub(
     files["META-INF/encryption.xml"] = strToU8(
       '<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#"><EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/><CipherData><CipherReference URI="OPS/chapter.xhtml"/></CipherData></EncryptedData></encryption>',
     );
-  return zipSync(files);
+  return zipSync({
+    ...files,
+    mimetype: [strToU8("application/epub+zip"), { level: 0 }],
+  });
 }

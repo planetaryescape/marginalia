@@ -32,7 +32,7 @@ Reuses the PDF flow end to end: upload grant bound to SHA-256 and size, `documen
 
 1. **Accept EPUBs.** `PdfPickerButton` and `PdfDrop` accept `.epub` (`application/epub+zip`). A dropped folder whose contents include `META-INF/container.xml` is zipped in the browser first, so an unpacked Apple Books folder works too. The copy becomes format-aware: "Couldn't read this EPUB", "A PDF or EPUB becomes a book in your library".
 2. **Import action** `actions/importEpub.ts`: parse, write the book article and units in batches through the existing `books.createBookArticle` / `addUnits` / `finishBook`, and report steps through `documentImports.setProgress`. Failures use the existing cleanup so nothing is left half-imported.
-3. **Images.** Each manifest image is stored once in Convex storage and its `src` rewritten to the storage URL. `slimHtml` only strips `data:` images, so stored URLs pass. Images over a per-image cap are dropped with their `alt` text kept as a caption.
+3. **Images.** Referenced supported raster images are stored in Convex storage and their placeholders rewritten to storage URLs. `slimHtml` only strips `data:` images, so stored URLs pass. An archive entry over the parser's per-entry cap refuses the whole import; it is not a per-image drop. Missing, unsupported or refused referenced images become escaped alt text, not figure captions. AVIF is not supported by the storage path.
 4. **Ready card.** EPUBs have no page count: "24 chapters · parts of about 20 min", then "Starts with ...".
 5. **Purge.** `books.discardBook`, article deletion and account deletion remove the book's images as well as its units.
 

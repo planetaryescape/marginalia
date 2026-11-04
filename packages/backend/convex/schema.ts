@@ -668,8 +668,8 @@ export default defineSchema({
     ])
     .index("by_userId", ["userId"]),
 
-  // A PDF on its way in: the desk shows its steps, and a failure keeps its
-  // reason here so nothing else is left half-imported (documentImports.ts).
+  // A PDF or EPUB on its way in; absent format means PDF. The desk shows its
+  // steps, and a failure keeps its reason here (documentImports.ts).
   documentImports: defineTable({
     format: v.optional(v.union(v.literal("pdf"), v.literal("epub"))),
     processingStartedAt: v.optional(v.number()),

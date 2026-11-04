@@ -83,29 +83,32 @@ export const run = internalAction({
       );
       if (!articleId) return;
       const urls = new Map<string, string>();
+      const referencedHrefs = new Set<string>();
+      for (const unit of book.units)
+        for (const match of unit.contentHtml.matchAll(
+          /data-epub-image="([^"]*)"/gu,
+        ))
+          if (match[1] !== undefined)
+            referencedHrefs.add(decodeURIComponent(match[1]));
       for (const image of book.images) {
+        if (!referencedHrefs.has(image.href)) continue;
         const type = rasterType(image.bytes, image.mediaType);
-        if (
-          !type ||
-          !book.units.some((unit) =>
-            unit.contentHtml.includes(
-              `data-epub-image="${encodeURIComponent(image.href)}"`,
-            ),
-          )
-        )
-          continue;
+        if (!type) continue;
         const storageId = await ctx.storage.store(
           new Blob([Uint8Array.from(image.bytes)], { type }),
         );
-        const url: string | null = await ctx.runMutation(
-          internal.bookImages.register,
-          {
+        let url: string | null;
+        try {
+          url = await ctx.runMutation(internal.bookImages.register, {
             ...args,
             articleId,
             storageId,
             href: image.href,
-          },
-        );
+          });
+        } catch (error) {
+          await ctx.storage.delete(storageId);
+          throw error;
+        }
         if (!url) {
           await ctx.storage.delete(storageId);
           await ctx.runMutation(internal.books.discardBook, {

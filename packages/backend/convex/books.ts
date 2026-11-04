@@ -2,8 +2,9 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { libraryIsActive, ownedArticle } from "./access";
+import { discardImages } from "./bookImages";
 import { unitSummaries } from "./bookIndex";
-import { deleteFile, liveImport, markImportReady } from "./documentImports";
+import { liveImport, markImportReady } from "./documentImports";
 import {
   internalMutation,
   internalQuery,
@@ -18,6 +19,7 @@ import { readerProviders } from "./lib/readerAI";
 import { queueLibraryIndex } from "./libraryIndex";
 import { spendReaderLimit } from "./limits";
 import { updateQueueStats } from "./readingQueue";
+import schema from "./schema";
 
 // Annotation follows the reading: the unit being read, and the next one once
 // the reader is well into this one (D-DES-055)
@@ -30,15 +32,7 @@ const outlineEntry = v.object({
 });
 
 const unitFields = {
-  sourceSpans: v.optional(
-    v.array(
-      v.object({
-        spineIndex: v.number(),
-        start: v.number(),
-        end: v.number(),
-      }),
-    ),
-  ),
+  sourceSpans: schema.tables.bookUnits.validator.fields.sourceSpans,
   index: v.number(),
   title: v.string(),
   chapter: v.optional(v.string()),
@@ -489,17 +483,8 @@ export const discardBook = internalMutation({
     // A stale import action must never clean up a book already published by
     // another delivery of that import. Optional indexing is not import work.
     if (article?.extractionStatus === "extracted") return;
-    const images = await ctx.db
-      .query("bookImages")
-      .withIndex("by_userId_and_articleId", (q) =>
-        q.eq("userId", args.userId).eq("articleId", args.articleId),
-      )
-      .take(50);
-    for (const image of images) {
-      await deleteFile(ctx, image.storageId);
-      await ctx.db.delete(image._id);
-    }
-    if (images.length === 50) {
+    const imageCount = await discardImages(ctx, args.userId, args.articleId);
+    if (imageCount === 50) {
       await ctx.scheduler.runAfter(0, internal.books.discardBook, args);
       return;
     }
