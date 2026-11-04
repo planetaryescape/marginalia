@@ -158,7 +158,7 @@ function Desk({ fromFinish }: { fromFinish?: boolean }) {
 
       <BibleDiscovery preferences={bible} />
       <ArticleFinder
-        onDocument={startDocument}
+        onDocument={bible?.scope !== "bible" ? startDocument : undefined}
         onType={() => setArmed(false)}
         showKey={showKeys}
         windowMinutes={chosen?.minutes ?? null}
@@ -197,6 +197,7 @@ function Desk({ fromFinish }: { fromFinish?: boolean }) {
               targetImportId={documentImport.importId}
               upload={documentImport.upload}
               problem={documentImport.problem}
+              problemFormat={documentImport.problemFormat ?? undefined}
               onFile={startDocument}
               onClearProblem={documentImport.clearProblem}
               onDismiss={documentImport.dismiss}

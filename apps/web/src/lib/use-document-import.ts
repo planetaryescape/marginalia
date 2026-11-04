@@ -3,7 +3,11 @@ import { api } from "@marginalia/backend/convex/_generated/api";
 import type { Id } from "@marginalia/backend/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { useCallback, useRef, useState } from "react";
-import { uploadWithProgress } from "./document-import";
+import {
+  type DocumentFormat,
+  documentFormat,
+  uploadWithProgress,
+} from "./document-import";
 import { type UploadState, uploadDocument } from "./document-upload";
 import { invalidateTopicSearchCache } from "./topic-search-cache";
 
@@ -18,6 +22,9 @@ export function useDocumentImport() {
   const dismiss = useMutation(api.documentImports.dismiss);
   const [upload, setUpload] = useState<UploadState | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [problemFormat, setProblemFormat] = useState<DocumentFormat | null>(
+    null,
+  );
   const [importId, setImportId] = useState<Id<"documentImports"> | null>(null);
   const busy = useRef(false);
 
@@ -26,6 +33,7 @@ export function useDocumentImport() {
       if (busy.current) return;
       busy.current = true;
       setProblem(null);
+      setProblemFormat(documentFormat(file));
       setImportId(null);
       try {
         const result = await uploadDocument(
@@ -51,6 +59,7 @@ export function useDocumentImport() {
     upload,
     importId,
     problem,
+    problemFormat,
     clearProblem: () => setProblem(null),
     dismiss: (importId: Id<"documentImports">) =>
       dismiss({ importId }).catch(() => {}),

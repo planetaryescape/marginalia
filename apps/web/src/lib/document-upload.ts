@@ -7,6 +7,7 @@ import {
   sha256Hex,
   type uploadWithProgress,
 } from "./document-import";
+import { failureSentence } from "./failure-copy";
 
 export type UploadState = {
   fileName: string;
@@ -30,14 +31,14 @@ export async function uploadDocument(
   operations: DocumentUploadOperations,
   onUpload: (state: UploadState) => void,
 ) {
-  const problem = problemWithFile(file);
-  if (problem) return { ok: false, error: problem } as const;
   const format = documentFormat(file);
   if (!format)
     return {
       ok: false,
       error: "Marginalia reads PDF and EPUB files.",
     } as const;
+  const problem = problemWithFile(file);
+  if (problem) return { ok: false, error: problem } as const;
   onUpload({ fileName: file.name, format, percent: 0, stage: "checking" });
   try {
     const sha256 = await sha256Hex(file);
@@ -65,10 +66,7 @@ export async function uploadDocument(
   } catch (error) {
     return {
       ok: false,
-      error:
-        error instanceof Error && error.message
-          ? error.message
-          : "The upload didn't finish. Try again.",
+      error: failureSentence(error, "The upload didn't finish. Try again."),
     } as const;
   }
 }

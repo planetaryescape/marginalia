@@ -30,14 +30,14 @@ See [operations](operations.md#access-control) before deploying sensitive conten
 
 Verify changes with [development](development.md#make-a-safe-change); do not use personal content as a disposable fixture.
 
-## EPUB backend import, not deployed
+## EPUB import and reading
 
-- The backend import path exists locally, but the desk picker/drop flow remains PDF-only. EPUB import events are excluded from that slot until the format-aware UI ships. Token book-upload endpoints and the Apple Books CLI are not implemented.
+- The desk picker/drop flow accepts PDFs and DRM-free EPUBs, with format-aware progress, refusals and ready cards. The backend is deployed only to the explicitly approved isolated development target, not production. A signed-in trial exposed the long-list refusal addressed in parser follow-up [#105](https://github.com/planetaryescape/marginalia/pull/105); successful signed-in import and reading/navigation still need runtime verification. Token book-upload endpoints, annotation placement/tombstones and the Apple Books CLI are not implemented.
 - DRM-protected publications are refused. Publisher scripts, styles, remote images and embedded active content are not enabled. Meaningful publisher layout, semantic footnotes, covers and annotation placement remain separate work.
 - Parser ceilings are 32 MiB of ZIP input, 64 MiB total expanded data, 8 MiB per archive entry, and 2,000 spine items/units. Unpacked-map input uses the expanded-byte ceilings, not the ZIP-byte ceiling. These are implementation safeguards, not approved production account/storage allowances.
 - Supported raster resources become owned storage URLs; missing, unsupported or refused resources fall back to escaped alt text. AVIF is not stored by this import path. Image checks do not promise full decoder validation or safe dimensions on every browser.
 - Source ranges describe normalized spine text. They do not yet resolve Apple Books CFIs or guarantee browser paragraph/fragment navigation. The source EPUB is removed after successful import, as with the PDF upload lifecycle; later source-location recovery needs its own reviewed contract.
-- Automated tests use local Convex test/storage seams. They do not prove native production action scheduling, provider behavior or browser reading fidelity. No backend deployment or private-book cloud upload is part of this work.
+- Automated tests use generated fixtures and local Convex test/storage and component seams. They do not prove native production action scheduling, provider behavior or signed-in browser reading fidelity. Later isolated development updates do not authorize production deployment or another private-book cloud retry.
 
 ## Tooling and verification
 

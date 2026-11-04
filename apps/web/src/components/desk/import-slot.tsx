@@ -106,6 +106,7 @@ type ImportViewProps = {
   targetImportId: Id<"documentImports"> | null;
   upload: UploadState | null;
   problem: string | null;
+  problemFormat?: DocumentFormat;
   onFile: (file: File) => void;
   onClearProblem: () => void;
   onDismiss: (importId: Id<"documentImports">) => void;
@@ -119,6 +120,7 @@ export function ImportView({
   targetImportId,
   upload,
   problem,
+  problemFormat,
   onFile,
   onClearProblem,
   onDismiss,
@@ -145,7 +147,12 @@ export function ImportView({
 
   if (problem)
     return (
-      <Refusal sentence={problem} onFile={onFile} onDismiss={onClearProblem} />
+      <Refusal
+        sentence={problem}
+        format={problemFormat}
+        onFile={onFile}
+        onDismiss={onClearProblem}
+      />
     );
 
   if (!latest) return <>{children}</>;

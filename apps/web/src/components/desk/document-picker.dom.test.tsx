@@ -34,9 +34,20 @@ it("offers both formats and delivers repeat selections of the same EPUB", () => 
     type: "application/epub+zip",
   });
   Object.defineProperty(input, "files", { value: [file] });
+  let value = "";
+  const assignments: string[] = [];
+  Object.defineProperty(input, "value", {
+    get: () => value,
+    set: (next: string) => {
+      assignments.push(next);
+      value = next;
+    },
+  });
   for (let i = 0; i < 2; i++) {
+    value = "C:\\fakepath\\book.epub";
     act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(input.value).toBe("");
+    expect(assignments).toEqual(Array(i + 1).fill(""));
   }
   expect(files).toEqual([file, file]);
 });

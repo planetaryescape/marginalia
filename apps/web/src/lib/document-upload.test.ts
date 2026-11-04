@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it } from "vitest";
 import schema from "../../../../packages/backend/convex/schema";
@@ -83,11 +84,17 @@ describe("document upload", () => {
   });
 
   it("refuses unsupported and empty files before requesting storage", async () => {
-    for (const file of [
-      new File(["image"], "cover.png"),
-      new File([], "book.epub"),
-    ]) {
-      expect((await uploadDocument(file, operations, () => {})).ok).toBe(false);
+    for (const [file, error] of [
+      [
+        new File(["image"], "cover.png"),
+        "Marginalia reads PDF and EPUB files.",
+      ],
+      [new File([], "book.epub"), "That file is empty."],
+    ] as const) {
+      expect(await uploadDocument(file, operations, () => {})).toEqual({
+        ok: false,
+        error,
+      });
     }
     expect(grants).toEqual([]);
     expect(uploads).toEqual([]);
@@ -96,7 +103,7 @@ describe("document upload", () => {
 
   it("does not upload when the grant is refused", async () => {
     operations.generateUploadUrl = async () => {
-      throw new Error("Reload and try again.");
+      throw new ConvexError("Reload and try again.");
     };
     expect(
       await uploadDocument(
@@ -105,6 +112,25 @@ describe("document upload", () => {
         () => {},
       ),
     ).toEqual({ ok: false, error: "Reload and try again." });
+    expect(uploads).toEqual([]);
+    expect(starts).toEqual([]);
+  });
+
+  it.each([
+    new Error("private book title and server path"),
+    new ConvexError({ internal: "private book title and server path" }),
+    "private book title and server path",
+  ])("redacts non-reader-facing upload failures: %s", async (error) => {
+    operations.generateUploadUrl = async () => {
+      throw error;
+    };
+    expect(
+      await uploadDocument(
+        new File(["book"], "book.epub"),
+        operations,
+        () => {},
+      ),
+    ).toEqual({ ok: false, error: "The upload didn't finish. Try again." });
     expect(uploads).toEqual([]);
     expect(starts).toEqual([]);
   });
