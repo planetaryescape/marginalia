@@ -8,7 +8,7 @@ Planned on 2026-11-04 in one session with Guide, who contributes to `planetaryes
 
 | # | Document | What it covers |
 |---|---|---|
-| 01 | [Plan](01-plan.md) | Six phases: parser, in-app import, layout fidelity, annotation API and placement, Apple Books CLI; schema changes and risks |
+| 01 | [Plan](01-plan.md) | Five phases: parser, in-app import, layout fidelity, annotation API and placement, Apple Books CLI; schema changes and risks |
 | 02 | [Decisions](02-decisions.md) | Every decision with its attribution and the options rejected |
 | 03 | [Open questions](03-open-questions.md) | What to verify in code before building, and what to ask |
 | 04 | [Delivery](04-delivery.md) | The stacked pull requests from the fork, and how to keep them rebased |
@@ -27,7 +27,7 @@ Related: the design blueprint ([../../design/blueprint/README.md](../../design/b
 
 ## Build status
 
-The first EPUB PR includes this blueprint and the pure parser, stacked on auth PR #95 (D-EPUB-015, D-EPUB-016). There is no separate docs PR. Uploads, reader integration, schema additions and the CLI remain planned, not shipped. Apple purple maps to the existing `cobalt` colour (D-EPUB-017); footnote PR scope remains open.
+The first EPUB PR includes this blueprint and the pure parser, stacked on auth PR #95 (D-EPUB-015, D-EPUB-016). There is no separate docs PR. Guide approved purple to `cobalt` (D-EPUB-017), but the existing validator accepts it only for underlines. Purple highlights and other underline colour mappings remain a future Phase 4 decision, not an implemented conversion. Footnote PR scope remains open.
 
 ## Rules for coding agents
 

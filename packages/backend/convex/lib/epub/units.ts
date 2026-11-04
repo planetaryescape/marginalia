@@ -99,7 +99,7 @@ export function epubUnits(
         const index = targets.get(anchor ?? href ?? "");
         return index === undefined
           ? ""
-          : ` href="?unit=${index}${anchor ? `#${anchor}` : ""}"`;
+          : ` href="?unit=${index}${anchor ? `#${encodeURIComponent(anchor)}` : ""}"`;
       },
     ),
   }));

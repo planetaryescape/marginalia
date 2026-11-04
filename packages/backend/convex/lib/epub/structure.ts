@@ -101,9 +101,16 @@ export function parseEpubSpineItem(
   spineIndex: number,
 ): EpubResult<EpubSpineItem> {
   const parsed = parseEpubXml(bytes);
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok)
+    return {
+      ...parsed,
+    };
   const body = elements(parsed.value, "body")[0];
-  if (!body) return { ok: false, reason: "unreadable" };
+  if (!body)
+    return {
+      ok: false,
+      reason: "unreadable",
+    };
   const blocks: EpubBlock[] = [];
   let text = "";
   let title = "";
@@ -150,6 +157,20 @@ export function parseEpubSpineItem(
     const children = Array.from(element.childNodes).map((child) =>
       render(child, preserveWhitespace),
     );
+    if (
+      !preserveWhitespace &&
+      blockTags.has(tag) &&
+      tag !== "ol" &&
+      tag !== "ul" &&
+      elements(element, "pre").length
+    ) {
+      const first = children[0];
+      const last = children.at(-1);
+      if (first && element.firstChild?.nodeType === 3)
+        first.text = first.text.trimStart();
+      if (last && element.lastChild?.nodeType === 3)
+        last.text = last.text.trimEnd();
+    }
     const html = children.map((child) => child.html).join("");
     const plain = children.map((child) => child.text).join("");
     const originalId = element.getAttribute("id");
@@ -157,7 +178,10 @@ export function parseEpubSpineItem(
       ? ` id="${escapeHtml(epubAnchor(spineIndex, originalId))}"`
       : "";
     if (!allowed.has(tag))
-      return { html: `${id ? `<span${id}></span>` : ""}${html}`, text: plain };
+      return {
+        html: `${id ? `<span${id}></span>` : ""}${html}`,
+        text: `${plain}${containers.has(tag) && !preserveWhitespace ? "\n" : ""}`,
+      };
     if (tag === "img") {
       const source = resolveEpubHref(href, element.getAttribute("src") ?? "");
       const alt = element.getAttribute("alt") ?? "";
@@ -258,7 +282,13 @@ export function parseEpubSpineItem(
     const block = element && blockTags.has(tag);
     append(
       block ? rendered.html : `<p>${rendered.html}</p>`,
-      rendered.text,
+      element &&
+        tag !== "pre" &&
+        tag !== "ol" &&
+        tag !== "ul" &&
+        elements(element, "pre").length
+        ? rendered.text.replace(/\n$/u, "")
+        : rendered.text,
       /^h[1-6]$/u.test(tag),
       !!element && (tag === "pre" || elements(element, "pre").length > 0),
     );

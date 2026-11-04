@@ -70,9 +70,10 @@ Verify across every reader theme and at desktop and mobile widths with a few ill
 3. Confirm the quoted text is there. If not, search the spine item for the quote, using surrounding text to choose between repeats.
 4. If nothing matches, store the highlight **unplaced**: visible in Notes and search, no jump link and no mark in the text.
 
-**Mapping into existing tables:**
+**Mapping into existing tables (planned, not implemented):**
 
-- Highlight: `highlights` row, `kind: "underline"` for Apple underlines, colours yellow/green/blue/pink unchanged and purple to `cobalt`. Embedded like any other highlight.
+- Apple highlights become `highlights` rows with `kind: "highlight"`; yellow/green/blue/pink can retain their colours. `colorFitsKind` accepts only those highlighter colours for this kind, so a purple highlight cannot use `cobalt`. Its mapping needs confirmation before Phase 4 implementation.
+- Apple underlines retain `kind: "underline"` and must use pen colours (`vermilion`, `cobalt`, `forest`, `graphite`), never the highlighter palette. Guide approved purple to `cobalt` (D-EPUB-017), which is compatible for underlines only. Other underline colour mappings remain undecided. Do not silently change a source highlight into an underline to make a colour fit.
 - Note: `userNotes` row on the same passage, so it appears in the margin and Notes.
 - Imported marks show a quiet "from Apple Books" label in Notes.
 
@@ -83,7 +84,7 @@ Verify across every reader theme and at desktop and mobile widths with a few ill
 - `highlights.source` gains `"apple-books"`.
 - `highlights.externalAnnotationId` and `userNotes.externalAnnotationId`: optional, indexed by user and ID.
 - `highlights.unplaced`: optional boolean, so book highlight queries can skip marks without a position.
-- New `importedAnnotationTombstones` table: `userId`, `articleId`, `externalAnnotationId`. Deleting an imported highlight or note writes one. Account deletion purges it.
+- Proposed `importedAnnotationTombstones` table: `userId`, `articleId`, `externalAnnotationId`. Deleting an imported highlight or note writes one, preventing reimport while that article exists. Article deletion, `books.discardBook` and account deletion must purge the associated rows alongside owned images and units. A newly imported article has a new identity; this article-scoped proposal does not preserve deletions across deleting and reimporting a whole book. The table and purge paths are not implemented or approved for implementation.
 
 ## Phase 5: Apple Books CLI
 

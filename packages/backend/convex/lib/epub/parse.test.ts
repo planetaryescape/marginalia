@@ -61,6 +61,153 @@ function parsed(files = fixture()) {
   return result.value;
 }
 
+describe("parser review regressions", () => {
+  it("requires the exact EPUB marker for both input forms and rejects prototype entries", () => {
+    for (const marker of [
+      undefined,
+      "application/epub+zip\n",
+      "\uFEFFapplication/epub+zip",
+      "text/plain",
+    ]) {
+      const files = fixture();
+      if (marker === undefined) files.delete("mimetype");
+      else files.set("mimetype", strToU8(marker));
+      expect(parseEpub(files)).toMatchObject({ ok: false, reason: "not_epub" });
+      expect(parseEpub(archive(files))).toMatchObject({
+        ok: false,
+        reason: "not_epub",
+      });
+    }
+    const files = fixture();
+    files.set("__proto__", strToU8("not an entry to lose"));
+    expect(parseEpub(files)).toMatchObject({ ok: false, reason: "not_epub" });
+    files.delete("__proto__");
+    files.set("__pr0to__", strToU8("not an entry to lose"));
+    const bytes = archive(files);
+    for (let index = 0; index < bytes.length - 8; index++) {
+      if (
+        new TextDecoder().decode(bytes.slice(index, index + 9)) === "__pr0to__"
+      )
+        bytes[index + 4] = 111;
+    }
+    expect(parseEpub(bytes)).toMatchObject({ ok: false, reason: "not_epub" });
+  });
+
+  it("falls back through malformed and missing optional outline sources", () => {
+    const ncx =
+      '<ncx><navMap><navPoint><navPoint><navLabel><text>Child only</text></navLabel><content src="text/chapter-0.xhtml"/></navPoint></navPoint></navMap></ncx>';
+    for (const missing of [false, true]) {
+      const files = fixture({ nav: "<broken>", ncx });
+      if (missing) files.delete("OPS/nav.xhtml");
+      expect(parsed(files).outline).toEqual([
+        { title: "Child only", href: "OPS/text/chapter-0.xhtml", depth: 1 },
+      ]);
+      files.set("OPS/toc.ncx", strToU8("<broken>"));
+      expect(parsed(files).outline[0]?.title).toBe("First chapter");
+    }
+  });
+
+  it("does not invent a declared identifier", () => {
+    const files = fixture();
+    files.set(
+      "OPS/package.opf",
+      strToU8(
+        new TextDecoder()
+          .decode(files.get("OPS/package.opf"))
+          .replace(' unique-identifier="edition"', "")
+          .replace(' id="edition"', ""),
+      ),
+    );
+    expect(parsed(files).metadata.identifier).toBeUndefined();
+  });
+
+  it("separates nested containers and trims only non-preformatted edges", () => {
+    const book = parsed(
+      fixture({
+        bodies: [
+          "<ul><li><div>A</div><section>B</section></li></ul><blockquote>  <pre>  preserved  </pre>  </blockquote>",
+        ],
+      }),
+    );
+    expect(book.spine[0]?.blocks[0]?.text).toBe("A\nB");
+    expect(book.spine[0]?.blocks[1]?.text).toBe("  preserved  ");
+  });
+
+  it("refuses undeclared named HTML entities explicitly while accepting numeric equivalents", () => {
+    expect(parseEpub(fixture({ bodies: ["<p>A&nbsp;B</p>"] }))).toMatchObject({
+      ok: false,
+      reason: "unreadable",
+    });
+    expect(
+      parsed(fixture({ bodies: ["<p>A&#160;B</p>"] })).units[0]?.content,
+    ).toBe("A B");
+  });
+
+  it("bounds crafted DOCTYPE, node and depth input before DOM construction", () => {
+    expect(
+      parseEpub(fixture({ bodies: ["<!DOCTYPE".repeat(10_000)] })),
+    ).toMatchObject({ ok: false, reason: "unreadable" });
+    expect(
+      parseEpub(fixture({ bodies: ["<span/>".repeat(100_001)] })),
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+    });
+    expect(
+      parseEpub(
+        fixture({ bodies: [`${"<div>".repeat(130)}x${"</div>".repeat(130)}`] }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: "too_long",
+    });
+  });
+
+  it("preserves forward noterefs, aside notes, non-spine notes, encoded IDs and return links", () => {
+    const files = fixture({
+      bodies: [
+        '<p xmlns:epub="http://www.idpf.org/2007/ops" id="return space">Read <a epub:type="noteref" href="#note%20space">one</a> and <a href="notes%20file.xhtml#n%25ote">two</a>. <a href="https://example.invalid/path?q=1&amp;x=2">External</a></p><aside id="note space"><p>Aside note <a href="#return%20space">return</a></p></aside>',
+      ],
+    });
+    files.set(
+      "OPS/package.opf",
+      strToU8(
+        new TextDecoder()
+          .decode(files.get("OPS/package.opf"))
+          .replace(
+            "</manifest>",
+            '<item id="notes" href="text/notes%20file.xhtml" media-type="application/xhtml+xml"/></manifest>',
+          ),
+      ),
+    );
+    files.set(
+      "OPS/text/notes file.xhtml",
+      strToU8(
+        '<html xmlns="http://www.w3.org/1999/xhtml"><body><aside id="n%ote"><p>Non-spine note <a href="chapter-0.xhtml#return%20space">Back</a></p></aside></body></html>',
+      ),
+    );
+    const book = parsed(files);
+    const html = book.units.map((unit) => unit.contentHtml).join("");
+    expect(html).toContain('id="epub-0-note%20space"');
+    expect(html).toContain('#epub-0-note%2520space"');
+    expect(html).toContain('#epub-0-return%2520space"');
+    expect(html).toContain('id="epub-1-n%25ote"');
+    expect(html).toContain('#epub-1-n%2525ote"');
+    expect(html).toContain('href="https://example.invalid/path?q=1&amp;x=2"');
+    expect(book.units.map((unit) => unit.content).join(" ")).toContain(
+      "Non-spine note Back",
+    );
+    for (const unit of book.units) {
+      const source = unit.sourceSpans
+        .map((span) =>
+          book.spine[span.spineIndex]?.text.slice(span.start, span.end),
+        )
+        .join("\n\n");
+      expect(unit.content).toBe(source);
+    }
+  });
+});
+
 describe("EPUB metadata and outline", () => {
   it("reads the declared edition identifier, creators and spine from original bytes", () => {
     const bytes = archive(fixture());
@@ -83,6 +230,8 @@ describe("EPUB metadata and outline", () => {
 
   it("accepts an in-memory unpacked directory with the same result as its ZIP", () => {
     const files = fixture();
+    expect(parseEpub(files).ok).toBe(true);
+    expect(parseEpub(archive(files)).ok).toBe(true);
     expect(parseEpub(files)).toEqual(parseEpub(archive(files)));
   });
 

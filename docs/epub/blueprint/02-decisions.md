@@ -48,3 +48,7 @@ Every decision from the planning session on 2026-11-04, with the options rejecte
 **D-EPUB-016: the EPUB stack builds on auth PR #95.** Supersedes D-EPUB-014. Guide: "lets keep all my prs as stack, build on top of that auth thing". `feat/epub-parser` branches from `fix/local-auth-onboarding` at `bed850d`; later branches build on the parser. Upstream PRs still target `main` because their branches live on the fork. Reviewers use the parent commit boundary until parents merge. Do not change or merge #95 as part of parser work.
 
 **D-EPUB-017: confirm purple maps to cobalt.** Confirms D-EPUB-011. Guide: "yeahhappy with that purple", accepting the proposed existing `cobalt` mapping rather than a new mark colour.
+
+## Review clarification: colour and source kind
+
+D-EPUB-017 records Guide's approved purple-to-cobalt preference, not approval to change a source highlight into an underline. `lib/markColours.ts` permits yellow/green/blue/pink for `kind: "highlight"` and vermilion/cobalt/forest/graphite for `kind: "underline"`. Preserve the source kind. Purple-to-cobalt fits underlines only; purple highlights and remaining underline mappings need a decision before the future annotation API/CLI is implemented. No palette or schema change is made here.

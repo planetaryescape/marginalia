@@ -1,4 +1,4 @@
-import { openEpubArchive } from "./archive";
+import { EPUB_LIMITS, openEpubArchive } from "./archive";
 import { parseEpubOutline } from "./outline";
 import { checkEpubEncryption, parseEpubPackage } from "./package";
 import { parseEpubSpineItem } from "./structure";
@@ -19,15 +19,44 @@ export function parseEpub(
   const outline = parseEpubOutline(files, book);
   if (!outline.ok) return outline;
   const spine: EpubSpineItem[] = [];
-  for (const [index, item] of book.spine.entries()) {
+  const titlesByHref = new Map<string, string>();
+  for (const entry of outline.value) {
+    const href = entry.href.split("#")[0];
+    if (href && !titlesByHref.has(href)) titlesByHref.set(href, entry.title);
+  }
+  const readingItems = [...book.spine];
+  const readingHrefs = new Set(readingItems.map((item) => item.href));
+  const manifestByHref = new Map(
+    book.manifest.map((item) => [item.href, item]),
+  );
+  for (const [index, item] of readingItems.entries()) {
     const bytes = files.get(item.href);
     if (!bytes) return { ok: false, reason: "not_epub" };
     const parsed = parseEpubSpineItem(bytes, item.href, index);
     if (!parsed.ok) return parsed;
-    const named = outline.value.find(
-      (entry) => entry.href.split("#")[0] === item.href,
-    );
-    spine.push({ ...parsed.value, title: named?.title ?? parsed.value.title });
+    for (const block of parsed.value.blocks) {
+      for (const match of block.html.matchAll(/ data-epub-href="([^"]+)"/gu)) {
+        const href = decodeURIComponent(match[1] ?? "").split("#")[0];
+        const target = href ? manifestByHref.get(href) : undefined;
+        if (
+          target?.mediaType === "application/xhtml+xml" &&
+          !target.properties.includes("nav") &&
+          !readingHrefs.has(target.href)
+        ) {
+          if (readingItems.length >= EPUB_LIMITS.spineItems)
+            return {
+              ok: false,
+              reason: "too_long",
+            };
+          readingItems.push(target);
+          readingHrefs.add(target.href);
+        }
+      }
+    }
+    spine.push({
+      ...parsed.value,
+      title: titlesByHref.get(item.href) ?? parsed.value.title,
+    });
   }
   const units = epubUnits(spine);
   if (!units.ok) return units;
@@ -37,7 +66,6 @@ export function parseEpub(
     "image/jpeg",
     "image/gif",
     "image/webp",
-    "image/avif",
   ]);
   const seen = new Set<string>();
   for (const item of book.manifest) {

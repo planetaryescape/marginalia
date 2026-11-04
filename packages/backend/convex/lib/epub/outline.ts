@@ -11,12 +11,13 @@ export function parseEpubOutline(
   const nav = book.manifest.find((item) => item.properties.includes("nav"));
   if (nav) {
     const parsed = parseEpubXml(files.get(nav.href));
-    if (!parsed.ok) return parsed;
-    const toc = elements(parsed.value, "nav").find((node) =>
-      (node.getAttributeNS("http://www.idpf.org/2007/ops", "type") ?? "")
-        .split(/\s+/u)
-        .includes("toc"),
-    );
+    const toc =
+      parsed.ok &&
+      elements(parsed.value, "nav").find((node) =>
+        (node.getAttributeNS("http://www.idpf.org/2007/ops", "type") ?? "")
+          .split(/\s+/u)
+          .includes("toc"),
+      );
     if (toc) {
       const entries: EpubOutlineEntry[] = [];
       const visit = (node: Element, depth: number) => {
@@ -41,15 +42,21 @@ export function parseEpubOutline(
     book.manifest.find((item) => item.mediaType === "application/x-dtbncx+xml");
   if (!ncx) return { ok: true, value: [] };
   const parsed = parseEpubXml(files.get(ncx.href));
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok) {
+    return { ok: true, value: [] };
+  }
   const entries: EpubOutlineEntry[] = [];
   const visit = (node: Element, depth: number) => {
     if (node.localName === "navPoint") {
       const href = resolveEpubHref(
         ncx.href,
-        elements(node, "content")[0]?.getAttribute("src") ?? "",
+        childElements(node)
+          .find((child) => child.localName === "content")
+          ?.getAttribute("src") ?? "",
       );
-      const title = xmlText(elements(node, "navLabel")[0]);
+      const title = xmlText(
+        childElements(node).find((child) => child.localName === "navLabel"),
+      );
       if (href && title && spineHrefs.has(href.split("#")[0] ?? ""))
         entries.push({ title, href, depth });
     }

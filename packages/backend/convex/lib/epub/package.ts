@@ -61,6 +61,7 @@ export function parseEpubPackage(
   );
   const identifier = identifiers.find(
     (node) =>
+      !!root.getAttribute("unique-identifier") &&
       node.getAttribute("id") === root.getAttribute("unique-identifier"),
   );
   return {
@@ -98,6 +99,7 @@ export function checkEpubEncryption(
   const parsed = parseEpubXml(bytes);
   if (!parsed.ok) return parsed;
   const encrypted = elements(parsed.value, "EncryptedData");
+  const itemsByHref = new Map(manifest.map((item) => [item.href, item]));
   const fontAlgorithms = new Set([
     "http://www.idpf.org/2008/embedding",
     "http://ns.adobe.com/pdf/enc#RC",
@@ -110,7 +112,7 @@ export function checkEpubEncryption(
       "",
       elements(entry, "CipherReference")[0]?.getAttribute("URI") ?? "",
     );
-    const item = manifest.find((item) => item.href === target);
+    const item = target ? itemsByHref.get(target) : undefined;
     if (
       !item ||
       !/^(?:font\/(?:otf|ttf|woff2?)|application\/(?:vnd\.ms-opentype|font-(?:sfnt|woff)|x-font-(?:ttf|opentype)))$/u.test(

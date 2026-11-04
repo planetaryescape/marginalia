@@ -38,6 +38,7 @@ export function resolveEpubHref(
 function safeArchivePath(path: string): boolean {
   return (
     !!path &&
+    path !== "__proto__" &&
     !/[\\\p{Cc}?#]/u.test(path) &&
     !path.startsWith("/") &&
     !path.split("/").some((part) => part === ".." || part === ".")
@@ -95,7 +96,11 @@ function checkEntries(
     )
       return { ok: false, reason: "too_long" };
   }
-  if (!entries.has("META-INF/container.xml"))
+  if (
+    !entries.has("META-INF/container.xml") ||
+    entries.get("mimetype")?.byteLength !== 20 ||
+    new TextDecoder().decode(entries.get("mimetype")) !== "application/epub+zip"
+  )
     return { ok: false, reason: "not_epub" };
   return { ok: true, value: entries };
 }

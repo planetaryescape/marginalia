@@ -2,7 +2,7 @@
 
 ## For Guide
 
-- **Q1, answered.** Map Apple purple to `cobalt`; D-EPUB-017 confirms the choice.
+- **Q1, partly answered.** D-EPUB-017 approves purple to `cobalt`, compatible with Apple underlines only. `colorFitsKind` forbids `cobalt` for highlights. Confirm the purple-highlight mapping and other underline colours before Phase 4; preserve source kinds rather than inventing conversions.
 - **Q2, answered.** Stack on `fix/local-auth-onboarding` at `bed850d`, not `origin/main`; D-EPUB-016 supersedes D-EPUB-014. Include the blueprint in the parser PR (D-EPUB-015).
 - **Q3.** Footnotes as margin notes (Phase 3): keep in the first layout PR, or ship structure and images first and footnotes in a follow-up?
 
