@@ -5,6 +5,7 @@ import { runScheduled, secondReaderTest } from "../test/owner";
 import { makePdf } from "../test/pdf";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { ActionCtx } from "./_generated/server";
 import { purgeImages } from "./bookImages";
 import { deleteArticle } from "./lib/feedRemoval";
 import { storedSha256AsHex } from "./lib/uploadFingerprint";
@@ -112,6 +113,15 @@ it("publishes an owned book with spans, registered raster images and no fabricat
   expect(row?.pages).toBeUndefined();
   if (!row?.articleId) throw new Error("Missing article");
   const articleId = row.articleId;
+  const articles = await f.t.run((ctx) => ctx.db.query("articles").take(2));
+  const books = await f.t.run((ctx) => ctx.db.query("books").take(2));
+  expect(articles).toHaveLength(1);
+  expect(articles[0]).toMatchObject({
+    _id: articleId,
+    extractionStatus: "extracted",
+  });
+  expect(books).toHaveLength(1);
+  expect(books[0]).toMatchObject({ articleId });
   const article = await f.t.run((ctx) => ctx.db.get(articleId));
   expect(article?.pageCount).toBeUndefined();
   const unit = await f.owner.query(api.books.unit, {
@@ -173,6 +183,93 @@ it.each([
   });
   expect(await f.t.run((ctx) => ctx.storage.get(input.storageId))).toBeNull();
   expect(await f.t.run((ctx) => ctx.db.query("articles").take(1))).toEqual([]);
+});
+
+it("terminally fails a refused image registration and compensates only its own partial book", async () => {
+  const f = await secondReaderTest(modules);
+  const kept = await start(f, makeEpub(), f.reader);
+  await f.t.action(internal.actions.importEpub.run, {
+    importId: kept.importId,
+  });
+  const keptRow = await f.t.run((ctx) => ctx.db.get(kept.importId));
+  if (!keptRow?.articleId) throw new Error("Missing retained book");
+  const keptArticleId = keptRow.articleId;
+  const keptImages = await f.t.run((ctx) => ctx.db.query("bookImages").take(2));
+  const files = unzipSync(
+    makeEpub({
+      body: '<p>Generated text.</p><img src="chart.png"/><img src="second.png"/>',
+    }),
+  );
+  const raster = files["OPS/chart.png"];
+  const packageBytes = files["OPS/book.opf"];
+  if (!raster || !packageBytes) throw new Error("Missing generated entries");
+  files["OPS/second.png"] = raster;
+  files["OPS/book.opf"] = strToU8(
+    strFromU8(packageBytes).replace(
+      "</manifest>",
+      '<item id="second-image" href="second.png" media-type="image/png"/></manifest>',
+    ),
+  );
+  const input = await start(f, zipSync(files, { level: 0 }));
+  const { run } = await import("./actions/importEpub");
+  // SAFETY: Convex 1.46 registration_impl exposes the original action handler with this exact context and argument contract.
+  const registered = run as typeof run & {
+    _handler: (
+      ctx: ActionCtx,
+      args: { importId: Id<"documentImports"> },
+    ) => Promise<void>;
+  };
+  const stored: Id<"_storage">[] = [];
+  await f.t.action((ctx) =>
+    registered._handler(
+      {
+        ...ctx,
+        storage: {
+          ...ctx.storage,
+          store: async (blob) => {
+            const id = await ctx.storage.store(blob);
+            stored.push(id);
+            if (stored.length === 2)
+              await f.t.run(async (ctx) => {
+                const row = await ctx.db.get(input.importId);
+                if (!row?.partialArticleId)
+                  throw new Error("Missing partial book");
+                await ctx.db.patch(row.partialArticleId, {
+                  extractionStatus: "failed",
+                });
+              });
+            return id;
+          },
+        },
+      },
+      { importId: input.importId },
+    ),
+  );
+  expect(stored).toHaveLength(2);
+  const failed = await f.t.run((ctx) => ctx.db.get(input.importId));
+  expect(failed).toMatchObject({ status: "failed", failure: "unreadable" });
+  expect(failed?.partialArticleId).toBeUndefined();
+  expect(failed?.articleId).toBeUndefined();
+  expect(await f.t.run((ctx) => ctx.storage.get(input.storageId))).toBeNull();
+  await runScheduled(f.t);
+  for (const id of stored)
+    expect(await f.t.run((ctx) => ctx.storage.get(id))).toBeNull();
+  expect(
+    await f.t.run((ctx) => ctx.db.query("articles").take(2)),
+  ).toMatchObject([{ _id: keptArticleId }]);
+  expect(await f.t.run((ctx) => ctx.db.query("books").take(2))).toMatchObject([
+    { articleId: keptArticleId },
+  ]);
+  expect(
+    await f.t.run((ctx) => ctx.db.query("bookUnits").take(2)),
+  ).toMatchObject([{ articleId: keptArticleId }]);
+  expect(await f.t.run((ctx) => ctx.db.query("bookImages").take(2))).toEqual(
+    keptImages,
+  );
+  for (const image of keptImages)
+    expect(
+      await f.t.run((ctx) => ctx.db.system.get(image.storageId)),
+    ).not.toBeNull();
 });
 
 it("keeps invalid raster bytes as escaped alt text without storing assets", async () => {

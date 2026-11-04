@@ -111,6 +111,10 @@ export const run = internalAction({
         }
         if (!url) {
           await ctx.storage.delete(storageId);
+          await ctx.runMutation(internal.documentImports.fail, {
+            ...args,
+            failure: "unreadable",
+          });
           await ctx.runMutation(internal.books.discardBook, {
             ...args,
             userId: row.userId,
