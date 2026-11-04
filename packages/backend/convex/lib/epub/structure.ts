@@ -294,6 +294,12 @@ export function parseEpubSpineItem(
               html: `<blockquote${id && index === firstBlock ? ` id="${escapeHtml(epubAnchor(spineIndex, id))}"` : ""}>${block.html}</blockquote>`,
             };
         }
+        if (id && blocks.length === firstBlock)
+          append(
+            `<span id="${escapeHtml(epubAnchor(spineIndex, id))}"></span>`,
+            "",
+            false,
+          );
       }
       return;
     }

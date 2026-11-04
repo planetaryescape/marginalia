@@ -116,6 +116,12 @@ function checkXmlBounds(
             return {
               ok: false,
               reason: "too_long",
+              diagnostic: {
+                code: "xml_nodes",
+                stage,
+                observed: count,
+                limit: 100_000,
+              },
             };
         } else if (char === ">") break;
         else if (

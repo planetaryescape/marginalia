@@ -68,10 +68,24 @@ export function parseEpub(
     const optional = readingIndex >= book.spine.length;
     const bytes = files.get(item.href);
     if (!bytes && optional) continue;
-    if (!bytes) return { ok: false, reason: "not_epub", diagnostic: { code: "invalid_spine", stage: "spine", spineIndex: index } };
+    if (!bytes)
+      return {
+        ok: false,
+        reason: "not_epub",
+        diagnostic: {
+          code: "invalid_spine",
+          stage: "spine",
+          spineIndex: index,
+        },
+      };
     const parsed = parseEpubSpineItem(bytes, item.href, index);
     if (!parsed.ok && optional && parsed.reason !== "too_long") continue;
-    if (!parsed.ok) return withDiagnostic(parsed, { code: "invalid_spine", stage: "spine", spineIndex: index });
+    if (!parsed.ok)
+      return withDiagnostic(parsed, {
+        code: "invalid_spine",
+        stage: "spine",
+        spineIndex: index,
+      });
     for (const block of parsed.value.blocks) {
       for (const match of block.html.matchAll(/ data-epub-href="([^"]+)"/gu)) {
         const href = decodeURIComponent(match[1] ?? "").split("#")[0];

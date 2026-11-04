@@ -87,29 +87,7 @@ export function openEpubArchive(
       filter: (entry) => {
         total += entry.originalSize;
         count++;
-        oversized ??=
-          entry.originalSize > EPUB_LIMITS.entryBytes
-            ? {
-                code: "entry_bytes",
-                stage: "archive",
-                observed: entry.originalSize,
-                limit: EPUB_LIMITS.entryBytes,
-              }
-            : total > EPUB_LIMITS.expandedBytes
-              ? {
-                  code: "expanded_bytes",
-                  stage: "archive",
-                  observed: total,
-                  limit: EPUB_LIMITS.expandedBytes,
-                }
-              : count > EPUB_LIMITS.files
-                ? {
-                    code: "archive_entries",
-                    stage: "archive",
-                    observed: EPUB_LIMITS.files + 1,
-                    limit: EPUB_LIMITS.files,
-                  }
-                : undefined;
+        oversized ??= entryLimitDiagnostic(entry.originalSize, total, count);
         invalid ||=
           !safeArchivePath(entry.name) ||
           names.has(entry.name) ||
@@ -141,49 +119,19 @@ function checkEntries(
   entries: ReadonlyMap<string, Uint8Array>,
 ): EpubResult<ReadonlyMap<string, Uint8Array>> {
   let total = 0;
-  if (entries.size > EPUB_LIMITS.files)
-    return {
-      ok: false,
-      reason: "too_long",
-      diagnostic: {
-        code: "archive_entries",
-        stage: "archive",
-        observed: EPUB_LIMITS.files + 1,
-        limit: EPUB_LIMITS.files,
-      },
-    };
+  let count = 0;
+  let invalid = false;
+  let oversized: EpubDiagnostic | undefined;
   for (const [path, bytes] of entries) {
-    if (!safeArchivePath(path))
-      return {
-        ok: false,
-        reason: "not_epub",
-        diagnostic: { code: "invalid_archive", stage: "archive" },
-      };
+    invalid ||= !safeArchivePath(path);
     total += bytes.byteLength;
-    if (bytes.byteLength > EPUB_LIMITS.entryBytes)
-      return {
-        ok: false,
-        reason: "too_long",
-        diagnostic: {
-          code: "entry_bytes",
-          stage: "archive",
-          observed: bytes.byteLength,
-          limit: EPUB_LIMITS.entryBytes,
-        },
-      };
-    if (total > EPUB_LIMITS.expandedBytes)
-      return {
-        ok: false,
-        reason: "too_long",
-        diagnostic: {
-          code: "expanded_bytes",
-          stage: "archive",
-          observed: total,
-          limit: EPUB_LIMITS.expandedBytes,
-        },
-      };
+    count++;
+    oversized ??= entryLimitDiagnostic(bytes.byteLength, total, count);
   }
+  if (oversized)
+    return { ok: false, reason: "too_long", diagnostic: oversized };
   if (
+    invalid ||
     !entries.has("META-INF/container.xml") ||
     entries.get("mimetype")?.byteLength !== 20 ||
     new TextDecoder().decode(entries.get("mimetype")) !== "application/epub+zip"
@@ -194,4 +142,33 @@ function checkEntries(
       diagnostic: { code: "invalid_archive", stage: "archive" },
     };
   return { ok: true, value: entries };
+}
+
+function entryLimitDiagnostic(
+  entryBytes: number,
+  expandedBytes: number,
+  count: number,
+): EpubDiagnostic | undefined {
+  if (entryBytes > EPUB_LIMITS.entryBytes)
+    return {
+      code: "entry_bytes",
+      stage: "archive",
+      observed: entryBytes,
+      limit: EPUB_LIMITS.entryBytes,
+    };
+  if (expandedBytes > EPUB_LIMITS.expandedBytes)
+    return {
+      code: "expanded_bytes",
+      stage: "archive",
+      observed: expandedBytes,
+      limit: EPUB_LIMITS.expandedBytes,
+    };
+  if (count > EPUB_LIMITS.files)
+    return {
+      code: "archive_entries",
+      stage: "archive",
+      observed: EPUB_LIMITS.files + 1,
+      limit: EPUB_LIMITS.files,
+    };
+  return undefined;
 }

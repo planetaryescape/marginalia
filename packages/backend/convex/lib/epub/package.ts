@@ -52,7 +52,11 @@ export function parseEpubPackage(
       href.includes("#") ||
       !mediaType
     )
-      return { ok: false, reason: "not_epub", diagnostic: { code: "invalid_package", stage: "package" } };
+      return {
+        ok: false,
+        reason: "not_epub",
+        diagnostic: { code: "invalid_package", stage: "package" },
+      };
     const item: ManifestItem = {
       id,
       href,

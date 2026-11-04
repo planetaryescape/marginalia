@@ -13,6 +13,46 @@ const fits = (html: string, text: string) =>
   words(text) <= EPUB_LIMITS.unitWords &&
   new TextEncoder().encode(html + text).length <= EPUB_LIMITS.unitBytes;
 
+type TextTotals = {
+  bytes: number;
+  words: number;
+  whitespace: boolean;
+  newlines: number;
+};
+
+const emptyTotals = (): TextTotals => ({
+  bytes: 0,
+  words: 0,
+  whitespace: true,
+  newlines: 0,
+});
+
+function addText(
+  previous: TextTotals,
+  text: string,
+  preformatted: boolean,
+): TextTotals {
+  const totals = { ...previous };
+  const encoder = new TextEncoder();
+  if (preformatted) totals.bytes += encoder.encode(text).length;
+  for (const [token] of text.matchAll(/\s+|\S+/gu)) {
+    if (/^\s/u.test(token)) {
+      totals.whitespace = true;
+      if (!preformatted) totals.newlines += token.match(/\n/gu)?.length ?? 0;
+    } else {
+      if (totals.whitespace) totals.words++;
+      if (!preformatted) {
+        if (totals.bytes && totals.whitespace)
+          totals.bytes += totals.newlines || 1;
+        totals.bytes += encoder.encode(token).length;
+      }
+      totals.whitespace = false;
+      totals.newlines = 0;
+    }
+  }
+  return totals;
+}
+
 function integer(value: string | null): number | undefined {
   if (!value || !/^[+-]?\d+$/u.test(value)) return undefined;
   const number = Number(value);
@@ -85,6 +125,11 @@ export function splitEpubList(
   let html = "";
   let plain = "";
   let wrapper = opening;
+  const encoder = new TextEncoder();
+  const closingBytes = encoder.encode(`</${tag}>`).length;
+  let wrapperBytes = encoder.encode(wrapper).length;
+  let htmlBytes = 0;
+  let totals = emptyTotals();
   let offset = 0;
   const close = () => {
     const text = contentOf(plain);
@@ -99,27 +144,34 @@ export function splitEpubList(
     offset = start + text.length;
     html = "";
     plain = "";
+    htmlBytes = 0;
+    totals = emptyTotals();
     return true;
   };
   for (const item of items) {
     ordinal = integer(item.element.getAttribute("value")) ?? ordinal;
     const rendered = item;
+    const itemBytes = encoder.encode(rendered.html).length;
+    let nextTotals = addText(totals, rendered.text, preformatted);
     const nextWrapper = opening
       .replace(/ id="[^"]*"/u, "")
       .replace(/ start="[^"]*"/u, "")
       .replace(/>$/u, tag === "ol" ? ` start="${ordinal}">` : ">");
     if (
       html &&
-      !fits(
-        `${wrapper}${html}${rendered.html}</${tag}>`,
-        contentOf(plain + rendered.text),
-      )
+      (nextTotals.words > EPUB_LIMITS.unitWords ||
+        wrapperBytes + htmlBytes + itemBytes + closingBytes + nextTotals.bytes >
+          EPUB_LIMITS.unitBytes)
     ) {
       if (!close()) return [block];
       wrapper = nextWrapper;
+      wrapperBytes = encoder.encode(wrapper).length;
+      nextTotals = addText(totals, rendered.text, preformatted);
     }
     html += rendered.html;
     plain += rendered.text;
+    htmlBytes += itemBytes;
+    totals = nextTotals;
     ordinal += reversed ? -1 : 1;
     if (!Number.isSafeInteger(ordinal)) return [block];
   }

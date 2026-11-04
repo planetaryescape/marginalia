@@ -116,6 +116,7 @@ describe("parser review regressions", () => {
     ).toMatchObject({
       ok: false,
       reason: "too_long",
+      diagnostic: { code: "xml_nodes" },
     });
     expect(
       parsed(
@@ -140,6 +141,7 @@ describe("parser review regressions", () => {
         expect(parseEpub(files)).toMatchObject({
           ok: false,
           reason: "too_long",
+          diagnostic: { stage: "navigation" },
         });
       }
     }
@@ -366,7 +368,6 @@ describe("parser review regressions", () => {
       ok: false,
       reason: "unreadable",
     });
-
     expect(
       parseEpub(fixture({ bodies: ["<!DOCTYPE".repeat(10_000)] })),
     ).toMatchObject({ ok: false, reason: "unreadable" });
