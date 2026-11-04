@@ -1,5 +1,7 @@
 # 04: Delivery
 
+Review identity clarification: upstream auth [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced historical [#95](https://github.com/planetaryescape/marginalia/pull/95) at the identical original `bed850d` commit in native [stack #101](https://github.com/planetaryescape/marginalia/stack/101). Original #95 records below retain their historical facts, not current dependency instructions.
+
 The work ships as a stack of small pull requests from `guidefari/marginalia` to `planetaryescape/marginalia`, each one reviewable and deployable on its own.
 
 ## Why every PR targets `main`

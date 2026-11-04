@@ -27,7 +27,7 @@ Related: the design blueprint ([../../design/blueprint/README.md](../../design/b
 
 ## Build status
 
-Parser PR #98 includes this blueprint and the pure parser, stacked on upstream auth PR #100 (D-EPUB-015, D-EPUB-016). There is no separate docs PR. Guide approved purple to `cobalt` (D-EPUB-017), but the existing validator accepts it only for underlines. D-EPUB-023 supersedes the unqualified mapping in D-EPUB-011/017. Purple highlights and other underline colour mappings remain a future Phase 4 decision, not an implemented conversion. Footnote PR scope remains open.
+Parser PR #98 includes this blueprint and the pure parser, stacked on upstream auth PR #100 (D-EPUB-015, D-EPUB-016). Upstream [#100](https://github.com/planetaryescape/marginalia/pull/100) replaced historical [#95](https://github.com/planetaryescape/marginalia/pull/95) at the identical original `bed850d` commit; dated #95 records are history, not a second current dependency. There is no separate docs PR. Guide approved purple to `cobalt` (D-EPUB-017), but the existing validator accepts it only for underlines. D-EPUB-023 supersedes the unqualified mapping in D-EPUB-011/017. Purple highlights and other underline colour mappings remain a future Phase 4 decision, not an implemented conversion. Footnote PR scope remains open.
 
 ## Rules for coding agents
 
