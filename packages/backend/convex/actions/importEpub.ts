@@ -5,8 +5,8 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { WORDS_PER_MINUTE } from "../lib/constants";
 import type { EpubDiagnostic } from "../lib/epub/diagnostics";
+import { parseMarginaliaImport } from "../lib/epub/engineAdapter";
 import { rasterType, replaceEpubImages } from "../lib/epub/images";
-import { parseEpub } from "../lib/epub/parse";
 import {
   excerptOf,
   fitsInStorage,
@@ -28,27 +28,28 @@ export const run = internalAction({
       const file = await ctx.storage.get(row.storageId);
       const preview: { title?: string; author?: string } = {};
       const parsed = file
-        ? parseEpub(new Uint8Array(await file.arrayBuffer()), {
-            onStage: (value) => {
-              stage = value;
-            },
-            onDiagnostic: (diagnostic) => {
-              console.info(
-                JSON.stringify({
-                  event: "epub_navigation_fallback",
-                  importId: args.importId,
-                  stage: diagnostic.stage,
-                  code: diagnostic.code,
-                }),
-              );
-            },
-            onMetadata: (metadata) => {
+        ? await parseMarginaliaImport(
+            new Uint8Array(await file.arrayBuffer()),
+            (metadata) => {
               preview.title = metadata.title.slice(0, 500).toWellFormed();
               preview.author =
                 metadata.creators.join(", ").slice(0, 500).toWellFormed() ||
                 undefined;
             },
-          })
+            (value) => {
+              stage = value;
+            },
+            () => {
+              console.info(
+                JSON.stringify({
+                  event: "epub_navigation_fallback",
+                  importId: args.importId,
+                  stage: "navigation",
+                  code: "invalid_navigation",
+                }),
+              );
+            },
+          )
         : null;
       if (preview.title) {
         const live: boolean = await ctx.runMutation(
