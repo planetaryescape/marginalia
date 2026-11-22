@@ -14,7 +14,17 @@ import { storedSha256AsHex } from "./lib/uploadFingerprint";
 const modules = import.meta.glob("./**/*.ts");
 type Fixture = Awaited<ReturnType<typeof secondReaderTest>>;
 
-beforeEach(() => vi.useFakeTimers());
+beforeEach(() =>
+  vi.useFakeTimers({
+    toFake: [
+      "Date",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
+    ],
+  }),
+);
 afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();

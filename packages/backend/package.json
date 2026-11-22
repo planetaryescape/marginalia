@@ -38,6 +38,7 @@
     "@better-auth/passkey": "~1.6.15",
     "@convex-dev/better-auth": "0.12.5",
     "@extractus/article-extractor": "^8.0.14",
+    "@planetaryescape/epub-engine": "npm:@jsr/planetaryescape__epub-engine@0.0.2",
     "@xmldom/xmldom": "0.9.12",
     "ai": "^6.0.27",
     "better-auth": "~1.6.15",
