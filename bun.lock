@@ -73,7 +73,7 @@
         "@better-auth/passkey": "~1.6.15",
         "@convex-dev/better-auth": "0.12.5",
         "@extractus/article-extractor": "^8.0.14",
-        "@planetaryescape/epub-engine": "npm:@jsr/planetaryescape__epub-engine@0.0.1",
+        "@planetaryescape/epub-engine": "npm:@jsr/planetaryescape__epub-engine@0.0.2",
         "@xmldom/xmldom": "0.9.12",
         "ai": "^6.0.27",
         "better-auth": "~1.6.15",
@@ -402,7 +402,7 @@
 
     "@peculiar/x509": ["@peculiar/x509@1.14.3", "", { "dependencies": { "@peculiar/asn1-cms": "^2.6.0", "@peculiar/asn1-csr": "^2.6.0", "@peculiar/asn1-ecc": "^2.6.0", "@peculiar/asn1-pkcs9": "^2.6.0", "@peculiar/asn1-rsa": "^2.6.0", "@peculiar/asn1-schema": "^2.6.0", "@peculiar/asn1-x509": "^2.6.0", "pvtsutils": "^1.3.6", "reflect-metadata": "^0.2.2", "tslib": "^2.8.1", "tsyringe": "^4.10.0" } }, "sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA=="],
 
-    "@planetaryescape/epub-engine": ["@jsr/planetaryescape__epub-engine@0.0.1", "https://npm.jsr.io/~/11/@jsr/planetaryescape__epub-engine/0.0.1.tgz", { "dependencies": { "@types/css-tree": "2.3.11", "css-tree": "3.1.0", "effect": "4.0.6", "fflate": "0.8.3" } }, "sha512-2XQHG7V9YkcMsD5XPQThM6GzWfAHBsS95S2eadQQ2hm1c/SUqffGcFBlJWazTDTpp/Z1YYMj/fPWSjYAFv4Reg=="],
+    "@planetaryescape/epub-engine": ["@jsr/planetaryescape__epub-engine@0.0.2", "https://npm.jsr.io/~/11/@jsr/planetaryescape__epub-engine/0.0.2.tgz", { "dependencies": { "@types/css-tree": "^2.3.11", "css-tree": "3.1.0", "effect": "4.0.6", "fflate": "0.8.3" } }, "sha512-qOt/PQdAUHogx6ZhQoKeRZFpUVBzANx8G5hL8LDXFPf8b5/Ppf1HFr5qGxAdSMohFZ4RJ57tNiWlzgj3NX7Scg=="],
 
     "@planetaryescape/reader": ["@planetaryescape/reader@github:planetaryescape/reader#4cdfbd1", { "dependencies": { "zod": "^4" }, "peerDependencies": { "react": "^19" } }, "planetaryescape-reader-4cdfbd1", "sha512-01vS3I/cjQ9U1qgfa2W+jyktacVkrlQwH4bKnQz4VQ4VFFKHFgpWhFjzbmSEZ0HSUAa/WRTlYjGhR/raF8JKsA=="],
 
