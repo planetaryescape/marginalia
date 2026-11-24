@@ -48,6 +48,7 @@ export const authComponent = createClient<DataModel, typeof authSchema>(
               authId: user._id,
               setupHash: undefined,
               setupExpiresAt: undefined,
+              onboarding: { step: "security" },
             });
             return;
           }

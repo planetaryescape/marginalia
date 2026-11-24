@@ -251,6 +251,13 @@ export default defineSchema({
     authId: v.optional(v.string()),
     setupHash: v.optional(v.string()),
     setupExpiresAt: v.optional(v.number()),
+    onboarding: v.optional(
+      v.union(
+        v.object({ step: v.literal("security") }),
+        v.object({ step: v.literal("library") }),
+        v.object({ step: v.literal("complete"), completedAt: v.number() }),
+      ),
+    ),
   }).index("by_key", ["key"]),
   // Signed-in readers other than the owner, each with their own library.
   // The owner is mapped through readerAccess and keeps the "default_user" library.
