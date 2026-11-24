@@ -79,7 +79,7 @@ it("does not load desk modules until the session and reader access are confirmed
 
   state.loading = false;
   await render();
-  expect(container.textContent).toContain("Your reading desk");
+  expect(container.textContent).toContain("Checking this reader");
   expect(state.navigationLoaded).not.toHaveBeenCalled();
   expect(state.deskLoaded).not.toHaveBeenCalled();
 

@@ -33,6 +33,8 @@ vi.mock("convex/react", () => ({
     const name = getFunctionName(reference);
     state.queries(name, args);
     if (name === "auth:currentReader") return state.reader;
+    if (name === "ownerSetup:availability") return { claimed: true };
+    if (name === "ownerSetup:status") return { step: "available" };
     if (
       name === "readingPages:overview" &&
       (!state.authenticated || !state.reader)
@@ -86,7 +88,7 @@ afterEach(async () => {
 
 describe("one-time tokens in the URL", () => {
   it.each([
-    ["setup", "Claim my reader"],
+    ["setup", "Create my owner account"],
     ["invite", "Create my account"],
   ])("retains %s registration during development effect replay", async (kind, label) => {
     history.replaceState(null, "", `/#${kind}=test-registration-token`);
@@ -261,6 +263,9 @@ describe("sign-in focus transitions", () => {
     const form = document.querySelector("form");
     if (!email || !password || !form)
       throw new Error("Registration form missing");
+    const name = document.querySelector<HTMLInputElement>('input[name="name"]');
+    if (!name) throw new Error("Owner name field missing");
+    name.value = "Reader owner";
     email.value = "review@example.invalid";
     password.value = "short-demo";
     await act(async () => form.requestSubmit());
@@ -365,7 +370,7 @@ describe("sign-in focus transitions", () => {
 
   it.each([
     ["invite", "name"],
-    ["setup", "email"],
+    ["setup", "name"],
   ])("focuses the first field for a %s link", async (token, field) => {
     history.replaceState(null, "", `/#${token}=fixture-token`);
     await act(async () => root.render(<AuthGate>desk</AuthGate>));

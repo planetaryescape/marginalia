@@ -28,6 +28,22 @@ Personal Convex queries, mutations, actions and companion/Library/checkpoint HTT
 
 Better Auth rate-limits every auth route at 100 requests a minute per client, with counts stored in the database; password sign-in allows 8 and sign-up 3 a minute (`convex/auth.ts`). `/get-session` and `/convex/token` are exempt because every page load calls them and they only answer for a valid session cookie. Keep that exemption if you change the limits: on those routes each check costs a database read and write. An hourly cron sweeps stale sign-in budgets.
 
+## First owner setup
+
+Deploy the matching backend and frontend, and set Convex `SITE_URL` to the canonical browser origin before creating an owner. From the checkout on the deployment machine, run:
+
+```bash
+bun run setup:owner
+```
+
+The command selects the backend from `packages/backend/.env.local`. Use `--deployment deployment-name` to choose a target explicitly. It generates the owner token in memory, sends only its SHA-256 hash to the internal setup function, then opens a one-use loopback browser handoff. The real setup token is not printed, stored in a file or placed in a subprocess argument. The browser receives it in a fragment and immediately removes the fragment. The claim expires after ten minutes; an unopened local handoff closes after two minutes. `--no-open` prints the local handoff address instead of launching a browser; open it on the same machine while the command is running.
+
+A fresh deployment shows owner setup instructions, not public registration. A visitor cannot become the owner just by arriving first. The owner creates a named account with an email and password, then sees an optional passkey step and a choice to connect Readwise Reader, add an article or book, or start empty. AI configuration and invitations do not block reading.
+
+If the setup link expires or a request fails, run the command again. It never resets a claimed owner. Once the owner account exists, setup progress is stored on that owner record and survives signing out or changing devices. A cancelled passkey prompt leaves the password fallback available. A successful passkey enrollment is not repeated if only saving the next step fails.
+
+Established owners without a setup-progress record keep their usual reading flow. They can open `/setup` or **Account → Reader setup** to start the guided steps deliberately. Completed setup is not reopened by a retry. Invited readers keep their separate invitation journey and cannot run owner setup. This flow does not replace account recovery and does not provide email password reset; save the fallback password in a password manager.
+
 **Authentication is deployed.** The October 12 rollout denies anonymous `home:overview` queries and returns 401 from personal/AI HTTP endpoints. Public signup returns 403. The owner confirmed access to the existing library and enrolled a passkey; the final backup verifies one owner binding and passkey record with the setup token consumed. Passkey sign-in after sign-out and phone/PWA access still need testing. See [rollout verification](verification.md#owner-authentication-rollout).
 
 ## Roll out owner authentication

@@ -40,13 +40,13 @@ export function registrationFailure(
       message:
         mode === "invite"
           ? "This invitation can't be used. Check that you're using the invited email, or ask the owner for a new link."
-          : "This setup link can't be used. Ask the deployment administrator for a new link, or sign in if you already claimed the reader.",
+          : "This setup link has expired or can't be used. Run bun run setup:owner on the deployment machine for a fresh link, or sign in if you already created your account.",
     };
   return {
     field: null,
     message:
       mode === "invite"
         ? "Couldn't create your account. Try again, or ask the owner for a new invitation."
-        : "Couldn't claim the reader. Try again, or ask the deployment administrator for a new setup link.",
+        : "Couldn't create your owner account. Try again, or run bun run setup:owner for a fresh setup link.",
   };
 }

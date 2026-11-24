@@ -31,6 +31,8 @@ On first run, Portless may ask for administrator approval to trust its local HTT
 
 Open **https://marginalia.localhost**. Set `SITE_URL=https://marginalia.localhost` on your isolated Convex deployment so sign-in trusts the Portless origin. The existing numbered localhost origins remain supported; the Portless-assigned loopback port of the web dev server is not the browser origin. Add an RSS feed in **Sources**, or paste an article URL into the desk's search. For AI annotations and search, set `PROVIDER_KEYS_ENCRYPTION_KEY` on your Convex deployment and add your own provider key in Your account; see [setup](docs/development.md#enable-ai). Ordinary library data lives in Convex, not in the web process.
 
+To create the first owner, run `bun run setup:owner` from the checkout. It uses the deployment configured in `packages/backend/.env.local`; pass `--deployment deployment-name` to select another explicitly. The command opens a short-lived setup handoff without printing the setup token. Create your owner account, optionally add a passkey, then choose how to start your library. An existing owner is sent to sign-in and `/setup` instead, without resetting their account. See [first owner setup](docs/operations.md#first-owner-setup).
+
 ## Check a change
 
 ```bash
