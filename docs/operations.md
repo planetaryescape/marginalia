@@ -1,6 +1,26 @@
 # Operations
 
-This app has a Vercel frontend and a separate Convex backend. Deploying one does not deploy the other. Read the access warning before exposing a new installation.
+This app supports Vercel/Next.js and Cloudflare/vinext frontends with a separate Convex backend. Deploying the frontend does not deploy Convex. Read the access warning before exposing a new installation.
+
+## Cloudflare deployment
+
+The optional vinext frontend runs on Cloudflare Workers through the `MarginaliaReader` Alchemy stack. The original Next.js and Vercel build remains available. Frontend deployment does not deploy Convex or move account data.
+
+On the deployment machine, put the intended backend's `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` in the ignored root `.env.local`. Review the production domain and zone in `alchemy.run.ts` for your installation, and configure Convex `SITE_URL` and `READER_ORIGINS` for that canonical origin.
+
+```bash
+bun install --frozen-lockfile
+bun run check
+bun run build:vinext
+bun run infra:plan
+bun run infra:deploy --no-input --yes
+```
+
+Review the plan before deploying. Alchemy manages the Worker, vinext KV cache and configured custom domain. Worker dev and preview URLs are disabled. The frontend relies on Marginalia authentication, not a Cloudflare Access gate. Static assets use `apps/web/public/_headers` for service-worker cache and scope headers.
+
+State is local to the deployment machine. Preserve ignored `.alchemy` and the profile's state under `~/.alchemy`; do not deploy from another machine or checkout with empty state. Keep snapshots, credentials, private exports and domain-handoff records outside Git. Do not destroy or redeploy an old application's stack without checking which retained resources and hostname declarations it owns.
+
+Select the existing Convex deployment explicitly before any backend update. `convex dev --once` updates a live development backend; `convex deploy` is not an interchangeable command. Back up auth records and file storage before an approved update. Passkeys are hostname-bound; retain the password fallback when changing origins.
 
 ## Access control
 
