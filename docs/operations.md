@@ -28,6 +28,22 @@ Personal Convex queries, mutations, actions and companion/Library/checkpoint HTT
 
 Better Auth rate-limits every auth route at 100 requests a minute per client, with counts stored in the database; password sign-in allows 8 and sign-up 3 a minute (`convex/auth.ts`). `/get-session` and `/convex/token` are exempt because every page load calls them and they only answer for a valid session cookie. Keep that exemption if you change the limits: on those routes each check costs a database read and write. An hourly cron sweeps stale sign-in budgets.
 
+## Account archive restoration
+
+`convex/accountArchive.ts` exposes only internal administrator functions, not a public upload or signup endpoint. `inspect` checks a projected article without writing; `importOne` restores that article, its Reader highlights, available recent interactions and saved position in one transaction. The caller must pin the destination origin and verify the complete source archive checksum before applying a plan. A claimed destination owner is required; restored records belong to the owner's existing library.
+
+The version-one parser deliberately supports the observed article/Reader-highlight export. Unsupported nonempty notes, annotations, saved items and other collections are rejected, not silently discarded. This is not a general replacement for a Convex database snapshot.
+
+Original document IDs are remapped. Reader document IDs identify duplicates; different Reader documents remain separate even when URL normalization groups them together. An existing matching article with different text is a conflict, not an overwrite. Existing matching metadata and library preferences remain intact. Source timestamps are retained in application fields; destination system IDs and creation timestamps are new.
+
+Import receipts live in the existing `articleImportKeys` table and commit with their article's associated records. Their identity includes the source origin, archive checksum and source article ID. Repeating the same immutable archive resumes committed work without duplicating marks or recent interactions. Run a full dry run before the first write, stop on conflicts, and verify content and remapped relationships against a fresh destination snapshot afterward.
+
+Saved reading positions become explicitly namespaced, zero-duration checkpoints at the export capture time. They do not reconstruct missing historical visits, reading time or page credit. Speech and Bible preferences are copied only when their destination fields are unset. Authentication, provider keys, integration credentials, source sync cursors, embeddings and in-flight jobs are not copied; the importer does not schedule extraction, synchronization or provider work.
+
+Verification used a complete private archive against an isolated local backend before the approved personal restoration. Snapshot comparison verified imported article fields, remapped highlight relationships, available interactions and positions, unset preferences, and preservation of the original article and owner. Repeat dry runs found no additional work. Private exports, checksums, counts, before/after snapshots and operator records stay outside the repository in ignored desktop-local storage.
+
+Always include file storage and auth-component records in before/after backups, verify ZIP integrity, and preserve the source export. A whole-snapshot rollback would also revert later account and library changes; do not restore it blindly or remove import receipts as a retry strategy. This archive format excludes original uploaded binaries and complete raw reading history; dashboard aggregates must not be fabricated into historical events.
+
 ## First owner setup
 
 Deploy the matching backend and frontend, and set Convex `SITE_URL` to the canonical browser origin before creating an owner. From the checkout on the deployment machine, run:

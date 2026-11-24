@@ -10,6 +10,7 @@
 
 import type * as access from "../access.js";
 import type * as account from "../account.js";
+import type * as accountArchive from "../accountArchive.js";
 import type * as actions_addArticleByUrl from "../actions/addArticleByUrl.js";
 import type * as actions_annotateUnit from "../actions/annotateUnit.js";
 import type * as actions_bible from "../actions/bible.js";
@@ -74,6 +75,7 @@ import type * as ideaGraph from "../ideaGraph.js";
 import type * as ideaLinks from "../ideaLinks.js";
 import type * as impressions from "../impressions.js";
 import type * as legacyReportingMetadata from "../legacyReportingMetadata.js";
+import type * as lib_accountArchive from "../lib/accountArchive.js";
 import type * as lib_aiModels from "../lib/aiModels.js";
 import type * as lib_alongsidePrompt from "../lib/alongsidePrompt.js";
 import type * as lib_annotationGate from "../lib/annotationGate.js";
@@ -285,6 +287,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   access: typeof access;
   account: typeof account;
+  accountArchive: typeof accountArchive;
   "actions/addArticleByUrl": typeof actions_addArticleByUrl;
   "actions/annotateUnit": typeof actions_annotateUnit;
   "actions/bible": typeof actions_bible;
@@ -349,6 +352,7 @@ declare const fullApi: ApiFromModules<{
   ideaLinks: typeof ideaLinks;
   impressions: typeof impressions;
   legacyReportingMetadata: typeof legacyReportingMetadata;
+  "lib/accountArchive": typeof lib_accountArchive;
   "lib/aiModels": typeof lib_aiModels;
   "lib/alongsidePrompt": typeof lib_alongsidePrompt;
   "lib/annotationGate": typeof lib_annotationGate;
