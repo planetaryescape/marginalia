@@ -6,7 +6,16 @@ This app supports Vercel/Next.js and Cloudflare/vinext frontends with a separate
 
 The optional vinext frontend runs on Cloudflare Workers through the `MarginaliaReader` Alchemy stack. The original Next.js and Vercel build remains available. Frontend deployment does not deploy Convex or move account data.
 
-On the deployment machine, put the intended backend's `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` in the ignored root `.env.local`. Review the production domain and zone in `alchemy.run.ts` for your installation, and configure Convex `SITE_URL` and `READER_ORIGINS` for that canonical origin.
+The root `.env.example` lists the public configuration keys. For example:
+
+```dotenv
+NEXT_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
+NEXT_PUBLIC_CONVEX_SITE_URL=https://your-deployment.convex.site
+READER_DOMAIN=read.example.com
+READER_ZONE_NAME=example.com
+```
+
+On the deployment machine, put the intended backend's `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` in the ignored root `.env.local`. Set `READER_DOMAIN` and `READER_ZONE_NAME` for your installation, and configure Convex `SITE_URL` and `READER_ORIGINS` for that canonical origin.
 
 ```bash
 bun install --frozen-lockfile
@@ -21,6 +30,10 @@ Review the plan before deploying. Alchemy manages the Worker, vinext KV cache an
 State is local to the deployment machine. Preserve ignored `.alchemy` and the profile's state under `~/.alchemy`; do not deploy from another machine or checkout with empty state. Keep snapshots, credentials, private exports and domain-handoff records outside Git. Do not destroy or redeploy an old application's stack without checking which retained resources and hostname declarations it owns.
 
 Select the existing Convex deployment explicitly before any backend update. `convex dev --once` updates a live development backend; `convex deploy` is not an interchangeable command. Back up auth records and file storage before an approved update. Passkeys are hostname-bound; retain the password fallback when changing origins.
+
+The stack reads `READER_DOMAIN` and `READER_ZONE_NAME` from the deployment machine's environment, not from shared source. Both are required for stage `prod` and must be lowercase DNS hostnames without a scheme, port or path. `READER_DOMAIN` is the complete reader hostname, such as `read.example.com`; `READER_ZONE_NAME` is its existing Cloudflare zone, such as `example.com`, accessible to the selected Alchemy profile. Other stages do not bind a custom domain or require these two values. See the root `.env.example` for the public configuration names; keep actual values in ignored `.env.local`.
+
+For a new installation, configure the matching Convex backend URLs, then set backend `SITE_URL` and `READER_ORIGINS` to `https://<READER_DOMAIN>` before claiming an owner. Changing these variables on an existing installation can move live traffic and invalidate hostname-bound passkeys. Preserve the current values during an upgrade, review `bun run infra:plan`, and coordinate any domain move explicitly. Never use a deploy to discover which domain or state store belongs to an installation.
 
 ## Access control
 

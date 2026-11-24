@@ -22,6 +22,16 @@ export default Alchemy.Stack(
       ),
       "NEXT_PUBLIC_CONVEX_SITE_URL",
     );
+    const hostname = Schema.String.check(
+      Schema.isPattern(/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/u),
+    );
+    const domain =
+      stage === "prod"
+        ? {
+            name: yield* Config.schema(hostname, "READER_DOMAIN"),
+            zoneName: yield* Config.schema(hostname, "READER_ZONE_NAME"),
+          }
+        : undefined;
     const website = yield* Cloudflare.Website.Vinext("ReaderWebsite", {
       rootDir: fileURLToPath(new URL("./apps/web", import.meta.url)),
       env: {
@@ -30,14 +40,7 @@ export default Alchemy.Stack(
       },
       compatibility: { date: "2026-11-02", flags: ["nodejs_compat"] },
       workersDev: { enabled: false, previewsEnabled: false },
-      ...(stage === "prod"
-        ? {
-            domain: {
-              name: "read.guidefari.com",
-              zoneName: "guidefari.com",
-            },
-          }
-        : {}),
+      ...(domain ? { domain } : {}),
     });
     return { url: website.url };
   }),
