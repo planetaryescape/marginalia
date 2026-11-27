@@ -32,6 +32,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 vi.mock("convex/react", () => ({
+  useConvexConnectionState: () => ({
+    isWebSocketConnected: false,
+    hasEverConnected: false,
+    connectionCount: 0,
+    connectionRetries: 4,
+  }),
   useConvexAuth: () => ({
     isLoading: state.loading,
     isAuthenticated: state.authenticated,

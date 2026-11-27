@@ -39,6 +39,13 @@ Verify changes with [development](development.md#make-a-safe-change); do not use
 - Source ranges describe normalized spine text. They do not yet resolve Apple Books CFIs or guarantee browser paragraph/fragment navigation. The source EPUB is removed after successful import, as with the PDF upload lifecycle; later source-location recovery needs its own reviewed contract.
 - Automated tests use generated fixtures and local Convex test/storage and component seams. They do not prove native production action scheduling, provider behavior or signed-in browser reading fidelity. Later isolated development updates do not authorize production deployment or another private-book cloud retry.
 
+## Startup availability
+
+- Opening waits up to 30 seconds for the session and reader record, and up to 30 more for the owner's setup check, offering a reload after 10 seconds. After that it shows a generic "isn't available right now" screen. Try again re-arms the library connection and session check in place and restarts the 30-second bound. When the library answers, the reader opens without a reload, because the Convex client keeps reconnecting by itself. The screen never names the backend, its plan, its usage or the cause.
+- The only private diagnostic is one browser console entry per waiting phase per page load (`Marginalia startup unavailable`). It holds the phase, the wait and the client's connection counts. It reaches only the console of the device that stalled. No owner notification is sent, because the app has no configured owner notification channel, and a library that can't be reached can't record the stall for later.
+- There is no advance warning of usage or quota limits. The Convex client exposes only connection state (connected, ever connected, connection and retry counts), not plan, usage or disabled-deployment signals, and the app has no supported usage API. A stall is therefore not attributed to quotas, and usage must be watched in the Convex dashboard.
+- These states are covered by DOM tests through the auth gate with fake timers. There is no browser end-to-end check of a real unreachable deployment (see below).
+
 ## Tooling and verification
 
 - Isolated PR CI runs the ordinary check and build with placeholder public Convex URLs and no deployment secrets. It does not prove deployed backend behavior or signed-in end-to-end reading; see [development](development.md#commands).
