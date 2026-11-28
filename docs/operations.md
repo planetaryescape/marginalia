@@ -1,12 +1,77 @@
 # Operations
 
-This app has a Vercel frontend and a separate Convex backend. Deploying one does not deploy the other. Read the access warning before exposing a new installation.
+This app supports Vercel/Next.js and Cloudflare/vinext frontends with a separate Convex backend. Deploying the frontend does not deploy Convex. Read the access warning before exposing a new installation.
+
+## Cloudflare deployment
+
+The optional vinext frontend runs on Cloudflare Workers through the `MarginaliaReader` Alchemy stack. The original Next.js and Vercel build remains available. Frontend deployment does not deploy Convex or move account data.
+
+The root `.env.example` lists the public configuration keys. For example:
+
+```dotenv
+NEXT_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
+NEXT_PUBLIC_CONVEX_SITE_URL=https://your-deployment.convex.site
+READER_DOMAIN=read.example.com
+READER_ZONE_NAME=example.com
+```
+
+On the deployment machine, put the intended backend's `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` in the ignored root `.env.local`. Set `READER_DOMAIN` and `READER_ZONE_NAME` for your installation, and configure Convex `SITE_URL` and `READER_ORIGINS` for that canonical origin.
+
+```bash
+bun install --frozen-lockfile
+bun run check
+bun run build:vinext
+bun run infra:plan
+bun run infra:deploy --no-input --yes
+```
+
+Review the plan before deploying. Alchemy manages the Worker, vinext KV cache and configured custom domain. Worker dev and preview URLs are disabled. The frontend relies on Marginalia authentication, not a Cloudflare Access gate. Static assets use `apps/web/public/_headers` for service-worker cache and scope headers.
+
+State is local to the deployment machine. Preserve ignored `.alchemy` and the profile's state under `~/.alchemy`; do not deploy from another machine or checkout with empty state. Keep snapshots, credentials, private exports and domain-handoff records outside Git. Do not destroy or redeploy an old application's stack without checking which retained resources and hostname declarations it owns.
+
+Select the existing Convex deployment explicitly before any backend update. `convex dev --once` updates a live development backend; `convex deploy` is not an interchangeable command. Back up auth records and file storage before an approved update. Passkeys are hostname-bound; retain the password fallback when changing origins.
+
+The stack reads `READER_DOMAIN` and `READER_ZONE_NAME` from the deployment machine's environment, not from shared source. Both are required for stage `prod` and must be lowercase DNS hostnames without a scheme, port or path. `READER_DOMAIN` is the complete reader hostname, such as `read.example.com`; `READER_ZONE_NAME` is its existing Cloudflare zone, such as `example.com`, accessible to the selected Alchemy profile. Other stages do not bind a custom domain or require these two values. See the root `.env.example` for the public configuration names; keep actual values in ignored `.env.local`.
+
+For a new installation, configure the matching Convex backend URLs, then set backend `SITE_URL` and `READER_ORIGINS` to `https://<READER_DOMAIN>` before claiming an owner. Changing these variables on an existing installation can move live traffic and invalidate hostname-bound passkeys. Preserve the current values during an upgrade, review `bun run infra:plan`, and coordinate any domain move explicitly. Never use a deploy to discover which domain or state store belongs to an installation.
 
 ## Access control
 
 Personal Convex queries, mutations, actions and companion/Library/checkpoint HTTP endpoints require a live reader session, and each reader reaches only their own library. Better Auth stores credentials in a local Convex component. The owner's library keeps its `default_user` IDs; `readerAccess` binds access to the owner and deployment issuer, and other readers join through owner-approved invites. Other apps use personal API tokens, which reach only their reader's [API endpoints](api.md). Signing out revokes session access, including through an otherwise unexpired JWT. Vault endpoints still use the separate `VAULT_INDEXER_API_KEY`.
 
 Better Auth rate-limits every auth route at 100 requests a minute per client, with counts stored in the database; password sign-in allows 8 and sign-up 3 a minute (`convex/auth.ts`). `/get-session` and `/convex/token` are exempt because every page load calls them and they only answer for a valid session cookie. Keep that exemption if you change the limits: on those routes each check costs a database read and write. An hourly cron sweeps stale sign-in budgets.
+
+## Account archive restoration
+
+`convex/accountArchive.ts` exposes only internal administrator functions, not a public upload or signup endpoint. `inspect` checks a projected article without writing; `importOne` restores that article, its Reader highlights, available recent interactions and saved position in one transaction. The caller must pin the destination origin and verify the complete source archive checksum before applying a plan. A claimed destination owner is required; restored records belong to the owner's existing library.
+
+The version-one parser deliberately supports the observed article/Reader-highlight export. Unsupported nonempty notes, annotations, saved items and other collections are rejected, not silently discarded. This is not a general replacement for a Convex database snapshot.
+
+Original document IDs are remapped. Reader document IDs identify duplicates; different Reader documents remain separate even when URL normalization groups them together. An existing matching article with different text is a conflict, not an overwrite. Existing matching metadata and library preferences remain intact. Source timestamps are retained in application fields; destination system IDs and creation timestamps are new.
+
+Import receipts live in the existing `articleImportKeys` table and commit with their article's associated records. Their identity includes the source origin, archive checksum and source article ID. Repeating the same immutable archive resumes committed work without duplicating marks or recent interactions. Run a full dry run before the first write, stop on conflicts, and verify content and remapped relationships against a fresh destination snapshot afterward.
+
+Saved reading positions become explicitly namespaced, zero-duration checkpoints at the export capture time. They do not reconstruct missing historical visits, reading time or page credit. Speech and Bible preferences are copied only when their destination fields are unset. Authentication, provider keys, integration credentials, source sync cursors, embeddings and in-flight jobs are not copied; the importer does not schedule extraction, synchronization or provider work.
+
+Verification used a complete private archive against an isolated local backend before the approved personal restoration. Snapshot comparison verified imported article fields, remapped highlight relationships, available interactions and positions, unset preferences, and preservation of the original article and owner. Repeat dry runs found no additional work. Private exports, checksums, counts, before/after snapshots and operator records stay outside the repository in ignored desktop-local storage.
+
+Always include file storage and auth-component records in before/after backups, verify ZIP integrity, and preserve the source export. A whole-snapshot rollback would also revert later account and library changes; do not restore it blindly or remove import receipts as a retry strategy. This archive format excludes original uploaded binaries and complete raw reading history; dashboard aggregates must not be fabricated into historical events.
+
+## First owner setup
+
+Deploy the matching backend and frontend, and set Convex `SITE_URL` to the canonical browser origin before creating an owner. From the checkout on the deployment machine, run:
+
+```bash
+bun run setup:owner
+```
+
+The command selects the backend from `packages/backend/.env.local`. Use `--deployment deployment-name` to choose a target explicitly. It generates the owner token in memory, sends only its SHA-256 hash to the internal setup function, then opens a one-use loopback browser handoff. The real setup token is not printed, stored in a file or placed in a subprocess argument. The browser receives it in a fragment and immediately removes the fragment. The claim expires after ten minutes; an unopened local handoff closes after two minutes. `--no-open` prints the local handoff address instead of launching a browser; open it on the same machine while the command is running.
+
+A fresh deployment shows owner setup instructions, not public registration. A visitor cannot become the owner just by arriving first. The owner creates a named account with an email and password, then sees an optional passkey step and a choice to connect Readwise Reader, add an article or book, or start empty. AI configuration and invitations do not block reading.
+
+If the setup link expires or a request fails, run the command again. It never resets a claimed owner. Once the owner account exists, setup progress is stored on that owner record and survives signing out or changing devices. A cancelled passkey prompt leaves the password fallback available. A successful passkey enrollment is not repeated if only saving the next step fails.
+
+Established owners without a setup-progress record keep their usual reading flow. They can open `/setup` or **Account → Reader setup** to start the guided steps deliberately. Completed setup is not reopened by a retry. Invited readers keep their separate invitation journey and cannot run owner setup. This flow does not replace account recovery and does not provide email password reset; save the fallback password in a password manager.
 
 **Authentication is deployed.** The October 12 rollout denies anonymous `home:overview` queries and returns 401 from personal/AI HTTP endpoints. Public signup returns 403. The owner confirmed access to the existing library and enrolled a passkey; the final backup verifies one owner binding and passkey record with the setup token consumed. Passkey sign-in after sign-out and phone/PWA access still need testing. See [rollout verification](verification.md#owner-authentication-rollout).
 

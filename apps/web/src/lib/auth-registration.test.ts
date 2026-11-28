@@ -46,7 +46,7 @@ describe("registration feedback", () => {
     );
     expect(
       registrationFailure({ code: "FORBIDDEN" }, "owner").message,
-    ).toContain("deployment administrator");
+    ).toContain("bun run setup:owner");
   });
 
   it.each([
@@ -58,7 +58,7 @@ describe("registration feedback", () => {
     {
       mode: "owner",
       message:
-        "Couldn't claim the reader. Try again, or ask the deployment administrator for a new setup link.",
+        "Couldn't create your owner account. Try again, or run bun run setup:owner for a fresh setup link.",
     },
   ] satisfies readonly {
     mode: "invite" | "owner";

@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "target": "ESNext",
+    "types": ["node", "vite/client"],
     "lib": ["ES2024", "dom"],
     "module": "ESNext",
     "moduleResolution": "Bundler",

@@ -17,10 +17,18 @@ vi.mock("convex/react", () => ({
     isAuthenticated: state.authenticated,
     isLoading: state.loading,
   }),
-  useQuery: (reference: FunctionReference<"query">) =>
-    getFunctionName(reference) === "auth:currentReader"
-      ? state.reader
-      : undefined,
+  useQuery: (reference: FunctionReference<"query">) => {
+    switch (getFunctionName(reference)) {
+      case "auth:currentReader":
+        return state.reader;
+      case "ownerSetup:availability":
+        return { claimed: true };
+      case "ownerSetup:status":
+        return { step: "available" };
+      default:
+        return undefined;
+    }
+  },
   useMutation: () => vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));

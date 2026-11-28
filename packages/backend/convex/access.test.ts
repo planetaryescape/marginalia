@@ -82,7 +82,10 @@ describe("private reader access", () => {
     });
     expect(claimed.status).toBe(200);
     const owner = await t.run((ctx) => ctx.db.query("readerAccess").unique());
-    expect(owner).toMatchObject({ email: "owner@example.com" });
+    expect(owner).toMatchObject({
+      email: "owner@example.com",
+      onboarding: { step: "security" },
+    });
     expect(owner?.authId).toBeTruthy();
     expect(
       (

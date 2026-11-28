@@ -8,6 +8,7 @@ import { AiProviders } from "@/components/ai-providers";
 import { BibleSettings } from "@/components/bible-settings";
 import { InlineError } from "@/components/in-place";
 import { FeedbackPreferences } from "@/components/interaction-feedback";
+import { OwnerSetupLink } from "@/components/owner-setup-link";
 import { ConfirmAction } from "@/components/settings-confirm";
 import {
   confirmControl,
@@ -70,6 +71,7 @@ export default function AccountPage() {
       }
     >
       <BibleSettings />
+      {reader?.isOwner && <OwnerSetupLink />}
       <SettingsSection
         title="Signing in"
         description="Passkeys are the everyday way in. Authenticator codes and a password are fallbacks."

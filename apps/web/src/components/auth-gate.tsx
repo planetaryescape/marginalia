@@ -17,9 +17,12 @@ import {
 import { toast } from "sonner";
 import { AuthPasswordField } from "@/components/auth-password-field";
 import { LegalFooter } from "@/components/legal-footer";
+import { OwnerOnboardingGate } from "@/components/owner-onboarding-gate";
+import { OwnerRegistration } from "@/components/owner-registration";
 import { PageGoalCelebration } from "@/components/page-goal";
 import { ReaderOpening } from "@/components/reader-opening";
 import { SourceLink } from "@/components/source-link";
+import { UnclaimedReader } from "@/components/unclaimed-reader";
 import { authClient } from "@/lib/auth-client";
 import {
   type RegistrationIssue,
@@ -190,7 +193,9 @@ function ReaderAccessGate({
   if (isAuthenticated && reader)
     return (
       <>
-        {children}
+        <OwnerOnboardingGate owner={reader.isOwner}>
+          {children}
+        </OwnerOnboardingGate>
         <PageGoalCelebration />
       </>
     );
@@ -314,6 +319,7 @@ function SignIn({
   requestDraft,
   onRequestDraftChange,
 }: { fragment: FragmentTokens | null } & AccessRequestDraftState) {
+  const availability = useQuery(api.ownerSetup.availability, {});
   const [setup, setSetup] = useState("");
   const [invite, setInvite] = useState("");
   const [requesting, setRequesting] = useState(requestDraft !== null);
@@ -441,6 +447,24 @@ function SignIn({
       setBusy(false);
     }
   }
+  if (setup)
+    return (
+      <OwnerRegistration
+        token={setup}
+        onSignIn={() => {
+          setSetup("");
+          setPasswordForm(true);
+        }}
+        onCreated={() => setSetup("")}
+      />
+    );
+  if (!invite && availability === undefined)
+    return (
+      <div className="auth-screen" role="status">
+        Checking this reader…
+      </div>
+    );
+  if (!invite && availability?.claimed === false) return <UnclaimedReader />;
   if (requesting && !signingUp)
     return (
       <RequestAccess
