@@ -13,6 +13,12 @@ const state = vi.hoisted(() => ({
     | undefined,
 }));
 vi.mock("convex/react", () => ({
+  useConvexConnectionState: () => ({
+    isWebSocketConnected: false,
+    hasEverConnected: false,
+    connectionCount: 0,
+    connectionRetries: 4,
+  }),
   useConvexAuth: () => ({
     isAuthenticated: state.authenticated,
     isLoading: state.loading,

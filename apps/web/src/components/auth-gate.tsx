@@ -9,6 +9,7 @@ import {
   type Dispatch,
   type ReactNode,
   type SetStateAction,
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -22,6 +23,7 @@ import { OwnerRegistration } from "@/components/owner-registration";
 import { PageGoalCelebration } from "@/components/page-goal";
 import { ReaderOpening } from "@/components/reader-opening";
 import { SourceLink } from "@/components/source-link";
+import { StartupWait } from "@/components/startup-wait";
 import { UnclaimedReader } from "@/components/unclaimed-reader";
 import { authClient } from "@/lib/auth-client";
 import {
@@ -120,9 +122,14 @@ function ReaderAccessGate({
   }, [isAuthenticated, onRequestDraftChange]);
   // Better Auth's own answer: a session here while Convex says signed out
   // means a token fetch failed, not that the reader signed out
-  const { data: session } = authClient.useSession();
+  const { data: session, refetch } = authClient.useSession();
   const stalled = !isLoading && !isAuthenticated && Boolean(session);
-  const slow = useAfter(isLoading, SLOW_MS);
+  const retryStartup = useCallback(() => {
+    rearmAuth();
+    // A failed session check comes back through useSession's error, which
+    // keeps the wait (and its bound) running
+    refetch().catch(() => {});
+  }, [refetch]);
   const reader = useQuery(
     api.auth.currentReader,
     isAuthenticated ? {} : "skip",
@@ -145,51 +152,56 @@ function ReaderAccessGate({
     if (isAuthenticated) setFragment(null);
   }, [fragment, isLoading, isAuthenticated]);
   if (stalled) return <Reconnect />;
-  if (
-    (isLoading || (isAuthenticated && reader === undefined)) &&
-    pathname.startsWith("/read/")
-  )
+  if (isLoading || (isAuthenticated && reader === undefined)) {
+    const readerRoute = pathname.startsWith("/read/");
     return (
-      <>
-        <ReaderOpening
-          articleId="auth-pending"
-          title=""
-          label="Opening your reader…"
-          columnStyle={
-            {
-              maxWidth: MAX_WIDTHS[settings.width],
-              "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
-              "--reader-size": `${settings.size}px`,
-              "--reader-leading": LINE_HEIGHTS[settings.spacing],
-            } as CSSProperties
-          }
-        />
-        {slow && (
-          <button
-            type="button"
-            className="fixed bottom-6 left-6 text-sm underline"
-            onClick={() => window.location.reload()}
-          >
-            Try again
-          </button>
-        )}
-      </>
+      <StartupWait
+        phase={isLoading ? "session" : "reader"}
+        onRetry={retryStartup}
+        opening={(slow) =>
+          readerRoute ? (
+            <>
+              <ReaderOpening
+                articleId="auth-pending"
+                title=""
+                label="Opening your reader…"
+                columnStyle={
+                  {
+                    maxWidth: MAX_WIDTHS[settings.width],
+                    "--reader-font": TYPEFACE_FAMILIES[settings.typeface],
+                    "--reader-size": `${settings.size}px`,
+                    "--reader-leading": LINE_HEIGHTS[settings.spacing],
+                  } as CSSProperties
+                }
+              />
+              {slow && (
+                <button
+                  type="button"
+                  className="fixed bottom-6 left-6 text-sm underline"
+                  onClick={() => window.location.reload()}
+                >
+                  Try again
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="auth-screen" role="status">
+              Opening your reader…
+              {slow && (
+                <button
+                  type="button"
+                  className="mt-6 text-sm underline decoration-[var(--pencil-rule)] underline-offset-4"
+                  onClick={() => window.location.reload()}
+                >
+                  Try again
+                </button>
+              )}
+            </div>
+          )
+        }
+      />
     );
-  if (isLoading || (isAuthenticated && reader === undefined))
-    return (
-      <div className="auth-screen" role="status">
-        Opening your reader…
-        {slow && (
-          <button
-            type="button"
-            className="mt-6 text-sm underline decoration-[var(--pencil-rule)] underline-offset-4"
-            onClick={() => window.location.reload()}
-          >
-            Try again
-          </button>
-        )}
-      </div>
-    );
+  }
   if (isAuthenticated && reader)
     return (
       <>
@@ -227,22 +239,8 @@ function ReaderAccessGate({
   );
 }
 
-/** How long opening may take before a way to try again appears. */
-const SLOW_MS = 10_000;
 /** How long a reconnect waits before trying by itself. */
 const AUTO_RETRY_MS = 3_000;
-
-/** True once `active` has held for `ms`; false again as soon as it stops. */
-function useAfter(active: boolean, ms: number): boolean {
-  const [late, setLate] = useState(false);
-  useEffect(() => {
-    setLate(false);
-    if (!active) return;
-    const timer = setTimeout(() => setLate(true), ms);
-    return () => clearTimeout(timer);
-  }, [active, ms]);
-  return late;
-}
 
 /**
  * Signed in, but the library connection lost its token (a deploy switching

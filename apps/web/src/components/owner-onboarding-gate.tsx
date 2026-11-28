@@ -5,6 +5,8 @@ import { useQuery } from "convex/react";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { OwnerOnboarding } from "@/components/owner-onboarding";
+import { StartupWait } from "@/components/startup-wait";
+import { rearmAuth } from "@/lib/auth-retry";
 
 export function OwnerOnboardingGate({
   owner,
@@ -18,9 +20,15 @@ export function OwnerOnboardingGate({
   if (!owner || pathname === "/setup") return children;
   if (status === undefined)
     return (
-      <div className="auth-screen" role="status">
-        Opening your reader…
-      </div>
+      <StartupWait
+        phase="onboarding"
+        onRetry={rearmAuth}
+        opening={() => (
+          <div className="auth-screen" role="status">
+            Opening your reader…
+          </div>
+        )}
+      />
     );
   if (status.step === "security" || status.step === "library")
     return <OwnerOnboarding />;

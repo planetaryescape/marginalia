@@ -270,6 +270,7 @@ If Convex logs show `invalid_client`, the client ID or secret is wrong; readers'
 | Symptom | Check / action |
 | --- | --- |
 | App fails before loading | Confirm the `.convex.cloud` URL in `apps/web/.env.local`; restart Next after changing it |
+| Reader says "Your reader isn't available right now" | Opening waited 30 seconds for the session, the reader record or owner setup. Open the browser console for one `Marginalia startup unavailable` entry per waiting phase (`session`, `reader` or `onboarding`) with connection counts only. Then check the Convex dashboard for deployment health and usage; the app cannot see why the library is unreachable. See [startup availability](limitations.md#startup-availability) |
 | Queries work but AI HTTP calls fail | Confirm the `.convex.site` URL and deployment-side provider key; inspect Convex action logs |
 | No annotation output | Check extraction and annotation status; inspect model errors/quota before manually retrying one article |
 | Answer stops mid-stream | Retry; do not treat the incomplete answer as finished. Check provider/network logs |

@@ -4,6 +4,10 @@ import { type FunctionReference, getFunctionName } from "convex/server";
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createStartupReporter,
+  type StartupStall,
+} from "@/lib/startup-diagnostics";
 import { rememberTitle } from "@/lib/title-handoff";
 import {
   ALREADY_SIGNED_IN,
@@ -11,11 +15,17 @@ import {
   reloadOnce,
   takeFragmentTokens,
 } from "./auth-gate";
+import {
+  SLOW_MS,
+  StartupReporterProvider,
+  UNAVAILABLE_MS,
+} from "./startup-wait";
 
 const state = vi.hoisted(() => ({
   authenticated: false,
   loading: false,
   reader: undefined as { isOwner: boolean } | null | undefined,
+  ownerStatus: { step: "available" } as { step: string } | undefined,
   queries: vi.fn(),
   mutate: vi.fn(),
 }));
@@ -25,6 +35,12 @@ const signIn = vi.hoisted(() => vi.fn());
 const passkeySignIn = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ usePathname: () => location.pathname }));
 vi.mock("convex/react", () => ({
+  useConvexConnectionState: () => ({
+    isWebSocketConnected: false,
+    hasEverConnected: false,
+    connectionCount: 0,
+    connectionRetries: 4,
+  }),
   useConvexAuth: () => ({
     isAuthenticated: state.authenticated,
     isLoading: state.loading,
@@ -34,7 +50,7 @@ vi.mock("convex/react", () => ({
     state.queries(name, args);
     if (name === "auth:currentReader") return state.reader;
     if (name === "ownerSetup:availability") return { claimed: true };
-    if (name === "ownerSetup:status") return { step: "available" };
+    if (name === "ownerSetup:status") return state.ownerStatus;
     if (
       name === "readingPages:overview" &&
       (!state.authenticated || !state.reader)
@@ -48,12 +64,13 @@ vi.mock("convex/react", () => ({
 }));
 vi.mock("sonner", () => ({ toast }));
 const session = vi.hoisted(() => ({ data: null as object | null }));
+const refetchSession = vi.hoisted(() => vi.fn(async () => {}));
 const rearm = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
     signUp: { email: signUp },
     signIn: { email: signIn, passkey: passkeySignIn },
-    useSession: () => ({ data: session.data }),
+    useSession: () => ({ data: session.data, refetch: refetchSession }),
   },
 }));
 vi.mock("@/lib/auth-retry", () => ({ rearmAuth: rearm }));
@@ -80,6 +97,7 @@ afterEach(async () => {
   state.authenticated = false;
   state.loading = false;
   state.reader = undefined;
+  state.ownerStatus = { step: "available" };
   session.data = null;
   history.replaceState(null, "", "/");
   vi.clearAllMocks();
@@ -684,5 +702,144 @@ describe("reloading a refused connection", () => {
     expect(reloadOnce(storage, reload, 1_030_000)).toBe(false);
     expect(reloadOnce(storage, reload, 1_070_000)).toBe(true);
     expect(reload).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a start that never finishes", () => {
+  let stalls: StartupStall[];
+  let report: (stall: StartupStall) => boolean;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    stalls = [];
+    report = createStartupReporter((_, stall) => void stalls.push(stall));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const renderGate = () =>
+    act(async () =>
+      root.render(
+        <StartupReporterProvider value={report}>
+          <AuthGate>Private library</AuthGate>
+        </StartupReporterProvider>,
+      ),
+    );
+  const wait = (ms: number) => act(async () => vi.advanceTimersByTime(ms));
+  const button = (label: string) =>
+    [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === label,
+    );
+  const text = () => document.body.textContent ?? "";
+
+  it("keeps a legitimate wait as loading until the bound", async () => {
+    state.loading = true;
+    await renderGate();
+    expect(text()).toContain("Opening your reader");
+    expect(button("Try again")).toBeUndefined();
+    await wait(SLOW_MS);
+    expect(text()).toContain("Opening your reader");
+    expect(button("Try again")).toBeDefined();
+    await wait(UNAVAILABLE_MS - SLOW_MS - 1);
+    expect(text()).toContain("Opening your reader");
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(stalls).toEqual([]);
+  });
+
+  it("replaces an endless wait with a generic unavailable screen and reports it privately once", async () => {
+    state.loading = true;
+    await renderGate();
+    await wait(UNAVAILABLE_MS);
+    const alert = document.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("isn't available right now");
+    expect(text()).not.toContain("Opening your reader");
+    expect(text()).not.toContain("Private library");
+    expect(text()).not.toMatch(
+      /convex|quota|billing|usage|limit|deploy|websocket|retries|session/i,
+    );
+    expect(stalls).toEqual([
+      {
+        phase: "session",
+        waitedMs: UNAVAILABLE_MS,
+        connection: {
+          isWebSocketConnected: false,
+          hasEverConnected: false,
+          connectionCount: 0,
+          connectionRetries: 4,
+        },
+      },
+    ]);
+  });
+
+  it("retries in place, bounds the wait again and does not report the same stall twice", async () => {
+    state.loading = true;
+    await renderGate();
+    await wait(UNAVAILABLE_MS);
+    await act(async () => button("Try again")?.click());
+    expect(rearm).toHaveBeenCalledTimes(1);
+    expect(refetchSession).toHaveBeenCalledTimes(1);
+    expect(text()).toContain("Opening your reader");
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    await wait(UNAVAILABLE_MS);
+    expect(text()).toContain("isn't available right now");
+    expect(stalls).toHaveLength(1);
+  });
+
+  it("opens the reader by itself once the library answers", async () => {
+    state.loading = true;
+    await renderGate();
+    await wait(UNAVAILABLE_MS);
+    expect(text()).toContain("isn't available right now");
+    state.loading = false;
+    state.authenticated = true;
+    state.reader = { isOwner: false };
+    await renderGate();
+    expect(text()).toBe("Private library");
+  });
+
+  it("bounds the reader-shaped wait on reading routes without showing private titles", async () => {
+    state.authenticated = true;
+    history.replaceState(null, "", "/read/private-article");
+    rememberTitle("private-article", "Previously seen private title");
+    await renderGate();
+    expect(
+      document.querySelector('[data-testid="reader-body-skeleton"]'),
+    ).not.toBeNull();
+    await wait(UNAVAILABLE_MS);
+    expect(
+      document.querySelector('[data-testid="reader-body-skeleton"]'),
+    ).toBeNull();
+    expect(text()).toContain("isn't available right now");
+    expect(text()).not.toContain("Previously seen private title");
+    expect(stalls.map((stall) => stall.phase)).toEqual(["reader"]);
+  });
+
+  it("keeps one bound across the session and reader waits", async () => {
+    state.loading = true;
+    await renderGate();
+    await wait(UNAVAILABLE_MS / 2);
+    state.loading = false;
+    state.authenticated = true;
+    await renderGate();
+    expect(text()).toContain("Opening your reader");
+    await wait(UNAVAILABLE_MS / 2);
+    expect(text()).toContain("isn't available right now");
+    expect(stalls.map((stall) => stall.phase)).toEqual(["reader"]);
+  });
+
+  it("bounds the owner's setup check too", async () => {
+    state.authenticated = true;
+    state.reader = { isOwner: true };
+    state.ownerStatus = undefined;
+    await renderGate();
+    expect(text()).toContain("Opening your reader");
+    await wait(UNAVAILABLE_MS);
+    expect(text()).toContain("isn't available right now");
+    expect(text()).not.toContain("Private library");
+    await act(async () => button("Try again")?.click());
+    expect(rearm).toHaveBeenCalledTimes(1);
+    state.ownerStatus = { step: "available" };
+    await renderGate();
+    expect(text()).toBe("Private library");
+    expect(stalls.map((stall) => stall.phase)).toEqual(["onboarding"]);
   });
 });
